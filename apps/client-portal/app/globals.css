@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ─── Fynix — fintech limpio: gris verdoso claro + verde lima + verde bosque ─── */
+    --background: 140 14% 96%;
+    --foreground: 156 30% 13%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 156 30% 13%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 156 30% 13%;
+
+    --primary: 155 47% 15%;
+    --primary-foreground: 140 30% 97%;
+
+    --secondary: 140 12% 92%;
+    --secondary-foreground: 156 30% 13%;
+
+    --muted: 140 12% 94%;
+    --muted-foreground: 150 6% 43%;
+
+    --accent: 110 42% 91%;
+    --accent-foreground: 156 30% 13%;
+
+    /* Fynix-specific: verde lima destacado */
+    --signal: 92 62% 64%;
+    --signal-foreground: 156 45% 14%;
+
+    --destructive: 0 65% 47%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 145 13% 89%;
+    --input: 145 13% 89%;
+    --ring: 95 50% 45%;
+
+    --radius: 0.75rem;
+
+    /* ─── Chart tokens (mapped to Fynix palette) ─── */
+    --chart-1: 155 47% 15%;
+    --chart-2: 92 62% 64%;
+    --chart-3: 110 42% 60%;
+    --chart-4: 150 30% 40%;
+    --chart-5: 140 20% 75%;
+
+    /* ─── Sidebar tokens (mapped to Fynix palette) ─── */
+    --sidebar-background: 140 14% 96%;
+    --sidebar-foreground: 156 30% 13%;
+    --sidebar-primary: 155 47% 15%;
+    --sidebar-primary-foreground: 140 30% 97%;
+    --sidebar-accent: 110 42% 91%;
+    --sidebar-accent-foreground: 156 30% 13%;
+    --sidebar-border: 145 13% 89%;
+    --sidebar-ring: 95 50% 45%;
+  }
+
+  .dark {
+    /* ─── Fynix dark — fondo verde muy oscuro con tinte, foreground claro ─── */
+    --background: 160 20% 7%;           /* casi-negro con tinte verde bosque */
+    --foreground: 140 15% 92%;          /* texto claro ligeramente verdoso */
+
+    --card: 158 18% 10%;                /* superficie de card, ligeramente más clara */
+    --card-foreground: 140 15% 92%;
+
+    --popover: 158 18% 12%;
+    --popover-foreground: 140 15% 92%;
+
+    --primary: 152 55% 48%;             /* verde más luminoso para contraste en dark */
+    --primary-foreground: 156 45% 8%;   /* texto oscuro sobre primary */
+
+    --secondary: 158 15% 15%;
+    --secondary-foreground: 140 15% 92%;
+
+    --muted: 158 15% 14%;
+    --muted-foreground: 145 10% 52%;
+
+    --accent: 155 25% 18%;              /* hover/activo sutil con tinte verde */
+    --accent-foreground: 140 15% 92%;
+
+    /* Fynix-specific: verde lima — se mantiene vibrante en dark */
+    --signal: 92 62% 58%;
+    --signal-foreground: 156 45% 8%;
+
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 155 18% 17%;              /* hairlines con tinte verde sutil */
+    --input: 155 18% 17%;
+    --ring: 95 50% 50%;
+
+    /* ─── Chart tokens (Fynix dark palette) ─── */
+    --chart-1: 152 55% 48%;
+    --chart-2: 92 62% 58%;
+    --chart-3: 110 42% 45%;
+    --chart-4: 150 30% 35%;
+    --chart-5: 140 20% 25%;
+
+    /* ─── Sidebar tokens (Fynix dark palette) ─── */
+    --sidebar-background: 158 18% 10%;
+    --sidebar-foreground: 140 15% 92%;
+    --sidebar-primary: 152 55% 48%;
+    --sidebar-primary-foreground: 156 45% 8%;
+    --sidebar-accent: 155 25% 18%;
+    --sidebar-accent-foreground: 140 15% 92%;
+    --sidebar-border: 155 18% 17%;
+    --sidebar-ring: 95 50% 50%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: hsl(var(--signal));
+    color: hsl(var(--signal-foreground));
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+  .font-mono {
+    font-family: var(--font-mono), ui-monospace, monospace;
+  }
+  /* etiqueta editorial: versalita con tracking */
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+  }
+  .animate-slide-in {
+    animation: slide-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* ── Resend-style empty-state animations ────────────────────────────────── */
+
+  /* Tile float — slow, gentle vertical drift (the signature motion). */
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
+  .animate-float { animation: float 4s ease-in-out infinite; }
+
+  /* Glow breathe — even slower opacity/scale pulse, offset from the float. */
+  @keyframes glow-breathe {
+    0%, 100% { opacity: 0.12; transform: translate(-50%, -50%) rotate(-15deg) scale(1); }
+    50%      { opacity: 0.20; transform: translate(-50%, -50%) rotate(-15deg) scale(1.08); }
+  }
+  .animate-glow-breathe { animation: glow-breathe 6s ease-in-out infinite; }
+
+  /* "Plop" dots — three dots that pop in sequence (Resend CTA loading state). */
+  @keyframes plop {
+    0%, 100% { transform: scale(0); opacity: 0; }
+    50%      { transform: scale(1); opacity: 1; }
+  }
+  .animate-plop  { animation: plop 1.2s ease-in-out infinite; }
+  .animate-plop2 { animation: plop 1.2s ease-in-out infinite 0.15s; }
+  .animate-plop3 { animation: plop 1.2s ease-in-out infinite 0.30s; }
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* prefers-reduced-motion guard — Tailwind motion-safe: already handles this,
+   but we keep the explicit @media as a belt-and-suspenders fallback. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-float,
+  .animate-glow-breathe,
+  .animate-plop,
+  .animate-plop2,
+  .animate-plop3 { animation: none; }
+}
+
+/* ─── shadcn/ui accordion keyframes ─── */
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}

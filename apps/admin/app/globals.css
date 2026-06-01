@@ -1,0 +1,221 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Resend-light-style — blanco/ink/hairline, monocromo */
+    --background: 0 0% 100%;          /* canvas blanco */
+    --foreground: 0 0% 9%;            /* ink ~#171717 (body) */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;                /* gray-3/4 — inset panels, wells */
+    --muted-foreground: 0 0% 44%;     /* gray-11 (43.5%) — secondary, captions */
+    --primary: 0 0% 4%;               /* tinta #0a0a0a — botones sólidos */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --accent: 0 0% 96%;               /* gris sutil — hover/activo */
+    --accent-foreground: 0 0% 9%;
+    --signal: 0 0% 4%;                /* MONO: destacados pasan a tinta */
+    --signal-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 92%;               /* #ebebeb — hairline */
+    --input: 0 0% 92%;
+    --ring: 214 100% 50%;             /* #0066ff — azul SOLO en focus rings */
+    --radius: 0.75rem;                /* 12px — radios generosos estilo Resend (rounded-xl) */
+
+    /* Token azul de acento para links (opcional) */
+    --accent-blue: 214 100% 50%;
+
+    /* Chart tokens — shadcn chart palette (monocromo neutro, compatible con tema) */
+    --chart-1: 0 0% 20%;
+    --chart-2: 0 0% 40%;
+    --chart-3: 0 0% 55%;
+    --chart-4: 0 0% 70%;
+    --chart-5: 0 0% 85%;
+
+    /* Sidebar tokens (requeridos por shadcn sidebar component) */
+    --sidebar: 0 0% 98%;
+    --sidebar-foreground: 0 0% 9%;
+    --sidebar-primary: 0 0% 4%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 96%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 92%;
+    --sidebar-ring: 214 100% 50%;
+
+    /* Badges de estado (LIGHT) — paleta Resend: base ~12% fondo / tono fuerte texto + ring.
+       success = valores exactos del badge "delivered" de Resend. */
+    --badge-success-bg: rgba(0, 164, 51, 0.1);
+    --badge-success-fg: rgba(0, 113, 63, 0.95);
+    --badge-success-ring: rgba(0, 164, 51, 0.25);
+    --badge-warning-bg: rgba(249, 156, 0, 0.13);
+    --badge-warning-fg: rgba(154, 82, 0, 0.95);
+    --badge-warning-ring: rgba(249, 156, 0, 0.3);
+    --badge-danger-bg: rgba(251, 44, 54, 0.1);
+    --badge-danger-fg: rgba(186, 16, 24, 0.95);
+    --badge-danger-ring: rgba(251, 44, 54, 0.28);
+    --badge-info-bg: rgba(48, 128, 255, 0.1);
+    --badge-info-fg: rgba(22, 80, 196, 0.95);
+    --badge-info-ring: rgba(48, 128, 255, 0.28);
+    --badge-neutral-bg: rgba(0, 0, 0, 0.05);
+    --badge-neutral-fg: rgba(0, 0, 0, 0.6);
+    --badge-neutral-ring: rgba(0, 0, 0, 0.1);
+  }
+
+  .dark {
+    /* Resend dark REAL — calibrado al dashboard de Resend: negro puro (#000),
+       texto #f0f0f0, gris de íconos ~62% (rgb 157,159,167), hairlines sutiles. */
+    --background: 0 0% 0%;            /* #000000 — canvas negro puro */
+    --foreground: 0 0% 94%;           /* #f0f0f0 — body text */
+    --card: 0 0% 4%;                  /* #0a0a0a — card apenas elevada */
+    --card-foreground: 0 0% 94%;
+    --popover: 0 0% 6%;               /* #0f0f0f — dropdowns / popovers */
+    --popover-foreground: 0 0% 94%;
+    --primary: 0 0% 94%;              /* casi-blanco — botones sólidos en dark */
+    --primary-foreground: 0 0% 0%;    /* texto negro sobre primary */
+    --secondary: 0 0% 11%;
+    --secondary-foreground: 0 0% 94%;
+    --muted: 0 0% 10%;                /* inset panels, wells */
+    --muted-foreground: 0 0% 62%;     /* #9d9fa7 — gris de íconos Resend */
+    --accent: 0 0% 11%;               /* hover/activo sutil */
+    --accent-foreground: 0 0% 94%;
+    --signal: 0 0% 94%;               /* mono: destacados = casi-blanco */
+    --signal-foreground: 0 0% 0%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 15%;               /* #262626 — hairlines sobre negro */
+    --input: 0 0% 15%;
+    --ring: 214 100% 50%;             /* azul focus ring — se mantiene */
+    --accent-blue: 214 100% 55%;
+    --chart-1: 0 0% 90%;
+    --chart-2: 0 0% 70%;
+    --chart-3: 0 0% 52%;
+    --chart-4: 0 0% 36%;
+    --chart-5: 0 0% 24%;
+    --sidebar: 0 0% 0%;               /* sidebar negro puro, igual que el canvas */
+    --sidebar-foreground: 0 0% 94%;
+    --sidebar-primary: 0 0% 94%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 0 0% 11%;
+    --sidebar-accent-foreground: 0 0% 94%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 214 100% 50%;
+
+    /* Badges de estado (DARK) — paleta Resend dark: color claro ~13% fondo / claro ~85% texto.
+       success = valores exactos del badge "delivered" dark de Resend. */
+    --badge-success-bg: rgba(34, 255, 153, 0.13);
+    --badge-success-fg: rgba(70, 254, 165, 0.9);
+    --badge-success-ring: rgba(34, 255, 153, 0.24);
+    --badge-warning-bg: rgba(250, 204, 21, 0.14);
+    --badge-warning-fg: rgba(253, 224, 71, 0.9);
+    --badge-warning-ring: rgba(250, 204, 21, 0.26);
+    --badge-danger-bg: rgba(255, 99, 99, 0.14);
+    --badge-danger-fg: rgba(255, 145, 145, 0.9);
+    --badge-danger-ring: rgba(255, 99, 99, 0.26);
+    --badge-info-bg: rgba(96, 165, 255, 0.15);
+    --badge-info-fg: rgba(150, 200, 255, 0.92);
+    --badge-info-ring: rgba(96, 165, 255, 0.26);
+    --badge-neutral-bg: rgba(255, 255, 255, 0.08);
+    --badge-neutral-fg: rgba(255, 255, 255, 0.62);
+    --badge-neutral-ring: rgba(255, 255, 255, 0.14);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.6;
+  }
+
+  /* Títulos con peso medio y tracking negativo — Resend signature */
+  h1, h2, h3, h4 {
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: rgb(0 0 0 / 0.10);   /* Resend real: selection:bg-black/10 */
+    color: #000;
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px hsl(214 100% 50% / 0.35);
+    border-radius: calc(var(--radius) - 2px);
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+  .font-mono {
+    font-family: var(--font-mono), ui-monospace, monospace;
+  }
+  /* Eyebrow — monospace, uppercase, tracking positivo: señal "developer" de Resend */
+  .eyebrow {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    @apply text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground;
+  }
+  .animate-slide-in {
+    animation: slide-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* ── Resend-style empty-state animations ────────────────────────────────── */
+
+  /* Tile float — slow, gentle vertical drift (the signature motion). */
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
+  .animate-float { animation: float 4s ease-in-out infinite; }
+
+  /* Glow breathe — even slower opacity/scale pulse, offset from the float. */
+  @keyframes glow-breathe {
+    0%, 100% { opacity: 0.12; transform: translate(-50%, -50%) rotate(-15deg) scale(1); }
+    50%      { opacity: 0.20; transform: translate(-50%, -50%) rotate(-15deg) scale(1.08); }
+  }
+  .animate-glow-breathe { animation: glow-breathe 6s ease-in-out infinite; }
+
+  /* "Plop" dots — three dots that pop in sequence (Resend CTA loading state). */
+  @keyframes plop {
+    0%, 100% { transform: scale(0); opacity: 0; }
+    50%      { transform: scale(1); opacity: 1; }
+  }
+  .animate-plop  { animation: plop 1.2s ease-in-out infinite; }
+  .animate-plop2 { animation: plop 1.2s ease-in-out infinite 0.15s; }
+  .animate-plop3 { animation: plop 1.2s ease-in-out infinite 0.30s; }
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* prefers-reduced-motion guard — Tailwind motion-safe: already handles this,
+   but we keep the explicit @media as a belt-and-suspenders fallback. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-float,
+  .animate-glow-breathe,
+  .animate-plop,
+  .animate-plop2,
+  .animate-plop3 { animation: none; }
+}

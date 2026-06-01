@@ -1,0 +1,44 @@
+# ── Dependencias ──────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── Build / output ────────────────────────────────────────────
+dist/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Variables de entorno (SECRETOS — nunca subir) ─────────────
+.env
+.env.local
+.env.*.local
+# Se versiona únicamente la plantilla:
+!.env.example
+
+# ── Archivos subidos por usuarios (almacenamiento local) ──────
+uploads/
+
+# ── Tests / coverage ──────────────────────────────────────────
+coverage/
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ── Tooling de agentes / editores (no es parte del producto) ──
+.atl/
+.claude/
+resend-light-style/
+.skill-registry.cache.json
+.vscode/
+.idea/
+
+# ── Deploy ────────────────────────────────────────────────────
+.vercel/
+
+# ── Sistema operativo ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
