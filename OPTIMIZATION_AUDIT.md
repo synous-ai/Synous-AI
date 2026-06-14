@@ -155,6 +155,37 @@ Treemap del analyzer: `apps/admin/.next/analyze/client.html`.
 
 ---
 
+## Resultados Fase 3 (medidos, baseline → final)
+
+### DB-1 — índices compuestos (EXPLAIN ANALYZE, seed a escala) ✅ commiteado
+| Query | Antes | Después | Mejora |
+|-------|-------|---------|--------|
+| deals list | 8.4 ms (Seq Scan + sort) | 0.16 ms (Index Scan Backward) | **53×** |
+| contacts list | 8.2 ms | 0.21 ms | **39×** |
+| tasks list | 11.5 ms | 0.37 ms | **31×** |
+| email_send by deal | 3.4 ms (Seq Scan 20k) | 0.20 ms (Bitmap Index) | **17×** |
+
+### FE — code-split recharts/ogl + RSC (next build, First Load JS) ✅ commiteado
+| Ruta | Antes | Después | Mejora |
+|------|-------|---------|--------|
+| /admin/dashboard | 217 kB | 120 kB | **−45%** |
+| /admin/reports | 227 kB | 130 kB | **−43%** |
+| /admin/finance/[section] | 323 kB | 219 kB | **−32%** |
+| /admin/proposals/[id] | 197 kB | 183 kB | −7% (ogl) |
+
+### API-5 — N+1 timeline ✅ commiteado
+- Eventos de email: de hasta 100+ round-trips a **1 query** (`inArray`). Gate: timeline.test.ts 7/7.
+
+### Pendientes (perfil distinto — ver más abajo)
+- **API-1** (agg JS→SQL finance): impacto medido HOY bajo (2–6 ms); el valor es payload/escala. Gate real disponible (finance.test.ts verde tras el fix de auth).
+- **API-4** (paginación): cambia la shape de la salida → requiere coordinación con la UI.
+- **API-3** (fire-and-forget emails/notifs): bajo-medio; `calendar.service.ts` está en zona de edición activa.
+
+### Notas de la sesión (issues pre-existentes, ajenos a perf)
+- **Drift del journal de migraciones**: `db:migrate` falla porque 0023 (`kind` en library_item) ya está aplicado vía `db:push` (recuperación post-reset) pero no registrado en `__drizzle_migrations`. La migración 0025 (DB-1) se aplicó con su DDL directo; el archivo está commiteado. El equipo debe resolver el drift para que `db:migrate` vuelva a fluir.
+- **Suite de tests**: estaba 42 failed por la migración a Clerk (tests de integración con JWT propio); el fix de `authenticate.ts` (fallback JWT en dev/test) la dejó 193/194.
+- **client-portal#build**: falla con un error de TS pre-existente (`'err' is of type 'unknown'`).
+
 ## Guardrails a verificar en cada cambio
 - Soft-delete (`archived=false`) intacto en toda query tocada.
 - Transacciones multi-tabla preservadas.
