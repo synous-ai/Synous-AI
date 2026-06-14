@@ -1,6 +1,6 @@
 {
-  "id": "3104e366-c891-4179-8d48-10dda5fc7e38",
-  "prevId": "ea5092e3-4037-4832-be85-6cb556a17ec3",
+  "id": "5d8d39a0-2deb-4111-bbb9-ced11ffadd9a",
+  "prevId": "d0bdf101-ecad-40e3-845a-c20a252ae4f7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -31,7 +31,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'America/Bogota'"
+          "default": "'America/Argentina/Buenos_Aires'"
         },
         "currency": {
           "name": "currency",
@@ -117,6 +117,12 @@
           "notNull": true,
           "default": true
         },
+        "clerk_user_id": {
+          "name": "clerk_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -150,6 +156,13 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
+        "hub_user_clerk_user_id_unique": {
+          "name": "hub_user_clerk_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "clerk_user_id"
+          ]
+        },
         "hub_user_portal_id_email_unique": {
           "name": "hub_user_portal_id_email_unique",
           "nullsNotDistinct": false,
@@ -163,7 +176,7 @@
       "checkConstraints": {
         "hub_user_role_check": {
           "name": "hub_user_role_check",
-          "value": "\"hub_user\".\"role\" IN ('owner','member','viewer')"
+          "value": "\"hub_user\".\"role\" IN ('owner','member','viewer','collaborator')"
         }
       },
       "isRLSEnabled": false
@@ -1210,7 +1223,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'America/Bogota'"
+          "default": "'America/Argentina/Buenos_Aires'"
         }
       },
       "indexes": {},
@@ -2320,7 +2333,7 @@
       "checkConstraints": {
         "task_status_check": {
           "name": "task_status_check",
-          "value": "\"task\".\"status\" IN ('pending','in_progress','completed','cancelled')"
+          "value": "\"task\".\"status\" IN ('pending','in_progress','completed','cancelled','blocked')"
         },
         "task_priority_check": {
           "name": "task_priority_check",
@@ -2677,6 +2690,12 @@
           "notNull": true,
           "default": true
         },
+        "clerk_user_id": {
+          "name": "clerk_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2721,6 +2740,13 @@
           "nullsNotDistinct": false,
           "columns": [
             "invite_token"
+          ]
+        },
+        "client_account_clerk_user_id_unique": {
+          "name": "client_account_clerk_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "clerk_user_id"
           ]
         },
         "client_account_portal_id_email_unique": {
@@ -4823,8 +4849,27 @@
           "primaryKey": false,
           "notNull": false
         },
+        "steps": {
+          "name": "steps",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'[]'::jsonb"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner_id": {
+          "name": "owner_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -4906,6 +4951,19 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "library_item_owner_id_hub_user_id_fk": {
+          "name": "library_item_owner_id_hub_user_id_fk",
+          "tableFrom": "library_item",
+          "tableTo": "hub_user",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -4915,6 +4973,10 @@
         "library_item_type_check": {
           "name": "library_item_type_check",
           "value": "\"library_item\".\"type\" IN ('document','sop','template','contract_base','proposal_base','checklist','tech_doc')"
+        },
+        "library_item_kind_check": {
+          "name": "library_item_kind_check",
+          "value": "\"library_item\".\"kind\" IS NULL OR \"library_item\".\"kind\" IN ('procedure','checklist')"
         }
       },
       "isRLSEnabled": false
@@ -4966,6 +5028,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'medium'"
+        },
+        "timeframe": {
+          "name": "timeframe",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "deal_id": {
           "name": "deal_id",
@@ -5105,6 +5173,272 @@
         "work_item_priority_check": {
           "name": "work_item_priority_check",
           "value": "\"work_item\".\"priority\" IN ('low','medium','high')"
+        },
+        "work_item_timeframe_check": {
+          "name": "work_item_timeframe_check",
+          "value": "\"work_item\".\"timeframe\" IS NULL OR \"work_item\".\"timeframe\" IN ('now','next','later')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.expense": {
+      "name": "expense",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "portal_id": {
+          "name": "portal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exchange_rate": {
+          "name": "exchange_rate",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1'"
+        },
+        "amount_base": {
+          "name": "amount_base",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expense_date": {
+          "name": "expense_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vendor": {
+          "name": "vendor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payment_method": {
+          "name": "payment_method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_recurring": {
+          "name": "is_recurring",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "storage_key": {
+          "name": "storage_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "archived": {
+          "name": "archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_expense_portal_date": {
+          "name": "idx_expense_portal_date",
+          "columns": [
+            {
+              "expression": "portal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expense_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_expense_deal": {
+          "name": "idx_expense_deal",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_expense_category": {
+          "name": "idx_expense_category",
+          "columns": [
+            {
+              "expression": "category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "expense_portal_id_portal_id_fk": {
+          "name": "expense_portal_id_portal_id_fk",
+          "tableFrom": "expense",
+          "tableTo": "portal",
+          "columnsFrom": [
+            "portal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "expense_deal_id_deal_id_fk": {
+          "name": "expense_deal_id_deal_id_fk",
+          "tableFrom": "expense",
+          "tableTo": "deal",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "expense_company_id_company_id_fk": {
+          "name": "expense_company_id_company_id_fk",
+          "tableFrom": "expense",
+          "tableTo": "company",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "expense_created_by_hub_user_id_fk": {
+          "name": "expense_created_by_hub_user_id_fk",
+          "tableFrom": "expense",
+          "tableTo": "hub_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "expense_currency_check": {
+          "name": "expense_currency_check",
+          "value": "\"expense\".\"currency\" IN ('USD','ARS')"
+        },
+        "expense_category_check": {
+          "name": "expense_category_check",
+          "value": "\"expense\".\"category\" IN ('software','infraestructura','equipo','impuestos','oficina','marketing','otros')"
+        },
+        "expense_payment_method_check": {
+          "name": "expense_payment_method_check",
+          "value": "\"expense\".\"payment_method\" IS NULL OR \"expense\".\"payment_method\" IN ('transfer','card','cash','other')"
         }
       },
       "isRLSEnabled": false
@@ -5190,8 +5524,28 @@
           "notNull": true,
           "default": "'USD'"
         },
+        "exchange_rate": {
+          "name": "exchange_rate",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1'"
+        },
+        "amount_base": {
+          "name": "amount_base",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
         "notes": {
           "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retainer_id": {
+          "name": "retainer_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -5251,6 +5605,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_invoice_retainer": {
+          "name": "idx_invoice_retainer",
+          "columns": [
+            {
+              "expression": "retainer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -5293,6 +5662,19 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
+        "invoice_retainer_id_retainer_id_fk": {
+          "name": "invoice_retainer_id_retainer_id_fk",
+          "tableFrom": "invoice",
+          "tableTo": "retainer",
+          "columnsFrom": [
+            "retainer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "invoice_created_by_hub_user_id_fk": {
           "name": "invoice_created_by_hub_user_id_fk",
           "tableFrom": "invoice",
@@ -5314,6 +5696,10 @@
         "invoice_status_check": {
           "name": "invoice_status_check",
           "value": "\"invoice\".\"status\" IN ('draft','sent','paid','overdue','void')"
+        },
+        "invoice_currency_check": {
+          "name": "invoice_currency_check",
+          "value": "\"invoice\".\"currency\" IN ('USD','ARS')"
         }
       },
       "isRLSEnabled": false
@@ -5421,6 +5807,27 @@
           "primaryKey": false,
           "notNull": true
         },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "exchange_rate": {
+          "name": "exchange_rate",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1'"
+        },
+        "amount_base": {
+          "name": "amount_base",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
         "method": {
           "name": "method",
           "type": "text",
@@ -5520,6 +5927,205 @@
         "payment_method_check": {
           "name": "payment_method_check",
           "value": "\"payment\".\"method\" IN ('transfer','card','cash','other')"
+        },
+        "payment_currency_check": {
+          "name": "payment_currency_check",
+          "value": "\"payment\".\"currency\" IN ('USD','ARS')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.retainer": {
+      "name": "retainer",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "portal_id": {
+          "name": "portal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exchange_rate": {
+          "name": "exchange_rate",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'1'"
+        },
+        "amount_base": {
+          "name": "amount_base",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "billing_day": {
+          "name": "billing_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "start_date": {
+          "name": "start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "archived": {
+          "name": "archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_retainer_portal_status": {
+          "name": "idx_retainer_portal_status",
+          "columns": [
+            {
+              "expression": "portal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "retainer_portal_id_portal_id_fk": {
+          "name": "retainer_portal_id_portal_id_fk",
+          "tableFrom": "retainer",
+          "tableTo": "portal",
+          "columnsFrom": [
+            "portal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "retainer_company_id_company_id_fk": {
+          "name": "retainer_company_id_company_id_fk",
+          "tableFrom": "retainer",
+          "tableTo": "company",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "retainer_created_by_hub_user_id_fk": {
+          "name": "retainer_created_by_hub_user_id_fk",
+          "tableFrom": "retainer",
+          "tableTo": "hub_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "retainer_currency_check": {
+          "name": "retainer_currency_check",
+          "value": "\"retainer\".\"currency\" IN ('USD','ARS')"
+        },
+        "retainer_status_check": {
+          "name": "retainer_status_check",
+          "value": "\"retainer\".\"status\" IN ('active','paused','cancelled')"
+        },
+        "retainer_billing_day_check": {
+          "name": "retainer_billing_day_check",
+          "value": "\"retainer\".\"billing_day\" BETWEEN 1 AND 28"
         }
       },
       "isRLSEnabled": false
@@ -5788,325 +6394,6 @@
         "custom_field_field_type_check": {
           "name": "custom_field_field_type_check",
           "value": "\"custom_field\".\"field_type\" IN ('text','number','date','select','boolean')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.prospect": {
-      "name": "prospect",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "portal_id": {
-          "name": "portal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "search_id": {
-          "name": "search_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "address": {
-          "name": "address",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "phone": {
-          "name": "phone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "website": {
-          "name": "website",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rating": {
-          "name": "rating",
-          "type": "numeric(2, 1)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "user_ratings_total": {
-          "name": "user_ratings_total",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "google_place_id": {
-          "name": "google_place_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "types": {
-          "name": "types",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "ai_analysis": {
-          "name": "ai_analysis",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ai_proposal": {
-          "name": "ai_proposal",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'new'"
-        },
-        "imported_contact_id": {
-          "name": "imported_contact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_prospect_portal": {
-          "name": "idx_prospect_portal",
-          "columns": [
-            {
-              "expression": "portal_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_prospect_search": {
-          "name": "idx_prospect_search",
-          "columns": [
-            {
-              "expression": "search_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "prospect_portal_id_portal_id_fk": {
-          "name": "prospect_portal_id_portal_id_fk",
-          "tableFrom": "prospect",
-          "tableTo": "portal",
-          "columnsFrom": [
-            "portal_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "prospect_search_id_prospect_search_id_fk": {
-          "name": "prospect_search_id_prospect_search_id_fk",
-          "tableFrom": "prospect",
-          "tableTo": "prospect_search",
-          "columnsFrom": [
-            "search_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "prospect_imported_contact_id_contact_id_fk": {
-          "name": "prospect_imported_contact_id_contact_id_fk",
-          "tableFrom": "prospect",
-          "tableTo": "contact",
-          "columnsFrom": [
-            "imported_contact_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "prospect_status_check": {
-          "name": "prospect_status_check",
-          "value": "\"prospect\".\"status\" IN ('new','imported','discarded')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.prospect_search": {
-      "name": "prospect_search",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "portal_id": {
-          "name": "portal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "query": {
-          "name": "query",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "our_services": {
-          "name": "our_services",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requested_limit": {
-          "name": "requested_limit",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 5
-        },
-        "result_count": {
-          "name": "result_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'running'"
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_prospect_search_portal": {
-          "name": "idx_prospect_search_portal",
-          "columns": [
-            {
-              "expression": "portal_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "prospect_search_portal_id_portal_id_fk": {
-          "name": "prospect_search_portal_id_portal_id_fk",
-          "tableFrom": "prospect_search",
-          "tableTo": "portal",
-          "columnsFrom": [
-            "portal_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "prospect_search_created_by_hub_user_id_fk": {
-          "name": "prospect_search_created_by_hub_user_id_fk",
-          "tableFrom": "prospect_search",
-          "tableTo": "hub_user",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "prospect_search_status_check": {
-          "name": "prospect_search_status_check",
-          "value": "\"prospect_search\".\"status\" IN ('running','completed','failed')"
         }
       },
       "isRLSEnabled": false

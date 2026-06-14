@@ -20,6 +20,7 @@ export const note = pgTable('note', {
 }, (table) => [
   index('idx_note_deal').on(table.dealId),
   index('idx_note_contact').on(table.contactId),
+  index('idx_note_company').on(table.companyId),
 ])
 
 export const task = pgTable('task', {
@@ -38,11 +39,15 @@ export const task = pgTable('task', {
   companyId: text('company_id').references(() => company.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  check('task_status_check', sql`${table.status} IN ('pending','in_progress','completed','cancelled')`),
+  // 'blocked' agregado en migración 0020: tarea bloqueada por dependencia externa.
+  check('task_status_check', sql`${table.status} IN ('pending','in_progress','completed','cancelled','blocked')`),
   check('task_priority_check', sql`${table.priority} IN ('low','medium','high')`),
   index('idx_task_assignee').on(table.assignedTo, table.status),
   index('idx_task_due').on(table.dueDate).where(sql`status <> 'completed'`),
   index('idx_task_deal').on(table.dealId),
+  index('idx_task_contact').on(table.contactId),
+  index('idx_task_company').on(table.companyId),
+  index('idx_task_portal').on(table.portalId),
 ])
 
 export const call = pgTable('call', {

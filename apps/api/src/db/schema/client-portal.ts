@@ -16,6 +16,18 @@ export const clientAccount = pgTable('client_account', {
   inviteAccepted: boolean('invite_accepted').notNull().default(false),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   isActive: boolean('is_active').notNull().default(true),
+  /** ID del usuario en Clerk (auth externo). Null si aún no se vinculó con Clerk. */
+  clerkUserId: text('clerk_user_id').unique(),
+  /** Slug único del portal del cliente (usado en URLs personalizadas). */
+  brandSlug: text('brand_slug').unique(),
+  /** Nombre de marca visible en el portal del cliente. */
+  brandName: text('brand_name'),
+  /** Clave del logo de marca en R2 (sin URL; se genera on-demand). */
+  brandLogoKey: text('brand_logo_key'),
+  /** Color primario de la marca en formato hex (#rrggbb). */
+  brandPrimary: text('brand_primary'),
+  /** Color secundario de la marca en formato hex (#rrggbb). */
+  brandSecondary: text('brand_secondary'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   unique('client_account_portal_id_email_unique').on(table.portalId, table.email),

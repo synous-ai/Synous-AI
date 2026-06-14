@@ -13,6 +13,8 @@ export const workItem = pgTable('work_item', {
   description: text('description'),
   status: text('status').notNull().default('open'),
   priority: text('priority').notNull().default('medium'),
+  /** Horizonte de planificación: now = esta semana, next = próxima iteración, later = backlog. */
+  timeframe: text('timeframe'),
   dealId: text('deal_id').references(() => deal.id, { onDelete: 'set null' }),
   assignedTo: text('assigned_to').references(() => hubUser.id, { onDelete: 'set null' }),
   createdBy: text('created_by').references(() => hubUser.id, { onDelete: 'set null' }),
@@ -33,5 +35,11 @@ export const workItem = pgTable('work_item', {
     'work_item_priority_check',
     sql`${table.priority} IN ('low','medium','high')`,
   ),
+  // timeframe es opcional; si se setea, debe ser uno de los tres horizontes conocidos.
+  check(
+    'work_item_timeframe_check',
+    sql`${table.timeframe} IS NULL OR ${table.timeframe} IN ('now','next','later')`,
+  ),
   index('idx_work_item_portal_type').on(table.portalId, table.type),
+  index('idx_work_item_portal').on(table.portalId),
 ])

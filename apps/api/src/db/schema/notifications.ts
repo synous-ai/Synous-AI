@@ -20,4 +20,5 @@ export const notification = pgTable('notification', {
 }, (table) => [
   index('idx_notification_user').on(table.userId, table.readAt),
   index('idx_notification_client').on(table.clientId, table.readAt),
+  index('idx_notification_portal_user').on(table.portalId, table.userId, table.readAt),
 ])
