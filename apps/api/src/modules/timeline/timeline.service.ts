@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '../../db'
 import { call, meeting, emailSend, emailEvent, note, task, recordHistory } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -180,16 +180,24 @@ export async function getTimeline(
       .orderBy(desc(emailSend.sentAt))
       .limit(100)
 
-    for (const e of emails) {
-      // Cargar eventos de apertura y click para enriquecer el meta
-      const events = await db
-        .select({ type: emailEvent.type })
-        .from(emailEvent)
-        .where(eq(emailEvent.emailId, e.id))
-        .limit(50)
+    // Eventos de apertura/click de TODOS los emails en UNA sola query (evita N+1).
+    const emailIds = emails.map((e) => e.id)
+    const eventRows = emailIds.length
+      ? await db
+          .select({ emailId: emailEvent.emailId, type: emailEvent.type })
+          .from(emailEvent)
+          .where(inArray(emailEvent.emailId, emailIds))
+      : []
+    const openedSet = new Set<string>()
+    const clickedSet = new Set<string>()
+    for (const ev of eventRows) {
+      if (ev.type === 'opened') openedSet.add(ev.emailId)
+      else if (ev.type === 'clicked') clickedSet.add(ev.emailId)
+    }
 
-      const opened = events.some((ev) => ev.type === 'opened')
-      const clicked = events.some((ev) => ev.type === 'clicked')
+    for (const e of emails) {
+      const opened = openedSet.has(e.id)
+      const clicked = clickedSet.has(e.id)
 
       items.push({
         kind: 'email',
