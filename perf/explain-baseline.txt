@@ -1,0 +1,293 @@
+Pager usage is off.
+Timing is on.
+==================== Q1: DEALS LIST (cursor pagination) ====================
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=562.52..562.65 rows=51 width=183) (actual time=8.390..8.397 rows=51 loops=1)
+   Buffers: shared hit=223
+   ->  Sort  (cost=562.52..580.92 rows=7359 width=183) (actual time=8.389..8.392 rows=51 loops=1)
+         Sort Key: created_at DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 48kB
+         Buffers: shared hit=223
+         ->  Seq Scan on deal  (cost=0.00..317.01 rows=7359 width=183) (actual time=0.026..7.638 rows=7359 loops=1)
+               Filter: ((NOT archived) AND (portal_id = 'cif2iq142k61o6oaqooceeem'::text))
+               Rows Removed by Filter: 642
+               Buffers: shared hit=217
+ Planning:
+   Buffers: shared hit=197
+ Planning Time: 0.773 ms
+ Execution Time: 8.453 ms
+(14 rows)
+
+Time: 12.925 ms
+==================== Q2: CONTACTS LIST (cursor pagination) ====================
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=1814.53..1814.66 rows=51 width=183) (actual time=8.117..8.123 rows=51 loops=1)
+   Buffers: shared hit=929
+   ->  Sort  (cost=1814.53..1862.15 rows=19049 width=183) (actual time=8.117..8.119 rows=51 loops=1)
+         Sort Key: created_at DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 47kB
+         Buffers: shared hit=929
+         ->  Seq Scan on contact  (cost=0.00..1179.01 rows=19049 width=183) (actual time=0.013..6.478 rows=19049 loops=1)
+               Filter: ((NOT archived) AND (portal_id = 'cif2iq142k61o6oaqooceeem'::text))
+               Rows Removed by Filter: 952
+               Buffers: shared hit=929
+ Planning:
+   Buffers: shared hit=146
+ Planning Time: 0.283 ms
+ Execution Time: 8.168 ms
+(14 rows)
+
+Time: 8.791 ms
+==================== Q4: FINANCE SUMMARY - fetch invoices in period (actual code) ====================
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Seq Scan on invoice  (cost=0.00..313.00 rows=2893 width=234) (actual time=0.004..2.165 rows=2901 loops=1)
+   Filter: ((NOT archived) AND (portal_id = 'cif2iq142k61o6oaqooceeem'::text) AND (issue_date <= (now())::date) AND (issue_date >= ((now() - '365 days'::interval))::date))
+   Rows Removed by Filter: 3099
+   Buffers: shared hit=133
+ Planning:
+   Buffers: shared hit=150
+ Planning Time: 0.342 ms
+ Execution Time: 2.253 ms
+(8 rows)
+
+Time: 3.584 ms
+==================== Q4b: FINANCE SUMMARY - same as SQL aggregation (proposed) ====================
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=334.70..334.76 rows=5 width=45) (actual time=1.964..1.965 rows=5 loops=1)
+   Group Key: status
+   Batches: 1  Memory Usage: 24kB
+   Buffers: shared hit=133
+   ->  Seq Scan on invoice  (cost=0.00..313.00 rows=2893 width=14) (actual time=0.005..1.544 rows=2901 loops=1)
+         Filter: ((NOT archived) AND (portal_id = 'cif2iq142k61o6oaqooceeem'::text) AND (issue_date <= (now())::date) AND (issue_date >= ((now() - '365 days'::interval))::date))
+         Rows Removed by Filter: 3099
+         Buffers: shared hit=133
+ Planning:
+   Buffers: shared hit=16 read=2
+ Planning Time: 2.354 ms
+ Execution Time: 2.274 ms
+(12 rows)
+
+Time: 5.622 ms
+==================== Q5: OUTSTANDING - open invoices + payments join (proposed SQL) ====================
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=764.94..764.95 rows=1 width=32) (actual time=6.334..6.336 rows=1 loops=1)
+   Buffers: shared hit=335
+   ->  Hash Right Join  (cost=622.72..752.45 rows=2497 width=41) (actual time=4.908..6.110 rows=2498 loops=1)
+         Hash Cond: (payment.invoice_id = i.id)
+         Buffers: shared hit=335
+         ->  HashAggregate  (cost=377.00..441.54 rows=5163 width=43) (actual time=4.208..4.861 rows=5163 loops=1)
+               Group Key: payment.invoice_id
+               Batches: 1  Memory Usage: 2257kB
+               Buffers: shared hit=197
+               ->  Seq Scan on payment  (cost=0.00..317.00 rows=12000 width=16) (actual time=0.002..1.796 rows=12000 loops=1)
+                     Buffers: shared hit=197
+         ->  Hash  (cost=214.50..214.50 rows=2497 width=20) (actual time=0.690..0.691 rows=2498 loops=1)
+               Buckets: 4096  Batches: 1  Memory Usage: 161kB
+               Buffers: shared hit=138
+               ->  Bitmap Heap Scan on invoice i  (cost=42.91..214.50 rows=2497 width=20) (actual time=0.069..0.482 rows=2498 loops=1)
+                     Recheck Cond: ((portal_id = 'cif2iq142k61o6oaqooceeem'::text) AND (status = ANY ('{sent,overdue}'::text[])))
+                     Filter: (NOT archived)
+                     Rows Removed by Filter: 75
+                     Heap Blocks: exact=133
+                     Buffers: shared hit=138
+                     ->  Bitmap Index Scan on idx_invoice_portal_status  (cost=0.00..42.28 rows=2573 width=0) (actual time=0.057..0.057 rows=2573 loops=1)
+                           Index Cond: ((portal_id = 'cif2iq142k61o6oaqooceeem'::text) AND (status = ANY ('{sent,overdue}'::text[])))
+                           Buffers: shared hit=5
+ Planning:
+   Buffers: shared hit=52
+ Planning Time: 0.193 ms
+ Execution Time: 6.487 ms
+(27 rows)
+
+Time: 7.006 ms
+==================== Q6a: TIMELINE - email_send by deal_id (no index?) ====================
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=765.02..765.03 rows=3 width=152) (actual time=3.398..3.399 rows=1 loops=1)
+   Buffers: shared hit=465
+   ->  Sort  (cost=765.02..765.03 rows=3 width=152) (actual time=3.398..3.398 rows=1 loops=1)
+         Sort Key: sent_at DESC
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=465
+         ->  Seq Scan on email_send  (cost=0.00..765.00 rows=3 width=152) (actual time=1.516..3.395 rows=1 loops=1)
+               Filter: ((portal_id = 'cif2iq142k61o6oaqooceeem'::text) AND (deal_id = 'seedd100'::text))
+               Rows Removed by Filter: 19999
+               Buffers: shared hit=465
+ Planning:
+   Buffers: shared hit=88
+ Planning Time: 0.181 ms
+ Execution Time: 3.407 ms
+(14 rows)
+
+Time: 3.735 ms
+==================== Q6b: TIMELINE - email_event per email (N+1 unit) ====================
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.29..8.34 rows=3 width=7) (actual time=0.042..0.043 rows=4 loops=1)
+   Buffers: shared hit=3
+   ->  Index Only Scan using idx_email_event_email on email_event  (cost=0.29..8.34 rows=3 width=7) (actual time=0.041..0.042 rows=4 loops=1)
+         Index Cond: (email_id = 'seedes100'::text)
+         Heap Fetches: 0
+         Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=40
+ Planning Time: 5.380 ms
+ Execution Time: 0.050 ms
+(10 rows)
+
+Time: 5.709 ms
+==================== Q6c: TIMELINE - notes by deal ====================
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=23.25..23.26 rows=5 width=162) (actual time=0.207..0.207 rows=4 loops=1)
+   Sort Key: created_at DESC
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=3 read=3
+   ->  Bitmap Heap Scan on note  (cost=4.33..23.19 rows=5 width=162) (actual time=0.129..0.202 rows=4 loops=1)
+         Recheck Cond: (deal_id = 'seedd100'::text)
+         Heap Blocks: exact=4
+         Buffers: shared hit=3 read=3
+         ->  Bitmap Index Scan on idx_note_deal  (cost=0.00..4.33 rows=5 width=0) (actual time=0.117..0.117 rows=4 loops=1)
+               Index Cond: (deal_id = 'seedd100'::text)
+               Buffers: shared read=2
+ Planning:
+   Buffers: shared hit=82
+ Planning Time: 0.153 ms
+ Execution Time: 0.214 ms
+(15 rows)
+
+Time: 0.743 ms
+==================== Q7: FOCUS - last activity per open deal (calls) ====================
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=969.50..1045.86 rows=7636 width=17) (actual time=11.830..12.372 rows=7636 loops=1)
+   Group Key: deal_id
+   Batches: 1  Memory Usage: 913kB
+   Buffers: shared hit=10 read=522
+   ->  Seq Scan on call  (cost=0.00..844.50 rows=25000 width=17) (actual time=0.013..7.700 rows=25000 loops=1)
+         Filter: (portal_id = 'cif2iq142k61o6oaqooceeem'::text)
+         Buffers: shared hit=10 read=522
+ Planning:
+   Buffers: shared hit=56
+ Planning Time: 0.146 ms
+ Execution Time: 12.736 ms
+(11 rows)
+
+Time: 13.426 ms
+==================== Q8: DASHBOARD - pipeline funnel (deals by stage) ====================
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=455.70..455.71 rows=5 width=69) (actual time=2.836..2.838 rows=5 loops=1)
+   Sort Key: ps.display_order
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=221 read=1
+   ->  HashAggregate  (cost=455.58..455.64 rows=5 width=69) (actual time=2.827..2.830 rows=5 loops=1)
+         Group Key: ps.id
+         Batches: 1  Memory Usage: 24kB
+         Buffers: shared hit=218 read=1
+         ->  Hash Right Join  (cost=2.19..400.38 rows=7359 width=44) (actual time=0.026..1.856 rows=7359 loops=1)
+               Hash Cond: (d.stage_id = ps.id)
+               Buffers: shared hit=218 read=1
+               ->  Seq Scan on deal d  (cost=0.00..297.01 rows=7359 width=40) (actual time=0.002..0.872 rows=7359 loops=1)
+                     Filter: (NOT archived)
+                     Rows Removed by Filter: 642
+                     Buffers: shared hit=217
+               ->  Hash  (cost=2.12..2.12 rows=5 width=29) (actual time=0.022..0.022 rows=5 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                     Buffers: shared hit=1 read=1
+                     ->  Nested Loop  (cost=0.00..2.12 rows=5 width=29) (actual time=0.019..0.021 rows=5 loops=1)
+                           Join Filter: (ps.pipeline_id = p.id)
+                           Buffers: shared hit=1 read=1
+                           ->  Seq Scan on pipeline p  (cost=0.00..1.01 rows=1 width=25) (actual time=0.017..0.017 rows=1 loops=1)
+                                 Filter: ((NOT archived) AND (portal_id = 'cif2iq142k61o6oaqooceeem'::text))
+                                 Buffers: shared read=1
+                           ->  Seq Scan on pipeline_stage ps  (cost=0.00..1.05 rows=5 width=54) (actual time=0.001..0.001 rows=5 loops=1)
+                                 Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=109 read=6
+ Planning Time: 0.402 ms
+ Execution Time: 2.860 ms
+(30 rows)
+
+Time: 3.676 ms
+==================== Q9: REPORTS - conversion by source (JSONB group by) ====================
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=1512.55..1512.57 rows=6 width=48) (actual time=6.351..6.351 rows=6 loops=1)
+   Sort Key: (count(*)) DESC
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=932
+   ->  HashAggregate  (cost=1512.37..1512.48 rows=6 width=48) (actual time=6.345..6.346 rows=6 loops=1)
+         Group Key: COALESCE(NULLIF(TRIM(BOTH FROM (custom ->> 'source'::text)), ''::text), 'Sin fuente'::text)
+         Batches: 1  Memory Usage: 24kB
+         Buffers: shared hit=929
+         ->  Seq Scan on contact  (cost=0.00..1321.88 rows=19049 width=39) (actual time=0.014..4.218 rows=19049 loops=1)
+               Filter: ((NOT archived) AND (portal_id = 'cif2iq142k61o6oaqooceeem'::text))
+               Rows Removed by Filter: 952
+               Buffers: shared hit=929
+ Planning:
+   Buffers: shared hit=12
+ Planning Time: 0.074 ms
+ Execution Time: 6.362 ms
+(16 rows)
+
+Time: 7.198 ms
+==================== Q10: FINANCE - monthly income (to_char group by) ====================
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=483.47..576.41 rows=6196 width=64) (actual time=5.556..5.577 rows=13 loops=1)
+   Group Key: to_char(paid_at, 'YYYY-MM'::text)
+   Batches: 1  Memory Usage: 217kB
+   Buffers: shared hit=197
+   ->  Seq Scan on payment  (cost=0.00..452.49 rows=6196 width=37) (actual time=1.923..4.799 rows=6199 loops=1)
+         Filter: ((portal_id = 'cif2iq142k61o6oaqooceeem'::text) AND (paid_at >= (now() - '365 days'::interval)))
+         Rows Removed by Filter: 5801
+         Buffers: shared hit=197
+ Planning:
+   Buffers: shared hit=15
+ Planning Time: 0.121 ms
+ Execution Time: 5.590 ms
+(12 rows)
+
+Time: 6.026 ms
+==================== Q11: RECORD_HISTORY by entity (timeline/audit) ====================
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=6.20..6.20 rows=1 width=171) (actual time=0.039..0.039 rows=0 loops=1)
+   Sort Key: changed_at DESC
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=3
+   ->  Index Scan using idx_record_history_entity on record_history  (cost=0.42..6.19 rows=1 width=171) (actual time=0.038..0.038 rows=0 loops=1)
+         Index Cond: ((entity_type = 'deal'::text) AND (entity_id = 'seedd100'::text))
+         Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=78
+ Planning Time: 0.154 ms
+ Execution Time: 0.044 ms
+(11 rows)
+
+Time: 0.324 ms
+==================== Q12: TASKS list (200 cap, order createdAt) ====================
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=2424.58..2425.08 rows=200 width=200) (actual time=11.460..11.479 rows=200 loops=1)
+   Buffers: shared read=753
+   ->  Sort  (cost=2424.58..2499.58 rows=30000 width=200) (actual time=11.459..11.468 rows=200 loops=1)
+         Sort Key: created_at DESC
+         Sort Method: top-N heapsort  Memory: 111kB
+         Buffers: shared read=753
+         ->  Seq Scan on task  (cost=0.00..1128.00 rows=30000 width=200) (actual time=0.015..8.893 rows=30000 loops=1)
+               Filter: (portal_id = 'cif2iq142k61o6oaqooceeem'::text)
+               Buffers: shared read=753
+ Planning:
+   Buffers: shared hit=146
+ Planning Time: 0.185 ms
+ Execution Time: 11.491 ms
+(13 rows)
+
+Time: 11.843 ms

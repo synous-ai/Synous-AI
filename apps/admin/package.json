@@ -11,10 +11,10 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.2",
-    "@nous/api-client": "workspace:*",
-    "@nous/shared": "workspace:*",
     "@dnd-kit/core": "^6.3.1",
     "@hookform/resolvers": "^3.10.0",
+    "@nous/api-client": "workspace:*",
+    "@nous/shared": "workspace:*",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-collapsible": "^1.1.13",
@@ -53,6 +53,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^16.2.9",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
