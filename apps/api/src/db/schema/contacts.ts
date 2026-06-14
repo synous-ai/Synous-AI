@@ -25,7 +25,8 @@ export const contact = pgTable('contact', {
 }, (table) => [
   unique('contact_portal_id_email_unique').on(table.portalId, table.email),
   check('contact_lifecycle_stage_check', sql`${table.lifecycleStage} IN ('lead','mql','sql','opportunity','customer','other')`),
-  index('idx_contact_portal').on(table.portalId).where(sql`archived = false`),
+  // Compuesto para el listado paginado por cursor (created_at DESC, id DESC).
+  index('idx_contact_portal_created').on(table.portalId, table.createdAt, table.id).where(sql`archived = false`),
   index('idx_contact_company').on(table.companyId),
   index('idx_contact_owner').on(table.ownerId),
   index('idx_contact_email').on(table.email),

@@ -20,6 +20,8 @@ export const emailSend = pgTable('email_send', {
 }, (table) => [
   index('idx_email_send_contact').on(table.contactId),
   index('idx_email_send_tracking').on(table.trackingId),
+  // Timeline filtra por deal_id y ordena por sent_at DESC → compuesto evita el Seq Scan.
+  index('idx_email_send_deal').on(table.dealId, table.sentAt),
 ])
 
 export const emailEvent = pgTable('email_event', {

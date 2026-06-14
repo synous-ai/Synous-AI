@@ -25,7 +25,9 @@ export const deal = pgTable('deal', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index('idx_deal_portal').on(table.portalId).where(sql`archived = false`),
+  // Compuesto para el listado paginado (WHERE portal AND archived=false ORDER BY created_at DESC, id DESC).
+  // portal_id sigue de columna líder, así que también sirve los filtros por portal.
+  index('idx_deal_portal_created').on(table.portalId, table.createdAt, table.id).where(sql`archived = false`),
   index('idx_deal_pipeline').on(table.pipelineId, table.stageId),
   index('idx_deal_owner').on(table.ownerId),
   index('idx_deal_contact').on(table.primaryContactId),

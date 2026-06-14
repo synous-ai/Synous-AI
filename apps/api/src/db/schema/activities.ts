@@ -47,7 +47,8 @@ export const task = pgTable('task', {
   index('idx_task_deal').on(table.dealId),
   index('idx_task_contact').on(table.contactId),
   index('idx_task_company').on(table.companyId),
-  index('idx_task_portal').on(table.portalId),
+  // Compuesto para el listado (WHERE portal ORDER BY created_at DESC); portal_id sigue de columna líder.
+  index('idx_task_portal_created').on(table.portalId, table.createdAt, table.id),
 ])
 
 export const call = pgTable('call', {
