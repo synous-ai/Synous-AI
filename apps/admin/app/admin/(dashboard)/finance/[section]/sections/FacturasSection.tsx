@@ -5,7 +5,7 @@ import { Plus, FileText } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useInvoices, useCompanies } from '@/lib/hooks'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ListSkeleton } from '@/components/ui/skeletons'
 import { EmptyState } from './shared'
 import { InvoiceRow } from './InvoiceRow'
 import { CreateInvoiceDialog, RegisterPaymentDialog } from './dialogs'
@@ -73,9 +73,8 @@ export function FacturasSection() {
       </div>
 
       {isLoading ? (
-        <div className="flex flex-col gap-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
-        </div>
+        // ListSkeleton: filas tipo card de factura (h-20), imita el InvoiceRow real
+        <ListSkeleton rows={4} rowClassName="h-20 rounded-xl" label="Cargando facturas…" />
       ) : !invoices || invoices.length === 0 ? (
         <EmptyState icon={FileText} message="No hay facturas en este filtro" hint='Cambiá de tab o creá una nueva factura.' />
       ) : (

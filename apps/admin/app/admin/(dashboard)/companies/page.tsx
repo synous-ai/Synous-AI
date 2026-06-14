@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Skeleton } from '@/components/ui/skeleton'
+import { TableSkeleton } from '@/components/ui/skeletons'
 import { CompanyDialog } from '@/components/companies/company-dialog'
 import { DataPagination } from '@/components/ui/data-pagination'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
@@ -111,11 +111,8 @@ export default function CompaniesPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="space-y-2 p-4">
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-            </div>
+            // TableSkeleton con thead + col acciones: Nombre / Dominio / Industria / Teléfono / Acciones (5 col, CLS ≈ 0)
+            <TableSkeleton columns={5} rows={6} label="Cargando empresas…" />
           ) : rows.length === 0 ? (
             <Empty>
               <EmptyHeader>

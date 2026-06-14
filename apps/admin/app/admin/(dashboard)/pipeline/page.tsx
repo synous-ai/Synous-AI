@@ -7,7 +7,7 @@ import type { Deal } from '@/lib/types'
 import { KanbanBoard } from '@/components/pipeline/kanban-board'
 import { DealDialog } from '@/components/deals/deal-dialog'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+import { KanbanSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { Kanban } from 'lucide-react'
@@ -71,9 +71,8 @@ export default function PipelinePage(): React.JSX.Element {
       </div>
 
       {pipelinesQ.isLoading || dealsQ.isLoading ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
-        </div>
+        /* KanbanSkeleton imita el flex horizontal real (columnas w-72) → CLS ≈ 0 */
+        <KanbanSkeleton columns={4} cardsPerColumn={3} label="Cargando pipeline…" />
       ) : !activePipeline ? (
         <Empty>
           <EmptyHeader>

@@ -243,5 +243,9 @@
   .animate-glow-breathe,
   .animate-plop,
   .animate-plop2,
-  .animate-plop3 { animation: none; }
+  .animate-plop3,
+  /* Skeletons: el shimmer/pulse es decorativo. Quien pidió menos movimiento
+     ve el placeholder estático (guía de skeletons, punto 4 + WCAG). Cubre
+     el primitivo <Skeleton> del admin y del portal (globals.css es global). */
+  .animate-pulse { animation: none; }
 }

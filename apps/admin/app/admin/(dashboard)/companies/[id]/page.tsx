@@ -28,7 +28,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { fieldLabel, formatHistoryValue } from '@/lib/history'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
+import { DetailViewSkeleton } from '@/components/ui/skeletons'
 import { PillTabs } from '@/components/ui/pill-tabs'
 import { CompanyDialog } from '@/components/companies/company-dialog'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
@@ -112,11 +112,17 @@ export default function CompanyDetailPage() {
   ]
 
   // ── Loading ────────────────────────────────────────────────────────────────
+  // 4 campos en el aside (dominio, industria, teléfono, website).
+  // 6 tabs: actividad / contactos / deals / notas / tareas / historial.
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6 p-6 lg:flex-row">
-        <Skeleton className="h-80 w-full rounded-2xl lg:w-80 lg:flex-shrink-0" />
-        <Skeleton className="h-80 min-w-0 flex-1 rounded-2xl" />
+      <div className="p-6">
+        <DetailViewSkeleton
+          label="Cargando empresa…"
+          fields={4}
+          tabs={6}
+          actions={1}
+        />
       </div>
     )
   }

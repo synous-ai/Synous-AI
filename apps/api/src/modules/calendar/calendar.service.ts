@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
 import { addMinutes } from 'date-fns'
 import { format as formatTz, toZonedTime } from 'date-fns-tz'
 import jwt from 'jsonwebtoken'
@@ -23,6 +23,13 @@ import type {
   UpdateMeetingTypeDTO,
   CreateAvailabilityRuleDTO,
   CreateBookingDTO,
+  CreateScheduleDTO,
+  UpdateScheduleDTO,
+  CreateIntervalDTO,
+  ReplaceIntervalsDTO,
+  DateOverrideInputDTO,
+  CreateEventTypeV2DTO,
+  UpdateEventTypeV2DTO,
 } from './calendar.schema'
 import { bookingConfirmInviteeHtml } from './emails/booking-confirm-invitee'
 import { bookingCancelledHtml } from './emails/booking-cancelled'
@@ -895,6 +902,660 @@ export async function reschedulePublicBooking(
     cancelUrl,
     rescheduleUrl,
   }
+}
+
+// ── Admin V2: Availability Schedules ───────────────────────────────────────────
+
+/**
+ * Lista todos los schedules de disponibilidad de un portal con sus intervalos y overrides.
+ * El frontend espera objetos AvailabilitySchedule con arrays embebidos.
+ */
+export async function listSchedules(portalId: string) {
+  // Obtener todos los schedules del portal
+  const schedules = await db
+    .select()
+    .from(availabilitySchedule)
+    .where(eq(availabilitySchedule.portalId, portalId))
+    .orderBy(asc(availabilitySchedule.name))
+
+  if (schedules.length === 0) return []
+
+  const scheduleIds = schedules.map((s) => s.id)
+
+  // Cargar intervalos y overrides de todos los schedules en 2 queries (no N+1)
+  const [intervals, overrides] = await Promise.all([
+    db
+      .select()
+      .from(availabilityInterval)
+      .where(inArray(availabilityInterval.scheduleId, scheduleIds))
+      .orderBy(asc(availabilityInterval.dayOfWeek), asc(availabilityInterval.startTime)),
+    db
+      .select()
+      .from(dateOverride)
+      .where(inArray(dateOverride.scheduleId, scheduleIds)),
+  ])
+
+  // Agrupar por scheduleId
+  return schedules.map((s) => ({
+    ...s,
+    intervals: intervals.filter((i) => i.scheduleId === s.id),
+    dateOverrides: overrides.filter((o) => o.scheduleId === s.id),
+  }))
+}
+
+/**
+ * Obtiene un schedule específico del portal con sus intervalos y overrides.
+ * Lanza 404 si no existe o no pertenece al portal.
+ */
+export async function getSchedule(portalId: string, scheduleId: string) {
+  const [schedule] = await db
+    .select()
+    .from(availabilitySchedule)
+    .where(and(eq(availabilitySchedule.id, scheduleId), eq(availabilitySchedule.portalId, portalId)))
+    .limit(1)
+
+  if (!schedule) throw Errors.notFound('Schedule no encontrado')
+
+  const [intervals, overrides] = await Promise.all([
+    db
+      .select()
+      .from(availabilityInterval)
+      .where(eq(availabilityInterval.scheduleId, scheduleId))
+      .orderBy(asc(availabilityInterval.dayOfWeek), asc(availabilityInterval.startTime)),
+    db
+      .select()
+      .from(dateOverride)
+      .where(eq(dateOverride.scheduleId, scheduleId)),
+  ])
+
+  return { ...schedule, intervals, dateOverrides: overrides }
+}
+
+/**
+ * Crea un nuevo schedule de disponibilidad.
+ * Si es el primero del owner, o si isDefault=true, lo marca como default
+ * y desactiva el default anterior (en transacción).
+ */
+export async function createSchedule(portalId: string, ownerId: string, input: CreateScheduleDTO) {
+  return db.transaction(async (tx) => {
+    // Verificar si ya existe algún schedule del owner
+    const existing = await tx
+      .select({ id: availabilitySchedule.id })
+      .from(availabilitySchedule)
+      .where(
+        and(eq(availabilitySchedule.portalId, portalId), eq(availabilitySchedule.ownerId, ownerId)),
+      )
+
+    // Es default si se pide explícitamente, o si no hay ningún schedule del owner todavía
+    const makeDefault = input.isDefault === true || existing.length === 0
+
+    if (makeDefault && existing.length > 0) {
+      // Desactivar el default anterior del owner
+      await tx
+        .update(availabilitySchedule)
+        .set({ isDefault: false })
+        .where(
+          and(
+            eq(availabilitySchedule.portalId, portalId),
+            eq(availabilitySchedule.ownerId, ownerId),
+          ),
+        )
+    }
+
+    const [row] = await tx
+      .insert(availabilitySchedule)
+      .values({ portalId, ownerId, name: input.name, timeZone: input.timeZone, isDefault: makeDefault })
+      .returning()
+
+    if (!row) throw Errors.internal('No se pudo crear el schedule')
+    return { ...row, intervals: [], dateOverrides: [] }
+  })
+}
+
+/**
+ * Actualiza nombre, timezone o isDefault de un schedule.
+ * Si isDefault=true, desactiva el default anterior del owner en transacción.
+ * Verifica que el schedule pertenece al portal antes de modificar.
+ */
+export async function updateSchedule(portalId: string, scheduleId: string, input: UpdateScheduleDTO) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(availabilitySchedule)
+      .where(and(eq(availabilitySchedule.id, scheduleId), eq(availabilitySchedule.portalId, portalId)))
+      .limit(1)
+
+    if (!existing) throw Errors.notFound('Schedule no encontrado')
+
+    // Si se está marcando como default, desactivar el anterior del mismo owner
+    if (input.isDefault === true && !existing.isDefault) {
+      await tx
+        .update(availabilitySchedule)
+        .set({ isDefault: false })
+        .where(
+          and(
+            eq(availabilitySchedule.portalId, portalId),
+            eq(availabilitySchedule.ownerId, existing.ownerId),
+          ),
+        )
+    }
+
+    const updateData: Partial<typeof availabilitySchedule.$inferInsert> = {}
+    if (input.name !== undefined) updateData.name = input.name
+    if (input.timeZone !== undefined) updateData.timeZone = input.timeZone
+    if (input.isDefault !== undefined) updateData.isDefault = input.isDefault
+
+    const [updated] = await tx
+      .update(availabilitySchedule)
+      .set(updateData)
+      .where(eq(availabilitySchedule.id, scheduleId))
+      .returning()
+
+    if (!updated) throw Errors.internal('No se pudo actualizar el schedule')
+
+    // Devolver con arrays embebidos
+    const [intervals, overrides] = await Promise.all([
+      tx
+        .select()
+        .from(availabilityInterval)
+        .where(eq(availabilityInterval.scheduleId, scheduleId))
+        .orderBy(asc(availabilityInterval.dayOfWeek), asc(availabilityInterval.startTime)),
+      tx.select().from(dateOverride).where(eq(dateOverride.scheduleId, scheduleId)),
+    ])
+
+    return { ...updated, intervals, dateOverrides: overrides }
+  })
+}
+
+/**
+ * Elimina un schedule del portal.
+ * Los intervalos y overrides se eliminan por CASCADE (onDelete: 'cascade' en el schema).
+ */
+export async function deleteSchedule(portalId: string, scheduleId: string): Promise<void> {
+  const res = await db
+    .delete(availabilitySchedule)
+    .where(and(eq(availabilitySchedule.id, scheduleId), eq(availabilitySchedule.portalId, portalId)))
+    .returning({ id: availabilitySchedule.id })
+
+  if (res.length === 0) throw Errors.notFound('Schedule no encontrado')
+}
+
+/**
+ * Verifica que un schedule pertenece al portal.
+ * Util helper interno para validar permisos antes de tocar hijos del schedule.
+ */
+async function assertScheduleOwnership(portalId: string, scheduleId: string): Promise<void> {
+  const [s] = await db
+    .select({ id: availabilitySchedule.id })
+    .from(availabilitySchedule)
+    .where(and(eq(availabilitySchedule.id, scheduleId), eq(availabilitySchedule.portalId, portalId)))
+    .limit(1)
+
+  if (!s) throw Errors.notFound('Schedule no encontrado')
+}
+
+/**
+ * Agrega un intervalo semanal a un schedule.
+ * Valida que endTime > startTime y que el schedule pertenece al portal.
+ */
+export async function addScheduleInterval(
+  portalId: string,
+  scheduleId: string,
+  input: CreateIntervalDTO,
+) {
+  // Verificar que el schedule pertenece al portal
+  await assertScheduleOwnership(portalId, scheduleId)
+
+  // Validar que endTime > startTime (la DB también lo enforce vía CHECK)
+  if (input.endTime <= input.startTime) {
+    throw Errors.badRequest('La hora de fin debe ser posterior a la de inicio')
+  }
+
+  const [row] = await db
+    .insert(availabilityInterval)
+    .values({
+      scheduleId,
+      dayOfWeek: input.dayOfWeek,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    })
+    .returning()
+
+  if (!row) throw Errors.internal('No se pudo agregar el intervalo')
+  return row
+}
+
+/**
+ * Reemplaza ATÓMICAMENTE todos los intervalos de un schedule.
+ * En una sola transacción: borra todos los existentes e inserta los nuevos.
+ * Útil para el guardado masivo del editor de horario semanal.
+ */
+export async function replaceScheduleIntervals(
+  portalId: string,
+  scheduleId: string,
+  input: ReplaceIntervalsDTO,
+) {
+  await assertScheduleOwnership(portalId, scheduleId)
+
+  // Validar cada intervalo antes de tocar la DB
+  for (const interval of input.intervals) {
+    if (interval.endTime <= interval.startTime) {
+      throw Errors.badRequest(
+        `Intervalo del día ${interval.dayOfWeek}: la hora de fin debe ser posterior a la de inicio`,
+      )
+    }
+  }
+
+  return db.transaction(async (tx) => {
+    // Borrar todos los intervalos existentes del schedule
+    await tx
+      .delete(availabilityInterval)
+      .where(eq(availabilityInterval.scheduleId, scheduleId))
+
+    if (input.intervals.length === 0) return []
+
+    // Insertar los nuevos intervalos
+    const rows = await tx
+      .insert(availabilityInterval)
+      .values(
+        input.intervals.map((i) => ({
+          scheduleId,
+          dayOfWeek: i.dayOfWeek,
+          startTime: i.startTime,
+          endTime: i.endTime,
+        })),
+      )
+      .returning()
+
+    return rows
+  })
+}
+
+/**
+ * Elimina un intervalo individual de un schedule.
+ * Verifica que el schedule pertenece al portal y que el intervalo existe.
+ */
+export async function deleteScheduleInterval(
+  portalId: string,
+  scheduleId: string,
+  intervalId: string,
+): Promise<void> {
+  await assertScheduleOwnership(portalId, scheduleId)
+
+  const res = await db
+    .delete(availabilityInterval)
+    .where(
+      and(eq(availabilityInterval.id, intervalId), eq(availabilityInterval.scheduleId, scheduleId)),
+    )
+    .returning({ id: availabilityInterval.id })
+
+  if (res.length === 0) throw Errors.notFound('Intervalo no encontrado')
+}
+
+/**
+ * Upsert de un date override para una fecha específica de un schedule.
+ * intervals=[] significa que el día está bloqueado.
+ * La constraint unique(scheduleId, date) garantiza que solo existe uno por fecha.
+ */
+export async function upsertDateOverride(
+  portalId: string,
+  scheduleId: string,
+  input: DateOverrideInputDTO,
+) {
+  await assertScheduleOwnership(portalId, scheduleId)
+
+  // Buscar si ya existe un override para esa fecha en el schedule
+  const [existing] = await db
+    .select()
+    .from(dateOverride)
+    .where(and(eq(dateOverride.scheduleId, scheduleId), eq(dateOverride.date, input.date)))
+    .limit(1)
+
+  if (existing) {
+    // Actualizar el override existente
+    const [updated] = await db
+      .update(dateOverride)
+      .set({ intervals: input.intervals })
+      .where(eq(dateOverride.id, existing.id))
+      .returning()
+
+    return updated!
+  }
+
+  // Crear un nuevo override
+  const [row] = await db
+    .insert(dateOverride)
+    .values({ scheduleId, date: input.date, intervals: input.intervals })
+    .returning()
+
+  if (!row) throw Errors.internal('No se pudo crear el override')
+  return row
+}
+
+/**
+ * Elimina un date override de un schedule.
+ * Verifica que el schedule pertenece al portal y que el override existe.
+ */
+export async function deleteDateOverride(
+  portalId: string,
+  scheduleId: string,
+  overrideId: string,
+): Promise<void> {
+  await assertScheduleOwnership(portalId, scheduleId)
+
+  const res = await db
+    .delete(dateOverride)
+    .where(and(eq(dateOverride.id, overrideId), eq(dateOverride.scheduleId, scheduleId)))
+    .returning({ id: dateOverride.id })
+
+  if (res.length === 0) throw Errors.notFound('Override no encontrado')
+}
+
+// ── Admin V2: Event Types (meetingType completo) ────────────────────────────────
+
+/**
+ * Mapea una fila de meetingType + hostIds al shape EventTypeV2 que espera el frontend.
+ */
+function toEventTypeV2(mt: typeof meetingType.$inferSelect, hosts: string[]) {
+  return {
+    id: mt.id,
+    portalId: mt.portalId,
+    ownerId: mt.ownerId,
+    slug: mt.slug,
+    name: mt.name,
+    durationMin: mt.durationMin,
+    kind: mt.kind,
+    poolingType: mt.poolingType,
+    color: mt.color,
+    secret: mt.secret,
+    description: mt.description,
+    isActive: mt.isActive,
+    locations: mt.locations,
+    customQuestions: mt.customQuestions,
+    startTimeIncrementMin: mt.startTimeIncrementMin,
+    minBookingNoticeMin: mt.minBookingNoticeMin,
+    bookingWindowType: mt.bookingWindowType,
+    bookingWindowDays: mt.bookingWindowDays,
+    bookingWindowStart: mt.bookingWindowStart,
+    bookingWindowEnd: mt.bookingWindowEnd,
+    bufferBeforeMin: mt.bufferBeforeMin,
+    bufferAfterMin: mt.bufferAfterMin,
+    dailyLimit: mt.dailyLimit,
+    maxInvitees: mt.maxInvitees,
+    availabilityScheduleId: mt.availabilityScheduleId,
+    hosts,
+  }
+}
+
+/**
+ * Lista todos los event types del portal (activos e inactivos) con sus hosts.
+ */
+export async function listEventTypesV2(portalId: string) {
+  const types = await db
+    .select()
+    .from(meetingType)
+    .where(eq(meetingType.portalId, portalId))
+    .orderBy(asc(meetingType.name))
+
+  if (types.length === 0) return []
+
+  const typeIds = types.map((t) => t.id)
+
+  // Cargar memberships en un solo query (evitar N+1)
+  const memberships = await db
+    .select({ meetingTypeId: eventMembership.meetingTypeId, hostId: eventMembership.hostId })
+    .from(eventMembership)
+    .where(inArray(eventMembership.meetingTypeId, typeIds))
+
+  return types.map((t) => {
+    const hosts = memberships.filter((m) => m.meetingTypeId === t.id).map((m) => m.hostId)
+    return toEventTypeV2(t, hosts)
+  })
+}
+
+/**
+ * Obtiene un event type del portal por ID con sus hosts.
+ * Lanza 404 si no existe o no pertenece al portal.
+ */
+export async function getEventTypeV2(portalId: string, id: string) {
+  const [mt] = await db
+    .select()
+    .from(meetingType)
+    .where(and(eq(meetingType.id, id), eq(meetingType.portalId, portalId)))
+    .limit(1)
+
+  if (!mt) throw Errors.notFound('Event type no encontrado')
+
+  const memberships = await db
+    .select({ hostId: eventMembership.hostId })
+    .from(eventMembership)
+    .where(eq(eventMembership.meetingTypeId, id))
+
+  return toEventTypeV2(mt, memberships.map((m) => m.hostId))
+}
+
+/**
+ * Crea un event type V2 con todos los campos.
+ * Para kind='group' inserta también las event_membership (hostIds) en transacción.
+ */
+export async function createEventTypeV2(
+  portalId: string,
+  ownerId: string,
+  input: CreateEventTypeV2DTO,
+) {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(meetingType)
+      .values({
+        portalId,
+        ownerId,
+        slug: input.slug ? slugify(input.slug) : slugify(input.name),
+        name: input.name,
+        durationMin: input.durationMin,
+        kind: input.kind ?? 'solo',
+        poolingType: input.poolingType ?? null,
+        color: input.color ?? '#3b82f6',
+        secret: input.secret ?? false,
+        description: input.description ?? null,
+        isActive: input.isActive ?? true,
+        locations: input.locations ?? [],
+        customQuestions: input.customQuestions ?? [],
+        startTimeIncrementMin: input.startTimeIncrementMin ?? 30,
+        minBookingNoticeMin: input.minBookingNoticeMin ?? 240,
+        bookingWindowType: input.bookingWindowType ?? 'rolling',
+        bookingWindowDays: input.bookingWindowDays ?? null,
+        bookingWindowStart: input.bookingWindowStart ?? null,
+        bookingWindowEnd: input.bookingWindowEnd ?? null,
+        bufferBeforeMin: input.bufferBeforeMin ?? 0,
+        bufferAfterMin: input.bufferAfterMin ?? 0,
+        dailyLimit: input.dailyLimit ?? null,
+        maxInvitees: input.maxInvitees ?? 1,
+        availabilityScheduleId: input.availabilityScheduleId ?? null,
+        // bufferMin se mantiene para compatibilidad con el schema legacy
+        bufferMin: 0,
+      })
+      .returning()
+
+    if (!row) throw Errors.internal('No se pudo crear el event type')
+
+    // Para meetings grupales, insertar las memberships
+    const hostIds = input.hostIds ?? []
+    if (hostIds.length > 0) {
+      await tx
+        .insert(eventMembership)
+        .values(hostIds.map((hostId) => ({ meetingTypeId: row.id, hostId })))
+    }
+
+    return toEventTypeV2(row, hostIds)
+  })
+}
+
+/**
+ * Actualiza parcialmente un event type V2.
+ * Si vienen hostIds y el kind es group, reemplaza las memberships en transacción.
+ */
+export async function updateEventTypeV2(
+  portalId: string,
+  id: string,
+  input: UpdateEventTypeV2DTO,
+) {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(meetingType)
+      .where(and(eq(meetingType.id, id), eq(meetingType.portalId, portalId)))
+      .limit(1)
+
+    if (!existing) throw Errors.notFound('Event type no encontrado')
+
+    // Construir el objeto de actualización solo con los campos presentes
+    const updateData: Partial<typeof meetingType.$inferInsert> = {}
+    if (input.name !== undefined) updateData.name = input.name
+    if (input.slug !== undefined) updateData.slug = slugify(input.slug)
+    if (input.durationMin !== undefined) updateData.durationMin = input.durationMin
+    if (input.kind !== undefined) updateData.kind = input.kind
+    if (input.poolingType !== undefined) updateData.poolingType = input.poolingType ?? null
+    if (input.color !== undefined) updateData.color = input.color
+    if (input.secret !== undefined) updateData.secret = input.secret
+    if (input.description !== undefined) updateData.description = input.description
+    if (input.isActive !== undefined) updateData.isActive = input.isActive
+    if (input.locations !== undefined) updateData.locations = input.locations
+    if (input.customQuestions !== undefined) updateData.customQuestions = input.customQuestions
+    if (input.startTimeIncrementMin !== undefined) updateData.startTimeIncrementMin = input.startTimeIncrementMin
+    if (input.minBookingNoticeMin !== undefined) updateData.minBookingNoticeMin = input.minBookingNoticeMin
+    if (input.bookingWindowType !== undefined) updateData.bookingWindowType = input.bookingWindowType
+    if (input.bookingWindowDays !== undefined) updateData.bookingWindowDays = input.bookingWindowDays
+    if (input.bookingWindowStart !== undefined) updateData.bookingWindowStart = input.bookingWindowStart
+    if (input.bookingWindowEnd !== undefined) updateData.bookingWindowEnd = input.bookingWindowEnd
+    if (input.bufferBeforeMin !== undefined) updateData.bufferBeforeMin = input.bufferBeforeMin
+    if (input.bufferAfterMin !== undefined) updateData.bufferAfterMin = input.bufferAfterMin
+    if (input.dailyLimit !== undefined) updateData.dailyLimit = input.dailyLimit
+    if (input.maxInvitees !== undefined) updateData.maxInvitees = input.maxInvitees
+    if (input.availabilityScheduleId !== undefined) updateData.availabilityScheduleId = input.availabilityScheduleId
+
+    const [updated] = await tx
+      .update(meetingType)
+      .set(updateData)
+      .where(eq(meetingType.id, id))
+      .returning()
+
+    if (!updated) throw Errors.internal('No se pudo actualizar el event type')
+
+    // Si vienen hostIds, reemplazar las memberships en la misma transacción
+    let hostIds: string[]
+    if (input.hostIds !== undefined) {
+      await tx.delete(eventMembership).where(eq(eventMembership.meetingTypeId, id))
+
+      if (input.hostIds.length > 0) {
+        await tx
+          .insert(eventMembership)
+          .values(input.hostIds.map((hostId) => ({ meetingTypeId: id, hostId })))
+      }
+
+      hostIds = input.hostIds
+    } else {
+      // Mantener los hosts actuales
+      const memberships = await tx
+        .select({ hostId: eventMembership.hostId })
+        .from(eventMembership)
+        .where(eq(eventMembership.meetingTypeId, id))
+
+      hostIds = memberships.map((m) => m.hostId)
+    }
+
+    return toEventTypeV2(updated, hostIds)
+  })
+}
+
+/**
+ * Elimina un event type del portal.
+ * Lanza 404 si no existe o no pertenece al portal.
+ */
+export async function deleteEventTypeV2(portalId: string, id: string): Promise<void> {
+  const res = await db
+    .delete(meetingType)
+    .where(and(eq(meetingType.id, id), eq(meetingType.portalId, portalId)))
+    .returning({ id: meetingType.id })
+
+  if (res.length === 0) throw Errors.notFound('Event type no encontrado')
+}
+
+// ── Admin V2: Bookings admin ────────────────────────────────────────────────────
+
+/**
+ * Lista los bookings del portal en un rango de fechas (vista semanal del admin).
+ * Filtra por startsAt en [from 00:00:00 UTC, to 23:59:59 UTC].
+ * Incluye el nombre y color del meeting type para la grilla semanal.
+ */
+export async function listWeekBookings(portalId: string, from: string, to: string) {
+  const fromDate = new Date(`${from}T00:00:00.000Z`)
+  const toDate = new Date(`${to}T23:59:59.999Z`)
+
+  return db
+    .select({
+      id: booking.id,
+      guestName: booking.guestName,
+      guestEmail: booking.guestEmail,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      status: booking.status,
+      meetLink: booking.meetLink,
+      inviteeTimeZone: booking.inviteeTimeZone,
+      meetingTypeName: meetingType.name,
+      meetingTypeColor: meetingType.color,
+    })
+    .from(booking)
+    .innerJoin(meetingType, eq(booking.meetingTypeId, meetingType.id))
+    .where(
+      and(
+        eq(meetingType.portalId, portalId),
+        gte(booking.startsAt, fromDate),
+        lte(booking.startsAt, toDate),
+      ),
+    )
+    .orderBy(asc(booking.startsAt))
+}
+
+/**
+ * Cancela un booking desde el panel de admin (sin token de invitado).
+ * Verifica que el booking pertenece al portal del admin antes de cancelar.
+ * Limpia cancelToken y rescheduleToken al cancelar.
+ */
+export async function cancelAdminBooking(portalId: string, bookingId: string) {
+  // Buscar el booking y verificar que pertenece a un meeting_type del portal del admin
+  const [existing] = await db
+    .select({
+      id: booking.id,
+      status: booking.status,
+      portalId: meetingType.portalId,
+    })
+    .from(booking)
+    .innerJoin(meetingType, eq(booking.meetingTypeId, meetingType.id))
+    .where(eq(booking.id, bookingId))
+    .limit(1)
+
+  if (!existing) throw Errors.notFound('Booking no encontrado')
+
+  // Verificar que el booking pertenece al portal del admin que realiza la acción
+  if (existing.portalId !== portalId) throw Errors.notFound('Booking no encontrado')
+
+  if (existing.status === 'cancelled') {
+    throw Errors.conflict('El booking ya está cancelado')
+  }
+
+  // Cancelar: limpiar tokens para que no puedan usarse post-cancelación
+  const [cancelled] = await db
+    .update(booking)
+    .set({
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      cancelToken: null,
+      rescheduleToken: null,
+    })
+    .where(eq(booking.id, bookingId))
+    .returning({ id: booking.id })
+
+  return { bookingId: cancelled!.id }
 }
 
 // ── Bookings (reuniones agendadas) ─────────────────────

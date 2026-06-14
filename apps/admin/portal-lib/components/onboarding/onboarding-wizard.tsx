@@ -212,6 +212,9 @@ export function OnboardingWizard() {
   // pre-cargados (nombre/email vienen del CRM y quedan de solo lectura).
   const [token, setToken] = useState<string | null>(null)
   const [prefilled, setPrefilled] = useState(false)
+  // `prefillPending`: true mientras se resuelve el token de invitación.
+  // Solo aplica cuando hay `?t=` en la URL; sin token empieza en false (sin bloqueo).
+  const [prefillPending, setPrefillPending] = useState(false)
   const prefersReducedMotion = useReducedMotion()
 
   // Restaurar progreso guardado
@@ -231,6 +234,8 @@ export function OnboardingWizard() {
     const t = new URLSearchParams(window.location.search).get('t')
     if (!t) return
     setToken(t)
+    // Hay token → bloqueamos "Empezar" hasta que el resolve termine (o falle).
+    setPrefillPending(true)
     ;(async () => {
       try {
         const res = await fetch(`${API_URL}/api/public/onboarding/resolve?t=${encodeURIComponent(t)}`)
@@ -248,6 +253,9 @@ export function OnboardingWizard() {
         setPrefilled(true)
       } catch {
         /* token inválido/expirado: seguimos como funnel frío */
+      } finally {
+        // Sea éxito o error, desbloqueamos el botón "Empezar".
+        setPrefillPending(false)
       }
     })()
   }, [])
@@ -361,16 +369,29 @@ export function OnboardingWizard() {
             Son 8 pasos cortos (2 minutos). Con esto entendemos qué necesitás y te preparamos la
             mejor propuesta. Tu progreso se guarda solo.
           </p>
+          {/* Botón "Empezar" deshabilitado mientras se pre-llena el token de
+              invitación. Sin token (funnel frío) `prefillPending` es false → no bloquea. */}
           <button
             type="button"
             onClick={() => {
               setDirection(1)
               setStep(1)
             }}
-            className="mt-8 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50"
+            disabled={prefillPending}
+            aria-busy={prefillPending}
+            className="mt-8 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 disabled:cursor-wait disabled:opacity-70"
           >
-            Empezar
-            <ArrowRight className="h-4 w-4" />
+            {prefillPending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Cargando…
+              </>
+            ) : (
+              <>
+                Empezar
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
           </button>
         </motion.div>
       </Shell>
@@ -735,6 +756,12 @@ export function OnboardingWizard() {
           </p>
         )}
 
+        {/* Anuncio de envío para lectores de pantalla. El botón ya tiene el Loader2
+            visual; este span invisible garantiza que AT anuncie el cambio de estado. */}
+        <span role="status" className="sr-only">
+          {submitting ? 'Enviando formulario…' : ''}
+        </span>
+
         {/* Nav: dos pills glass con badge de ícono (keycap) a la izquierda, al
             estilo de la referencia (Back · Skip). El derecho adapta su label
             según el paso: Saltar (opcionales 5/6) · Enviar (último) · Continuar. */}
@@ -786,8 +813,10 @@ function Shell({ children }: { children: React.ReactNode }) {
           del stepper y los íconos). Full-screen con origen arriba-izquierda: el
           punto brillante queda en la esquina superior-izquierda sobre el fondo
           negro a la izquierda de la card (como la referencia). Colores tomados
-          de reactbits: rayColor1=#fdfdfd · rayColor2=#636161. */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
+          de reactbits: rayColor1=#fdfdfd · rayColor2=#636161.
+          `backgroundColor` como fallback mientras el shader WebGL compila:
+          evita el flash blanco/transparente del canvas antes de que GL inicie. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-0" style={{ backgroundColor: '#000' }}>
         <SideRays
           speed={2.5}
           rayColor1="#fdfdfd"

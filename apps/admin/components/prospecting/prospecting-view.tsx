@@ -51,6 +51,7 @@ import {
   EmptyDescription,
 } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
+import { CardGridSkeleton } from '@/components/ui/skeletons'
 
 const PROPOSAL_TYPE_LABEL: Record<ProspectProposalType, string> = {
   automation: 'Automatización',
@@ -456,13 +457,18 @@ export function ProspectingView({ embedded = false }: { embedded?: boolean } = {
         </CardContent>
       </Card>
 
-      {/* Historial acumulado de prospectos (deduplicado) */}
-      {!prospectsLoading && visible.length > 0 && (
-        <p className="mb-3 text-sm text-muted-foreground">
-          {visible.length} prospecto{visible.length === 1 ? '' : 's'} en tu pipeline (sin duplicados)
-        </p>
-      )}
-      {visible.length === 0 ? (
+      {/* Historial acumulado de prospectos (deduplicado).
+          Orden de evaluación:
+          1. Cargando → CardGridSkeleton (NO mostrar empty state, evita confusión).
+          2. Cargado y sin prospectos → Empty state.
+          3. Cargado y con prospectos → masonry de cards. */}
+      {prospectsLoading ? (
+        <CardGridSkeleton
+          count={6}
+          label="Cargando prospectos…"
+          cardClassName="h-28"
+        />
+      ) : visible.length === 0 ? (
         <Empty>
           <EmptyHeader>
             <EmptyIllustration icon={Target} />
@@ -474,14 +480,20 @@ export function ProspectingView({ embedded = false }: { embedded?: boolean } = {
           </EmptyHeader>
         </Empty>
       ) : (
-        // Masonry de DOS columnas INDEPENDIENTES: al expandir un acordeón solo
-        // se mueve la card de abajo en la MISMA columna, no la fila entera.
-        // Reparto por paridad para conservar el orden visual (0 arriba-izq, 1
-        // arriba-der, 2 debajo del 0, …).
-        <div className="grid items-start gap-4 lg:grid-cols-2">
-          <div className="flex flex-col gap-4">{visible.filter((_, i) => i % 2 === 0).map(renderCard)}</div>
-          <div className="flex flex-col gap-4">{visible.filter((_, i) => i % 2 === 1).map(renderCard)}</div>
-        </div>
+        /* Contador de prospectos — visible solo cuando hay datos */
+        <>
+          <p className="mb-3 text-sm text-muted-foreground">
+            {visible.length} prospecto{visible.length === 1 ? '' : 's'} en tu pipeline (sin duplicados)
+          </p>
+          {/* Masonry de DOS columnas INDEPENDIENTES: al expandir un acordeón solo
+              se mueve la card de abajo en la MISMA columna, no la fila entera.
+              Reparto por paridad para conservar el orden visual (0 arriba-izq, 1
+              arriba-der, 2 debajo del 0, …). */}
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <div className="flex flex-col gap-4">{visible.filter((_, i) => i % 2 === 0).map(renderCard)}</div>
+            <div className="flex flex-col gap-4">{visible.filter((_, i) => i % 2 === 1).map(renderCard)}</div>
+          </div>
+        </>
       )}
     </div>
   )

@@ -33,7 +33,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
+import { SkeletonGroup } from '@/components/ui/loading-region'
 import { Skeleton } from '@/components/ui/skeleton'
+import { TableSkeleton, ListSkeleton } from '@/components/ui/skeletons'
 import { RegisterPaymentDialog } from '@/app/admin/(dashboard)/finance/[section]/sections/dialogs'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
@@ -62,23 +64,77 @@ function Divider() {
   return <div className="h-px w-full bg-border" />
 }
 
+/**
+ * Skeleton fiel al layout real de la factura:
+ * - Breadcrumb (barra corta)
+ * - Layout 2 columnas: aside izq (header card + montos + fechas + acciones)
+ *   / panel der (tabla de ítems + lista de pagos)
+ * Imita dimensiones reales para CLS ≈ 0.
+ */
 function PageSkeleton() {
   return (
-    <div className="p-6">
-      <Skeleton className="mb-6 h-5 w-32 rounded-lg" />
+    <SkeletonGroup label="Cargando factura…" className="p-6">
+      {/* Breadcrumb */}
+      <Skeleton className="mb-6 h-4 w-28 rounded" />
+
       <div className="flex flex-col gap-6 lg:flex-row">
+        {/* ── Aside izquierdo: header + montos + fechas + acciones ── */}
         <div className="w-full space-y-4 lg:w-72 lg:flex-shrink-0">
-          <Skeleton className="h-32 rounded-2xl" />
-          <Skeleton className="h-40 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
+          {/* Header card: número, empresa, badge estado */}
+          <div className="space-y-2 rounded-2xl border bg-card p-5">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-7 w-3/4" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+          {/* Montos: grid 2×2 de tiles */}
+          <div className="rounded-2xl border bg-card p-5 space-y-3">
+            <Skeleton className="h-3 w-12" />
+            <div className="grid grid-cols-2 gap-3">
+              <Skeleton className="h-14 rounded-xl" />
+              <Skeleton className="h-14 rounded-xl" />
+              <Skeleton className="col-span-2 h-14 rounded-xl" />
+              <Skeleton className="col-span-2 h-14 rounded-xl" />
+            </div>
+          </div>
+          {/* Fechas */}
+          <div className="rounded-2xl border bg-card p-5 space-y-3">
+            <Skeleton className="h-3 w-12" />
+            <div className="flex gap-6">
+              <div className="space-y-1.5">
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+              <div className="space-y-1.5">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+            </div>
+          </div>
+          {/* Acciones: select + 3 botones */}
+          <div className="rounded-2xl border bg-card p-5 space-y-3">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-8 w-full rounded-lg" />
+            <Skeleton className="h-8 w-full rounded-lg" />
+            <Skeleton className="h-8 w-full rounded-lg" />
+            <Skeleton className="h-8 w-full rounded-lg" />
+          </div>
         </div>
+
+        {/* ── Panel derecho: ítems + pagos ── */}
         <div className="min-w-0 flex-1 space-y-4">
-          <Skeleton className="h-12 rounded-2xl" />
-          <Skeleton className="h-48 rounded-2xl" />
-          <Skeleton className="h-40 rounded-2xl" />
+          {/* Tabla de ítems (4 columnas: descripción, cant., precio, importe) */}
+          <div className="rounded-2xl border bg-card p-5 space-y-3">
+            <Skeleton className="h-3 w-20" />
+            <TableSkeleton columns={4} rows={4} label="Cargando ítems…" />
+          </div>
+          {/* Lista de pagos (4 columnas: monto, método, fecha, referencia) */}
+          <div className="rounded-2xl border bg-card p-5 space-y-3">
+            <Skeleton className="h-3 w-16" />
+            <ListSkeleton rows={3} rowClassName="h-12 rounded-xl" label="Cargando pagos…" />
+          </div>
         </div>
       </div>
-    </div>
+    </SkeletonGroup>
   )
 }
 

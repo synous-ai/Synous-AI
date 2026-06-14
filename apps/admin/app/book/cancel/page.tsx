@@ -52,12 +52,16 @@ export default function CancelPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-lg text-center">
+      {/* aria-live="polite": anuncia el cambio de contenido (cargando → éxito/error)
+          a lectores de pantalla sin interrumpir lo que ya se está leyendo. */}
+      <div aria-live="polite" className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-lg text-center">
         {status === 'loading' && (
-          <>
+          /* role="status": el spinner es una región de estado activo, no solo
+             decorativa; permite que AT describa el estado en curso. */
+          <div role="status">
             <Loader2 className="mx-auto mb-4 h-12 w-12 animate-spin text-gray-400" />
             <p className="text-gray-600">Cancelando tu reserva...</p>
-          </>
+          </div>
         )}
 
         {status === 'success' && (

@@ -23,6 +23,8 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ListSkeleton } from '@/components/ui/skeletons'
+import { SkeletonGroup } from '@/components/ui/loading-region'
 import { TaskDialog } from '@/components/tasks/task-dialog'
 import { DataPagination } from '@/components/ui/data-pagination'
 import { usePagination } from '@/lib/use-pagination'
@@ -259,10 +261,58 @@ export default function FollowUpsPage() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-6">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-xl" />
-          ))}
+        /* Skeleton fiel: imita la estructura real —
+           Card con 3 secciones (Vencidos / Hoy / Próximos 7d) + grilla de 2 deals. */
+        <div className="space-y-8">
+          {/* Card de follow-ups con 3 secciones */}
+          <SkeletonGroup label="Cargando seguimientos…" className="rounded-2xl border bg-card p-6 space-y-6">
+            {/* Sección Vencidos */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-5 w-6 rounded-full" />
+              </div>
+              <ListSkeleton rows={3} rowClassName="h-12 rounded-xl" label="Cargando vencidos…" />
+            </div>
+            {/* Sección Hoy */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-4 w-10" />
+              </div>
+              <ListSkeleton rows={2} rowClassName="h-12 rounded-xl" label="Cargando tareas de hoy…" />
+            </div>
+            {/* Sección Próximos 7 días */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+              <ListSkeleton rows={2} rowClassName="h-12 rounded-xl" label="Cargando próximos…" />
+            </div>
+          </SkeletonGroup>
+
+          {/* Grilla de 2 cards de deals que necesitan atención */}
+          <div>
+            <Skeleton className="h-6 w-52 mb-4" />
+            <div className="grid gap-6 lg:grid-cols-2">
+              <SkeletonGroup label="Cargando deals sin próxima acción…" className="rounded-2xl border bg-card p-6 space-y-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-4 w-36" />
+                </div>
+                <ListSkeleton rows={3} rowClassName="h-12 rounded-xl" />
+              </SkeletonGroup>
+              <SkeletonGroup label="Cargando deals sin actividad reciente…" className="rounded-2xl border bg-card p-6 space-y-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-4 w-44" />
+                </div>
+                <ListSkeleton rows={3} rowClassName="h-12 rounded-xl" />
+              </SkeletonGroup>
+            </div>
+          </div>
         </div>
       ) : totalFollowUps === 0 && noNextActionCount === 0 && staleCount === 0 ? (
         <Card className="rounded-2xl">

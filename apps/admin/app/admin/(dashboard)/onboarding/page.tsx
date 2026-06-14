@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
-import { Skeleton } from '@/components/ui/skeleton'
+import { CardGridSkeleton } from '@/components/ui/skeletons'
 
 // Labels alineados a la oferta de software a medida (ver onboarding.schema.ts).
 const PROJECT_TYPE: Record<string, string> = {
@@ -164,10 +164,8 @@ export default function OnboardingPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Skeleton className="h-48 w-full rounded-xl" />
-          <Skeleton className="h-48 w-full rounded-xl" />
-        </div>
+        // CardGridSkeleton: grilla de submissions de onboarding (nombre/email/tipo/respuestas), 2 col + cards h-48
+        <CardGridSkeleton count={4} label="Cargando submissions…" className="gap-4 lg:grid-cols-2" cardClassName="h-48" />
       ) : !data || data.length === 0 ? (
         <Empty>
           <EmptyHeader>

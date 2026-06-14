@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -52,7 +52,7 @@ import {
   formatCustomField,
 } from '@/components/contact-detail/contact-extras'
 import { sourceLabel } from '@/lib/labels'
-import { Skeleton } from '@/components/ui/skeleton'
+import { DetailViewSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { StickyNote, ListTodo, History } from 'lucide-react'
@@ -108,23 +108,6 @@ export function ContactDetailView({
   const router = useRouter()
 
   const { data, isLoading } = useContactDetail(scope, id)
-
-  // [NAV DEBUG] medir click → render → data. Quitar cuando entendamos el timing.
-  useEffect(() => {
-    const t0 = (window as Window & { __navT0?: number }).__navT0
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[NAV DEBUG] 🧩 ContactDetailView MONTADO (ruta+JS listos)${t0 ? ` → +${Math.round(performance.now() - t0)}ms desde el click` : ''}`,
-    )
-  }, [])
-  useEffect(() => {
-    if (!data) return
-    const t0 = (window as Window & { __navT0?: number }).__navT0
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[NAV DEBUG] ✅ DATA del detalle cargada (API respondió)${t0 ? ` → +${Math.round(performance.now() - t0)}ms desde el click` : ''}`,
-    )
-  }, [data])
 
   const { data: companies = [] } = useCompanies()
   const { data: users = [] } = useUsers()
@@ -238,11 +221,18 @@ export function ContactDetailView({
   ]
 
   // ── Loading state ──────────────────────────────────────────────────────────
+  // Usa DetailViewSkeleton para imitar fielmente los 2 paneles del layout real
+  // (aside avatar+título+acciones+campos / panel derecho con tabs+contenido).
+  // 7 tabs = activity / notas / tareas / deals / onboarding / propuestas / historial.
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6 p-6 lg:flex-row">
-        <Skeleton className="h-96 w-full rounded-2xl lg:w-80 lg:flex-shrink-0" />
-        <Skeleton className="h-96 min-w-0 flex-1 rounded-2xl" />
+      <div className="p-6">
+        <DetailViewSkeleton
+          label="Cargando detalle…"
+          fields={6}
+          tabs={7}
+          actions={3}
+        />
       </div>
     )
   }

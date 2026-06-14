@@ -59,6 +59,7 @@ import { proposalAdminRoutes, proposalPublicRoutes } from './modules/proposals/p
 import { brandingAdminRoutes, brandingPublicRoutes, brandingClientRoutes } from './modules/branding/branding.router'
 import { onboardingAdminRoutes, onboardingPublicRoutes } from './modules/onboarding/onboarding.router'
 import { calendarPublicRoutes } from './modules/calendar/calendar.public.router'
+import { calendarAdminRoutes } from './modules/calendar/calendar.admin.router'
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
@@ -178,6 +179,7 @@ export function buildApp(): FastifyInstance {
   app.register(dealsRoutes, { prefix: '/api/deals' })
   app.register(pipelinesRoutes, { prefix: '/api/pipelines' })
   app.register(calendarRoutes, { prefix: '/api/calendar' })
+  app.register(calendarAdminRoutes, { prefix: '/api/calendar' })
   app.register(usersRoutes, { prefix: '/api/users' })
   app.register(settingsRoutes, { prefix: '/api/settings' })
   app.register(deliverablesRoutes, { prefix: '/api/deliverables' })

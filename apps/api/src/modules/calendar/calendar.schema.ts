@@ -93,3 +93,125 @@ export const CreateAvailabilityRuleSchema = z.object({
   timeZone: z.string().optional(),
 })
 export type CreateAvailabilityRuleDTO = z.infer<typeof CreateAvailabilityRuleSchema>
+
+// ── Schemas V2: Availability Schedules ─────────────────────────────────────────
+
+/** Crea un schedule de disponibilidad nombrado. */
+export const CreateScheduleSchema = z.object({
+  name: z.string().min(1, 'El nombre es requerido'),
+  timeZone: z.string().min(1, 'La zona horaria es requerida'),
+  isDefault: z.boolean().optional(),
+})
+export type CreateScheduleDTO = z.infer<typeof CreateScheduleSchema>
+
+/** Actualiza parcialmente un schedule. */
+export const UpdateScheduleSchema = CreateScheduleSchema.partial()
+export type UpdateScheduleDTO = z.infer<typeof UpdateScheduleSchema>
+
+/** Params para rutas que reciben scheduleId. */
+export const ScheduleParamSchema = z.object({
+  scheduleId: z.string().min(1),
+})
+
+/** Params para rutas que reciben scheduleId + intervalId. */
+export const ScheduleIntervalParamSchema = z.object({
+  scheduleId: z.string().min(1),
+  intervalId: z.string().min(1),
+})
+
+/** Params para rutas que reciben scheduleId + overrideId. */
+export const ScheduleOverrideParamSchema = z.object({
+  scheduleId: z.string().min(1),
+  overrideId: z.string().min(1),
+})
+
+/** Un único intervalo semanal: día + hora de inicio y fin. */
+export const IntervalInputSchema = z.object({
+  dayOfWeek: z.number().int().min(0).max(6),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),
+})
+export type IntervalInputDTO = z.infer<typeof IntervalInputSchema>
+
+/** Body para agregar un intervalo individual a un schedule. */
+export const CreateIntervalSchema = IntervalInputSchema
+export type CreateIntervalDTO = z.infer<typeof CreateIntervalSchema>
+
+/** Body para reemplazar atómicamente todos los intervalos de un schedule. */
+export const ReplaceIntervalsSchema = z.object({
+  intervals: z.array(IntervalInputSchema),
+})
+export type ReplaceIntervalsDTO = z.infer<typeof ReplaceIntervalsSchema>
+
+/** Un rango horario de un date override: { from: 'HH:MM', to: 'HH:MM' }. */
+const TimeRangeSchema = z.object({
+  from: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),
+  to: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),
+})
+
+/** Body para upsert de un date override. intervals=[] bloquea el día. */
+export const DateOverrideInputSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD'),
+  intervals: z.array(TimeRangeSchema),
+})
+export type DateOverrideInputDTO = z.infer<typeof DateOverrideInputSchema>
+
+// ── Schemas V2: Event Types ────────────────────────────────────────────────────
+
+/**
+ * Pregunta personalizada del formulario de booking.
+ * Se almacena en la columna customQuestions (jsonb).
+ */
+const CustomQuestionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  type: z.enum(['text', 'textarea', 'select', 'phone']),
+  required: z.boolean(),
+  options: z.array(z.string()).optional(),
+})
+
+/** Locación de reunión configurada en el event type. */
+const MeetingLocationSchema = z.object({
+  type: z.enum(['video', 'phone', 'in_person', 'custom']),
+  value: z.string().optional(),
+})
+
+/** Body para crear un event type V2 con todos los campos. */
+export const CreateEventTypeV2Schema = z.object({
+  name: z.string().min(1, 'El nombre es requerido'),
+  slug: z.string().optional(),
+  durationMin: z.number().int().positive(),
+  kind: z.enum(['solo', 'group']).optional().default('solo'),
+  poolingType: z.enum(['collective']).nullable().optional(),
+  color: z.string().optional().default('#3b82f6'),
+  secret: z.boolean().optional().default(false),
+  description: z.string().optional(),
+  isActive: z.boolean().optional().default(true),
+  locations: z.array(MeetingLocationSchema).optional().default([]),
+  customQuestions: z.array(CustomQuestionSchema).optional().default([]),
+  startTimeIncrementMin: z.number().int().positive().optional().default(30),
+  minBookingNoticeMin: z.number().int().min(0).optional().default(240),
+  bookingWindowType: z.enum(['rolling', 'range', 'unlimited']).optional().default('rolling'),
+  bookingWindowDays: z.number().int().positive().nullable().optional(),
+  bookingWindowStart: z.string().nullable().optional(),
+  bookingWindowEnd: z.string().nullable().optional(),
+  bufferBeforeMin: z.number().int().min(0).optional().default(0),
+  bufferAfterMin: z.number().int().min(0).optional().default(0),
+  dailyLimit: z.number().int().positive().nullable().optional(),
+  maxInvitees: z.number().int().positive().optional(),
+  availabilityScheduleId: z.string().nullable().optional(),
+  hostIds: z.array(z.string()).optional(),
+})
+export type CreateEventTypeV2DTO = z.infer<typeof CreateEventTypeV2Schema>
+
+/** Body para actualizar parcialmente un event type V2. */
+export const UpdateEventTypeV2Schema = CreateEventTypeV2Schema.partial()
+export type UpdateEventTypeV2DTO = z.infer<typeof UpdateEventTypeV2Schema>
+
+// ── Schemas V2: Bookings admin ─────────────────────────────────────────────────
+
+/** Query params para la vista semanal de bookings del admin. */
+export const WeekBookingsQuerySchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD'),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD'),
+})

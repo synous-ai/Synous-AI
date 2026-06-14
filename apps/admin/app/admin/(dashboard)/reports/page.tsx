@@ -467,19 +467,140 @@ import {
 } from '@/components/ui/table'
 import { DataPagination } from '@/components/ui/data-pagination'
 import { usePagination } from '@/lib/use-pagination'
+import { TableSkeleton } from '@/components/ui/skeletons'
+import { SkeletonGroup } from '@/components/ui/loading-region'
 
+/**
+ * ReportsSkeleton — imita la estructura REAL de la página de reportes:
+ *  - 4 KPI pills: grid-cols-2 sm:grid-cols-4
+ *  - Closed Won: 2 celdas side-by-side
+ *  - Funnel: barras horizontales (simulación del BarChart vertical)
+ *  - 2 columnas: Deals en Riesgo (lista) + Conversión por Fuente (barras + tabla)
+ *  - Actividad por usuario: TableSkeleton con thead + 5 filas
+ */
 function ReportsSkeleton() {
   return (
     <div className="space-y-8 p-6">
+      {/* Título */}
       <div className="space-y-2">
         <Skeleton className="h-3 w-40" />
         <Skeleton className="h-8 w-32" />
       </div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+
+      {/* 4 KPI pills — grid-cols-2 sm:grid-cols-4 igual que el real */}
+      <SkeletonGroup label="Cargando resumen del período…" className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-xl border bg-card px-5 py-4 space-y-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+        ))}
+      </SkeletonGroup>
+
+      {/* Closed Won — 2 celdas */}
+      <SkeletonGroup label="Cargando cerrados ganados…" className="rounded-xl border bg-card p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-4 w-4 rounded" />
+          <Skeleton className="h-4 w-36" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-xl bg-accent/40 px-4 py-3 space-y-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-9 w-16" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+          <div className="rounded-xl bg-signal/10 px-4 py-3 space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+        </div>
+      </SkeletonGroup>
+
+      {/* Funnel — barras horizontales simuladas */}
+      <SkeletonGroup label="Cargando embudo de pipeline…" className="rounded-xl border bg-card p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-4 rounded" />
+            <Skeleton className="h-4 w-44" />
+          </div>
+          <div className="space-y-1 text-right">
+            <Skeleton className="h-6 w-10 ml-auto" />
+            <Skeleton className="h-3 w-14 ml-auto" />
+          </div>
+        </div>
+        {/* Barras horizontales que imitan el BarChart layout="vertical" */}
+        <div className="space-y-3 pt-2">
+          {[85, 60, 45, 30, 70].map((w, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="h-3 w-32 shrink-0" />
+              <Skeleton className="h-6 rounded-r-sm" style={{ width: `${w}%` }} />
+            </div>
+          ))}
+        </div>
+      </SkeletonGroup>
+
+      {/* 2 columnas: Riesgo + Conversión */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Deals en Riesgo — lista de filas */}
+        <SkeletonGroup label="Cargando deals en riesgo…" className="rounded-xl border bg-card p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-4 rounded" />
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-5 w-8 rounded-full ml-auto" />
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-2.5">
+                <div className="space-y-1">
+                  <Skeleton className="h-3.5 w-32" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+                <div className="space-y-1 text-right">
+                  <Skeleton className="h-3.5 w-16 ml-auto" />
+                  <Skeleton className="h-3 w-12 ml-auto" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </SkeletonGroup>
+
+        {/* Conversión por Fuente — barras verticales + filas de tabla */}
+        <SkeletonGroup label="Cargando conversión por fuente…" className="rounded-xl border bg-card p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-4 rounded" />
+            <Skeleton className="h-4 w-40" />
+          </div>
+          {/* Mini chart de barras verticales */}
+          <div className="flex items-end gap-3 h-[120px] px-2">
+            {[70, 40, 85, 55].map((h, i) => (
+              <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                <Skeleton className="w-full rounded-t-sm" style={{ height: `${h}%` }} />
+                <Skeleton className="h-3 w-10" />
+              </div>
+            ))}
+          </div>
+          {/* Filas de tabla */}
+          <div className="space-y-1.5 pt-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-3 w-8 ml-auto" />
+                <Skeleton className="h-3 w-8" />
+                <Skeleton className="h-5 w-10 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </SkeletonGroup>
       </div>
-      <Skeleton className="h-48 rounded-xl" />
-      <Skeleton className="h-72 rounded-xl" />
+
+      {/* Actividad por usuario — tabla completa con thead */}
+      <TableSkeleton
+        columns={6}
+        rows={5}
+        label="Cargando actividad por usuario…"
+      />
     </div>
   )
 }

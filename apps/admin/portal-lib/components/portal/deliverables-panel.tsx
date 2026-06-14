@@ -14,6 +14,7 @@ import {
   Loader2,
   FileText,
 } from 'lucide-react'
+import { CardListSkeleton } from '@portal/components/ui/skeletons'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -164,12 +165,7 @@ export function DeliverablesPanel() {
   const deliverables = query.data ?? []
 
   if (query.isLoading) {
-    return (
-      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando entregables…
-      </div>
-    )
+    return <CardListSkeleton count={3} label="Cargando entregables…" />
   }
 
   if (query.isError) {

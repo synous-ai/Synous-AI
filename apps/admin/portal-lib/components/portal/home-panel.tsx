@@ -14,10 +14,10 @@ import {
   ClipboardList,
   FileText,
   GitPullRequest,
-  Loader2,
   Receipt,
   Sparkles,
 } from 'lucide-react'
+import { HomePanelSkeleton } from '@portal/components/ui/skeletons'
 
 interface HomePanelProps {
   onNavigate: (tab: string) => void
@@ -96,11 +96,20 @@ export function HomePanel({ onNavigate }: HomePanelProps) {
     invoicesQuery.isLoading
 
   if (isLoading) {
+    return <HomePanelSkeleton count={4} label="Cargando resumen de tu proyecto…" />
+  }
+
+  const isError =
+    deliverablesQuery.isError ||
+    intakesQuery.isError ||
+    crQuery.isError ||
+    invoicesQuery.isError
+
+  if (isError) {
     return (
-      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando…
-      </div>
+      <p className="py-8 text-sm text-destructive">
+        No se pudo cargar el resumen. Intentá recargar la página.
+      </p>
     )
   }
 

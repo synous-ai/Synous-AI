@@ -206,7 +206,9 @@ async function fetchSlots(
 ): Promise<Slot[]> {
   const params = new URLSearchParams({ from, to, tz })
   const res = await fetch(`${API_URL}/api/public/calendar/${portalId}/${slug}/slots?${params}`)
-  if (!res.ok) return []
+  // Lanzamos el error en vez de silenciarlo con return []: el catch del useEffect
+  // lo captura y setea `slotsError` para distinguirlo de "día sin horarios".
+  if (!res.ok) throw new Error(`Error al cargar horarios (${res.status})`)
   const json = await res.json() as { data: { slots: Slot[] } }
   return json.data.slots ?? []
 }
@@ -334,6 +336,8 @@ export default function BookingPage({
   // Slots del día seleccionado
   const [slots, setSlots] = useState<Slot[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)
+  // Distingue error de red/API del caso legítimo "día sin horarios" (slots vacíos).
+  const [slotsError, setSlotsError] = useState<string | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
 
   // Formulario de datos del invitee
@@ -356,15 +360,18 @@ export default function BookingPage({
       )
   }, [portalId, slug])
 
-  // Cargar slots cuando cambia el día seleccionado o el timezone
+  // Cargar slots cuando cambia el día seleccionado o el timezone.
+  // Distinguimos explícitamente el error de red/API del vacío legítimo
+  // (día sin horarios), para no mostrar "sin disponibilidad" ante un fallo.
   useEffect(() => {
     if (!selectedDay) return
     setLoadingSlots(true)
     setSlots([])
+    setSlotsError(null)
     setSelectedSlot(null)
     fetchSlots(portalId, slug, selectedDay, selectedDay, inviteeTz)
       .then((s) => setSlots(s))
-      .catch(() => setSlots([]))
+      .catch(() => setSlotsError('No se pudieron cargar los horarios. Intentá de nuevo.'))
       .finally(() => setLoadingSlots(false))
   }, [portalId, slug, selectedDay, inviteeTz])
 
@@ -606,6 +613,11 @@ export default function BookingPage({
                       // Skeleton con la misma grilla y altura de botón que los slots
                       // reales → al cambiar de día/TZ el panel no colapsa ni salta.
                       <SlotsSkeleton />
+                    ) : slotsError ? (
+                      // Error de red o API — distinto al caso "día sin horarios".
+                      <p role="alert" className="text-center py-6 text-sm text-red-500">
+                        {slotsError}
+                      </p>
                     ) : slots.length === 0 ? (
                       <p className="text-center py-6 text-sm text-gray-400">
                         No hay horarios disponibles para este día.

@@ -8,6 +8,7 @@ import { Button } from '@portal/components/ui/button'
 import { Badge } from '@portal/components/ui/badge'
 import { Textarea } from '@portal/components/ui/textarea'
 import { CheckCircle2, GitPullRequest, Loader2, MessageSquare } from 'lucide-react'
+import { CardListSkeleton } from '@portal/components/ui/skeletons'
 import { formatCurrency } from '@portal/lib/utils'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
 
@@ -171,12 +172,7 @@ export function RequestsPanel() {
   const changeRequests = query.data ?? []
 
   if (query.isLoading) {
-    return (
-      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando solicitudes…
-      </div>
-    )
+    return <CardListSkeleton count={3} label="Cargando solicitudes de cambio…" />
   }
 
   if (query.isError) {

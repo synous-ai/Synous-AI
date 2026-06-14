@@ -52,6 +52,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SkeletonGroup } from '@/components/ui/loading-region'
 import {
   Select,
   SelectContent,
@@ -148,18 +149,121 @@ function useDisplayAmount(displayArs: boolean, fxRate: number | undefined) {
 
 // ─── Skeleton de carga ────────────────────────────────────────────────────────
 
+/**
+ * ResumenSkeleton — imita la estructura REAL del resumen financiero.
+ *
+ * El selector de período y el toggle USD/ARS se muestran DESHABILITADOS durante
+ * la carga (están encima del skeleton) para que el usuario los vea pero no los
+ * active mientras los datos aún no llegaron.
+ *
+ * KPIs: grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 (6 cards).
+ * Charts compuestos con <Skeleton> dentro de <SkeletonGroup>:
+ *  - Facturas por estado: row de pills/badges
+ *  - MonthlyChart: barras verticales duales (ingresos + gastos)
+ *  - ExpensesPieChart: círculo + leyenda lateral
+ *  - TopDebtorsChart: barras horizontales
+ */
 function ResumenSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
-      </div>
-      <Skeleton className="h-52 rounded-2xl" />
+      {/* 6 KPI cards */}
+      <SkeletonGroup
+        label="Cargando métricas financieras…"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      >
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-2xl border bg-card p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-5 w-5 rounded" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+            <Skeleton className="h-8 w-32" />
+          </div>
+        ))}
+      </SkeletonGroup>
+
+      {/* Facturas por estado — row de pills */}
+      <SkeletonGroup
+        label="Cargando facturas por estado…"
+        className="rounded-2xl border bg-card p-5 space-y-3"
+      >
+        <Skeleton className="h-3 w-36" />
+        <div className="flex flex-wrap gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-24 rounded-xl" />
+          ))}
+        </div>
+      </SkeletonGroup>
+
+      {/* 2 columnas: MonthlyChart + ExpensesPieChart */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <Skeleton className="h-52 rounded-2xl" />
-        <Skeleton className="h-52 rounded-2xl" />
+        {/* MonthlyChart — barras verticales duales */}
+        <SkeletonGroup
+          label="Cargando gráfico mensual…"
+          className="rounded-2xl border bg-card p-5 space-y-4"
+        >
+          <Skeleton className="h-3 w-52" />
+          {/* Pares de barras (ingreso + gasto) para ~6 meses */}
+          <div className="flex items-end gap-2 h-[200px] px-2">
+            {[
+              [70, 40],
+              [55, 60],
+              [80, 35],
+              [65, 50],
+              [90, 45],
+              [50, 65],
+            ].map(([inc, exp], i) => (
+              <div key={i} className="flex flex-1 items-end gap-0.5">
+                <Skeleton className="flex-1 rounded-t-sm" style={{ height: `${inc}%` }} />
+                <Skeleton className="flex-1 rounded-t-sm" style={{ height: `${exp}%` }} />
+              </div>
+            ))}
+          </div>
+          {/* Leyenda */}
+          <div className="flex gap-4">
+            <Skeleton className="h-3 w-16 rounded-full" />
+            <Skeleton className="h-3 w-12 rounded-full" />
+          </div>
+        </SkeletonGroup>
+
+        {/* ExpensesPieChart — círculo donut + leyenda lateral */}
+        <SkeletonGroup
+          label="Cargando gastos por categoría…"
+          className="rounded-2xl border bg-card p-5 space-y-4"
+        >
+          <Skeleton className="h-3 w-40" />
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            {/* Círculo donut */}
+            <div className="shrink-0 h-[160px] w-[160px] rounded-full border-[24px] border-muted bg-muted/30" />
+            {/* Leyenda: ítems con dot + nombre + valor */}
+            <div className="flex flex-col gap-2 w-full">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Skeleton className="h-2.5 w-2.5 rounded-full shrink-0" />
+                  <Skeleton className="h-3 flex-1" />
+                  <Skeleton className="h-3 w-14 shrink-0" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </SkeletonGroup>
       </div>
-      <Skeleton className="h-40 rounded-2xl" />
+
+      {/* TopDebtorsChart — barras horizontales */}
+      <SkeletonGroup
+        label="Cargando top deudores…"
+        className="rounded-2xl border bg-card p-5 space-y-4"
+      >
+        <Skeleton className="h-3 w-48" />
+        <div className="space-y-3">
+          {[85, 65, 50, 40, 30].map((w, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="h-3 w-28 shrink-0" />
+              <Skeleton className="h-5 rounded-r-sm" style={{ width: `${w}%` }} />
+            </div>
+          ))}
+        </div>
+      </SkeletonGroup>
     </div>
   )
 }
@@ -222,7 +326,26 @@ function MonthlyChart({
   const { data: monthly, isLoading } = useMonthlySummary(6)
   const fmt = useDisplayAmount(displayArs, fxRate)
 
-  if (isLoading) return <Skeleton className="h-52 rounded-2xl" />
+  // Skeleton fiel: barras duales verticales que imitan el BarChart real
+  if (isLoading) {
+    return (
+      <SkeletonGroup label="Cargando gráfico mensual…" className="rounded-2xl border bg-card p-5 space-y-4">
+        <Skeleton className="h-3 w-52" />
+        <div className="flex items-end gap-2 h-[200px] px-2">
+          {[[70,40],[55,60],[80,35],[65,50],[90,45],[50,65]].map(([inc, exp], i) => (
+            <div key={i} className="flex flex-1 items-end gap-0.5">
+              <Skeleton className="flex-1 rounded-t-sm" style={{ height: `${inc}%` }} />
+              <Skeleton className="flex-1 rounded-t-sm" style={{ height: `${exp}%` }} />
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-4">
+          <Skeleton className="h-3 w-16 rounded-full" />
+          <Skeleton className="h-3 w-12 rounded-full" />
+        </div>
+      </SkeletonGroup>
+    )
+  }
   if (!monthly || monthly.length === 0) return null
 
   const chartData = monthly.map((m) => {
@@ -305,7 +428,27 @@ function ExpensesPieChart({
   const { data: expSummary, isLoading } = useExpensesSummary()
   const fmt = useDisplayAmount(displayArs, fxRate)
 
-  if (isLoading) return <Skeleton className="h-52 rounded-2xl" />
+  // Skeleton fiel: círculo donut + leyenda lateral que imita el PieChart real
+  if (isLoading) {
+    return (
+      <SkeletonGroup label="Cargando gastos por categoría…" className="rounded-2xl border bg-card p-5 space-y-4">
+        <Skeleton className="h-3 w-40" />
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+          {/* Círculo donut simulado con border grueso */}
+          <div className="shrink-0 h-[160px] w-[160px] rounded-full border-[24px] border-muted bg-muted/30" />
+          <div className="flex flex-col gap-2 w-full">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Skeleton className="h-2.5 w-2.5 rounded-full shrink-0" />
+                <Skeleton className="h-3 flex-1" />
+                <Skeleton className="h-3 w-14 shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </SkeletonGroup>
+    )
+  }
   if (!expSummary?.byCategory) return null
 
   const chartData = Object.entries(expSummary.byCategory)
@@ -373,7 +516,22 @@ function TopDebtorsChart({
   const { data: debtors, isLoading } = useDebtors(5)
   const fmt = useDisplayAmount(displayArs, fxRate)
 
-  if (isLoading) return <Skeleton className="h-40 rounded-2xl" />
+  // Skeleton fiel: barras horizontales que imitan el BarChart layout="vertical" real
+  if (isLoading) {
+    return (
+      <SkeletonGroup label="Cargando top deudores…" className="rounded-2xl border bg-card p-5 space-y-4">
+        <Skeleton className="h-3 w-48" />
+        <div className="space-y-3">
+          {[85, 65, 50, 40, 30].map((w, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="h-3 w-28 shrink-0" />
+              <Skeleton className="h-5 rounded-r-sm" style={{ width: `${w}%` }} />
+            </div>
+          ))}
+        </div>
+      </SkeletonGroup>
+    )
+  }
   if (!debtors || debtors.length === 0) return null
 
   const chartData = debtors.map((d) => ({
@@ -483,10 +641,16 @@ export function ResumenSection() {
         </div>
       </div>
 
-      {/* Controles: período + toggle moneda */}
+      {/* Controles: período + toggle moneda.
+          Se muestran siempre (son estáticos), pero deshabilitados durante la carga
+          para que el usuario no los active mientras los datos aún no llegaron. */}
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        {/* Selector de período */}
-        <Select value={preset} onValueChange={(v) => setPreset(v as PeriodPreset)}>
+        {/* Selector de período — deshabilitado mientras carga */}
+        <Select
+          value={preset}
+          onValueChange={(v) => setPreset(v as PeriodPreset)}
+          disabled={loadingSummary}
+        >
           <SelectTrigger className="h-8 w-44 text-xs">
             <SelectValue />
           </SelectTrigger>
@@ -505,6 +669,7 @@ export function ResumenSection() {
               value={customFrom}
               onChange={(e) => setCustomFrom(e.target.value)}
               className="h-8 w-36 text-xs"
+              disabled={loadingSummary}
             />
             <span className="text-xs text-muted-foreground">→</span>
             <Input
@@ -512,15 +677,23 @@ export function ResumenSection() {
               value={customTo}
               onChange={(e) => setCustomTo(e.target.value)}
               className="h-8 w-36 text-xs"
+              disabled={loadingSummary}
             />
           </>
         )}
 
-        {/* Toggle USD/ARS */}
-        <div className="ml-auto flex items-center gap-2 rounded-xl border bg-card px-3 py-1.5">
+        {/* Toggle USD/ARS — deshabilitado mientras carga */}
+        <div
+          className={cn(
+            'ml-auto flex items-center gap-2 rounded-xl border bg-card px-3 py-1.5',
+            loadingSummary && 'pointer-events-none opacity-50',
+          )}
+          aria-disabled={loadingSummary}
+        >
           <span className="text-xs text-muted-foreground">Display:</span>
           <button
             onClick={() => setDisplayArs(false)}
+            disabled={loadingSummary}
             className={cn(
               'rounded-lg px-2 py-0.5 text-xs font-medium transition-colors',
               !displayArs
@@ -532,6 +705,7 @@ export function ResumenSection() {
           </button>
           <button
             onClick={() => setDisplayArs(true)}
+            disabled={loadingSummary}
             className={cn(
               'rounded-lg px-2 py-0.5 text-xs font-medium transition-colors',
               displayArs

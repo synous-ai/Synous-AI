@@ -10,6 +10,7 @@ import { Input } from '@portal/components/ui/input'
 import { Textarea } from '@portal/components/ui/textarea'
 import { Label } from '@portal/components/ui/label'
 import { CheckCircle2, ClipboardList, Loader2 } from 'lucide-react'
+import { CardListSkeleton } from '@portal/components/ui/skeletons'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -142,12 +143,7 @@ export function FormsPanel() {
   const intakes = query.data ?? []
 
   if (query.isLoading) {
-    return (
-      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando formularios…
-      </div>
-    )
+    return <CardListSkeleton count={3} cardClassName="h-36" label="Cargando formularios…" />
   }
 
   if (query.isError) {

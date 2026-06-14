@@ -18,6 +18,7 @@ import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SkeletonGroup } from '@/components/ui/loading-region'
 import { useWeekBookings } from '@/lib/hooks'
 import type { WeekBooking } from '@/lib/types'
 
@@ -152,7 +153,7 @@ export function WeekView() {
 
   return (
     <div>
-      {/* Controles de navegación */}
+      {/* Controles de navegación — siempre visibles (estáticos, no se esqueletizan) */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={goToToday} disabled={onCurrentWeek}>
@@ -169,81 +170,100 @@ export function WeekView() {
         <span className="text-sm font-medium text-muted-foreground capitalize">{rangeLabel}</span>
       </div>
 
-      {/* Grilla semanal */}
-      <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          <div className="grid grid-cols-7 min-w-[700px]">
-            {/* Encabezados de días */}
-            {Array.from({ length: 7 }).map((_, i) => {
-              const day = new Date(weekStart)
-              day.setDate(day.getDate() + i)
-              const ds = toDateStr(day)
-              const isToday = ds === todayStr
-              return (
-                <div
-                  key={i}
-                  className={[
-                    'border-b border-r last:border-r-0 px-2 py-2 text-center',
-                    isToday ? 'bg-accent/50' : '',
-                  ].join(' ')}
-                >
-                  <p className={`text-xs font-medium ${isToday ? 'text-foreground' : 'text-muted-foreground'}`}>
-                    {DAY_LABELS[i]}
-                  </p>
-                  <p
+      {/*
+        Grilla semanal: skeleton XOR contenido (EXCLUSIVO).
+        El antipatrón anterior tenía un bloque "barra de carga" adicional con &&
+        que se renderizaba JUNTO con el contenido real en refetch — ahora es puro.
+        En carga inicial: grilla de skeleton cards por columna.
+        En dato disponible: grilla con BookingCards o placeholder vacío.
+      */}
+      {isLoading ? (
+        /* Skeleton fiel: 7 columnas con cards de altura variable, igual que el real */
+        <SkeletonGroup label="Cargando semana…">
+          <Card>
+            <CardContent className="p-0 overflow-x-auto">
+              <div className="grid grid-cols-7 min-w-[700px]">
+                {/* Encabezados de días simulados */}
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <div key={i} className="border-b border-r last:border-r-0 px-2 py-2 text-center space-y-1">
+                    <Skeleton className="h-3 w-8 mx-auto" />
+                    <Skeleton className="h-7 w-7 mx-auto rounded-full" />
+                  </div>
+                ))}
+                {/* Celdas de bookings simuladas — altura min-h-[180px] igual al real */}
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <div key={i} className="border-r last:border-r-0 p-2 min-h-[180px] space-y-1.5">
+                    {/* Solo algunos días tienen cards para que parezca realista */}
+                    {i % 2 === 0 && <Skeleton className="h-14 rounded-lg" />}
+                    {i % 3 === 0 && <Skeleton className="h-10 rounded-lg" />}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </SkeletonGroup>
+      ) : (
+        <Card>
+          <CardContent className="p-0 overflow-x-auto">
+            <div className="grid grid-cols-7 min-w-[700px]">
+              {/* Encabezados de días */}
+              {Array.from({ length: 7 }).map((_, i) => {
+                const day = new Date(weekStart)
+                day.setDate(day.getDate() + i)
+                const ds = toDateStr(day)
+                const isToday = ds === todayStr
+                return (
+                  <div
+                    key={i}
                     className={[
-                      'text-lg font-semibold',
-                      isToday
-                        ? 'bg-primary text-primary-foreground rounded-full w-8 h-8 flex items-center justify-center mx-auto'
-                        : 'text-foreground',
+                      'border-b border-r last:border-r-0 px-2 py-2 text-center',
+                      isToday ? 'bg-accent/50' : '',
                     ].join(' ')}
                   >
-                    {day.getDate()}
-                  </p>
-                </div>
-              )
-            })}
+                    <p className={`text-xs font-medium ${isToday ? 'text-foreground' : 'text-muted-foreground'}`}>
+                      {DAY_LABELS[i]}
+                    </p>
+                    <p
+                      className={[
+                        'text-lg font-semibold',
+                        isToday
+                          ? 'bg-primary text-primary-foreground rounded-full w-8 h-8 flex items-center justify-center mx-auto'
+                          : 'text-foreground',
+                      ].join(' ')}
+                    >
+                      {day.getDate()}
+                    </p>
+                  </div>
+                )
+              })}
 
-            {/* Celdas de bookings */}
-            {Array.from({ length: 7 }).map((_, i) => {
-              const day = new Date(weekStart)
-              day.setDate(day.getDate() + i)
-              const ds = toDateStr(day)
-              const dayBookings = byDay[ds] ?? []
-              const isToday = ds === todayStr
+              {/* Celdas de bookings */}
+              {Array.from({ length: 7 }).map((_, i) => {
+                const day = new Date(weekStart)
+                day.setDate(day.getDate() + i)
+                const ds = toDateStr(day)
+                const dayBookings = byDay[ds] ?? []
+                const isToday = ds === todayStr
 
-              return (
-                <div
-                  key={i}
-                  className={[
-                    'border-r last:border-r-0 p-2 min-h-[180px] align-top',
-                    isToday ? 'bg-accent/20' : '',
-                  ].join(' ')}
-                >
-                  {isLoading ? (
-                    <div className="space-y-1.5">
-                      <Skeleton className="h-14 rounded-lg" />
-                      <Skeleton className="h-10 rounded-lg" />
-                    </div>
-                  ) : dayBookings.length === 0 ? (
-                    <p className="text-center text-[10px] text-muted-foreground/50 mt-4">—</p>
-                  ) : (
-                    dayBookings.map((b) => <BookingCard key={b.id} booking={b} />)
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Barra de carga sutil mientras se traen los bookings de la semana */}
-      {isLoading && (
-        <div className="mt-2 flex gap-2 px-1">
-          <Skeleton className="h-1.5 flex-1 rounded-full" />
-          <Skeleton className="h-1.5 flex-1 rounded-full" />
-          <Skeleton className="h-1.5 flex-1 rounded-full" />
-        </div>
+                return (
+                  <div
+                    key={i}
+                    className={[
+                      'border-r last:border-r-0 p-2 min-h-[180px] align-top',
+                      isToday ? 'bg-accent/20' : '',
+                    ].join(' ')}
+                  >
+                    {dayBookings.length === 0 ? (
+                      <p className="text-center text-[10px] text-muted-foreground/50 mt-4">—</p>
+                    ) : (
+                      dayBookings.map((b) => <BookingCard key={b.id} booking={b} />)
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

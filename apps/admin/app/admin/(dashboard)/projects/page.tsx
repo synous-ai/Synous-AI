@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Skeleton } from '@/components/ui/skeleton'
+import { TableSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { FolderOpen } from 'lucide-react'
@@ -54,11 +54,8 @@ export default function ProjectsPage(): React.JSX.Element {
       <Card>
         <CardContent className="p-0">
           {dealsQ.isLoading || pipelinesQ.isLoading ? (
-            <div className="space-y-2 p-4">
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-            </div>
+            // TableSkeleton con thead: Proyecto / Empresa / Etapa / Monto (4 col, CLS ≈ 0)
+            <TableSkeleton columns={4} rows={6} label="Cargando proyectos…" />
           ) : projects.length === 0 ? (
             <Empty>
               <EmptyHeader>

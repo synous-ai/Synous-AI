@@ -10,6 +10,8 @@ import { Card, CardContent } from '@portal/components/ui/card'
 import { Button } from '@portal/components/ui/button'
 import { Input } from '@portal/components/ui/input'
 import { Label } from '@portal/components/ui/label'
+import { Skeleton } from '@portal/components/ui/skeleton'
+import { SkeletonGroup } from '@portal/components/ui/loading-region'
 
 interface OwnBranding {
   brandName: string | null
@@ -58,11 +60,11 @@ export function BrandKitForm() {
     queryFn: () => apiGet<OwnBranding & { id: string }>('/api/client/branding'),
   })
 
-  const [name, setName] = useState('')
-  const [primary, setPrimary] = useState('#16a34a')
-  const [secondary, setSecondary] = useState('#0f766e')
-  const [logoKey, setLogoKey] = useState('')
-  const [logoUrl, setLogoUrl] = useState('')
+  const [name, setName] = useState<string | null>(null)
+  const [primary, setPrimary] = useState<string | null>(null)
+  const [secondary, setSecondary] = useState<string | null>(null)
+  const [logoKey, setLogoKey] = useState<string | null>(null)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -100,7 +102,7 @@ export function BrandKitForm() {
     setError(null)
     try {
       const updated = await apiPatch<OwnBranding>('/api/client/branding', {
-        brandName: name.trim() || null,
+        brandName: (name ?? '').trim() || null,
         brandLogoKey: logoKey || null,
         brandPrimary: primary || null,
         brandSecondary: secondary || null,
@@ -121,12 +123,48 @@ export function BrandKitForm() {
     }
   }
 
-  if (isLoading) {
+  if (isLoading || name === null) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando…
-      </div>
+      <Card>
+        <CardContent className="space-y-5 p-6">
+          <SkeletonGroup label="Cargando configuración de marca…" className="space-y-5">
+            {/* Nombre */}
+            <div className="space-y-1.5">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-10 w-full rounded-md" />
+            </div>
+            {/* 2 color pickers */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Skeleton className="h-3.5 w-28" />
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-10 w-12 rounded" />
+                  <Skeleton className="h-10 flex-1 rounded-md" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Skeleton className="h-3.5 w-28" />
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-10 w-12 rounded" />
+                  <Skeleton className="h-10 flex-1 rounded-md" />
+                </div>
+              </div>
+            </div>
+            {/* Logo */}
+            <div className="space-y-1.5">
+              <Skeleton className="h-3.5 w-12" />
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-12 w-12 rounded-lg" />
+                <Skeleton className="h-10 w-28 rounded-md" />
+              </div>
+            </div>
+            {/* Botón */}
+            <div className="flex justify-end">
+              <Skeleton className="h-10 w-24 rounded-md" />
+            </div>
+          </SkeletonGroup>
+        </CardContent>
+      </Card>
     )
   }
 
@@ -135,7 +173,7 @@ export function BrandKitForm() {
       <CardContent className="space-y-5 p-6">
         <div className="space-y-1.5">
           <Label>Nombre de tu marca</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu empresa" />
+          <Input value={name ?? ''} onChange={(e) => setName(e.target.value)} placeholder="Tu empresa" />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -146,11 +184,11 @@ export function BrandKitForm() {
             <div className="flex items-center gap-2">
               <input
                 type="color"
-                value={primary}
+                value={primary ?? '#16a34a'}
                 onChange={(e) => setPrimary(e.target.value)}
                 className="h-10 w-12 cursor-pointer rounded border border-input bg-background"
               />
-              <Input value={primary} onChange={(e) => setPrimary(e.target.value)} className="font-mono" />
+              <Input value={primary ?? '#16a34a'} onChange={(e) => setPrimary(e.target.value)} className="font-mono" />
             </div>
           </div>
           <div className="space-y-1.5">
@@ -160,11 +198,11 @@ export function BrandKitForm() {
             <div className="flex items-center gap-2">
               <input
                 type="color"
-                value={secondary}
+                value={secondary ?? '#0f766e'}
                 onChange={(e) => setSecondary(e.target.value)}
                 className="h-10 w-12 cursor-pointer rounded border border-input bg-background"
               />
-              <Input value={secondary} onChange={(e) => setSecondary(e.target.value)} className="font-mono" />
+              <Input value={secondary ?? '#0f766e'} onChange={(e) => setSecondary(e.target.value)} className="font-mono" />
             </div>
           </div>
         </div>

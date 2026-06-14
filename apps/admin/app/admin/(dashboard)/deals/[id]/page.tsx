@@ -64,7 +64,7 @@ import { DealDialog } from '@/components/deals/deal-dialog'
 import { TaskDialog } from '@/components/tasks/task-dialog'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
 import { PillTabs } from '@/components/ui/pill-tabs'
-import { Skeleton } from '@/components/ui/skeleton'
+import { DetailViewSkeleton, ListSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { StickyNote, ListTodo, Users, PackageCheck, GitPullRequest, History, FolderOpen, Download } from 'lucide-react'
@@ -296,12 +296,17 @@ export default function DealDetailPage(): React.JSX.Element {
   ]
 
   // ── Loading state ──────────────────────────────────────────────────────────
-
+  // 9 tabs: actividad / contactos / notas / tareas / entregables /
+  //         formularios / CRs / historial / docs.
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6 p-6 lg:flex-row">
-        <Skeleton className="h-96 w-full rounded-2xl lg:w-80 lg:flex-shrink-0" />
-        <Skeleton className="h-96 min-w-0 flex-1 rounded-2xl" />
+      <div className="p-6">
+        <DetailViewSkeleton
+          label="Cargando deal…"
+          fields={4}
+          tabs={9}
+          actions={2}
+        />
       </div>
     )
   }
@@ -707,91 +712,98 @@ export default function DealDetailPage(): React.JSX.Element {
               {/* ── Deliverables ───────────────────────────────────────── */}
               {detailTab === 'deliverables' && (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
-                    <input
-                      value={delivTitle}
-                      onChange={(e) => setDelivTitle(e.target.value)}
-                      placeholder="Título…"
-                      className="h-9 flex-1 rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    <Select value={delivType} onValueChange={(v) => setDelivType(v as typeof delivType)}>
-                      <SelectTrigger className="h-9 w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="design">Diseño</SelectItem>
-                        <SelectItem value="prototype">Prototipo</SelectItem>
-                        <SelectItem value="staging">Staging</SelectItem>
-                        <SelectItem value="final">Final</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <input
-                      value={delivUrl}
-                      onChange={(e) => setDelivUrl(e.target.value)}
-                      placeholder="URL (opcional)"
-                      className="h-9 w-44 rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    <Button size="sm" onClick={() => void addDeliverable()} disabled={!delivTitle.trim() || createDeliverable.isPending}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {(deliverablesQ.data ?? []).length === 0 ? (
-                    <Empty className="border-dashed py-8">
-                      <EmptyHeader>
-                        <EmptyIllustration icon={PackageCheck} />
-                        <EmptyTitle>Sin Entregables</EmptyTitle>
-                      </EmptyHeader>
-                    </Empty>
+                  {/* Skeleton mientras la sub-query de entregables carga */}
+                  {deliverablesQ.isLoading ? (
+                    <ListSkeleton rows={3} rowClassName="h-14 rounded-xl" label="Cargando entregables…" />
                   ) : (
-                    <div className="space-y-2">
-                      {deliverablesQ.data!.map((dv) => (
-                        <div key={dv.id} className="group rounded-xl border bg-background/60 px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className="flex-1 text-sm font-medium">{dv.title}</span>
-                            {(() => {
-                              const { kind, label } = deliverableStatus(dv.status)
-                              return <StatusBadge kind={kind}>{label}</StatusBadge>
-                            })()}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => deleteDeliverable.mutate(dv.id)}
-                              className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                            <span className="capitalize">{dv.type}</span>
-                            {dv.url && (
-                              <a href={dv.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary underline">
-                                <ExternalLink className="h-3 w-3" /> Ver
-                              </a>
-                            )}
-                            {dv.status !== 'approved' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => updateDeliverable.mutate({ id: dv.id, input: { status: 'approved' } })}
-                                className="h-auto px-0 text-xs hover:text-foreground"
-                              >
-                                Aprobar
-                              </Button>
-                            )}
-                            {dv.status !== 'changes_requested' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => updateDeliverable.mutate({ id: dv.id, input: { status: 'changes_requested' } })}
-                                className="h-auto px-0 text-xs hover:text-foreground"
-                              >
-                                Pedir cambios
-                              </Button>
-                            )}
-                          </div>
+                    <>
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          value={delivTitle}
+                          onChange={(e) => setDelivTitle(e.target.value)}
+                          placeholder="Título…"
+                          className="h-9 flex-1 rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                        <Select value={delivType} onValueChange={(v) => setDelivType(v as typeof delivType)}>
+                          <SelectTrigger className="h-9 w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="design">Diseño</SelectItem>
+                            <SelectItem value="prototype">Prototipo</SelectItem>
+                            <SelectItem value="staging">Staging</SelectItem>
+                            <SelectItem value="final">Final</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <input
+                          value={delivUrl}
+                          onChange={(e) => setDelivUrl(e.target.value)}
+                          placeholder="URL (opcional)"
+                          className="h-9 w-44 rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                        <Button size="sm" onClick={() => void addDeliverable()} disabled={!delivTitle.trim() || createDeliverable.isPending}>
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {(deliverablesQ.data ?? []).length === 0 ? (
+                        <Empty className="border-dashed py-8">
+                          <EmptyHeader>
+                            <EmptyIllustration icon={PackageCheck} />
+                            <EmptyTitle>Sin Entregables</EmptyTitle>
+                          </EmptyHeader>
+                        </Empty>
+                      ) : (
+                        <div className="space-y-2">
+                          {deliverablesQ.data!.map((dv) => (
+                            <div key={dv.id} className="group rounded-xl border bg-background/60 px-3 py-2.5">
+                              <div className="flex items-center gap-2">
+                                <span className="flex-1 text-sm font-medium">{dv.title}</span>
+                                {(() => {
+                                  const { kind, label } = deliverableStatus(dv.status)
+                                  return <StatusBadge kind={kind}>{label}</StatusBadge>
+                                })()}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => deleteDeliverable.mutate(dv.id)}
+                                  className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+                                <span className="capitalize">{dv.type}</span>
+                                {dv.url && (
+                                  <a href={dv.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary underline">
+                                    <ExternalLink className="h-3 w-3" /> Ver
+                                  </a>
+                                )}
+                                {dv.status !== 'approved' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => updateDeliverable.mutate({ id: dv.id, input: { status: 'approved' } })}
+                                    className="h-auto px-0 text-xs hover:text-foreground"
+                                  >
+                                    Aprobar
+                                  </Button>
+                                )}
+                                {dv.status !== 'changes_requested' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => updateDeliverable.mutate({ id: dv.id, input: { status: 'changes_requested' } })}
+                                    className="h-auto px-0 text-xs hover:text-foreground"
+                                  >
+                                    Pedir cambios
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -799,7 +811,11 @@ export default function DealDetailPage(): React.JSX.Element {
               {/* ── Intakes ────────────────────────────────────────────── */}
               {detailTab === 'intakes' && (
                 <div className="space-y-4">
-                  {(dealIntakesQ.data ?? []).length > 0 && (
+                  {/* Skeleton mientras carga la sub-query de formularios */}
+                  {dealIntakesQ.isLoading && (
+                    <ListSkeleton rows={2} rowClassName="h-12 rounded-xl" label="Cargando formularios…" />
+                  )}
+                  {!dealIntakesQ.isLoading && (dealIntakesQ.data ?? []).length > 0 && (
                     <div className="space-y-2">
                       {dealIntakesQ.data!.map((it) => (
                         <div
@@ -851,129 +867,136 @@ export default function DealDetailPage(): React.JSX.Element {
               {/* ── Change Requests ────────────────────────────────────── */}
               {detailTab === 'change-requests' && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                      {(crsQ.data ?? []).length} change request{(crsQ.data ?? []).length !== 1 ? 's' : ''}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setCrOpen((o) => !o)}
-                      className="h-auto px-0 text-xs font-semibold text-primary hover:underline hover:bg-transparent"
-                    >
-                      {crOpen ? 'Cancelar' : '+ Nueva'}
-                    </Button>
-                  </div>
-
-                  {crOpen && (
-                    <div className="space-y-2 rounded-xl border bg-background/60 p-3">
-                      <input
-                        value={crForm.title}
-                        onChange={(e) => setCrForm({ ...crForm, title: e.target.value })}
-                        placeholder="Título"
-                        className="h-9 w-full rounded-lg border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      />
-                      <textarea
-                        value={crForm.description}
-                        onChange={(e) => setCrForm({ ...crForm, description: e.target.value })}
-                        placeholder="Descripción de lo que se pide"
-                        rows={2}
-                        className="w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      />
-                      {crItems.map((it, i) => (
-                        <div key={i} className="flex gap-2">
-                          <input
-                            value={it.description}
-                            onChange={(e) =>
-                              setCrItems((xs) => xs.map((x, idx) => idx === i ? { ...x, description: e.target.value } : x))
-                            }
-                            placeholder="Ítem"
-                            className="h-8 flex-1 rounded-md border border-input bg-card px-2 text-sm"
-                          />
-                          <input
-                            value={it.unitPrice}
-                            onChange={(e) =>
-                              setCrItems((xs) => xs.map((x, idx) => idx === i ? { ...x, unitPrice: e.target.value } : x))
-                            }
-                            placeholder="$"
-                            type="number"
-                            className="h-8 w-20 rounded-md border border-input bg-card px-2 text-sm"
-                          />
-                          <input
-                            value={it.quantity}
-                            onChange={(e) =>
-                              setCrItems((xs) => xs.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x))
-                            }
-                            placeholder="cant"
-                            type="number"
-                            className="h-8 w-16 rounded-md border border-input bg-card px-2 text-sm"
-                          />
-                        </div>
-                      ))}
+                  {/* Skeleton mientras carga la sub-query de CRs */}
+                  {crsQ.isLoading ? (
+                    <ListSkeleton rows={3} rowClassName="h-14 rounded-xl" label="Cargando change requests…" />
+                  ) : (
+                    <>
                       <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                          {(crsQ.data ?? []).length} change request{(crsQ.data ?? []).length !== 1 ? 's' : ''}
+                        </p>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setCrItems((xs) => [...xs, { description: '', unitPrice: '', quantity: '1' }])}
-                          className="h-auto px-0 text-xs text-muted-foreground hover:text-foreground hover:bg-transparent"
+                          onClick={() => setCrOpen((o) => !o)}
+                          className="h-auto px-0 text-xs font-semibold text-primary hover:underline hover:bg-transparent"
                         >
-                          + ítem
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => void submitCR()}
-                          disabled={!crForm.title.trim() || createCR.isPending}
-                        >
-                          Crear Borrador
+                          {crOpen ? 'Cancelar' : '+ Nueva'}
                         </Button>
                       </div>
-                    </div>
-                  )}
 
-                  {(crsQ.data ?? []).length === 0 ? (
-                    <Empty className="border-dashed py-8">
-                      <EmptyHeader>
-                        <EmptyIllustration icon={GitPullRequest} />
-                        <EmptyTitle>Sin Change Requests</EmptyTitle>
-                      </EmptyHeader>
-                    </Empty>
-                  ) : (
-                    <div className="space-y-2">
-                      {crsQ.data!.map((cr) => (
-                        <div
-                          key={cr.id}
-                          className="cursor-pointer rounded-xl border bg-background/60 px-3 py-2.5 transition-colors hover:bg-accent/50"
-                          onClick={() => router.push(`/admin/change-requests/${cr.id}`)}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs text-muted-foreground">CR#{cr.number}</span>
-                            <span className="flex-1 text-sm font-medium">{cr.title}</span>
-                            {cr.totalAmount && (
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {formatCurrency(cr.totalAmount)}
-                              </span>
-                            )}
-                            {(() => {
-                              const { kind, label } = crStatus(cr.status)
-                              return <StatusBadge kind={kind}>{label}</StatusBadge>
-                            })()}
-                          </div>
-                          {cr.status === 'draft' && (
+                      {crOpen && (
+                        <div className="space-y-2 rounded-xl border bg-background/60 p-3">
+                          <input
+                            value={crForm.title}
+                            onChange={(e) => setCrForm({ ...crForm, title: e.target.value })}
+                            placeholder="Título"
+                            className="h-9 w-full rounded-lg border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          />
+                          <textarea
+                            value={crForm.description}
+                            onChange={(e) => setCrForm({ ...crForm, description: e.target.value })}
+                            placeholder="Descripción de lo que se pide"
+                            rows={2}
+                            className="w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          />
+                          {crItems.map((it, i) => (
+                            <div key={i} className="flex gap-2">
+                              <input
+                                value={it.description}
+                                onChange={(e) =>
+                                  setCrItems((xs) => xs.map((x, idx) => idx === i ? { ...x, description: e.target.value } : x))
+                                }
+                                placeholder="Ítem"
+                                className="h-8 flex-1 rounded-md border border-input bg-card px-2 text-sm"
+                              />
+                              <input
+                                value={it.unitPrice}
+                                onChange={(e) =>
+                                  setCrItems((xs) => xs.map((x, idx) => idx === i ? { ...x, unitPrice: e.target.value } : x))
+                                }
+                                placeholder="$"
+                                type="number"
+                                className="h-8 w-20 rounded-md border border-input bg-card px-2 text-sm"
+                              />
+                              <input
+                                value={it.quantity}
+                                onChange={(e) =>
+                                  setCrItems((xs) => xs.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x))
+                                }
+                                placeholder="cant"
+                                type="number"
+                                className="h-8 w-16 rounded-md border border-input bg-card px-2 text-sm"
+                              />
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between">
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                crTransition.mutate({ id: cr.id, status: 'sent' })
-                              }}
-                              className="mt-1 h-auto px-0 text-xs font-medium text-primary hover:underline hover:bg-transparent"
+                              onClick={() => setCrItems((xs) => [...xs, { description: '', unitPrice: '', quantity: '1' }])}
+                              className="h-auto px-0 text-xs text-muted-foreground hover:text-foreground hover:bg-transparent"
                             >
-                              Enviar al cliente →
+                              + ítem
                             </Button>
-                          )}
+                            <Button
+                              size="sm"
+                              onClick={() => void submitCR()}
+                              disabled={!crForm.title.trim() || createCR.isPending}
+                            >
+                              Crear Borrador
+                            </Button>
+                          </div>
                         </div>
-                      ))}
-                    </div>
+                      )}
+
+                      {(crsQ.data ?? []).length === 0 ? (
+                        <Empty className="border-dashed py-8">
+                          <EmptyHeader>
+                            <EmptyIllustration icon={GitPullRequest} />
+                            <EmptyTitle>Sin Change Requests</EmptyTitle>
+                          </EmptyHeader>
+                        </Empty>
+                      ) : (
+                        <div className="space-y-2">
+                          {crsQ.data!.map((cr) => (
+                            <div
+                              key={cr.id}
+                              className="cursor-pointer rounded-xl border bg-background/60 px-3 py-2.5 transition-colors hover:bg-accent/50"
+                              onClick={() => router.push(`/admin/change-requests/${cr.id}`)}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs text-muted-foreground">CR#{cr.number}</span>
+                                <span className="flex-1 text-sm font-medium">{cr.title}</span>
+                                {cr.totalAmount && (
+                                  <span className="font-mono text-xs text-muted-foreground">
+                                    {formatCurrency(cr.totalAmount)}
+                                  </span>
+                                )}
+                                {(() => {
+                                  const { kind, label } = crStatus(cr.status)
+                                  return <StatusBadge kind={kind}>{label}</StatusBadge>
+                                })()}
+                              </div>
+                              {cr.status === 'draft' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    crTransition.mutate({ id: cr.id, status: 'sent' })
+                                  }}
+                                  className="mt-1 h-auto px-0 text-xs font-medium text-primary hover:underline hover:bg-transparent"
+                                >
+                                  Enviar al cliente →
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1020,98 +1043,105 @@ export default function DealDetailPage(): React.JSX.Element {
               {/* ── Documents ──────────────────────────────────────────── */}
               {detailTab === 'documents' && (
                 <div className="space-y-4">
-                  {/* Upload form */}
-                  <div className="flex flex-wrap gap-2">
-                    <input
-                      value={docName}
-                      onChange={(e) => setDocName(e.target.value)}
-                      placeholder="Nombre del documento…"
-                      className="h-9 flex-1 rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    <Select value={docType} onValueChange={(v) => setDocType(v as DocumentType)}>
-                      <SelectTrigger className="h-9 w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="contract">Contrato</SelectItem>
-                        <SelectItem value="proposal">Propuesta</SelectItem>
-                        <SelectItem value="invoice">Factura</SelectItem>
-                        <SelectItem value="other">Otro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <label className="flex h-9 cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-muted/50 px-3 text-sm hover:bg-accent/50">
-                      <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                      {docFile ? docFile.name.slice(0, 20) : 'Elegir archivo…'}
-                      <input
-                        type="file"
-                        className="sr-only"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0] ?? null
-                          setDocFile(f)
-                          if (f && !docName.trim()) setDocName(f.name)
-                        }}
-                      />
-                    </label>
-                    <Button
-                      size="sm"
-                      onClick={() => void uploadDocument()}
-                      disabled={!docName.trim() || !docFile || docUploading}
-                    >
-                      {docUploading ? 'Subiendo…' : <Plus className="h-4 w-4" />}
-                    </Button>
-                  </div>
-
-                  {/* List */}
-                  {(documentsQ.data ?? []).length === 0 ? (
-                    <Empty className="border-dashed py-8">
-                      <EmptyHeader>
-                        <EmptyIllustration icon={FolderOpen} />
-                        <EmptyTitle>Sin Documentos</EmptyTitle>
-                      </EmptyHeader>
-                    </Empty>
+                  {/* Skeleton mientras carga la sub-query de documentos */}
+                  {documentsQ.isLoading ? (
+                    <ListSkeleton rows={3} rowClassName="h-12 rounded-xl" label="Cargando documentos…" />
                   ) : (
-                    <div className="space-y-2">
-                      {documentsQ.data!.map((doc) => {
-                        const { kind, label } = documentType(doc.type)
-                        return (
-                          <div
-                            key={doc.id}
-                            className="group flex items-center gap-3 rounded-xl border bg-background/60 px-3 py-2.5"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">{doc.name}</p>
-                              <p className="font-mono text-xs text-muted-foreground">
-                                {new Date(doc.createdAt).toLocaleDateString('es')}
-                              </p>
-                            </div>
-                            <StatusBadge kind={kind}>{label}</StatusBadge>
-                            {doc.storageKey && (
-                              <a
-                                href={`${API_URL}/api/files/${doc.storageKey}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                    <>
+                      {/* Formulario de upload */}
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          value={docName}
+                          onChange={(e) => setDocName(e.target.value)}
+                          placeholder="Nombre del documento…"
+                          className="h-9 flex-1 rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                        <Select value={docType} onValueChange={(v) => setDocType(v as DocumentType)}>
+                          <SelectTrigger className="h-9 w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="contract">Contrato</SelectItem>
+                            <SelectItem value="proposal">Propuesta</SelectItem>
+                            <SelectItem value="invoice">Factura</SelectItem>
+                            <SelectItem value="other">Otro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <label className="flex h-9 cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-muted/50 px-3 text-sm hover:bg-accent/50">
+                          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                          {docFile ? docFile.name.slice(0, 20) : 'Elegir archivo…'}
+                          <input
+                            type="file"
+                            className="sr-only"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0] ?? null
+                              setDocFile(f)
+                              if (f && !docName.trim()) setDocName(f.name)
+                            }}
+                          />
+                        </label>
+                        <Button
+                          size="sm"
+                          onClick={() => void uploadDocument()}
+                          disabled={!docName.trim() || !docFile || docUploading}
+                        >
+                          {docUploading ? 'Subiendo…' : <Plus className="h-4 w-4" />}
+                        </Button>
+                      </div>
+
+                      {/* Listado de documentos */}
+                      {(documentsQ.data ?? []).length === 0 ? (
+                        <Empty className="border-dashed py-8">
+                          <EmptyHeader>
+                            <EmptyIllustration icon={FolderOpen} />
+                            <EmptyTitle>Sin Documentos</EmptyTitle>
+                          </EmptyHeader>
+                        </Empty>
+                      ) : (
+                        <div className="space-y-2">
+                          {documentsQ.data!.map((doc) => {
+                            const { kind, label } = documentType(doc.type)
+                            return (
+                              <div
+                                key={doc.id}
+                                className="group flex items-center gap-3 rounded-xl border bg-background/60 px-3 py-2.5"
                               >
-                                <Download className="h-3.5 w-3.5" />
-                                Descargar
-                              </a>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                if (window.confirm(`¿Eliminar "${doc.name}"?`)) {
-                                  deleteDocument.mutate(doc.id)
-                                }
-                              }}
-                              className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        )
-                      })}
-                    </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium">{doc.name}</p>
+                                  <p className="font-mono text-xs text-muted-foreground">
+                                    {new Date(doc.createdAt).toLocaleDateString('es')}
+                                  </p>
+                                </div>
+                                <StatusBadge kind={kind}>{label}</StatusBadge>
+                                {doc.storageKey && (
+                                  <a
+                                    href={`${API_URL}/api/files/${doc.storageKey}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />
+                                    Descargar
+                                  </a>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    if (window.confirm(`¿Eliminar "${doc.name}"?`)) {
+                                      deleteDocument.mutate(doc.id)
+                                    }
+                                  }}
+                                  className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}

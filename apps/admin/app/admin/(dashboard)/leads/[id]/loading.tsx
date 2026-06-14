@@ -1,29 +1,19 @@
-'use client'
-
-import { useEffect } from 'react'
-import { Skeleton } from '@/components/ui/skeleton'
+import { DetailViewSkeleton } from '@/components/ui/skeletons'
 
 /**
- * Skeleton del detalle. Es client component SOLO para loguear el timing de
- * navegación (ver [NAV DEBUG]); su sola existencia hace que la navegación se
- * commitee al instante (la URL cambia y el sidebar se marca) mostrando esto
- * mientras carga el segmento.
+ * Skeleton de navegación para el detalle de un lead.
+ * Server Component puro: no tiene lógica de cliente ni efectos de debug.
+ * Muestra DetailViewSkeleton (2 paneles fieles) mientras carga el segmento.
  */
 export default function LeadDetailLoading() {
-  useEffect(() => {
-    const t0 = (window as Window & { __navT0?: number }).__navT0
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[NAV DEBUG] ⏳ loading.tsx (skeleton) MOSTRADO — la ruta YA se commiteó (sidebar marcado)${
-        t0 ? ` → +${Math.round(performance.now() - t0)}ms desde el click` : ''
-      }`,
-    )
-  }, [])
-
   return (
-    <div className="flex flex-col gap-6 p-6 lg:flex-row">
-      <Skeleton className="h-96 w-full rounded-2xl lg:w-80 lg:flex-shrink-0" />
-      <Skeleton className="h-96 min-w-0 flex-1 rounded-2xl" />
+    <div className="p-6">
+      <DetailViewSkeleton
+        label="Cargando lead…"
+        fields={6}
+        tabs={7}
+        actions={3}
+      />
     </div>
   )
 }

@@ -4,7 +4,8 @@ import { useClientDocuments } from '@portal/lib/hooks'
 import type { ClientDocument } from '@portal/lib/types'
 import { Card, CardContent } from '@portal/components/ui/card'
 import { Badge } from '@portal/components/ui/badge'
-import { FileText, Loader2, Download } from 'lucide-react'
+import { FileText, Download } from 'lucide-react'
+import { RowListSkeleton } from '@portal/components/ui/skeletons'
 import { API_URL } from '@portal/lib/config'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
 
@@ -74,12 +75,7 @@ export function DocumentsPanel() {
   const docs = query.data ?? []
 
   if (query.isLoading) {
-    return (
-      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando documentos…
-      </div>
-    )
+    return <RowListSkeleton count={4} label="Cargando documentos…" />
   }
 
   if (query.isError) {

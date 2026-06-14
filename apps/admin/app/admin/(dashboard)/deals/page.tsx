@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { DealDialog } from '@/components/deals/deal-dialog'
 import { TableShell } from '@/components/ui/data-table'
-import { Skeleton } from '@/components/ui/skeleton'
+import { TableSkeleton } from '@/components/ui/skeletons'
 import { DataPagination } from '@/components/ui/data-pagination'
 import { usePagination } from '@/lib/use-pagination'
 
@@ -52,11 +52,8 @@ export default function DealsPage(): React.JSX.Element {
       <Card>
         <CardContent className="p-0">
           {dealsQ.isLoading ? (
-            <div className="space-y-2 p-4">
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-            </div>
+            // TableSkeleton con thead: Nombre / Empresa / Etapa / Monto (4 col, CLS ≈ 0)
+            <TableSkeleton columns={4} rows={6} label="Cargando deals…" />
           ) : (
             <TableShell
               columns={[

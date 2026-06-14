@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { KanbanSkeleton, TableSkeleton, ListSkeleton } from '@/components/ui/skeletons'
 import { ContactDialog } from '@/components/contacts/contact-dialog'
 import { LeadBoard } from './lead-board'
 import { STAGE_LABELS, STAGE_DOT_CLASS } from '@/lib/status'
@@ -317,9 +317,14 @@ export function LeadsView() {
 
       {/* Content */}
       {leadsLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
-        </div>
+        // El skeleton varía según el view mode activo → CLS ≈ 0 en todos los modos
+        view === 'board' ? (
+          <KanbanSkeleton columns={4} cardsPerColumn={3} label="Cargando leads…" />
+        ) : view === 'table' ? (
+          <TableSkeleton columns={6} rows={8} label="Cargando leads…" />
+        ) : (
+          <ListSkeleton rows={8} label="Cargando leads…" />
+        )
       ) : view === 'board' ? (
         <LeadBoard
           leads={filteredLeads}

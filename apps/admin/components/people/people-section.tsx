@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ContactDialog } from '@/components/contacts/contact-dialog'
 import { TableShell } from '@/components/ui/data-table'
-import { Skeleton } from '@/components/ui/skeleton'
+import { TableSkeleton } from '@/components/ui/skeletons'
 import { DataPagination } from '@/components/ui/data-pagination'
 import { usePagination } from '@/lib/use-pagination'
 
@@ -55,11 +55,8 @@ export function PeopleSection({
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="space-y-2 p-4">
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-              <Skeleton className="h-12 rounded-lg" />
-            </div>
+            // TableSkeleton con thead: Nombre / Email / Cargo / Etapa (4 col, CLS ≈ 0)
+            <TableSkeleton columns={4} rows={6} label="Cargando contactos…" />
           ) : (
             <TableShell
               columns={[

@@ -32,7 +32,7 @@ import { priority as priorityStatus, taskStatus } from '@/lib/status'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
+import { KanbanSkeleton, TableSkeleton, ListSkeleton } from '@/components/ui/skeletons'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -262,12 +262,15 @@ export function TasksView() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-4">
-          <Skeleton className="h-64 rounded-xl" />
-          <Skeleton className="h-64 rounded-xl" />
-          <Skeleton className="h-64 rounded-xl" />
-          <Skeleton className="h-64 rounded-xl" />
-        </div>
+        // El skeleton varía según el view mode activo → CLS ≈ 0 en todos los modos
+        view === 'board' ? (
+          <KanbanSkeleton columns={4} cardsPerColumn={3} label="Cargando tareas…" />
+        ) : view === 'list' ? (
+          <ListSkeleton rows={8} label="Cargando tareas…" />
+        ) : (
+          // Tabla: 6 columnas reales (título, estado, prioridad, responsable, proyecto, vence)
+          <TableSkeleton columns={6} rows={8} label="Cargando tareas…" />
+        )
       ) : tasks.length === 0 ? (
         <Empty>
           <EmptyHeader>

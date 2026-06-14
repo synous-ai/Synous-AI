@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ListSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { useEventTypesV2, useDeleteEventTypeV2 } from '@/lib/hooks'
@@ -217,10 +217,9 @@ export function EventTypeList({ portalId }: Props) {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="space-y-px p-4">
-              <Skeleton className="h-14 rounded-lg" />
-              <Skeleton className="h-14 rounded-lg" />
-              <Skeleton className="h-14 rounded-lg" />
+            /* h-14 coincide con la altura real de cada fila (icono + nombre + meta) */
+            <div className="p-4">
+              <ListSkeleton rows={3} rowClassName="h-14 rounded-lg" label="Cargando tipos de evento…" />
             </div>
           ) : (data ?? []).length === 0 ? (
             <Empty>

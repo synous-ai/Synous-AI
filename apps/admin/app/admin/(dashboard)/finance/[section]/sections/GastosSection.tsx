@@ -23,7 +23,7 @@ import { ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
+import { TableSkeleton } from '@/components/ui/skeletons'
 import {
   Table,
   TableBody,
@@ -542,9 +542,8 @@ export function GastosSection() {
 
       {/* Tabla */}
       {isLoading ? (
-        <div className="space-y-2">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 rounded-xl" />)}
-        </div>
+        // TableSkeleton con thead: Descripción / Categoría / Proveedor / Fecha / Monto / TC / Proyecto / Rec. (8 col, CLS ≈ 0)
+        <TableSkeleton columns={8} rows={5} label="Cargando gastos…" />
       ) : !expenses || expenses.length === 0 ? (
         <EmptyState
           icon={Receipt}

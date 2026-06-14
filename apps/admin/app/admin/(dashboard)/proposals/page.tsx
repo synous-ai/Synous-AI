@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
-import { Skeleton } from '@/components/ui/skeleton'
+import { CardGridSkeleton } from '@/components/ui/skeletons'
 
 // Etiqueta + color del badge por estado de la propuesta.
 const STATUS: Record<string, { label: string; kind: 'neutral' | 'info' | 'success' | 'warning' }> = {
@@ -104,10 +104,8 @@ export default function ProposalsPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Skeleton className="h-40 w-full rounded-xl" />
-          <Skeleton className="h-40 w-full rounded-xl" />
-        </div>
+        // CardGridSkeleton: grilla de propuestas (logo/nombre/estado/monto), 2 col + cards h-40
+        <CardGridSkeleton count={4} label="Cargando propuestas…" className="gap-4 lg:grid-cols-2" cardClassName="h-40" />
       ) : !data || data.length === 0 ? (
         <Empty>
           <EmptyHeader>

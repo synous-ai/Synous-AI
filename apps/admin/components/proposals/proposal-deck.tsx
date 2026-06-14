@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
-import { ArrowLeft, ArrowRight, Download, Loader2, FileQuestion } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Download, FileQuestion } from 'lucide-react'
 import { API_URL } from '@/lib/config'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { SkeletonGroup } from '@/components/ui/loading-region'
 import type { PublicProposal, ProposalContent } from '@/lib/types'
 import SideRays from './side-rays'
 
@@ -43,9 +44,41 @@ export function ProposalDeck({ token }: { token: string }) {
   }, [token])
 
   if (state === 'loading') {
+    // Skeleton del shell: mismo bg que el estado ready (bg-background) para evitar
+    // flash de color al montar. Estructura: header (empresa + PDF + toggle) +
+    // bloque central (eyebrow + título de slide) + footer (← dots →).
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin" />
+      <div className="relative flex min-h-screen flex-col overflow-hidden bg-background">
+        <SkeletonGroup label="Cargando propuesta…" className="flex flex-1 flex-col">
+          {/* Header placeholder */}
+          <header className="flex items-center justify-between px-5 py-4 sm:px-8">
+            <div aria-hidden className="h-4 w-32 animate-pulse rounded bg-muted" />
+            <div className="flex items-center gap-2">
+              <div aria-hidden className="h-8 w-16 animate-pulse rounded-lg bg-muted" />
+              <div aria-hidden className="h-8 w-8 animate-pulse rounded-lg bg-muted" />
+            </div>
+          </header>
+
+          {/* Slide central placeholder: eyebrow + título */}
+          <main className="flex flex-1 items-center justify-center px-6 py-8 sm:px-12">
+            <div className="w-full max-w-3xl space-y-6 text-center">
+              <div aria-hidden className="mx-auto h-3 w-20 animate-pulse rounded bg-muted" />
+              <div aria-hidden className="mx-auto h-10 w-3/4 animate-pulse rounded bg-muted" />
+              <div aria-hidden className="mx-auto h-5 w-1/2 animate-pulse rounded bg-muted" />
+            </div>
+          </main>
+
+          {/* Footer / nav placeholder: círculo ← + dots + círculo → */}
+          <footer className="flex items-center justify-between gap-4 px-5 py-5 sm:px-8">
+            <div aria-hidden className="h-10 w-10 animate-pulse rounded-full bg-muted" />
+            <div className="flex gap-1.5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted" />
+              ))}
+            </div>
+            <div aria-hidden className="h-10 w-10 animate-pulse rounded-full bg-muted" />
+          </footer>
+        </SkeletonGroup>
       </div>
     )
   }
@@ -55,7 +88,9 @@ export function ProposalDeck({ token }: { token: string }) {
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background px-6 text-center">
         <FileQuestion className="h-10 w-10 text-muted-foreground" />
         <h1 className="text-xl font-semibold">Propuesta no disponible</h1>
-        <p className="max-w-sm text-sm text-muted-foreground">
+        {/* role="alert": el router llega a este branch después de una promesa, así
+            que lectores de pantalla necesitan el anuncio explícito del error. */}
+        <p role="alert" className="max-w-sm text-sm text-muted-foreground">
           El enlace no es válido o la propuesta todavía no está lista. Verificá el link con quien te lo envió.
         </p>
       </div>

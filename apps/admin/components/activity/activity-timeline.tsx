@@ -19,7 +19,7 @@ import { taskStatus, priority as priorityStatus, BADGE_CLASS } from '@/lib/statu
 import { StatusBadge } from '@/components/ui/status-badge'
 import { fieldLabel, formatHistoryValue, buildStageMap } from '@/lib/history'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ListSkeleton } from '@/components/ui/skeletons'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
@@ -533,11 +533,13 @@ export function ActivityTimeline({
         )}
       </div>
 
+      {/* Skeleton fiel: 4 cards de timeline con icono + título + fecha + cuerpo */}
       {isLoading && (
-        <div className="space-y-2">
-          <Skeleton className="h-20 rounded-xl" />
-          <Skeleton className="h-20 rounded-xl" />
-        </div>
+        <ListSkeleton
+          rows={4}
+          rowClassName="h-20 rounded-xl"
+          label="Cargando actividad…"
+        />
       )}
 
       {!isLoading && items.length === 0 && (

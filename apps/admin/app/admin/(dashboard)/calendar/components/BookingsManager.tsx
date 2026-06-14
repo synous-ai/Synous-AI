@@ -17,7 +17,7 @@ import { useState, useCallback } from 'react'
 import { CalendarX, Loader2, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ListSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { useBookings, useCancelAdminBooking } from '@/lib/hooks'
@@ -119,10 +119,9 @@ export function BookingsManager() {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="p-4 space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 rounded-lg" />
-          ))}
+        {/* h-16 coincide con la altura real de cada BookingRow (nombre + fecha + email) */}
+        <CardContent className="p-4">
+          <ListSkeleton rows={4} rowClassName="h-16 rounded-lg" label="Cargando reuniones agendadas…" />
         </CardContent>
       </Card>
     )

@@ -11,7 +11,9 @@ import { formatCurrency } from '@/lib/utils'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { SkeletonGroup } from '@/components/ui/loading-region'
 import { Skeleton } from '@/components/ui/skeleton'
+import { TableSkeleton, ListSkeleton } from '@/components/ui/skeletons'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -123,17 +125,64 @@ export default function ChangeRequestDetailPage(): React.JSX.Element {
   }
 
   // ── Loading ──────────────────────────────────────────────────────────────
-
+  // Skeleton fiel al layout real: breadcrumb + header card (full-width) +
+  // 2 columnas (izq: descripción+ítems+historial / der: acciones+comentarios).
   if (isLoading) {
     return (
-      <div className="p-6">
-        <Skeleton className="mb-6 h-5 w-48" />
-        <div className="space-y-4">
-          <Skeleton className="h-32 w-full rounded-2xl" />
-          <Skeleton className="h-48 w-full rounded-2xl" />
-          <Skeleton className="h-32 w-full rounded-2xl" />
+      <SkeletonGroup label="Cargando change request…" className="p-6">
+        {/* Breadcrumb */}
+        <Skeleton className="mb-6 h-4 w-36 rounded" />
+
+        {/* Header card: CR#N + badge + título + monto */}
+        <div className="mb-6 space-y-2 rounded-2xl border bg-card p-6">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-12" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+          </div>
+          <Skeleton className="h-7 w-1/2" />
+          <Skeleton className="h-4 w-32" />
         </div>
-      </div>
+
+        {/* Layout 2 columnas */}
+        <div className="flex flex-col gap-6 lg:flex-row">
+          {/* ── Izquierda: descripción + ítems + historial ── */}
+          <div className="min-w-0 flex-1 space-y-6">
+            {/* Descripción */}
+            <div className="space-y-2 rounded-2xl border bg-card p-6">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+            </div>
+            {/* Ítems (tabla: descripción / hs / precio / cant / subtotal) */}
+            <div className="space-y-3 rounded-2xl border bg-card p-6">
+              <Skeleton className="h-3 w-16" />
+              <TableSkeleton columns={5} rows={3} label="Cargando ítems…" />
+            </div>
+            {/* Historial de transiciones */}
+            <div className="space-y-3 rounded-2xl border bg-card p-6">
+              <Skeleton className="h-3 w-20" />
+              <ListSkeleton rows={3} rowClassName="h-12 rounded-xl" label="Cargando historial…" />
+            </div>
+          </div>
+
+          {/* ── Derecha: cambiar estado + comentarios ── */}
+          <div className="w-full space-y-6 lg:w-80 lg:flex-shrink-0">
+            {/* Card de transición */}
+            <div className="space-y-3 rounded-2xl border bg-card p-6">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-9 w-full rounded-lg" />
+              <Skeleton className="h-9 w-full rounded-lg" />
+            </div>
+            {/* Card de comentarios */}
+            <div className="space-y-3 rounded-2xl border bg-card p-6">
+              <Skeleton className="h-3 w-24" />
+              <ListSkeleton rows={2} rowClassName="h-16 rounded-xl" label="Cargando comentarios…" />
+              <Skeleton className="h-16 w-full rounded-xl" />
+              <Skeleton className="h-9 w-full rounded-lg" />
+            </div>
+          </div>
+        </div>
+      </SkeletonGroup>
     )
   }
 

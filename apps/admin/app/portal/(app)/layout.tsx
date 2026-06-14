@@ -19,6 +19,7 @@ import { useAuth, useUser, useClerk } from '@clerk/nextjs'
 import { LogOut, Sun, Moon, Palette } from 'lucide-react'
 import { Button } from '@portal/components/ui/button'
 import { Skeleton } from '@portal/components/ui/skeleton'
+import { SkeletonGroup } from '@portal/components/ui/loading-region'
 import { useBranding } from '@portal/components/branding/branding-provider'
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -47,7 +48,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // Pantalla de carga mientras Clerk verifica la sesión.
   if (!isLoaded || !isSignedIn) {
     return (
-      <div className="flex min-h-screen flex-col">
+      <SkeletonGroup label="Cargando portal…" className="flex min-h-screen flex-col">
         {/* Skeleton del header */}
         <div className="sticky top-0 z-10 border-b bg-card/80 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4 sm:px-6">
@@ -58,14 +59,30 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             </div>
           </div>
         </div>
-        {/* Skeleton del contenido principal */}
-        <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 sm:px-6 space-y-4">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-80" />
-          <Skeleton className="h-32 w-full rounded-lg" />
-          <Skeleton className="h-24 w-full rounded-lg" />
+        {/* Skeleton del contenido — fiel a: título + descripción + grid de summary cards */}
+        <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 sm:px-6">
+          <div className="space-y-4">
+            <Skeleton className="h-7 w-52" />
+            <Skeleton className="h-4 w-72" />
+            {/* Grid 2x2 de SummaryCards */}
+            <div className="grid gap-3 sm:grid-cols-2 pt-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-xl border bg-card p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-4 rounded-sm" />
+                      <Skeleton className="h-4 w-24" />
+                    </div>
+                    <Skeleton className="h-5 w-6 rounded-full" />
+                  </div>
+                  <Skeleton className="h-3 w-3/4" />
+                  <Skeleton className="h-8 w-28 rounded-md" />
+                </div>
+              ))}
+            </div>
+          </div>
         </main>
-      </div>
+      </SkeletonGroup>
     )
   }
 

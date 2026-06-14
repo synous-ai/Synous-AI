@@ -1,0 +1,57 @@
+'use client'
+
+import { cn } from '@portal/lib/utils'
+
+/**
+ * LoadingRegion — contenedor accesible para estados de carga con skeleton.
+ * El skeleton es decorativo (aria-hidden en cada barra). El estado de carga
+ * se comunica una sola vez acá, en el contenedor.
+ */
+interface LoadingRegionProps extends React.HTMLAttributes<HTMLDivElement> {
+  loading: boolean
+  /** Texto anunciado al lector de pantalla mientras carga. */
+  label?: string
+}
+
+export function LoadingRegion({
+  loading,
+  label = 'Cargando…',
+  className,
+  children,
+  ...props
+}: LoadingRegionProps) {
+  return (
+    <div aria-busy={loading || undefined} className={className} {...props}>
+      {loading ? (
+        <span role="status" aria-live="polite" className="sr-only">
+          {label}
+        </span>
+      ) : null}
+      {children}
+    </div>
+  )
+}
+
+/**
+ * SkeletonGroup — variante mínima cuando el skeleton ES todo el contenido del
+ * estado de carga. Mismo contrato de a11y que LoadingRegion.
+ */
+export function SkeletonGroup({
+  label = 'Cargando…',
+  className,
+  children,
+  ...props
+}: Omit<LoadingRegionProps, 'loading'>) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className={cn(className)}
+      {...props}
+    >
+      {children}
+      <span className="sr-only">{label}</span>
+    </div>
+  )
+}

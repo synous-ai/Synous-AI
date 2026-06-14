@@ -4,7 +4,8 @@ import { useClientInvoices } from '@portal/lib/hooks'
 import type { ClientInvoice } from '@portal/lib/types'
 import { Card, CardContent } from '@portal/components/ui/card'
 import { Badge } from '@portal/components/ui/badge'
-import { Receipt, Loader2 } from 'lucide-react'
+import { Receipt } from 'lucide-react'
+import { RowListSkeleton } from '@portal/components/ui/skeletons'
 import { formatCurrency } from '@portal/lib/utils'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
 
@@ -94,12 +95,7 @@ export function InvoicesPanel() {
   const invoices = query.data ?? []
 
   if (query.isLoading) {
-    return (
-      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando facturas…
-      </div>
-    )
+    return <RowListSkeleton count={4} label="Cargando facturas…" />
   }
 
   if (query.isError) {
