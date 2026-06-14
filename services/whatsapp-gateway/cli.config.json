@@ -1,0 +1,16 @@
+{
+  "sessionId": "nous",
+  "multiDevice": true,
+  "headless": true,
+  "qrTimeout": 0,
+  "authTimeout": 0,
+  "cacheEnabled": false,
+  "disableSpins": true,
+  "hostNotificationLang": "ES_AR",
+  "port": 8002,
+  "apiHost": "localhost",
+  "key": "CAMBIAR_ESTA_API_KEY",
+  "sessionDataPath": "./session-data",
+  "popup": false,
+  "skipBrokenMethodsCheck": true
+}

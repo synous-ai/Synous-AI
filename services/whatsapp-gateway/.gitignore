@@ -1,0 +1,17 @@
+# deps
+node_modules/
+# SESIÓN DE WHATSAPP — secretos, NUNCA subir (da acceso total a la cuenta)
+session-data/
+*.data.json
+.wwebjs_auth/
+.wwebjs_cache/
+chrome-profile/
+# logs / qr
+*.log
+qr.png
+
+# managed by open-wa
+**.data.json
+**.node-persist**
+**_IGNORE_**
+# end managed by open-wa

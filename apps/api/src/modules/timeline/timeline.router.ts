@@ -44,7 +44,7 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: LogCallSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await logCall(
@@ -67,7 +67,7 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: LogMeetingSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await logMeeting(
@@ -90,7 +90,7 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: LogEmailSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await logEmail(

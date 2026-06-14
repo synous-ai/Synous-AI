@@ -39,7 +39,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: CreateNoteSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await createNote(request.hubUser!.portalId, request.hubUser!.sub, request.body)
@@ -51,7 +51,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
     '/:id',
     {
       schema: { tags: [TAG], summary: 'Eliminar nota', description: 'Borra una nota.', security, params: IdParamSchema },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       await deleteNote(request.hubUser!.portalId, request.params.id)

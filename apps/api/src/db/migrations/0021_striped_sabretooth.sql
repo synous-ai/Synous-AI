@@ -1,0 +1,2 @@
+ALTER TABLE "work_item" ADD COLUMN "timeframe" text;--> statement-breakpoint
+ALTER TABLE "work_item" ADD CONSTRAINT "work_item_timeframe_check" CHECK ("work_item"."timeframe" IS NULL OR "work_item"."timeframe" IN ('now','next','later'));

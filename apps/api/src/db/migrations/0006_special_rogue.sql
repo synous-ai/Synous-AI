@@ -1,0 +1,2 @@
+ALTER TABLE "setter_tenant" ADD COLUMN "portal_id" text NOT NULL;--> statement-breakpoint
+ALTER TABLE "setter_tenant" ADD CONSTRAINT "setter_tenant_portal_id_portal_id_fk" FOREIGN KEY ("portal_id") REFERENCES "public"."portal"("id") ON DELETE cascade ON UPDATE no action;

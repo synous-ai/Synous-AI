@@ -87,7 +87,7 @@ export async function dealsRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: AddDealContactSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       await addDealContact(request.hubUser!.portalId, request.params.id, request.body.contactId, request.body.role)
@@ -105,7 +105,7 @@ export async function dealsRoutes(app: FastifyInstance): Promise<void> {
         security,
         params: DealContactParamSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       await removeDealContact(request.hubUser!.portalId, request.params.id, request.params.contactId)
@@ -115,7 +115,7 @@ export async function dealsRoutes(app: FastifyInstance): Promise<void> {
 
   r.post(
     '/',
-    { schema: { tags: [TAG], summary: 'Crear deal', description: 'Crea un deal. Valida que el stage pertenezca al pipeline. Requiere owner o member.', security, body: CreateDealSchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Crear deal', description: 'Crea un deal. Valida que el stage pertenezca al pipeline. Requiere owner o member.', security, body: CreateDealSchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request, reply) => {
       const created = await createDeal(request.hubUser!.portalId, request.hubUser!.sub, request.body)
       return reply.status(201).send(ok(created))
@@ -124,7 +124,7 @@ export async function dealsRoutes(app: FastifyInstance): Promise<void> {
 
   r.patch(
     '/:id',
-    { schema: { tags: [TAG], summary: 'Actualizar deal', description: 'Actualiza campos del deal (no la etapa; usar /stage). Requiere owner o member.', security, params: IdParamSchema, body: UpdateDealSchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Actualizar deal', description: 'Actualiza campos del deal (no la etapa; usar /stage). Requiere owner o member.', security, params: IdParamSchema, body: UpdateDealSchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request) => {
       return ok(await updateDeal(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body))
     },
@@ -132,7 +132,7 @@ export async function dealsRoutes(app: FastifyInstance): Promise<void> {
 
   r.patch(
     '/:id/stage',
-    { schema: { tags: [TAG], summary: 'Cambiar etapa del deal', description: 'Mueve el deal de etapa. Registra STAGE_CHANGE en record_history + audit_log y crea una notificación. Requiere owner o member.', security, params: IdParamSchema, body: ChangeStageSchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Cambiar etapa del deal', description: 'Mueve el deal de etapa. Registra STAGE_CHANGE en record_history + audit_log y crea una notificación. Requiere owner o member.', security, params: IdParamSchema, body: ChangeStageSchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request) => {
       return ok(await changeStage(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body.stageId))
     },

@@ -3,6 +3,7 @@ import { apiGet, apiPatch, apiPost, apiDelete } from '../api'
 import type {
   PortalSettings,
   TeamUser,
+  HubUserRole,
   Pipeline,
   ClientAccountSummary,
   NotificationPref,
@@ -31,7 +32,8 @@ export interface UserInput {
   email: string
   firstName?: string
   lastName?: string
-  role: 'owner' | 'member' | 'viewer'
+  /** Orden de permisos de mayor a menor: owner > member > collaborator > viewer */
+  role: HubUserRole
   password: string
 }
 

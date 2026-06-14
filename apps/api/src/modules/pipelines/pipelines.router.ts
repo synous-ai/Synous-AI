@@ -66,7 +66,7 @@ export async function pipelinesRoutes(app: FastifyInstance): Promise<void> {
         params: StageParamSchema,
         body: UpdateStageSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       const updated = await updateStage(request.hubUser!.portalId, request.params.id, request.params.stageId, request.body)

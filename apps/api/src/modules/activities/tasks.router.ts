@@ -39,7 +39,7 @@ export async function tasksRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: CreateTaskSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await createTask(request.hubUser!.portalId, request.hubUser!.sub, request.body)
@@ -58,7 +58,7 @@ export async function tasksRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: UpdateTaskSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => ok(await updateTask(request.hubUser!.portalId, request.params.id, request.body)),
   )
@@ -67,7 +67,7 @@ export async function tasksRoutes(app: FastifyInstance): Promise<void> {
     '/:id',
     {
       schema: { tags: [TAG], summary: 'Eliminar tarea', description: 'Borra una tarea.', security, params: IdParamSchema },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       await deleteTask(request.hubUser!.portalId, request.params.id)

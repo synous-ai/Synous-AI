@@ -1,0 +1,12 @@
+{
+  "name": "whatsapp-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gateway de WhatsApp (open-wa/wa-automate) para el CRM NOUS. Por ahora SOLO recibe; el envío lo hace el humano. Servicio aislado: NO forma parte del workspace pnpm del monorepo.",
+  "scripts": {
+    "start": "wa-automate --config ./cli.config.json"
+  },
+  "dependencies": {
+    "@open-wa/wa-automate": "^4.76.0"
+  }
+}

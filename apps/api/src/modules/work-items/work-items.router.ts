@@ -51,7 +51,7 @@ export async function workItemsRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: CreateWorkItemSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await createWorkItem(
@@ -74,7 +74,7 @@ export async function workItemsRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: UpdateWorkItemSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       return ok(await updateWorkItem(request.hubUser!.portalId, request.params.id, request.body))
@@ -91,7 +91,7 @@ export async function workItemsRoutes(app: FastifyInstance): Promise<void> {
         security,
         params: IdParamSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       await archiveWorkItem(request.hubUser!.portalId, request.params.id)

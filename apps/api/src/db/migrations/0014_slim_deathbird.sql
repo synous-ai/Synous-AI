@@ -1,0 +1,1 @@
+ALTER TABLE "proposal" ADD COLUMN "completed_at" timestamp with time zone;

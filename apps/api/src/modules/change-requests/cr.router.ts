@@ -11,7 +11,8 @@ import { ADMIN_SECURITY } from '../../lib/http'
 
 const TAG = 'Change Requests'
 const security = ADMIN_SECURITY
-const mut = { preHandler: [authorize('owner', 'member')] }
+// collaborator puede gestionar change requests (crear, editar, comentar)
+const mut = { preHandler: [authorize('owner', 'member', 'collaborator')] }
 const ItemParam = z.object({ id: z.string().min(1), itemId: z.string().min(1) })
 
 export async function crRoutes(app: FastifyInstance): Promise<void> {

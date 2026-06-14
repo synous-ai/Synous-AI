@@ -67,7 +67,7 @@ export async function contactsRoutes(app: FastifyInstance): Promise<void> {
 
   r.post(
     '/',
-    { schema: { tags: [TAG], summary: 'Crear contacto', description: 'Crea un contacto. Requiere rol owner o member.', security, body: CreateContactSchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Crear contacto', description: 'Crea un contacto. Requiere rol owner o member.', security, body: CreateContactSchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request, reply) => {
       const created = await createContact(request.hubUser!.portalId, request.hubUser!.sub, request.body)
       return reply.status(201).send(ok(created))
@@ -76,7 +76,7 @@ export async function contactsRoutes(app: FastifyInstance): Promise<void> {
 
   r.patch(
     '/:id',
-    { schema: { tags: [TAG], summary: 'Actualizar contacto', description: 'Actualiza campos del contacto y registra los cambios en record_history. Requiere owner o member.', security, params: IdParamSchema, body: UpdateContactSchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Actualizar contacto', description: 'Actualiza campos del contacto y registra los cambios en record_history. Requiere owner o member.', security, params: IdParamSchema, body: UpdateContactSchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request) => {
       return ok(await updateContact(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body))
     },

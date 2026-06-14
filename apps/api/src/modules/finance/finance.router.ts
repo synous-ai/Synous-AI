@@ -44,6 +44,9 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
         security,
         querystring: ListInvoicesQuerySchema,
       },
+      // Los datos financieros son sensibles: solo owner y member pueden leerlos.
+      // viewer y collaborator no tienen acceso a finanzas (ni lectura ni escritura).
+      preHandler: [authorize('owner', 'member')],
     },
     async (request) => {
       const invoices = await listInvoices(request.hubUser!.portalId, request.query)
@@ -83,6 +86,7 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
         security,
         params: IdParamSchema,
       },
+      preHandler: [authorize('owner', 'member')],
     },
     async (request) => {
       const detail = await getInvoiceDetail(request.hubUser!.portalId, request.params.id)
@@ -100,6 +104,7 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
         security,
         params: IdParamSchema,
       },
+      preHandler: [authorize('owner', 'member')],
     },
     async (request) => {
       const result = await generateInvoicePdf(request.hubUser!.portalId, request.params.id)
@@ -172,6 +177,7 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
         description: 'Lista todos los pagos del portal ordenados por fecha.',
         security,
       },
+      preHandler: [authorize('owner', 'member')],
     },
     async (request) => {
       const payments = await listPayments(request.hubUser!.portalId)
@@ -212,6 +218,7 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
         description: 'KPIs financieros: total facturado, cobrado, cuentas por cobrar y desglose por status.',
         security,
       },
+      preHandler: [authorize('owner', 'member')],
     },
     async (request) => {
       const summary = await financeSummary(request.hubUser!.portalId)

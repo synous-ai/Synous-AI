@@ -48,7 +48,7 @@ export async function companiesRoutes(app: FastifyInstance): Promise<void> {
 
   r.post(
     '/',
-    { schema: { tags: [TAG], summary: 'Crear empresa', description: 'Crea una empresa. Requiere rol owner o member.', security, body: CreateCompanySchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Crear empresa', description: 'Crea una empresa. Requiere rol owner o member.', security, body: CreateCompanySchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request, reply) => {
       const created = await createCompany(request.hubUser!.portalId, request.hubUser!.sub, request.body)
       return reply.status(201).send(ok(created))
@@ -57,7 +57,7 @@ export async function companiesRoutes(app: FastifyInstance): Promise<void> {
 
   r.patch(
     '/:id',
-    { schema: { tags: [TAG], summary: 'Actualizar empresa', description: 'Actualiza campos y registra cambios en record_history. Requiere owner o member.', security, params: IdParamSchema, body: UpdateCompanySchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Actualizar empresa', description: 'Actualiza campos y registra cambios en record_history. Requiere owner o member.', security, params: IdParamSchema, body: UpdateCompanySchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request) => {
       return ok(await updateCompany(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body))
     },

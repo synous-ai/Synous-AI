@@ -1,0 +1,2 @@
+ALTER TABLE "hub_user" DROP CONSTRAINT "hub_user_role_check";--> statement-breakpoint
+ALTER TABLE "hub_user" ADD CONSTRAINT "hub_user_role_check" CHECK ("hub_user"."role" IN ('owner','member','viewer','collaborator'));

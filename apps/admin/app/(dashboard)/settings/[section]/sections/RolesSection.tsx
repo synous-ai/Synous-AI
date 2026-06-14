@@ -23,7 +23,8 @@ type Capability =
   | 'Emitir facturas'
   | 'Acceso al portal de clientes'
 
-type Role = 'owner' | 'member' | 'viewer'
+/** Orden de permisos de mayor a menor: owner > member > collaborator > viewer */
+type Role = 'owner' | 'member' | 'collaborator' | 'viewer'
 
 const ROLES: { id: Role; label: string; description: string }[] = [
   {
@@ -35,6 +36,13 @@ const ROLES: { id: Role; label: string; description: string }[] = [
     id: 'member',
     label: 'Member',
     description: 'Operaciones día a día: CRM, deals, actividades. No puede cambiar configuración del portal ni gestionar usuarios.',
+  },
+  {
+    id: 'collaborator',
+    label: 'Colaborador',
+    // Ve/crea/edita/elimina registros y accede al portal de clientes.
+    // NO ve finanzas, NO emite facturas, NO configura portal, NO gestiona usuarios.
+    description: 'Opera el CRM y accede al portal de clientes. Sin acceso a finanzas, usuarios ni configuración.',
   },
   {
     id: 'viewer',
@@ -76,6 +84,17 @@ const ROLE_MATRIX: Record<Role, Set<Capability>> = {
     'Emitir facturas',
     'Acceso al portal de clientes',
   ]),
+  /**
+   * Colaborador: acceso operativo completo al CRM y al portal de clientes,
+   * pero sin visibilidad financiera ni capacidad de administrar usuarios o portal.
+   */
+  collaborator: new Set([
+    'Ver registros',
+    'Crear registros',
+    'Editar registros',
+    'Eliminar / archivar',
+    'Acceso al portal de clientes',
+  ]),
   viewer: new Set(['Ver registros']),
 }
 
@@ -89,7 +108,8 @@ export function RolesSection() {
       </div>
 
       {/* Role cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* 4 columnas para los 4 roles: owner / member / collaborator / viewer */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {ROLES.map((r) => (
           <Card key={r.id} className="border-border/60">
             <CardContent className="p-4">

@@ -1,0 +1,2 @@
+ALTER TABLE "setter_tenant" ADD COLUMN "model_provider" text DEFAULT 'gemini' NOT NULL;--> statement-breakpoint
+ALTER TABLE "setter_tenant" ADD CONSTRAINT "setter_tenant_model_provider_check" CHECK ("setter_tenant"."model_provider" IN ('gemini','claude'));

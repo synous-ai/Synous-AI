@@ -42,7 +42,7 @@ export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: CreateDeliverableSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await createDeliverable(request.hubUser!.portalId, request.hubUser!.sub, request.body)
@@ -61,7 +61,7 @@ export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: UpdateDeliverableSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       return ok(await updateDeliverable(request.hubUser!.portalId, request.params.id, request.body))

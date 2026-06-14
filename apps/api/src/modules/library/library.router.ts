@@ -51,7 +51,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: CreateLibraryItemSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await createLibraryItem(
@@ -74,7 +74,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: UpdateLibraryItemSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       return ok(await updateLibraryItem(request.hubUser!.portalId, request.params.id, request.body))
@@ -91,7 +91,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
         security,
         params: IdParamSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       await archiveLibraryItem(request.hubUser!.portalId, request.params.id)

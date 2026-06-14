@@ -53,7 +53,7 @@ export async function customFieldsRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: CreateCustomFieldSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const created = await createCustomField(request.hubUser!.portalId, request.body)
@@ -73,7 +73,7 @@ export async function customFieldsRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: UpdateCustomFieldSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       return ok(await updateCustomField(request.hubUser!.portalId, request.params.id, request.body))
@@ -91,7 +91,7 @@ export async function customFieldsRoutes(app: FastifyInstance): Promise<void> {
         security,
         params: IdParamSchema,
       },
-      preHandler: [authorize('owner', 'member')],
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
       await archiveCustomField(request.hubUser!.portalId, request.params.id)

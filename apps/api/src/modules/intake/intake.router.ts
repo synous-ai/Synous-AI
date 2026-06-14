@@ -21,7 +21,7 @@ export async function intakeRoutes(app: FastifyInstance): Promise<void> {
   )
   r.post(
     '/forms',
-    { schema: { tags: [TAG], summary: 'Crear plantilla de intake', description: 'fields = [{name,label,type}]. Solo owner/member.', security, body: CreateIntakeFormSchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Crear plantilla de intake', description: 'fields = [{name,label,type}]. Solo owner/member.', security, body: CreateIntakeFormSchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request, reply) => {
       const created = await createIntakeForm(request.hubUser!.portalId, request.body)
       return reply.status(201).send(ok(created))
@@ -35,7 +35,7 @@ export async function intakeRoutes(app: FastifyInstance): Promise<void> {
   )
   r.post(
     '/deal-intakes',
-    { schema: { tags: [TAG], summary: 'Asignar formulario a un deal', security, body: AssignIntakeSchema }, preHandler: [authorize('owner', 'member')] },
+    { schema: { tags: [TAG], summary: 'Asignar formulario a un deal', security, body: AssignIntakeSchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request, reply) => {
       const created = await assignIntake(request.hubUser!.portalId, request.body)
       return reply.status(201).send(ok(created))

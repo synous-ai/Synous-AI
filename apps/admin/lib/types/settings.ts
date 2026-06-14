@@ -6,12 +6,15 @@ export interface PortalSettings {
   currency: string
 }
 
+/** Orden de permisos de mayor a menor: owner > member > collaborator > viewer */
+export type HubUserRole = 'owner' | 'member' | 'collaborator' | 'viewer'
+
 export interface TeamUser {
   id: string
   email: string
   firstName: string | null
   lastName: string | null
-  role: 'owner' | 'member' | 'viewer'
+  role: HubUserRole
   isActive: boolean
 }
 
@@ -20,7 +23,7 @@ export interface User {
   email: string
   firstName: string | null
   lastName: string | null
-  role: 'owner' | 'member' | 'viewer'
+  role: HubUserRole
   portalId: string
 }
 

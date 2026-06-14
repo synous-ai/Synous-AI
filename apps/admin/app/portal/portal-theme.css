@@ -1,0 +1,121 @@
+/*
+ * Tema del Portal de Cliente (Fynix) — SCOPEADO bajo `.portal-theme`.
+ *
+ * El admin define su propia paleta (monocromo Resend) en `:root` vía
+ * `app/globals.css`, que se importa global desde el root layout. Como ambas
+ * apps comparten los MISMOS nombres de variable CSS, scopeamos la paleta del
+ * portal a `.portal-theme` para que NO contamine la landing ni el admin, y al
+ * revés. El BrandingProvider sobre-escribe --primary/--secondary en runtime.
+ *
+ * La font del portal (Plus Jakarta Sans) entra por --font-portal-sans y se
+ * mapea acá a --font-sans/--font-mono SOLO dentro del scope del portal.
+ */
+
+.portal-theme {
+  /* ─── Fynix — fintech limpio: gris verdoso claro + verde lima + verde bosque ─── */
+  --background: 140 14% 96%;
+  --foreground: 156 30% 13%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 156 30% 13%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 156 30% 13%;
+
+  --primary: 155 47% 15%;
+  --primary-foreground: 140 30% 97%;
+
+  --secondary: 140 12% 92%;
+  --secondary-foreground: 156 30% 13%;
+
+  --muted: 140 12% 94%;
+  --muted-foreground: 150 6% 43%;
+
+  --accent: 110 42% 91%;
+  --accent-foreground: 156 30% 13%;
+
+  --signal: 92 62% 64%;
+  --signal-foreground: 156 45% 14%;
+
+  --destructive: 0 65% 47%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 145 13% 89%;
+  --input: 145 13% 89%;
+  --ring: 95 50% 45%;
+
+  --radius: 0.75rem;
+
+  --chart-1: 155 47% 15%;
+  --chart-2: 92 62% 64%;
+  --chart-3: 110 42% 60%;
+  --chart-4: 150 30% 40%;
+  --chart-5: 140 20% 75%;
+
+  --sidebar-background: 140 14% 96%;
+  --sidebar-foreground: 156 30% 13%;
+  --sidebar-primary: 155 47% 15%;
+  --sidebar-primary-foreground: 140 30% 97%;
+  --sidebar-accent: 110 42% 91%;
+  --sidebar-accent-foreground: 156 30% 13%;
+  --sidebar-border: 145 13% 89%;
+  --sidebar-ring: 95 50% 45%;
+
+  /* Font del portal (sobre-escribe la Inter del admin dentro del scope). */
+  --font-sans: var(--font-portal-sans);
+
+  /* El portal pinta su propio fondo/texto base (el body lo da el admin). */
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-portal-sans), ui-sans-serif, system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+.dark .portal-theme {
+  /* ─── Fynix dark — fondo verde muy oscuro con tinte, foreground claro ─── */
+  --background: 160 20% 7%;
+  --foreground: 140 15% 92%;
+
+  --card: 158 18% 10%;
+  --card-foreground: 140 15% 92%;
+
+  --popover: 158 18% 12%;
+  --popover-foreground: 140 15% 92%;
+
+  --primary: 152 55% 48%;
+  --primary-foreground: 156 45% 8%;
+
+  --secondary: 158 15% 15%;
+  --secondary-foreground: 140 15% 92%;
+
+  --muted: 158 15% 14%;
+  --muted-foreground: 145 10% 52%;
+
+  --accent: 155 25% 18%;
+  --accent-foreground: 140 15% 92%;
+
+  --signal: 92 62% 58%;
+  --signal-foreground: 156 45% 8%;
+
+  --destructive: 0 65% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 155 18% 17%;
+  --input: 155 18% 17%;
+  --ring: 95 50% 50%;
+
+  --chart-1: 152 55% 48%;
+  --chart-2: 92 62% 58%;
+  --chart-3: 110 42% 45%;
+  --chart-4: 150 30% 35%;
+  --chart-5: 140 20% 25%;
+
+  --sidebar-background: 158 18% 10%;
+  --sidebar-foreground: 140 15% 92%;
+  --sidebar-primary: 152 55% 48%;
+  --sidebar-primary-foreground: 156 45% 8%;
+  --sidebar-accent: 155 25% 18%;
+  --sidebar-accent-foreground: 140 15% 92%;
+  --sidebar-border: 155 18% 17%;
+  --sidebar-ring: 95 50% 50%;
+}

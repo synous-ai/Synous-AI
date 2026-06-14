@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Trash2, Plus, ClipboardList, Workflow } from 'lucide-react'
+import { Trash2, Plus, Workflow } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -15,8 +15,6 @@ import {
   useAddStage,
   useDeleteStage,
   useUpdateStage,
-  useIntakeForms,
-  useCreateIntakeForm,
 } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -42,125 +40,16 @@ import {
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 
+/**
+ * Tabs de la página de configuración general.
+ * "Formularios" se eliminó de aquí porque tiene una sección top-level
+ * propia en /admin/settings/forms (FormulariosSection), evitando duplicación.
+ */
 const TABS = [
   { value: 'empresa', label: 'Empresa' },
   { value: 'usuarios', label: 'Usuarios' },
   { value: 'pipelines', label: 'Pipelines' },
-  { value: 'formularios', label: 'Formularios' },
 ] as const
-
-function slugifyField(label: string): string {
-  return (
-    label
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '') || 'campo'
-  )
-}
-
-const FIELD_TYPES = ['text', 'textarea', 'email', 'number', 'date', 'file']
-
-function FormulariosTab() {
-  const { data, isLoading } = useIntakeForms()
-  const create = useCreateIntakeForm()
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [rows, setRows] = useState<{ label: string; type: string }[]>([{ label: '', type: 'text' }])
-
-  async function save() {
-    const fields = rows
-      .filter((r) => r.label.trim())
-      .map((r) => ({ name: slugifyField(r.label), label: r.label.trim(), type: r.type }))
-    if (!name.trim()) return
-    await create.mutateAsync({ name: name.trim(), fields })
-    toast.success('Plantilla creada correctamente')
-    setName('')
-    setRows([{ label: '', type: 'text' }])
-    setOpen(false)
-  }
-
-  return (
-    <div>
-      <div className="mb-4 flex justify-end">
-        <Button size="sm" onClick={() => setOpen((o) => !o)}>{open ? 'Cancelar' : 'Nueva Plantilla'}</Button>
-      </div>
-      {open && (
-        <Card className="mb-4">
-          <CardContent className="space-y-3 p-4">
-            <div className="space-y-1.5">
-              <Label>Nombre de la plantilla</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Branding" />
-            </div>
-            <Label>Campos</Label>
-            {rows.map((row, i) => (
-              <div key={i} className="flex gap-2">
-                <Input
-                  className="flex-1"
-                  value={row.label}
-                  onChange={(e) => setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, label: e.target.value } : r)))}
-                  placeholder="Etiqueta del campo"
-                />
-                <Select
-                  value={row.type}
-                  onValueChange={(v) => setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, type: v } : r)))}
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FIELD_TYPES.map((t) => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button variant="ghost" size="icon" onClick={() => setRows((rs) => (rs.length === 1 ? rs : rs.filter((_, idx) => idx !== i)))} className="text-muted-foreground hover:text-destructive" aria-label="Quitar campo">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button variant="ghost" size="sm" onClick={() => setRows((rs) => [...rs, { label: '', type: 'text' }])}>
-              <Plus className="h-4 w-4" /> Campo
-            </Button>
-            <div>
-              <Button size="sm" onClick={save} disabled={!name.trim() || create.isPending}>Guardar plantilla</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      <Card>
-        <CardContent className="p-2">
-          {isLoading ? (
-            <div className="space-y-2 p-4">
-              <Skeleton className="h-9 rounded-lg" />
-              <Skeleton className="h-9 rounded-lg" />
-            </div>
-          ) : (data ?? []).length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyIllustration icon={ClipboardList} />
-                <EmptyTitle>Sin Plantillas de Intake</EmptyTitle>
-                <EmptyDescription>Creá la primera plantilla para asignarla a los deals.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <ul className="divide-y">
-              {data!.map((f) => (
-                <li key={f.id} className="flex items-center justify-between px-3 py-3">
-                  <div>
-                    <p className="text-sm font-medium">{f.name}</p>
-                    <p className="font-mono text-xs text-muted-foreground">/{f.slug} · {f.fields.length} campos</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
 
 function EmpresaTab() {
   const { data } = usePortal()
@@ -208,13 +97,18 @@ function UsuariosTab() {
   const { data, isLoading } = useUsers()
   const create = useCreateUser()
   const [open, setOpen] = useState(false)
+  /**
+   * El rol por defecto al crear un usuario es 'member'.
+   * Orden de permisos de mayor a menor: owner > member > collaborator > viewer.
+   */
   const [form, setForm] = useState({ email: '', firstName: '', role: 'member', password: '' })
+
   async function add() {
     try {
       await create.mutateAsync({
         email: form.email,
         firstName: form.firstName || undefined,
-        role: form.role as 'owner' | 'member' | 'viewer',
+        role: form.role as 'owner' | 'member' | 'collaborator' | 'viewer',
         password: form.password,
       })
       toast.success('Usuario creado correctamente')
@@ -243,14 +137,18 @@ function UsuariosTab() {
             </div>
             <div className="space-y-1.5">
               <Label>Rol</Label>
+              {/* Orden: owner > member > collaborator > viewer */}
               <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
-                <SelectTrigger className="w-32">
+                <SelectTrigger className="w-36">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="owner">owner</SelectItem>
-                  <SelectItem value="member">member</SelectItem>
-                  <SelectItem value="viewer">viewer</SelectItem>
+                  <SelectItem value="owner">Dueño</SelectItem>
+                  <SelectItem value="member">Miembro</SelectItem>
+                  {/* Colaborador: ve/crea/edita/elimina registros y accede al portal de clientes,
+                      pero NO ve finanzas, NO gestiona usuarios, NO configura portal */}
+                  <SelectItem value="collaborator">Colaborador</SelectItem>
+                  <SelectItem value="viewer">Visor</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -487,7 +385,6 @@ export default function SettingsPage() {
         <TabsContent value="empresa"><EmpresaTab /></TabsContent>
         <TabsContent value="usuarios"><UsuariosTab /></TabsContent>
         <TabsContent value="pipelines"><PipelinesTab /></TabsContent>
-        <TabsContent value="formularios"><FormulariosTab /></TabsContent>
       </Tabs>
     </div>
   )
