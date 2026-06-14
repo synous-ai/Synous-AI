@@ -37,7 +37,7 @@ export function PeopleSection({
   const { page, setPage, pageCount, pageItems } = usePagination(items)
 
   function openDetail(id: string) {
-    router.push(`/${scope}/${id}`)
+    router.push(`/admin/${scope}/${id}`)
   }
 
   return (

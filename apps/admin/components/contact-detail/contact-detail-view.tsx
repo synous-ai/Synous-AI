@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -20,6 +20,7 @@ import {
   AlertCircle,
   Clock,
   ArrowRight,
+  Sparkles,
 } from 'lucide-react'
 import {
   useContactDetail,
@@ -32,6 +33,7 @@ import {
   useCompanies,
   useUsers,
   usePipelines,
+  useNextAction,
 } from '@/lib/hooks'
 import type { Task } from '@/lib/types'
 import { cn, formatCurrency, initials } from '@/lib/utils'
@@ -44,6 +46,12 @@ import { ContactDialog } from '@/components/contacts/contact-dialog'
 import { STAGE_LABELS, STAGE_DOT_CLASS } from '@/lib/status'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
 import { PillTabs } from '@/components/ui/pill-tabs'
+import {
+  ContactOnboardingTab,
+  ContactProposalsTab,
+  formatCustomField,
+} from '@/components/contact-detail/contact-extras'
+import { sourceLabel } from '@/lib/labels'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
@@ -51,7 +59,7 @@ import { StickyNote, ListTodo, History } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type DetailTab = 'activity' | 'notes' | 'tasks' | 'deals' | 'history'
+type DetailTab = 'activity' | 'notes' | 'tasks' | 'deals' | 'onboarding' | 'proposals' | 'history'
 type InfoTab = 'basic' | 'details'
 
 const SCOPE_LABELS: Record<'leads' | 'clients' | 'contacts', string> = {
@@ -61,9 +69,9 @@ const SCOPE_LABELS: Record<'leads' | 'clients' | 'contacts', string> = {
 }
 
 const SCOPE_BACK: Record<'leads' | 'clients' | 'contacts', string> = {
-  leads: '/leads',
-  clients: '/clients',
-  contacts: '/contacts',
+  leads: '/admin/leads',
+  clients: '/admin/clients',
+  contacts: '/admin/contacts',
 }
 
 // ─── Field row ──────────────────────────────────────────────────────────────
@@ -100,6 +108,24 @@ export function ContactDetailView({
   const router = useRouter()
 
   const { data, isLoading } = useContactDetail(scope, id)
+
+  // [NAV DEBUG] medir click → render → data. Quitar cuando entendamos el timing.
+  useEffect(() => {
+    const t0 = (window as Window & { __navT0?: number }).__navT0
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[NAV DEBUG] 🧩 ContactDetailView MONTADO (ruta+JS listos)${t0 ? ` → +${Math.round(performance.now() - t0)}ms desde el click` : ''}`,
+    )
+  }, [])
+  useEffect(() => {
+    if (!data) return
+    const t0 = (window as Window & { __navT0?: number }).__navT0
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[NAV DEBUG] ✅ DATA del detalle cargada (API respondió)${t0 ? ` → +${Math.round(performance.now() - t0)}ms desde el click` : ''}`,
+    )
+  }, [data])
+
   const { data: companies = [] } = useCompanies()
   const { data: users = [] } = useUsers()
   const { data: pipelines = [] } = usePipelines()
@@ -133,7 +159,7 @@ export function ContactDetailView({
     : ''
   const companyName = c?.companyId ? (companyMap.get(c.companyId)?.name ?? null) : null
   const owner = c?.ownerId ? userMap.get(c.ownerId) ?? null : null
-  const source = (c?.custom?.source as string | undefined) ?? null
+  const source = sourceLabel((c?.custom?.source as string | undefined) ?? null)
 
   const lastActivityDate = useMemo(() => {
     if (!data) return null
@@ -159,6 +185,10 @@ export function ContactDetailView({
     return sorted[0] ?? null
   }, [data])
 
+  // Próxima acción sugerida por IA — solo cuando NO hay una tarea agendada
+  // (si ya hay tarea, esa ES la próxima acción).
+  const nextAction = useNextAction(id, !!data && !nextTask)
+
   const backHref = SCOPE_BACK[scope]
   const backLabel = SCOPE_LABELS[scope]
 
@@ -178,7 +208,7 @@ export function ContactDetailView({
   async function handleConvertToClient() {
     if (!c) return
     await updateContact.mutateAsync({ id, input: { lifecycleStage: 'customer' } })
-    router.push('/clients')
+    router.push('/admin/clients')
   }
 
   async function addNote() {
@@ -202,6 +232,8 @@ export function ContactDetailView({
     { key: 'notes', label: 'Notas', count: data?.notes.length },
     { key: 'tasks', label: 'Tareas', count: data?.tasks.length },
     { key: 'deals', label: 'Deals', count: data?.deals.length },
+    { key: 'onboarding', label: 'Onboarding' },
+    { key: 'proposals', label: 'Propuestas' },
     { key: 'history', label: 'Historial', count: data?.history.length },
   ]
 
@@ -309,17 +341,26 @@ export function ContactDetailView({
                     </div>
                   </div>
                 ) : (
+                  // Sin tarea agendada → mostramos la PRÓXIMA ACCIÓN sugerida por
+                  // la IA (con todo el contexto del lead). Click → ir a Tareas.
                   <Button
                     variant="ghost"
                     onClick={() => setDetailTab('tasks')}
-                    className="flex h-auto w-full items-center gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-left transition-colors hover:bg-amber-100/60 justify-start dark:border-[rgba(250,204,21,0.25)] dark:bg-[rgba(250,204,21,0.1)] dark:hover:bg-[rgba(250,204,21,0.15)]"
+                    className="flex h-auto w-full items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-left transition-colors hover:bg-amber-100/60 justify-start dark:border-[rgba(250,204,21,0.25)] dark:bg-[rgba(250,204,21,0.1)] dark:hover:bg-[rgba(250,204,21,0.15)]"
                   >
-                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400" />
-                    <div>
+                    <Sparkles className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400" />
+                    <div className="min-w-0">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-[rgba(253,224,71,0.85)]">
-                        Sin próxima acción
+                        Próxima acción sugerida
                       </p>
-                      <p className="text-[10px] text-amber-600/80 dark:text-[rgba(253,224,71,0.6)]">Agendar seguimiento →</p>
+                      {nextAction.isPending ? (
+                        <p className="text-[11px] text-amber-600/80 dark:text-[rgba(253,224,71,0.6)]">Pensando…</p>
+                      ) : (
+                        <p className="whitespace-normal text-xs font-medium text-foreground">
+                          {nextAction.data?.action ?? 'Agendá un seguimiento.'}
+                        </p>
+                      )}
+                      <p className="mt-0.5 text-[10px] text-amber-600/80 dark:text-[rgba(253,224,71,0.6)]">Agendar →</p>
                     </div>
                   </Button>
                 )}
@@ -453,15 +494,18 @@ export function ContactDetailView({
                     {c.custom &&
                       Object.entries(c.custom)
                         .filter(([k]) => k !== 'source')
-                        .map(([k, v]) => (
-                          <div key={k} className="flex items-start gap-3 py-2">
-                            <Activity className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                            <div>
-                              <p className="text-xs text-muted-foreground">{k}</p>
-                              <p className="text-sm font-medium">{String(v ?? '—')}</p>
+                        .map(([k, v]) => {
+                          const f = formatCustomField(k, v)
+                          return (
+                            <div key={k} className="flex items-start gap-3 py-2">
+                              <Activity className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">{f.label}</p>
+                                <p className="text-sm font-medium">{f.value}</p>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                   </div>
                 )}
               </div>
@@ -635,6 +679,16 @@ export function ContactDetailView({
                     ))
                   )}
                 </div>
+              )}
+
+              {/* ── Onboarding tab ────────────────────────────────── */}
+              {detailTab === 'onboarding' && (
+                <ContactOnboardingTab contactId={id} dealId={data?.deals[0]?.id} />
+              )}
+
+              {/* ── Propuestas tab ────────────────────────────────── */}
+              {detailTab === 'proposals' && (
+                <ContactProposalsTab contactId={id} dealId={data?.deals[0]?.id} />
               )}
 
               {/* ── History tab ───────────────────────────────────── */}

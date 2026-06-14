@@ -48,13 +48,18 @@ export function useDeleteDocument() {
   })
 }
 
-export function useWorkItems({ type, status }: { type?: WorkItemType; status?: WorkItemStatus } = {}) {
+export function useWorkItems({
+  type,
+  status,
+  assignedTo,
+}: { type?: WorkItemType; status?: WorkItemStatus; assignedTo?: string } = {}) {
   const params = new URLSearchParams()
   if (type) params.set('type', type)
   if (status) params.set('status', status)
+  if (assignedTo) params.set('assignedTo', assignedTo)
   const qs = params.toString() ? `?${params.toString()}` : ''
   return useQuery({
-    queryKey: ['work-items', type ?? 'all', status ?? 'all'],
+    queryKey: ['work-items', type ?? 'all', status ?? 'all', assignedTo ?? 'all'],
     queryFn: () => apiGet<WorkItem[]>(`/api/work-items${qs}`),
   })
 }
@@ -65,6 +70,8 @@ export interface WorkItemInput {
   description?: string
   status?: WorkItemStatus
   priority?: WorkItemPriority
+  /** Horizonte de planificación — solo relevante cuando type='roadmap'. */
+  timeframe?: 'now' | 'next' | 'later'
   dealId?: string
   assignedTo?: string
 }

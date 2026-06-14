@@ -6,6 +6,7 @@ import { Search, Download, LayoutGrid, Table2, List, Users } from 'lucide-react'
 import { useLeads, useCompanies, useUsers } from '@/lib/hooks'
 import type { Contact, Company, TeamUser } from '@/lib/types'
 import { cn, initials } from '@/lib/utils'
+import { sourceLabel } from '@/lib/labels'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -45,7 +46,7 @@ function exportCSV(leads: Contact[], companyMap: Map<string, Company>): void {
     c.phone ?? '',
     c.companyId ? (companyMap.get(c.companyId)?.name ?? '') : '',
     c.jobTitle ?? '',
-    (c.custom?.source as string | undefined) ?? '',
+    sourceLabel((c.custom?.source as string | undefined) ?? null) ?? '',
     STAGE_LABELS[c.lifecycleStage] ?? c.lifecycleStage,
     new Date(c.createdAt).toLocaleDateString('es'),
   ])
@@ -89,7 +90,7 @@ function LeadsTable({
             emptyMessage="Sin Leads que Mostrar"
             renderRow={(c) => {
               const companyName = c.companyId ? (companyMap.get(c.companyId)?.name ?? '—') : '—'
-              const source = (c.custom?.source as string | undefined) ?? '—'
+              const source = sourceLabel((c.custom?.source as string | undefined) ?? null) ?? '—'
               return (
                 <tr
                   key={c.id}
@@ -228,7 +229,11 @@ export function LeadsView() {
   }, [rawLeads, search, sort, companyMap])
 
   function handleLeadClick(id: string) {
-    router.push(`/leads/${id}`)
+    // [NAV DEBUG] medir click → mostrar el detalle. Quitar cuando entendamos el timing.
+    ;(window as Window & { __navT0?: number }).__navT0 = performance.now()
+    // eslint-disable-next-line no-console
+    console.warn(`[NAV DEBUG] 🖱️ CLICK → router.push(/admin/leads/${id})`)
+    router.push(`/admin/leads/${id}`)
   }
 
   const VIEW_BUTTONS: { mode: ViewMode; icon: typeof LayoutGrid; label: string }[] = [
@@ -246,7 +251,7 @@ export function LeadsView() {
             <p className="eyebrow">Prospectos</p>
             <h1 className="text-3xl font-semibold tracking-tight">Lead Listing</h1>
           </div>
-          <span className="ml-2 rounded-full bg-signal/20 px-3 py-1 text-sm font-semibold text-signal-foreground">
+          <span className="ml-2 rounded-full bg-signal/15 px-3 py-1 text-sm font-semibold text-signal">
             {leadsLoading ? '…' : filteredLeads.length}
           </span>
         </div>

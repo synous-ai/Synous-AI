@@ -29,7 +29,7 @@ export interface Task {
   id: string
   title: string
   body: string | null
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled'
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'blocked'
   priority: 'low' | 'medium' | 'high'
   dueDate: string | null
   completedAt: string | null
@@ -90,6 +90,22 @@ export type LibraryItemType =
   | 'checklist'
   | 'tech_doc'
 
+/**
+ * Discrimina si un ítem de tipo 'sop' es un procedimiento paso a paso
+ * o un checklist de verificación. Ambos se gestionan desde /library/sops.
+ */
+export type LibraryKind = 'procedure' | 'checklist'
+
+/**
+ * Un paso dentro de un SOP o procedimiento de referencia.
+ * GUARDRAIL: sin campos de estado (done, checked, completedAt, etc.).
+ * Los pasos son CONTENIDO DE REFERENCIA — no un tracker de ejecución.
+ */
+export interface LibraryStep {
+  title: string
+  body?: string
+}
+
 export interface LibraryItem {
   id: string
   portalId: string
@@ -99,6 +115,16 @@ export interface LibraryItem {
   description: string | null
   storageKey: string | null
   url: string | null
+  /** Lista ordenada de pasos del SOP/procedimiento. Vacía [] si no aplica. */
+  steps: LibraryStep[]
+  /**
+   * Discrimina el subtipo dentro de 'sop': 'procedure' (pasos numerados)
+   * o 'checklist' (ítems de verificación con bullet Square estático).
+   * Null para todos los demás tipos de ítem.
+   */
+  kind: LibraryKind | null
+  /** ID del hub_user responsable del ítem (nullable). */
+  ownerId: string | null
   createdBy: string | null
   createdAt: string
 }

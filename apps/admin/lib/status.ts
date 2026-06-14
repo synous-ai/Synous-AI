@@ -131,6 +131,8 @@ export function taskStatus(s: string): StatusResult {
       return { kind: 'success', label: 'Completado' }
     case 'cancelled':
       return { kind: 'neutral', label: 'Cancelado' }
+    case 'blocked':
+      return { kind: 'danger', label: 'Bloqueada' }
     default:
       return { kind: 'neutral', label: s }
   }

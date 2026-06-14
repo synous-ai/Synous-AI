@@ -321,7 +321,7 @@ function LogActivityDialog({ dealId, contactId, onClose }: LogActivityDialogProp
                 className={cn(
                   'flex flex-1 flex-col items-center gap-1 rounded-xl border py-2 text-xs font-medium h-auto transition-colors',
                   kind === k
-                    ? 'border-signal bg-signal/10 text-signal-foreground hover:bg-signal/10'
+                    ? 'border-signal bg-signal/10 text-signal hover:bg-signal/10'
                     : 'border-transparent bg-muted text-muted-foreground hover:bg-accent',
                 )}
               >

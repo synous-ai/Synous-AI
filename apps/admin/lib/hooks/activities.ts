@@ -26,10 +26,24 @@ export function useDeleteNote() {
   })
 }
 
-export function useTasks(status?: string) {
+export interface TaskFilters {
+  status?: string
+  assignedTo?: string
+  dealId?: string
+  priority?: string
+}
+
+/**
+ * Devuelve todas las tareas del portal filtrando por los campos opcionales.
+ * La queryKey incluye los filtros para que React Query cachee variantes separadas.
+ */
+export function useTasks(filters: TaskFilters = {}) {
+  const qs = new URLSearchParams(
+    Object.entries(filters).filter(([, v]) => v != null && v !== '') as [string, string][],
+  ).toString()
   return useQuery({
-    queryKey: ['tasks', status ?? 'all'],
-    queryFn: () => apiGet<Task[]>(`/api/tasks${status ? `?status=${status}` : ''}`),
+    queryKey: ['tasks', filters],
+    queryFn: () => apiGet<Task[]>(`/api/tasks${qs ? `?${qs}` : ''}`),
   })
 }
 
@@ -37,7 +51,7 @@ export interface TaskInput {
   title: string
   body?: string
   priority?: 'low' | 'medium' | 'high'
-  status?: 'pending' | 'in_progress' | 'completed' | 'cancelled'
+  status?: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'blocked'
   dueDate?: string
   assignedTo?: string
   dealId?: string

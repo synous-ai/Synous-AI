@@ -1,30 +1,17 @@
 'use client'
 
-import { QueryClient, QueryClientProvider, keepPreviousData } from '@tanstack/react-query'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { apiPost } from '@/lib/api'
-import { useAuthStore } from '@/lib/store/auth'
-import type { User } from '@/lib/types'
+/**
+ * Providers del segmento /admin (CRM — hub_user).
+ *
+ * Con Clerk como auth provider, ya no existe el "bootstrap" de sesión vía
+ * /api/auth/refresh: Clerk maneja la hidratación de sesión de forma transparente
+ * a través del ClerkProvider (en el root layout) y las cookies __session.
+ *
+ * Este providers.tsx solo provee el QueryClient de TanStack Query.
+ */
 
-function AuthBootstrap({ children }: { children: ReactNode }) {
-  const started = useRef(false)
-  useEffect(() => {
-    if (started.current) return
-    started.current = true
-    ;(async () => {
-      try {
-        // Restaura sesión usando el refresh token (cookie httpOnly).
-        const res = await apiPost<{ accessToken: string; user: User }>('/api/auth/refresh', undefined, { skipAuth: true })
-        useAuthStore.getState().setAuth(res.accessToken, res.user)
-      } catch {
-        // sin sesión activa
-      } finally {
-        useAuthStore.getState().setBootstrapped()
-      }
-    })()
-  }, [])
-  return <>{children}</>
-}
+import { QueryClient, QueryClientProvider, keepPreviousData } from '@tanstack/react-query'
+import { useState, type ReactNode } from 'react'
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -44,9 +31,5 @@ export function Providers({ children }: { children: ReactNode }) {
       }),
   )
 
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AuthBootstrap>{children}</AuthBootstrap>
-    </QueryClientProvider>
-  )
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }

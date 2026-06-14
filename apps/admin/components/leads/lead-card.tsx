@@ -5,6 +5,7 @@ import { Mail, Phone, Building2, Briefcase, User } from 'lucide-react'
 import type { Contact, Company, TeamUser } from '@/lib/types'
 import { cn, initials } from '@/lib/utils'
 import { STAGE_LABELS, STAGE_DOT_CLASS } from '@/lib/status'
+import { sourceLabel } from '@/lib/labels'
 
 export { STAGE_LABELS, STAGE_DOT_CLASS }
 
@@ -32,7 +33,7 @@ export function LeadCard({ contact: c, companyMap, userMap, onClick }: LeadCardP
 
   const companyName = c.companyId ? (companyMap.get(c.companyId)?.name ?? null) : null
   const owner = c.ownerId ? userMap.get(c.ownerId) ?? null : null
-  const source = (c.custom?.source as string | undefined) ?? null
+  const source = sourceLabel((c.custom?.source as string | undefined) ?? null)
   const fullName = [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || `#${c.id}`
 
   return (

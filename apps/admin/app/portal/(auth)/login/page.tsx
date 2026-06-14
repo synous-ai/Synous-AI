@@ -22,13 +22,7 @@
 import { SignIn } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
-
-/**
- * URL base de la API — mismo patrón que packages/shared/src/index.ts.
- * Se lee la variable de entorno `NEXT_PUBLIC_API_URL`; en dev cae al
- * localhost de la API (puerto 3001 según CLAUDE.md).
- */
-const API_URL: string = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001'
+import { API_URL } from '@nous/shared'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +38,13 @@ interface PublicBranding {
   secondaryColor: string | null
 }
 
+// ─── Appearance genérico NOUS ─────────────────────────────────────────────────
+
+/**
+ * Paleta verde del portal (refleja las variables de portal-theme.css).
+ * Clerk acepta hex/hsl directamente; mapeamos los valores del theme.
+ * Se usa como fallback cuando no hay tenant o el fetch de branding falla.
+ */
 /**
  * Tipado del objeto appearance de Clerk que usamos.
  * No importamos el tipo de Clerk directamente para evitar acoplamiento a la versión;
@@ -68,13 +69,6 @@ interface PortalAppearance {
   }
 }
 
-// ─── Appearance genérico NOUS ─────────────────────────────────────────────────
-
-/**
- * Paleta verde del portal (refleja las variables de portal-theme.css).
- * Clerk acepta hex/hsl directamente; mapeamos los valores del theme.
- * Se usa como fallback cuando no hay tenant o el fetch de branding falla.
- */
 const PORTAL_APPEARANCE: PortalAppearance = {
   variables: {
     // Verde bosque oscuro (--primary light: hsl(155, 47%, 15%))
@@ -144,9 +138,9 @@ function buildBrandedAppearance(primaryColor: string): PortalAppearance {
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function PortalLoginPage() {
-  // Estado de branding: null → sin branding del cliente (usa fallback)
+  // Estado de branding: null → cargando / sin tenant (usa fallback inmediato)
   const [branding, setBranding] = useState<PublicBranding | null>(null)
-  // Indica si ya terminamos el intento de fetch (para no mostrar flash logo/nombre)
+  // Indica si ya terminamos el intento de fetch (para no mostrar flash al hacer fallback)
   const [brandingResolved, setBrandingResolved] = useState(false)
 
   useEffect(() => {
@@ -196,24 +190,26 @@ export default function PortalLoginPage() {
               backgroundSize: '24px 24px',
             }}
           />
-          {/* Acento visual en la esquina — usa el color signal del theme */}
+          {/* Acento visual en la esquina — usa el color primario del cliente si está disponible */}
           <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-signal/90 blur-[2px]" />
 
           <div className="relative flex items-center gap-3">
-            {branding?.logoUrl != null && brandingResolved ? (
+            {branding?.logoUrl != null ? (
               /*
                * Logo del cliente: lo mostramos solo cuando el branding está resuelto
                * y hay URL. Con brandingResolved evitamos el flash de "N" → logo del cliente.
                */
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={branding.logoUrl}
-                alt={branding.brandName ?? 'Logo del cliente'}
-                className="h-9 w-auto object-contain"
-              />
-            ) : branding?.logoUrl == null && !brandingResolved ? (
-              /* Placeholder neutro mientras carga — evita flash de letras */
-              <span className="flex h-9 w-9 rounded-md bg-white/10" />
+              brandingResolved ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={branding.logoUrl}
+                  alt={branding.brandName ?? 'Logo del cliente'}
+                  className="h-9 w-auto object-contain"
+                />
+              ) : (
+                /* Placeholder neutro mientras carga — evita flash de letras */
+                <span className="flex h-9 w-9 rounded-md bg-white/10" />
+              )
             ) : (
               /* Sin branding o branding sin logo → monograma NOUS genérico */
               <span className="flex h-9 w-9 items-center justify-center rounded-md bg-signal font-display text-lg font-bold text-signal-foreground">

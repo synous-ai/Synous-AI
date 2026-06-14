@@ -25,7 +25,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 92%;               /* #ebebeb — hairline */
     --input: 0 0% 92%;
-    --ring: 214 100% 50%;             /* #0066ff — azul SOLO en focus rings */
+    --ring: 0 0% 9%;                  /* foco monocromo: tinta (#171717) en light, nunca azul */
     --radius: 0.75rem;                /* 12px — radios generosos estilo Resend (rounded-xl) */
 
     /* Token azul de acento para links (opcional) */
@@ -38,15 +38,17 @@
     --chart-4: 0 0% 70%;
     --chart-5: 0 0% 85%;
 
-    /* Sidebar tokens (requeridos por shadcn sidebar component) */
-    --sidebar: 0 0% 98%;
-    --sidebar-foreground: 0 0% 9%;
-    --sidebar-primary: 0 0% 4%;
+    /* Sidebar tokens (requeridos por shadcn sidebar component) — calibrados al
+       tema monocromo del admin (mismos tonos que --background/--foreground/--muted).
+       Sin azules: fondo casi-blanco, texto tinta, hover/activo = --muted, ring monocromo. */
+    --sidebar: 0 0% 98%;                        /* casi-blanco — igual que --background */
+    --sidebar-foreground: 0 0% 9%;              /* tinta — igual que --foreground */
+    --sidebar-primary: 0 0% 4%;                 /* tinta fuerte — igual que --primary */
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 96%;
-    --sidebar-accent-foreground: 0 0% 9%;
-    --sidebar-border: 0 0% 92%;
-    --sidebar-ring: 214 100% 50%;
+    --sidebar-accent: 0 0% 96%;                 /* hover/activo — igual que --muted */
+    --sidebar-accent-foreground: 0 0% 9%;       /* tinta — igual que --foreground */
+    --sidebar-border: 0 0% 92%;                 /* hairline — igual que --border */
+    --sidebar-ring: 0 0% 9%;                    /* foco monocromo — igual que --ring */
 
     /* Badges de estado (LIGHT) — paleta Resend: base ~12% fondo / tono fuerte texto + ring.
        success = valores exactos del badge "delivered" de Resend. */
@@ -90,21 +92,21 @@
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 15%;               /* #262626 — hairlines sobre negro */
     --input: 0 0% 15%;
-    --ring: 214 100% 50%;             /* azul focus ring — se mantiene */
+    --ring: 0 0% 94%;                 /* foco monocromo: casi-blanco (#f0f0f0) en dark, nunca azul */
     --accent-blue: 214 100% 55%;
     --chart-1: 0 0% 90%;
     --chart-2: 0 0% 70%;
     --chart-3: 0 0% 52%;
     --chart-4: 0 0% 36%;
     --chart-5: 0 0% 24%;
-    --sidebar: 0 0% 0%;               /* sidebar negro puro, igual que el canvas */
-    --sidebar-foreground: 0 0% 94%;
-    --sidebar-primary: 0 0% 94%;
+    --sidebar: 0 0% 0%;               /* sidebar negro puro — igual que --background dark */
+    --sidebar-foreground: 0 0% 94%;   /* casi-blanco — igual que --foreground dark */
+    --sidebar-primary: 0 0% 94%;      /* igual que --primary dark */
     --sidebar-primary-foreground: 0 0% 0%;
-    --sidebar-accent: 0 0% 11%;
-    --sidebar-accent-foreground: 0 0% 94%;
-    --sidebar-border: 0 0% 14%;
-    --sidebar-ring: 214 100% 50%;
+    --sidebar-accent: 0 0% 10%;       /* hover/activo — igual que --muted dark */
+    --sidebar-accent-foreground: 0 0% 94%; /* casi-blanco — igual que --foreground dark */
+    --sidebar-border: 0 0% 15%;       /* hairline — igual que --border dark */
+    --sidebar-ring: 0 0% 94%;         /* foco monocromo — igual que --ring dark */
 
     /* Badges de estado (DARK) — paleta Resend dark: color claro ~13% fondo / claro ~85% texto.
        success = valores exactos del badge "delivered" dark de Resend. */
@@ -147,15 +149,39 @@
     letter-spacing: -0.02em;
   }
 
+  /* Selección de texto MONOCROMA y theme-aware (nunca el azul del navegador).
+     En light: texto en tinta sobre velo negro. En dark se invierte para que el
+     texto seleccionado siga siendo legible. */
   ::selection {
-    background: rgb(0 0 0 / 0.10);   /* Resend real: selection:bg-black/10 */
+    background: rgb(0 0 0 / 0.12);
     color: #000;
   }
+  .dark ::selection {
+    background: rgb(255 255 255 / 0.20);
+    color: #fff;
+  }
 
+  /* Anillo de foco MONOCROMO y theme-aware: usa --ring (tinta en light,
+     casi-blanco en dark). El alpha lo mantiene sutil, estilo Resend. Nunca azul. */
   :focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px hsl(214 100% 50% / 0.35);
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.35);
     border-radius: calc(var(--radius) - 2px);
+  }
+
+  /* Transición SUAVE al cambiar de tema (dark↔light). Solo anima props de color;
+     los elementos con su propia `transition` (utilidades de Tailwind) la pisan por
+     especificidad, así que no interfiere con otras animaciones. Se desactiva si el
+     usuario pidió menos movimiento. Requiere quitar `disableTransitionOnChange`
+     del ThemeProvider (si no, next-themes corta estas transiciones en el toggle). */
+  @media (prefers-reduced-motion: no-preference) {
+    *,
+    *::before,
+    *::after {
+      transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+      transition-duration: 0.25s;
+      transition-timing-function: ease;
+    }
   }
 }
 

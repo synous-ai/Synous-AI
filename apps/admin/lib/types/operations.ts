@@ -21,6 +21,8 @@ export interface Document {
 export type WorkItemType = 'bug' | 'improvement' | 'roadmap' | 'process'
 export type WorkItemStatus = 'open' | 'in_progress' | 'done' | 'cancelled'
 export type WorkItemPriority = 'low' | 'medium' | 'high'
+/** Horizonte de planificación para ítems de tipo 'roadmap'. */
+export type WorkItemTimeframe = 'now' | 'next' | 'later'
 
 export interface WorkItem {
   id: string
@@ -30,6 +32,11 @@ export interface WorkItem {
   description: string | null
   status: WorkItemStatus
   priority: WorkItemPriority
+  /**
+   * Solo aplica a type='roadmap'.
+   * 'now' = ciclo actual, 'next' = próximo ciclo, 'later' = backlog estratégico.
+   */
+  timeframe: WorkItemTimeframe | null
   dealId: string | null
   assignedTo: string | null
   createdBy: string | null
