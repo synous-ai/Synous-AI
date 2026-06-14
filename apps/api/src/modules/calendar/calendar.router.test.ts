@@ -573,7 +573,7 @@ describe('F4b — GET /api/calendar/bookings/week (admin)', () => {
   const WEEK_SLOT = `${TEST_DATE}T16:00:00.000Z` // 11:00 Bogotá
 
   beforeAll(async () => {
-    adminToken = await loginToken(app, 'owner@test.com')
+    adminToken = await loginToken(app, 'owner@test.com', 'password123')
 
     // Crear un booking en la DB directamente (sin pasar por el endpoint público)
     // para no consumir el rate limit.
