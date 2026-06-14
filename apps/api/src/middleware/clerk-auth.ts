@@ -24,7 +24,7 @@ import { db } from '../db'
 import { hubUser, clientAccount } from '../db/schema'
 import { env } from '../config/env'
 import { Errors } from '../lib/errors'
-import type { ClientTokenPayload } from '../modules/client-auth/client-auth.schema'
+import type { ClientTokenPayload } from './authenticate-client'
 
 /** Payload normalizado que se setea en request.hubUser. */
 export interface HubUserContext {

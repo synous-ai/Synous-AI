@@ -1,6 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify'
-import jwt from 'jsonwebtoken'
-import { env } from '../config/env'
+import { verifyClerkToken, resolveClientAccount } from './clerk-auth'
 import { Errors } from '../lib/errors'
 
 export interface ClientTokenPayload {
@@ -20,9 +19,11 @@ declare module 'fastify' {
 }
 
 /**
- * Verifica el access token del header `Authorization: Bearer <token>`.
- * Sólo valida tokens de cliente (type 'client_access'). Setea `request.clientAccount`.
- * NUNCA acepta tokens de hub_user; el type discriminator impide el cruce.
+ * Verifica el token de sesión de Clerk y resuelve el client_account asociado.
+ * Sólo admite clientes del portal: resolveClientAccount busca por `clerk_user_id`
+ * en client_account. Un token de admin (hub_user) NO tiene fila ahí → unauthorized,
+ * por lo que el cruce admin↔cliente queda impedido por la resolución en DB.
+ * Setea `request.clientAccount` ({ sub, portalId, contactId, type:'client_access' }).
  */
 export async function authenticateClient(
   request: FastifyRequest,
@@ -32,17 +33,6 @@ export async function authenticateClient(
   if (!header || !header.startsWith('Bearer ')) {
     throw Errors.unauthorized('Falta el token de acceso del cliente')
   }
-
-  const token = header.slice('Bearer '.length)
-
-  try {
-    const decoded = jwt.verify(token, env.ACCESS_TOKEN_SECRET) as unknown as ClientTokenPayload
-    if (decoded.type !== 'client_access') {
-      throw Errors.unauthorized('Tipo de token inválido para el portal del cliente')
-    }
-    request.clientAccount = decoded
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AppError') throw err
-    throw Errors.unauthorized('Token de acceso del cliente inválido o expirado')
-  }
+  const clerkUserId = await verifyClerkToken(header.slice('Bearer '.length))
+  request.clientAccount = await resolveClientAccount(clerkUserId)
 }

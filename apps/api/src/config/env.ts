@@ -29,6 +29,27 @@ const envSchema = z.object({
 
   // URL pública de la API para pixel de tracking (default: localhost en dev)
   PUBLIC_API_URL: z.string().url().default('http://localhost:3001'),
+
+  // ── Clerk (auth) ──────────────────────────────────────────
+  // Requerido en prod: sin esto el verifyToken de Clerk falla y nadie autentica.
+  // default '' para no romper boot/tests cuando no está configurado (auth devuelve 401).
+  CLERK_SECRET_KEY: z.string().default(''),
+
+  // ── IA: Anthropic (setter) y Vertex/Gemini ────────────────
+  ANTHROPIC_API_KEY: z.string().default(''),
+  ANTHROPIC_MODEL: z.string().default(''),
+  VERTEX_LOCATION: z.string().default(''),
+  VERTEX_MODEL: z.string().default(''),
+
+  // ── Google (Places/Maps + service account) ────────────────
+  GOOGLE_MAPS_API_KEY: z.string().default(''),
+  GOOGLE_SERVICE_ACCOUNT_JSON: z.string().default(''),
+
+  // ── Evolution API (WhatsApp del setter) ───────────────────
+  EVOLUTION_API_URL: z.string().default(''),
+  EVOLUTION_API_KEY: z.string().default(''),
+  EVOLUTION_INSTANCE: z.string().default(''),
+  EVOLUTION_WEBHOOK_SECRET: z.string().default(''),
 })
 
 const parsed = envSchema.safeParse(process.env)
