@@ -49,6 +49,16 @@ import { reportsRoutes } from './modules/reports/reports.router'
 import { webhooksRoutes } from './modules/webhooks/webhooks.router'
 import { emailTrackingRoutes } from './modules/email-tracking/email-tracking.router'
 import { documentsRoutes } from './modules/documents/documents.router'
+// --- Módulos nuevos: setter, prospecting, proposals, branding, onboarding, calendar público ---
+import { setterRoutes } from './modules/setter/setter.router'
+import { setterApprovalRoutes } from './modules/setter/setter.approval.router'
+import { setterWsRoutes } from './modules/setter/setter.ws'
+import { setterWhatsappWebhookRoutes } from './modules/setter/webhooks/whatsapp.webhook'
+import { prospectingRoutes } from './modules/prospecting/prospecting.router'
+import { proposalAdminRoutes, proposalPublicRoutes } from './modules/proposals/proposals.router'
+import { brandingAdminRoutes, brandingPublicRoutes, brandingClientRoutes } from './modules/branding/branding.router'
+import { onboardingAdminRoutes, onboardingPublicRoutes } from './modules/onboarding/onboarding.router'
+import { calendarPublicRoutes } from './modules/calendar/calendar.public.router'
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
@@ -192,6 +202,34 @@ export function buildApp(): FastifyInstance {
   app.register(webhooksRoutes, { prefix: '/webhooks' })
   app.register(emailTrackingRoutes, { prefix: '/track' })
   app.register(documentsRoutes, { prefix: '/api/documents' })
+
+  // --- Setter: health + bandeja de aprobación (admin) ---
+  app.register(setterRoutes, { prefix: '/api/setter' })
+  app.register(setterApprovalRoutes, { prefix: '/api/setter' })
+  // WebSocket del setter — sin prefijo (define su propio path absoluto /ws/setter/events)
+  app.register(setterWsRoutes)
+  // Webhook de WhatsApp (Evolution API) — prefijo /webhooks igual que Fathom;
+  // la ruta interna es /whatsapp → resultado final: POST /webhooks/whatsapp
+  app.register(setterWhatsappWebhookRoutes, { prefix: '/webhooks' })
+
+  // --- Prospecting (búsquedas IA y autopilot) ---
+  app.register(prospectingRoutes, { prefix: '/api/prospecting' })
+
+  // --- Proposals: rutas públicas (token de cliente) y admin ---
+  app.register(proposalPublicRoutes, { prefix: '/api/public/proposals' })
+  app.register(proposalAdminRoutes, { prefix: '/api/proposals' })
+
+  // --- Branding: admin, cliente autenticado y público (por slug) ---
+  app.register(brandingAdminRoutes, { prefix: '/api/branding' })
+  app.register(brandingClientRoutes, { prefix: '/api/client/branding' })
+  app.register(brandingPublicRoutes, { prefix: '/api/public/branding' })
+
+  // --- Onboarding: admin y público (token de invitación) ---
+  app.register(onboardingAdminRoutes, { prefix: '/api/onboarding' })
+  app.register(onboardingPublicRoutes, { prefix: '/api/public/onboarding' })
+
+  // --- Calendario público (booking sin autenticación) ---
+  app.register(calendarPublicRoutes, { prefix: '/api/public/calendar' })
 
   return app
 }
