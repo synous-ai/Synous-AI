@@ -1,0 +1,72 @@
+  ▲ Next.js 14.2.18
+  - Environments: .env
+
+   Creating an optimized production build ...
+Webpack Bundle Analyzer saved report to /Users/jeremiasingla/CRMDev/apps/admin/.next/analyze/nodejs.html
+Webpack Bundle Analyzer saved report to /Users/jeremiasingla/CRMDev/apps/admin/.next/analyze/edge.html
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (218kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+Webpack Bundle Analyzer saved report to /Users/jeremiasingla/CRMDev/apps/admin/.next/analyze/client.html
+ ✓ Compiled successfully
+   Skipping linting
+   Checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/28) ...
+   Generating static pages (7/28) 
+   Generating static pages (14/28) 
+   Generating static pages (21/28) 
+ ✓ Generating static pages (28/28)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    324 B          94.8 kB
+├ ○ /_not-found                          881 B          88.5 kB
+├ ○ /admin/calendar                      20.2 kB         160 kB
+├ ƒ /admin/change-requests/[id]          8.51 kB         165 kB
+├ ○ /admin/clients                       419 B           180 kB
+├ ƒ /admin/clients/[id]                  345 B           213 kB
+├ ○ /admin/companies                     15.7 kB         171 kB
+├ ƒ /admin/companies/[id]                5.15 kB         197 kB
+├ ○ /admin/contacts                      2.08 kB         182 kB
+├ ƒ /admin/contacts/[id]                 346 B           213 kB
+├ ○ /admin/dashboard                     8.32 kB         120 kB
+├ ○ /admin/deals                         5.23 kB         205 kB
+├ ƒ /admin/deals/[id]                    7.66 kB         231 kB
+├ ƒ /admin/finance/[section]             14.3 kB         219 kB
+├ ○ /admin/follow-ups                    4.42 kB         214 kB
+├ ƒ /admin/invoices/[id]                 4.07 kB         225 kB
+├ ○ /admin/leads                         7.35 kB         206 kB
+├ ƒ /admin/leads/[id]                    343 B           213 kB
+├ ƒ /admin/library/[section]             10.1 kB         179 kB
+├ ○ /admin/login                         1.91 kB         131 kB
+├ ○ /admin/onboarding                    6.67 kB         135 kB
+├ ƒ /admin/operations/[section]          9.72 kB         179 kB
+├ ○ /admin/pipeline                      4.44 kB         217 kB
+├ ○ /admin/projects                      4.75 kB         117 kB
+├ ○ /admin/proposals                     5.71 kB         134 kB
+├ ƒ /admin/proposals/[id]                9.45 kB         183 kB
+├ ○ /admin/prospecting                   1.19 kB         175 kB
+├ ○ /admin/reports                       10.8 kB         130 kB
+├ ○ /admin/setter                        8.8 kB          224 kB
+├ ○ /admin/settings                      11.4 kB         161 kB
+├ ƒ /admin/settings/[section]            17 kB           170 kB
+├ ○ /admin/tasks                         7.08 kB         232 kB
+├ ƒ /book/[portalId]/[slug]              5.43 kB         132 kB
+├ ○ /book/cancel                         2.13 kB        97.3 kB
+├ ○ /book/reschedule                     3.61 kB         130 kB
+├ ○ /onboarding                          25.8 kB         163 kB
+├ ƒ /p/[token]                           3.79 kB         144 kB
+├ ○ /portal                              14.5 kB         154 kB
+├ ○ /portal/login                        4.47 kB         141 kB
+└ ○ /portal/marca                        6.48 kB         143 kB
++ First Load JS shared by all            87.7 kB
+  ├ chunks/19887b5c-d4a54f56c962fb50.js  53.6 kB
+  ├ chunks/9771-20a8e5b95ebe10b5.js      31.8 kB
+  └ other shared chunks (total)          2.25 kB
+
+
+ƒ Middleware                             81.4 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

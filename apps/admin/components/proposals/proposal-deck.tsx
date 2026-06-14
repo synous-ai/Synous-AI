@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { ArrowLeft, ArrowRight, Download, FileQuestion } from 'lucide-react'
@@ -7,7 +8,9 @@ import { API_URL } from '@/lib/config'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { SkeletonGroup } from '@/components/ui/loading-region'
 import type { PublicProposal, ProposalContent } from '@/lib/types'
-import SideRays from './side-rays'
+
+// Carga diferida de ogl/WebGL — se excluye del bundle inicial de la ruta
+const SideRays = dynamic(() => import('./side-rays'), { ssr: false })
 
 /**
  * Deck de presentación de una propuesta (estilo "PowerPoint").

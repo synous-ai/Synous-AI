@@ -1,14 +1,14 @@
-'use client'
-
 /**
- * Layout del dashboard del CRM admin.
+ * Layout del dashboard del CRM admin. Server Component.
  *
  * Con Clerk como proveedor de auth, la protección de rutas sucede en el
  * middleware (clerkMiddleware → auth.protect() para /admin/*).
  * Este layout ya NO necesita el guard de Zustand: si el usuario llega acá
  * es porque el middleware validó su sesión de Clerk.
  *
- * Se mantiene como 'use client' porque Sidebar y Toaster son client components.
+ * No lleva 'use client': un Server Component puede renderizar client components
+ * (Sidebar y Toaster ya traen su propio 'use client'). Así el shell del layout
+ * no viaja al bundle del cliente.
  */
 
 import { Sidebar } from '@/components/sidebar'
