@@ -305,6 +305,21 @@ describe('POST /api/public/calendar/:portalId/:eventSlug/book', () => {
     expect(res.body.error.message).toContain('disponible')
   })
 
+  it('rechaza con 400 cuando el slot está en el pasado', async () => {
+    // 2020-06-15 = lunes (día hábil), 14:00 UTC = 09:00 AM Bogotá (hora válida del schedule).
+    // El único motivo por el que debe rechazarse es que la fecha YA PASÓ.
+    // Sin revalidación en el server, este POST devuelve 201 (bug crítico): un cliente
+    // malicioso o con una pestaña vieja puede crear reservas en el pasado.
+    const PAST_SLOT = '2020-06-15T14:00:00.000Z'
+
+    const res = await request(app.server)
+      .post(`${baseUrl()}/book`)
+      .send(bookPayload(PAST_SLOT))
+      .expect(400)
+
+    expect(res.body.error.code).toBe('BAD_REQUEST')
+  })
+
   it('rechaza con 400 cuando el slot está fuera del bookingWindow', async () => {
     // Crear un event type con bookingWindow rolling de 1 día
     const slug2 = `test-narrow-${createId()}`
@@ -379,7 +394,9 @@ describe('POST /api/public/calendar/:portalId/:eventSlug/book', () => {
         .expect(400)
 
       expect(res.body.error.code).toBe('BAD_REQUEST')
-      expect(res.body.error.message).toContain('antelación')
+      // La revalidación del server devuelve un mensaje genérico ("no disponible") para no
+      // filtrar qué regla concreta se violó (antelación, ventana, horario, etc.).
+      expect(res.body.error.message).toContain('disponible')
     } finally {
       // Limpiar solo el meeting type (sin bookings porque el test debe rechazarlo)
       await db.delete(meetingType).where(eq(meetingType.id, mt3!.id))
@@ -446,7 +463,8 @@ describe('POST /api/public/calendar/booking/cancel', () => {
       .send({ token: cancelToken })
       .expect(200)
 
-    expect(cancelRes.body.data.bookingId).toBe(createdBooking.id)
+    // El service devuelve { booking } (lo que consume la página de cancelación del frontend).
+    expect(cancelRes.body.data.booking.id).toBe(createdBooking.id)
 
     // 3. Verificar que el slot quedó libre: reservar el mismo slot debe funcionar.
     // El constraint EXCLUDE solo aplica a status='confirmed' → al cancelar queda libre.
@@ -513,8 +531,8 @@ describe('POST /api/public/calendar/booking/reschedule', () => {
       status: 'confirmed',
       meetingTypeId,
     })
-    // El nuevo booking debe referenciar al original como rescheduledFromId
-    expect(rescheduleRes.body.data.rescheduledFromId).toBe(originalBooking.id)
+    // El nuevo booking debe referenciar al original como rescheduledFromId (dentro de booking).
+    expect(rescheduleRes.body.data.booking.rescheduledFromId).toBe(originalBooking.id)
     // F4b: las URLs apuntan al frontend (/book/cancel, /book/reschedule con token en query param)
     expect(rescheduleRes.body.data.cancelUrl).toContain('/book/cancel?token=')
     expect(rescheduleRes.body.data.rescheduleUrl).toContain('/book/reschedule?token=')

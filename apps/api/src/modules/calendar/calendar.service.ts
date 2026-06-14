@@ -17,7 +17,7 @@ import { Errors, AppError } from '../../lib/errors'
 import { env } from '../../config/env'
 import { sendEmail } from '../../lib/mailer'
 import { computeSlots, toInviteeDisplay } from './slots.service'
-import type { ScheduleWithIntervals, WeeklyInterval, DateOverrideItem, BookingBusy } from './slots.service'
+import type { ScheduleWithIntervals, WeeklyInterval, DateOverrideItem, BookingBusy, EventTypeConfig } from './slots.service'
 import type {
   CreateMeetingTypeDTO,
   UpdateMeetingTypeDTO,
@@ -308,6 +308,118 @@ export async function getPublicEventType(portalId: string, eventSlug: string) {
   }
 }
 
+/** Mapea una fila de meeting_type a la config que entiende el motor de slots. */
+function toEventTypeConfig(mt: MeetingTypeRow): EventTypeConfig {
+  return {
+    durationMin: mt.durationMin,
+    startTimeIncrementMin: mt.startTimeIncrementMin,
+    minBookingNoticeMin: mt.minBookingNoticeMin,
+    bufferBeforeMin: mt.bufferBeforeMin,
+    bufferAfterMin: mt.bufferAfterMin,
+    bookingWindowType: mt.bookingWindowType as 'rolling' | 'range' | 'unlimited',
+    bookingWindowDays: mt.bookingWindowDays,
+    bookingWindowStart: mt.bookingWindowStart as string | null | undefined,
+    bookingWindowEnd: mt.bookingWindowEnd as string | null | undefined,
+    dailyLimit: mt.dailyLimit,
+  }
+}
+
+/**
+ * Carga los schedules de los hosts relevantes para un meeting type.
+ * Para 'solo' es solo el owner; para 'group' es un schedule por host (se intersectan).
+ * Devuelve también los hostIds para resolver los bookings que bloquean tiempo.
+ */
+async function getSchedulesForMeetingType(
+  mt: MeetingTypeRow,
+): Promise<{ schedules: ScheduleWithIntervals[]; hostIds: string[] }> {
+  if (mt.kind === 'group') {
+    const memberships = await db
+      .select({ hostId: eventMembership.hostId })
+      .from(eventMembership)
+      .where(eq(eventMembership.meetingTypeId, mt.id))
+    const hostIds = memberships.map((m) => m.hostId)
+    if (hostIds.length === 0) return { schedules: [], hostIds: [] }
+    const schedules = await Promise.all(hostIds.map((hostId) => loadHostSchedule(mt, hostId)))
+    return { schedules, hostIds }
+  }
+  return { schedules: [await loadHostSchedule(mt, mt.ownerId)], hostIds: [mt.ownerId] }
+}
+
+/**
+ * Carga los bookings confirmados que bloquean tiempo para los hosts dados.
+ * IMPORTANTE: el anti-overlap es por OWNER (constraint EXCLUDE en owner_id), por eso se
+ * filtra por `booking.ownerId IN hostIds` y NO por meeting_type — así los slots mostrados
+ * coinciden con la realidad (un booking de otro meeting_type del mismo host también bloquea).
+ *
+ * @param hostIds          Owners cuyas reuniones confirmadas bloquean tiempo
+ * @param excludeBookingId Booking a ignorar (p. ej. el original al reprogramar)
+ */
+async function getBusyBookings(hostIds: string[], excludeBookingId?: string): Promise<BookingBusy[]> {
+  if (hostIds.length === 0) return []
+  const rows = await db
+    .select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status })
+    .from(booking)
+    .where(and(inArray(booking.ownerId, hostIds), eq(booking.status, 'confirmed')))
+  return rows
+    .filter((b) => b.id !== excludeBookingId)
+    .map((b) => ({
+      startsAt: new Date(b.startsAt).toISOString(),
+      endsAt: new Date(b.endsAt).toISOString(),
+      status: b.status,
+    }))
+}
+
+/**
+ * Revalida en el SERVER que `startsAtIso` es un slot disponible real del meeting type.
+ * El server NUNCA confía en el datetime que manda el cliente: recomputa los slots con el
+ * mismo motor puro (`computeSlots`) y exige que el horario pedido sea exactamente uno de
+ * ellos. Esto cierra el hueco de reservar fuera de horario, en días bloqueados, en el
+ * pasado o ignorando minNotice/ventana/buffers. El constraint EXCLUDE queda como red de
+ * concurrencia, no como única defensa.
+ *
+ * @param mt               Meeting type ya validado (activo)
+ * @param startsAtIso      Inicio del slot pedido (ISO UTC)
+ * @param excludeBookingId Booking a ignorar al chequear ocupación (reschedule)
+ */
+async function assertSlotAvailable(
+  mt: MeetingTypeRow,
+  startsAtIso: string,
+  excludeBookingId?: string,
+): Promise<void> {
+  const startsAt = new Date(startsAtIso)
+  if (Number.isNaN(startsAt.getTime())) throw Errors.badRequest('Fecha de inicio inválida')
+
+  const { schedules, hostIds } = await getSchedulesForMeetingType(mt)
+  if (schedules.length === 0) {
+    throw Errors.badRequest('El horario seleccionado no está disponible')
+  }
+
+  const busy = await getBusyBookings(hostIds, excludeBookingId)
+
+  // Ventana de ±1 día UTC alrededor del slot para cubrir bordes de zona horaria
+  // (un slot a las 14:00 UTC puede pertenecer a otra fecha en la TZ del host).
+  const dayMs = 24 * 60 * 60 * 1000
+  const fromDate = new Date(startsAt.getTime() - dayMs).toISOString().slice(0, 10)
+  const toDate = new Date(startsAt.getTime() + dayMs).toISOString().slice(0, 10)
+
+  const slots = computeSlots({
+    eventType: toEventTypeConfig(mt),
+    schedules,
+    existingBookings: busy,
+    fromDate,
+    toDate,
+    inviteeTimezone: 'UTC',
+    now: new Date(),
+  })
+
+  // Comparación por timestamp (no por string) para ser robustos a diferencias de formato.
+  const target = startsAt.getTime()
+  const available = slots.some((s) => new Date(s.startUtc).getTime() === target)
+  if (!available) {
+    throw Errors.badRequest('El horario seleccionado no está disponible')
+  }
+}
+
 /**
  * Calcula y devuelve los slots disponibles para un event type en un rango de fechas.
  *
@@ -345,75 +457,20 @@ export async function getPublicSlots(
 
   if (!mt) throw Errors.notFound('Tipo de reunión no encontrado o inactivo')
 
-  // Cargar schedules de todos los hosts relevantes
-  let schedules: ScheduleWithIntervals[]
-
-  if (mt.kind === 'group') {
-    // Evento grupal: un schedule por host (intersección de disponibilidades)
-    const memberships = await db
-      .select({ hostId: eventMembership.hostId })
-      .from(eventMembership)
-      .where(eq(eventMembership.meetingTypeId, mt.id))
-
-    const hostIds = memberships.map((m) => m.hostId)
-    if (hostIds.length === 0) {
-      // Sin hosts registrados → sin slots disponibles
-      return []
-    }
-
-    schedules = await Promise.all(
-      hostIds.map((hostId) => loadHostSchedule(mt, hostId)),
-    )
-  } else {
-    // Evento solo: solo el owner del meeting_type
-    schedules = [await loadHostSchedule(mt, mt.ownerId)]
+  // Cargar schedules de todos los hosts relevantes (solo u group)
+  const { schedules, hostIds } = await getSchedulesForMeetingType(mt)
+  if (schedules.length === 0) {
+    // Sin hosts/schedule configurado → sin slots disponibles
+    return []
   }
 
-  // Cargar bookings confirmados del owner en el rango para bloquear slots ocupados
-  const fromDt = new Date(`${from}T00:00:00Z`)
-  const toDt = new Date(`${to}T23:59:59Z`)
-
-  const existingRows = await db
-    .select({
-      startsAt: booking.startsAt,
-      endsAt: booking.endsAt,
-      status: booking.status,
-    })
-    .from(booking)
-    .where(
-      and(
-        eq(booking.meetingTypeId, mt.id),
-        // Solo bookings confirmados bloquean tiempo (cancelados liberan el slot)
-        eq(booking.status, 'confirmed'),
-      ),
-    )
-
-  // Filtrar en memoria por rango (simplificado — el motor ya maneja buffers)
-  const existingBookings: BookingBusy[] = existingRows
-    .filter((b) => {
-      const start = new Date(b.startsAt)
-      return start >= fromDt && start <= toDt
-    })
-    .map((b) => ({
-      startsAt: new Date(b.startsAt).toISOString(),
-      endsAt: new Date(b.endsAt).toISOString(),
-      status: b.status,
-    }))
+  // Bookings confirmados que bloquean tiempo: por OWNER (no por meeting_type), para que
+  // los slots mostrados coincidan con lo que el constraint EXCLUDE (por owner_id) permite.
+  const existingBookings = await getBusyBookings(hostIds)
 
   // Delegar el cálculo al motor puro de slots
   const slots = computeSlots({
-    eventType: {
-      durationMin: mt.durationMin,
-      startTimeIncrementMin: mt.startTimeIncrementMin,
-      minBookingNoticeMin: mt.minBookingNoticeMin,
-      bufferBeforeMin: mt.bufferBeforeMin,
-      bufferAfterMin: mt.bufferAfterMin,
-      bookingWindowType: mt.bookingWindowType as 'rolling' | 'range' | 'unlimited',
-      bookingWindowDays: mt.bookingWindowDays,
-      bookingWindowStart: mt.bookingWindowStart as string | null | undefined,
-      bookingWindowEnd: mt.bookingWindowEnd as string | null | undefined,
-      dailyLimit: mt.dailyLimit,
-    },
+    eventType: toEventTypeConfig(mt),
     schedules,
     existingBookings,
     fromDate: from,
@@ -470,6 +527,11 @@ export async function createPublicBooking(
     .limit(1)
 
   if (!mt) throw Errors.notFound('Tipo de reunión no encontrado o inactivo')
+
+  // Revalidar el slot en el SERVER antes de insertar — nunca confiar en el datetime del
+  // cliente. Cierra el hueco de reservar fuera de horario, en días bloqueados, en el pasado
+  // o ignorando minNotice/ventana/buffers. El EXCLUDE sigue siendo la red de concurrencia.
+  await assertSlotAvailable(mt, input.startsAt)
 
   const startsAt = new Date(input.startsAt)
   const endsAt = addMinutes(startsAt, mt.durationMin)
@@ -529,8 +591,8 @@ export async function createPublicBooking(
   const finalBooking = updated ?? newBooking
 
   // Construir URLs de autoservicio para el invitado
-  const cancelUrl = `${baseUrl}/book/cancel?t=${cancelToken}`
-  const rescheduleUrl = `${baseUrl}/book/reschedule?t=${rescheduleToken}`
+  const cancelUrl = `${baseUrl}/book/cancel?token=${cancelToken}`
+  const rescheduleUrl = `${baseUrl}/book/reschedule?token=${rescheduleToken}`
 
   // Formatear la hora en la TZ del invitado para el email
   const startLocal = toInviteeDisplay(startsAt.toISOString(), input.inviteeTimeZone, 'yyyy-MM-dd HH:mm')
@@ -728,6 +790,11 @@ export async function reschedulePublicBooking(
 
   if (!mt) throw Errors.notFound('Tipo de reunión no encontrado')
 
+  // Revalidar el nuevo slot en el server (igual que en la reserva). Se ignora el booking
+  // original al chequear ocupación: se va a cancelar en la misma transacción, así que no
+  // debe bloquearse a sí mismo si el nuevo horario solapa con el viejo.
+  await assertSlotAvailable(mt, rescheduleData.newStartsAt, original.id)
+
   const newStartsAt = new Date(rescheduleData.newStartsAt)
   const newEndsAt = addMinutes(newStartsAt, mt.durationMin)
   // Mantener la TZ original si no se proporciona una nueva
@@ -793,8 +860,8 @@ export async function reschedulePublicBooking(
   const finalBooking = updated ?? newBooking
 
   // Construir URLs de autoservicio para el nuevo booking
-  const cancelUrl = `${baseUrl}/book/cancel?t=${cancelToken}`
-  const rescheduleUrl = `${baseUrl}/book/reschedule?t=${rescheduleToken}`
+  const cancelUrl = `${baseUrl}/book/cancel?token=${cancelToken}`
+  const rescheduleUrl = `${baseUrl}/book/reschedule?token=${rescheduleToken}`
 
   // Formatear la hora en la TZ del invitado para el email
   const startLocal = toInviteeDisplay(newStartsAt.toISOString(), inviteeTimeZone, 'yyyy-MM-dd HH:mm')
