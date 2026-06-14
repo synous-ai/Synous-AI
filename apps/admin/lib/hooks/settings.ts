@@ -4,12 +4,21 @@ import type {
   PortalSettings,
   TeamUser,
   HubUserRole,
+  User,
   Pipeline,
   ClientAccountSummary,
   NotificationPref,
   CustomField,
   CustomFieldEntityType,
 } from '../types'
+
+/**
+ * Obtiene el hub_user autenticado (GET /api/auth/me).
+ * Se usa para acceder al portalId real del usuario en componentes del admin.
+ */
+export function useHubUser() {
+  return useQuery({ queryKey: ['hub-user', 'me'], queryFn: () => apiGet<User>('/api/auth/me') })
+}
 
 export function usePortal() {
   return useQuery({ queryKey: ['portal'], queryFn: () => apiGet<PortalSettings>('/api/settings/portal') })
@@ -18,7 +27,7 @@ export function usePortal() {
 export function useUpdatePortal() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: Partial<Pick<PortalSettings, 'name' | 'timeZone' | 'currency'>>) =>
+    mutationFn: (input: Partial<Pick<PortalSettings, 'name' | 'timeZone' | 'currency' | 'prospectingServices'>>) =>
       apiPatch<PortalSettings>('/api/settings/portal', input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
   })

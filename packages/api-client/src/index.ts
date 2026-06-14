@@ -1,4 +1,4 @@
-import { API_URL } from '@devduo/shared'
+import { API_URL } from '@nous/shared'
 
 // ---------------------------------------------------------------------------
 // Shared envelope type — matches what the Fastify API returns
@@ -33,12 +33,19 @@ export interface ApiClientOptions {
    * Path used to exchange the httpOnly refresh cookie for a new access token.
    * Admin:         '/api/auth/refresh'
    * Client portal: '/api/client-auth/refresh'
+   * Opcional: el admin y el portal usan Clerk — no necesitan refresh propio.
    */
-  refreshPath: string
-  /** Return the current access token (or null if not authenticated). */
-  getToken: () => string | null
-  /** Persist a freshly-issued access token into the store. */
-  setToken: (token: string) => void
+  refreshPath?: string
+  /**
+   * Devuelve el access token actual (o null si no está autenticado).
+   * Acepta tanto funciones síncronas (Zustand store) como asíncronas (Clerk).
+   */
+  getToken: () => string | null | Promise<string | null>
+  /**
+   * Persiste un access token recién emitido en el store.
+   * Opcional: no aplica cuando se usa Clerk (auto-gestiona la sesión).
+   */
+  setToken?: (token: string) => void
   /** Called when a 401 cannot be recovered — should clear the session and redirect. */
   onAuthFailure: () => void
 }
@@ -61,8 +68,13 @@ interface RequestOptions {
 export function createApiClient(opts: ApiClientOptions) {
   let refreshPromise: Promise<boolean> | null = null
 
-  /** Renew the access token via the httpOnly cookie. Deduplicates concurrent callers. */
+  /**
+   * Renueva el access token vía cookie httpOnly.
+   * Si no hay refreshPath configurado (ej: Clerk), devuelve false de inmediato.
+   */
   async function tryRefresh(): Promise<boolean> {
+    // Sin refreshPath no hay renovación vía cookie — Clerk auto-gestiona su sesión.
+    if (!opts.refreshPath) return false
     if (!refreshPromise) {
       refreshPromise = (async () => {
         try {
@@ -72,12 +84,12 @@ export function createApiClient(opts: ApiClientOptions) {
           })
           if (!res.ok) return false
           const json = (await res.json()) as ApiEnvelope<{ accessToken: string }>
-          opts.setToken(json.data.accessToken)
+          opts.setToken?.(json.data.accessToken)
           return true
         } catch {
           return false
         } finally {
-          // Clear in the next tick so concurrent callers share this result
+          // Limpiar en el próximo tick para que callers concurrentes compartan el resultado
           setTimeout(() => {
             refreshPromise = null
           }, 0)
@@ -90,7 +102,8 @@ export function createApiClient(opts: ApiClientOptions) {
   async function raw<T>(path: string, options: RequestOptions, retry: boolean): Promise<T> {
     const headers: Record<string, string> = {}
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
-    const token = opts.getToken()
+    // getToken acepta sync y async — se awaitea siempre de forma segura
+    const token = await Promise.resolve(opts.getToken())
     if (!options.skipAuth && token) headers.Authorization = `Bearer ${token}`
 
     const res = await fetch(`${API_URL}${path}`, {
@@ -132,7 +145,8 @@ export function createApiClient(opts: ApiClientOptions) {
 
   /** Returns the full envelope (data + meta) — needed for paginated lists. */
   async function apiList<T>(path: string): Promise<ApiEnvelope<T>> {
-    const token = opts.getToken()
+    // getToken acepta sync y async — se awaitea siempre de forma segura
+    const token = await Promise.resolve(opts.getToken())
     const headers: Record<string, string> = {}
     if (token) headers.Authorization = `Bearer ${token}`
     const res = await fetch(`${API_URL}${path}`, { headers, credentials: 'include' })

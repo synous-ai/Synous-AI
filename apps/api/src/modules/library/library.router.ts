@@ -1,9 +1,20 @@
+/**
+ * library.router.ts — Rutas REST del módulo de Biblioteca.
+ *
+ * Prefijo: /api/library (ver src/app.ts).
+ *
+ * La sección operativa 'sops' consolida procedimientos y checklists en un único
+ * type='sop'. El kind ('procedure'|'checklist') discrimina el subtipo.
+ * La ruta /library/checklists fue eliminada del frontend — todo va por /library/sops.
+ */
+
 import type { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { ok } from '../../lib/response'
 import { authenticate } from '../../middleware/authenticate'
 import { authorize } from '../../middleware/authorize'
 import { IdParamSchema } from '../../lib/crm-schemas'
+import { ADMIN_SECURITY } from '../../lib/http'
 import {
   CreateLibraryItemSchema,
   UpdateLibraryItemSchema,
@@ -11,11 +22,11 @@ import {
 } from './library.schema'
 import {
   listLibraryItems,
+  getLibraryItem,
   createLibraryItem,
   updateLibraryItem,
   archiveLibraryItem,
 } from './library.service'
-import { ADMIN_SECURITY } from '../../lib/http'
 
 const TAG = 'Biblioteca'
 const security = ADMIN_SECURITY
@@ -30,14 +41,13 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: [TAG],
         summary: 'Listar ítems de biblioteca',
-        description: 'Lista todos los ítems del portal. Filtrá por type para obtener una categoría específica.',
+        description: 'Lista ítems del portal. Filtrá por type y/o kind. kind aplica especialmente para type=sop.',
         security,
         querystring: ListLibraryQuerySchema,
       },
     },
     async (request) => {
-      const items = await listLibraryItems(request.hubUser!.portalId, request.query)
-      return ok(items)
+      return ok(await listLibraryItems(request.hubUser!.portalId, request.query))
     },
   )
 
@@ -47,7 +57,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: [TAG],
         summary: 'Crear ítem de biblioteca',
-        description: 'Crea un nuevo ítem de biblioteca. Requiere rol owner o member.',
+        description: 'Crea un ítem de biblioteca. Para type=sop incluye steps/kind/ownerId.',
         security,
         body: CreateLibraryItemSchema,
       },
@@ -63,13 +73,29 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  r.get(
+    '/:id',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Detalle de ítem de biblioteca',
+        description: 'Devuelve un ítem por ID verificando pertenencia al portal.',
+        security,
+        params: IdParamSchema,
+      },
+    },
+    async (request) => {
+      return ok(await getLibraryItem(request.hubUser!.portalId, request.params.id))
+    },
+  )
+
   r.patch(
     '/:id',
     {
       schema: {
         tags: [TAG],
         summary: 'Actualizar ítem de biblioteca',
-        description: 'Actualiza campos del ítem. Requiere rol owner o member.',
+        description: 'Actualiza campos. Para steps: siempre enviar la lista completa (reemplazo, no merge).',
         security,
         params: IdParamSchema,
         body: UpdateLibraryItemSchema,
@@ -87,7 +113,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: [TAG],
         summary: 'Archivar ítem de biblioteca',
-        description: 'Archiva el ítem (soft delete). Requiere rol owner o member.',
+        description: 'Archiva el ítem (soft-delete).',
         security,
         params: IdParamSchema,
       },
