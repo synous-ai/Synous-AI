@@ -25,6 +25,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { API_URL } from '@nous/shared'
+import { BookingPageSkeleton, SlotsSkeleton } from '../../_components/booking-skeletons'
 
 // ---------------------------------------------------------------------------
 // Tipos locales (no requieren auth del admin — solo datos públicos)
@@ -402,7 +403,6 @@ export default function BookingPage({
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const answersArr = Object.entries(answers).map(([id, value]) => ({ id, value }))
       const guestEmails = form.guests
         ? form.guests
             .split(',')
@@ -410,13 +410,15 @@ export default function BookingPage({
             .filter(Boolean)
         : []
 
+      // Contrato del API público: startsAt/guestName/guestEmail/questionAnswers.
+      // `answers` ya es un Record<string,string> ({ questionId: value }) = questionAnswers.
       const res = await postBooking(portalId, slug, {
-        slotStart: selectedSlot.startUtc,
-        inviteeName: form.name,
-        inviteeEmail: form.email,
+        startsAt: selectedSlot.startUtc,
+        guestName: form.name,
+        guestEmail: form.email,
         inviteeTimeZone: inviteeTz,
         guestEmails,
-        answers: answersArr,
+        questionAnswers: answers,
       })
       setResult(res)
     } catch (e) {
@@ -444,11 +446,9 @@ export default function BookingPage({
   }
 
   if (!meta) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-      </div>
-    )
+    // Skeleton fiel al layout de 2 columnas en vez de un spinner suelto:
+    // la estructura ya está en pantalla cuando llega la metadata (CLS ≈ 0).
+    return <BookingPageSkeleton />
   }
 
   const { year, month } = currentMonth
@@ -603,9 +603,9 @@ export default function BookingPage({
                       }).format(new Date(selectedDay + 'T12:00:00Z'))}
                     </h2>
                     {loadingSlots ? (
-                      <div className="flex justify-center py-4">
-                        <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-                      </div>
+                      // Skeleton con la misma grilla y altura de botón que los slots
+                      // reales → al cambiar de día/TZ el panel no colapsa ni salta.
+                      <SlotsSkeleton />
                     ) : slots.length === 0 ? (
                       <p className="text-center py-6 text-sm text-gray-400">
                         No hay horarios disponibles para este día.

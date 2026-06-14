@@ -27,6 +27,7 @@ import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Loader2, Globe, Clock
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { API_URL } from '@nous/shared'
+import { ReschedulePageSkeleton, SlotsSkeleton } from '../_components/booking-skeletons'
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -136,7 +137,7 @@ async function postReschedule(token: string, slotStart: string, inviteeTz: strin
   const res = await fetch(`${API_URL}/api/public/calendar/booking/reschedule`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, slotStart, inviteeTimeZone: inviteeTz }),
+    body: JSON.stringify({ token, newStartsAt: slotStart, inviteeTimeZone: inviteeTz }),
   })
   const json = await res.json() as { data?: RescheduleResult; error?: { message: string } }
   if (!res.ok) throw new Error(json.error?.message ?? 'Error al reprogramar')
@@ -275,11 +276,8 @@ export default function ReschedulePage() {
 
   // ── Cargando metadata ────────────────────────────────────────────────────
   if (!meta) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-      </div>
-    )
+    // Skeleton fiel (header + calendario) en vez de un spinner suelto.
+    return <ReschedulePageSkeleton />
   }
 
   const { year, month } = currentMonth
@@ -382,9 +380,8 @@ export default function ReschedulePage() {
                     }).format(new Date(selectedDay + 'T12:00:00Z'))}
                   </h2>
                   {loadingSlots ? (
-                    <div className="flex justify-center py-4">
-                      <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-                    </div>
+                    // Misma grilla/altura que los slots reales → sin colapso ni salto.
+                    <SlotsSkeleton />
                   ) : slots.length === 0 ? (
                     <p className="text-center py-6 text-sm text-gray-400">No hay horarios disponibles.</p>
                   ) : (
