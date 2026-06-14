@@ -171,6 +171,7 @@ function Section({
   count,
   children,
   empty,
+  footer,
 }: {
   title: string
   icon: typeof AlertTriangle
@@ -178,6 +179,8 @@ function Section({
   count: number
   children: React.ReactNode
   empty: string
+  /** Contenido fijo bajo la lista (p. ej. paginación): queda FUERA del área scrolleable. */
+  footer?: React.ReactNode
 }) {
   return (
     <div>
@@ -196,7 +199,13 @@ function Section({
           <span>{empty}</span>
         </div>
       ) : (
-        <div className="space-y-2">{children}</div>
+        <>
+          {/* Lista con scroll-y interno: acota la altura para que la página no
+              se haga larguísima. El header y la paginación quedan fijos. `pr-1`
+              evita que la barra de scroll se monte sobre el contenido. */}
+          <div className="max-h-80 space-y-2 overflow-y-auto pr-1">{children}</div>
+          {footer}
+        </>
       )}
     </div>
   )
@@ -337,6 +346,13 @@ export default function FollowUpsPage() {
                 iconClass="text-destructive"
                 count={overdueCount}
                 empty="Sin tareas vencidas — ¡bien hecho!"
+                footer={
+                  <DataPagination
+                    page={overduePag.page}
+                    pageCount={overduePag.pageCount}
+                    onPageChange={overduePag.setPage}
+                  />
+                }
               >
                 {overduePag.pageItems.map((item: FollowUpItem) => (
                   <FollowUpRow
@@ -346,11 +362,6 @@ export default function FollowUpsPage() {
                     onComplete={completeTask}
                   />
                 ))}
-                <DataPagination
-                  page={overduePag.page}
-                  pageCount={overduePag.pageCount}
-                  onPageChange={overduePag.setPage}
-                />
               </Section>
 
               <Section
@@ -359,6 +370,13 @@ export default function FollowUpsPage() {
                 iconClass="text-amber-500"
                 count={todayCount}
                 empty="Nada programado para hoy."
+                footer={
+                  <DataPagination
+                    page={todayPag.page}
+                    pageCount={todayPag.pageCount}
+                    onPageChange={todayPag.setPage}
+                  />
+                }
               >
                 {todayPag.pageItems.map((item: FollowUpItem) => (
                   <FollowUpRow
@@ -368,11 +386,6 @@ export default function FollowUpsPage() {
                     onComplete={completeTask}
                   />
                 ))}
-                <DataPagination
-                  page={todayPag.page}
-                  pageCount={todayPag.pageCount}
-                  onPageChange={todayPag.setPage}
-                />
               </Section>
 
               <Section
@@ -381,6 +394,13 @@ export default function FollowUpsPage() {
                 iconClass="text-primary"
                 count={upcomingCount}
                 empty="Sin seguimientos en los próximos 7 días."
+                footer={
+                  <DataPagination
+                    page={upcomingPag.page}
+                    pageCount={upcomingPag.pageCount}
+                    onPageChange={upcomingPag.setPage}
+                  />
+                }
               >
                 {upcomingPag.pageItems.map((item: FollowUpItem) => (
                   <FollowUpRow
@@ -390,11 +410,6 @@ export default function FollowUpsPage() {
                     onComplete={completeTask}
                   />
                 ))}
-                <DataPagination
-                  page={upcomingPag.page}
-                  pageCount={upcomingPag.pageCount}
-                  onPageChange={upcomingPag.setPage}
-                />
               </Section>
             </CardContent>
           </Card>
