@@ -2,8 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  '@google/genai': true
   canvas: true
   esbuild: true
   msgpackr-extract: true
   msw: true
+  protobufjs: true
   unrs-resolver: true

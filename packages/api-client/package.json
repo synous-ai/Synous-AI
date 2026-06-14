@@ -1,11 +1,11 @@
 {
-  "name": "@devduo/api-client",
+  "name": "@nous/api-client",
   "version": "0.0.0",
   "private": true,
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@devduo/shared": "workspace:*"
+    "@nous/shared": "workspace:*"
   }
 }

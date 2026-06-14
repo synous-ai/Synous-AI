@@ -1,5 +1,5 @@
 {
-  "name": "@devduo/shared",
+  "name": "@nous/shared",
   "version": "0.0.0",
   "private": true,
   "exports": {

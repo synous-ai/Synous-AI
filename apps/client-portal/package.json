@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@devduo/api-client": "workspace:*",
-    "@devduo/shared": "workspace:*",
+    "@nous/api-client": "workspace:*",
+    "@nous/shared": "workspace:*",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-slot": "^1.2.4",
