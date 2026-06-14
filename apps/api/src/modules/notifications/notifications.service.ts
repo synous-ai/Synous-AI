@@ -1,6 +1,6 @@
 import { and, count, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '../../db'
-import { notification } from '../../db/schema'
+import { notification, hubUser } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { emitNotification } from '../../lib/notification-bus'
 
@@ -77,4 +77,44 @@ export async function markAllRead(portalId: string, userId: string): Promise<voi
     .update(notification)
     .set({ readAt: new Date() })
     .where(and(eq(notification.portalId, portalId), eq(notification.userId, userId), isNull(notification.readAt)))
+}
+
+/**
+ * Nombre para mostrar del hub_user que ejecutó una acción.
+ * Se usa para componer mensajes tipo "Carlos convirtió «X» en lead".
+ * Devuelve 'Alguien' como fallback si no se encuentra (nunca rompe la notificación).
+ */
+export async function actorName(portalId: string, userId: string): Promise<string> {
+  const [u] = await db
+    .select({ firstName: hubUser.firstName, lastName: hubUser.lastName, email: hubUser.email })
+    .from(hubUser)
+    .where(and(eq(hubUser.id, userId), eq(hubUser.portalId, portalId)))
+    .limit(1)
+  if (!u) return 'Alguien'
+  const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
+  return name || u.email || 'Alguien'
+}
+
+/** Payload de una notificación dirigida a los admins (sin userId — se completa por admin). */
+type NotifyAdminsPayload = Omit<CreateNotificationInput, 'portalId' | 'userId' | 'clientId'>
+
+/**
+ * Crea una notificación para TODOS los admins (hub_user) activos del portal,
+ * opcionalmente excluyendo a quien originó la acción (`exceptUserId`) para no
+ * auto-notificarse. Una fila de notification por admin (userId seteado).
+ */
+export async function notifyAdmins(
+  portalId: string,
+  payload: NotifyAdminsPayload,
+  opts?: { exceptUserId?: string },
+): Promise<void> {
+  const admins = await db
+    .select({ id: hubUser.id })
+    .from(hubUser)
+    .where(and(eq(hubUser.portalId, portalId), eq(hubUser.isActive, true)))
+
+  for (const a of admins) {
+    if (opts?.exceptUserId && a.id === opts.exceptUserId) continue
+    await createNotification({ portalId, userId: a.id, ...payload })
+  }
 }
