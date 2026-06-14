@@ -64,7 +64,15 @@ export function buildApp(): FastifyInstance {
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
 
-  app.register(cors, { origin: true, credentials: true })
+  // CORS: allowlist explícita (NUNCA `origin: true`, que reflejaría cualquier
+  // origin con credenciales). Orígenes válidos = apps configuradas + localhost dev.
+  const allowedOrigins = [
+    env.ADMIN_URL,
+    env.CLIENT_PORTAL_URL,
+    'http://localhost:3000',
+    'http://localhost:3002',
+  ].filter((o): o is string => Boolean(o))
+  app.register(cors, { origin: allowedOrigins, credentials: true })
   app.register(cookie)
   app.register(fastifyWebsocket)
   app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } })
