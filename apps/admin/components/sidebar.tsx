@@ -300,9 +300,9 @@ export function Sidebar() {
   // Cada grupo arranca abierto solo si contiene la ruta activa.
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {}
+    // Cada grupo arranca abierto SOLO si contiene la ruta activa (contexto). Ninguna
+    // sección se expande "por defecto" cuando la ruta no pertenece a ningún grupo.
     for (const g of GROUPS) init[g.label] = g.items.filter((i) => !i.section).some((i) => i.href && matchesHref(pathname, i.href))
-    // Si ninguno quedó abierto, abrir CRM por defecto.
-    if (!Object.values(init).some(Boolean)) init['CRM'] = true
     return init
   })
 
@@ -361,10 +361,13 @@ export function Sidebar() {
               onClick={() => setPendingHref(item.href)}
               title={collapsed ? item.label : undefined}
               className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors',
+                // Mismo tratamiento que los encabezados de grupo: label siempre
+                // text-foreground + font-medium para que TODOS los labels del sidebar
+                // tengan el mismo color (en dark y light). El activo se distingue por el fondo.
+                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                 active
-                  ? 'bg-muted text-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  ? 'bg-muted text-foreground'
+                  : 'text-foreground hover:bg-muted',
               )}
             >
               <Icon className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />

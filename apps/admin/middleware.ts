@@ -142,6 +142,14 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(new URL('/admin/login', req.url))
   }
 
+  // 2b. /admin exacto → /admin/dashboard. Los route groups (auth)/(dashboard) no aportan
+  //     segmento de URL, así que no existe página en /admin (daba 404). Redirigimos al
+  //     dashboard y dejamos que la protección de /admin/* (abajo) decida: sin sesión →
+  //     /admin/login (auth.protect); sesión cliente → /portal; admin → dashboard.
+  if (pathname === '/admin') {
+    return NextResponse.redirect(new URL('/admin/dashboard', req.url))
+  }
+
   // 3. Proteger admin (excepto /admin/login que es la página pública de entrada).
   //    auth.protect() lanza un redirect a NEXT_PUBLIC_CLERK_SIGN_IN_URL si no hay sesión.
   if (isAdminProtected(req) && !isAdminPublic(req)) {
@@ -154,19 +162,27 @@ export default clerkMiddleware(async (auth, req) => {
     await auth.protect({ unauthenticatedUrl: new URL('/portal/login', req.url).toString() })
   }
 
-  // 5. Routing por userType (best-effort, convenencia — NO es el gate de seguridad).
-  //    Si hay sesión activa, revisamos publicMetadata.userType para evitar que un
-  //    usuario caiga en la sección equivocada. La seguridad real está en el backend.
+  // 5. Routing por userType (best-effort, conveniencia — NO es el gate de seguridad).
+  //    El verdadero gate está en el backend (resolveHubUser / resolveClientAccount).
+  //
+  //    IMPORTANTE: por defecto Clerk NO incluye publicMetadata en el session token, así
+  //    que `userType` puede venir undefined. Lo leemos desde el claim top-level `userType`
+  //    (configurable en Dashboard → Customize session token:
+  //      { "userType": "{{user.public_metadata.userType}}" }) con fallback a publicMetadata.
+  //
+  //    Solo redirigimos ante un tipo CONOCIDO y equivocado. Si el claim falta (undefined),
+  //    NO expulsamos: dejamos cargar la página y que el backend gatee. Esto evita el bug en
+  //    que un cliente con sesión válida era rebotado de /portal/* a /admin por falta del claim.
   const { sessionClaims } = await auth()
   if (sessionClaims) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const userType = (sessionClaims?.publicMetadata as any)?.userType as string | undefined
-    // Cliente (userType === 'client') intentando acceder al admin → portal.
+    const claims = sessionClaims as Record<string, unknown> & { publicMetadata?: { userType?: string } }
+    const userType = (claims.userType as string | undefined) ?? claims.publicMetadata?.userType
+    // Cliente conocido intentando acceder al admin → portal.
     if (userType === 'client' && isAdminProtected(req) && !isAdminPublic(req)) {
       return NextResponse.redirect(new URL('/portal', req.url))
     }
-    // Admin (sin userType o userType !== 'client') intentando acceder al portal → admin.
-    if (userType !== 'client' && isPortalProtected(req) && !isPortalPublic(req)) {
+    // Admin conocido intentando acceder al portal → admin.
+    if (userType === 'admin' && isPortalProtected(req) && !isPortalPublic(req)) {
       return NextResponse.redirect(new URL('/admin/dashboard', req.url))
     }
   }
