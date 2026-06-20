@@ -1,7 +1,6 @@
 import { asc, eq } from 'drizzle-orm'
 import { db, closeDb } from './index'
 import { portal, hubUser, pipeline, pipelineStage, contact, deal, clientAccount, clientDealAccess, deliverable } from './schema'
-import { hashPassword } from '../lib/password'
 
 /**
  * Seed idempotente: portal + usuario owner + pipeline de Ventas con etapas.
@@ -28,11 +27,12 @@ async function seed(): Promise<void> {
         portalId,
         email,
         firstName: 'Carlos',
-        passwordHash: await hashPassword('changeme123'),
         role: 'owner',
+        // Auth vía Clerk: el clerk_user_id se vincula al provisionar en Clerk.
+        clerkUserId: 'clerk_seed_carlos',
       })
       .returning()
-    console.log(`✓ hub_user creado: ${u!.email} (password: changeme123)`)
+    console.log(`✓ hub_user creado: ${u!.email} (auth: Clerk)`)
   } else {
     console.log(`· hub_user ya existe: ${email}`)
   }
@@ -85,13 +85,13 @@ async function seed(): Promise<void> {
       .returning()
     const [ca] = await db
       .insert(clientAccount)
-      .values({ portalId, contactId: c!.id, email: clientEmail, passwordHash: await hashPassword('cliente123'), inviteAccepted: true })
+      .values({ portalId, contactId: c!.id, email: clientEmail, inviteAccepted: true, clerkUserId: 'clerk_seed_cliente' })
       .returning()
     await db.insert(clientDealAccess).values({ clientId: ca!.id, dealId: dl!.id })
     await db
       .insert(deliverable)
       .values({ dealId: dl!.id, title: 'Home — diseño v1', type: 'design', url: 'https://figma.com/demo', status: 'pending_review' })
-    console.log('✓ cliente demo creado: cliente@demo.com (password: cliente123) con 1 deal + 1 entregable')
+    console.log('✓ cliente demo creado: cliente@demo.com (auth: Clerk) con 1 deal + 1 entregable')
   } else {
     console.log('· cliente demo ya existe')
   }

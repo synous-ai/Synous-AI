@@ -12,10 +12,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url().optional(),
 
+  // Secreto para firmar tokens de NEGOCIO (no de sesión): tokens de booking
+  // (cancel/reschedule) en calendar.service.ts y el token de onboarding. La auth
+  // de sesión (admin y cliente) es 100% Clerk — no usa este secreto.
   ACCESS_TOKEN_SECRET: z.string().min(32, 'ACCESS_TOKEN_SECRET debe tener al menos 32 caracteres'),
-  REFRESH_TOKEN_SECRET: z.string().min(32, 'REFRESH_TOKEN_SECRET debe tener al menos 32 caracteres'),
-  ACCESS_TOKEN_TTL: z.string().default('15m'),
-  REFRESH_TOKEN_TTL: z.string().default('7d'),
 
   // Integraciones — opcionales en Fase 1
   RESEND_API_KEY: z.string().optional(),

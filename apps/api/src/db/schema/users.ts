@@ -10,7 +10,6 @@ export const hubUser = pgTable('hub_user', {
   email: citext('email').notNull(),
   firstName: text('first_name'),
   lastName: text('last_name'),
-  passwordHash: text('password_hash').notNull(),
   role: text('role').notNull().default('member'),
   isActive: boolean('is_active').notNull().default(true),
   // Federación con Clerk — ID del usuario en Clerk. Nullable hasta migrar los

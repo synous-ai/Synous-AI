@@ -5,6 +5,7 @@ import { deal, pipelineStage, contact, clientAccount, clientDealAccess } from '.
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
 import { createNotification } from '../notifications/notifications.service'
+import { ensureClerkUserType } from '../../lib/clerk-provisioning'
 
 const ENTITY = 'deal'
 type DealRow = typeof deal.$inferSelect
@@ -46,6 +47,20 @@ export async function activateClientPortal(tx: Tx, portalId: string, dealId: str
   await tx.insert(clientDealAccess).values({ clientId: account!.id, dealId }).onConflictDoNothing()
   if (c.lifecycleStage !== 'customer') {
     await tx.update(contact).set({ lifecycleStage: 'customer', updatedAt: new Date() }).where(eq(contact.id, c.id))
+  }
+
+  // Provisionar el cliente en Clerk con userType='client' + linkear clerkUserId (si falta).
+  // Best-effort: si Clerk falla, no rompe la activación del portal (el account ya quedó creado).
+  if (account && !account.clerkUserId) {
+    const clerkUserId = await ensureClerkUserType({
+      email: c.email,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      userType: 'client',
+    })
+    if (clerkUserId) {
+      await tx.update(clientAccount).set({ clerkUserId }).where(eq(clientAccount.id, account.id))
+    }
   }
   // TODO: asignar intake forms por defecto + enviar email de invitación (Resend) cuando estén configurados.
 }

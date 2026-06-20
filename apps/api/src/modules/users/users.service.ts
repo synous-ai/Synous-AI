@@ -2,7 +2,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { hubUser } from '../../db/schema'
 import { Errors } from '../../lib/errors'
-import { hashPassword } from '../../lib/password'
+import { ensureClerkUserType } from '../../lib/clerk-provisioning'
 import type { CreateUserDTO, UpdateUserDTO } from './users.schema'
 
 export interface PublicUser {
@@ -43,10 +43,23 @@ export async function createUser(portalId: string, input: CreateUserDTO): Promis
       firstName: input.firstName,
       lastName: input.lastName,
       role: input.role,
-      passwordHash: await hashPassword(input.password),
     })
     .returning(publicCols)
   if (!row) throw Errors.internal('No se pudo crear el usuario')
+
+  // Provisionar el usuario en Clerk con userType='admin' y linkear el clerkUserId.
+  // Best-effort: si Clerk falla, el hub_user igual queda creado (se puede re-linkear
+  // luego con el script set-clerk-user-types).
+  const clerkUserId = await ensureClerkUserType({
+    email: input.email,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    userType: 'admin',
+  })
+  if (clerkUserId) {
+    await db.update(hubUser).set({ clerkUserId }).where(eq(hubUser.id, row.id))
+  }
+
   return row
 }
 

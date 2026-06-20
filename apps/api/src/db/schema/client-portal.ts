@@ -10,7 +10,6 @@ export const clientAccount = pgTable('client_account', {
   portalId: text('portal_id').notNull().references(() => portal.id, { onDelete: 'cascade' }),
   contactId: text('contact_id').notNull().references(() => contact.id),
   email: citext('email').notNull(),
-  passwordHash: text('password_hash'),
   inviteToken: text('invite_token').unique(),
   inviteSentAt: timestamp('invite_sent_at', { withTimezone: true }),
   inviteAccepted: boolean('invite_accepted').notNull().default(false),

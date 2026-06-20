@@ -3,18 +3,27 @@ import { verifyClerkToken, resolveHubUser } from './clerk-auth'
 import { Errors } from '../lib/errors'
 
 /**
- * Verifica el token de sesión de Clerk del header `Authorization: Bearer <token>`.
- * Sólo admite admins (hub_user): verifica el token contra Clerk y resuelve el
- * hub_user interno por `clerk_user_id`. Setea `request.hubUser` ({ sub, portalId, role }).
+ * Verifica el token de sesión de hub_user del header `Authorization: Bearer <token>`.
  *
- * El gate real de autorización es la resolución en DB: un token de cliente
- * (client_account) NO tiene fila en hub_user → resolveHubUser lanza unauthorized.
+ * Auth ÚNICA: Clerk. El admin se autentica con Clerk (identidad federada); ya no
+ * existe JWT propio. Se verifica el token contra Clerk y se resuelve el hub_user
+ * por clerk_user_id.
+ *
+ * Un token de client_account NO resuelve a una fila de hub_user → cualquiera de las
+ * rutas devuelve unauthorized, garantizando que el cruce admin↔cliente queda impedido.
  */
 export async function authenticate(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
   const header = request.headers.authorization
   if (!header || !header.startsWith('Bearer ')) {
     throw Errors.unauthorized('Falta el token de acceso')
   }
-  const clerkUserId = await verifyClerkToken(header.slice('Bearer '.length))
-  request.hubUser = await resolveHubUser(clerkUserId)
+
+  const token = header.slice('Bearer '.length)
+
+  try {
+    const clerkUserId = await verifyClerkToken(token)
+    request.hubUser = await resolveHubUser(clerkUserId)
+  } catch {
+    throw Errors.unauthorized('Token de acceso inválido o expirado')
+  }
 }
