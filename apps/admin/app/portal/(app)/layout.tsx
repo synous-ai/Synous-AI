@@ -59,27 +59,16 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             </div>
           </div>
         </div>
-        {/* Skeleton del contenido — fiel a: título + descripción + grid de summary cards */}
+        {/* Contenido NEUTRO: este skeleton se muestra mientras Clerk verifica la
+            sesión, para CUALQUIER ruta del portal (home, entregables, formularios,
+            facturas, documentos, marca). Por eso NO imita el Home — cada panel
+            monta su propio skeleton fiel al cargar sus datos. Si acá imitáramos el
+            Home, al entrar a otra ruta se verían dos skeletons distintos seguidos. */}
         <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 sm:px-6">
           <div className="space-y-4">
             <Skeleton className="h-7 w-52" />
             <Skeleton className="h-4 w-72" />
-            {/* Grid 2x2 de SummaryCards */}
-            <div className="grid gap-3 sm:grid-cols-2 pt-2">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="rounded-xl border bg-card p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Skeleton className="h-4 w-4 rounded-sm" />
-                      <Skeleton className="h-4 w-24" />
-                    </div>
-                    <Skeleton className="h-5 w-6 rounded-full" />
-                  </div>
-                  <Skeleton className="h-3 w-3/4" />
-                  <Skeleton className="h-8 w-28 rounded-md" />
-                </div>
-              ))}
-            </div>
+            <Skeleton className="h-[40vh] w-full rounded-xl" />
           </div>
         </main>
       </SkeletonGroup>

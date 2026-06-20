@@ -6,7 +6,20 @@
 
 ---
 
-## Veredicto general
+## ✅ Estado: IMPLEMENTACIÓN COMPLETA (2026-06-14)
+
+Toda la auditoría fue implementada. Typecheck del admin limpio.
+- **Fundaciones**: fix `animate-pulse` reduced-motion, primitivo `<Skeleton>` con `aria-hidden`, `<LoadingRegion>`/`<SkeletonGroup>`, composites fieles (`TableSkeleton`/`KanbanSkeleton`/`DetailViewSkeleton`/`CardGridSkeleton`/`ListSkeleton`), `useDelayedPending(300)`. Espejo en el portal (`portal-lib/components/ui/`).
+- **38 archivos** migrados a composites fieles; **16** con skeletons compuestos a medida.
+- **Crítico**: calendario público (book + reschedule) — slots + metadata + `loading.tsx`.
+- **Admin**: tablas (thead), boards (kanban horizontal por view mode), 5 detail views (fin del "2 rectángulos"), dashboard/reports/finance/timeline/follow-ups/calendar/prospecting.
+- **Portal**: 6 paneles spinner→skeleton, error parcial en home, race de branding, layout fiel.
+- **Públicas**: propuesta (shell + `loading.tsx`), onboarding (token/aria/WebGL), `book/cancel` a11y, **bug B-5** (error vs vacío) corregido.
+- Único spinner de página intencional: `book/cancel` (one-shot, con `role=status`).
+
+---
+
+## Veredicto general (original)
 
 - **0** vistas de datos con skeleton **fiel** en portal y rutas públicas.
 - **~4** skeletons fieles en admin (settings/campos, setter detalle, parcialmente finance/reports).
