@@ -33,9 +33,17 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 días
 const isAdminProtected = createRouteMatcher(['/admin/(.*)'])
 const isAdminPublic = createRouteMatcher(['/admin/login(.*)'])
 
-// Portal: protegido todo excepto /portal/login (la página con el <SignIn> de Clerk).
+// Portal: protegido todo excepto las rutas públicas de abajo (login + aceptación
+// de invitación). ÚNICA fuente de verdad: la usan tanto el matcher de Clerk como
+// la rama de tenant white-label (que calcula el destino del rewrite a mano) —
+// duplicar el cálculo dejaba `/portal/accept-invitation` protegida en esa rama
+// aunque estuviera exenta acá.
+const PORTAL_PUBLIC_PREFIXES = ['/portal/login', '/portal/accept-invitation'] as const
 const isPortalProtected = createRouteMatcher(['/portal/(.*)'])
-const isPortalPublic = createRouteMatcher(['/portal/login(.*)'])
+const isPortalPublic = createRouteMatcher(PORTAL_PUBLIC_PREFIXES.map((p) => `${p}(.*)`))
+function isPortalPublicPath(pathname: string): boolean {
+  return PORTAL_PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
 
 // ─── Helpers de tenant ────────────────────────────────────────────────────────
 
@@ -129,8 +137,8 @@ export default clerkMiddleware(async (auth, req) => {
       if (!pathname.startsWith('/portal')) return `/portal${pathname === '/' ? '' : pathname}`
       return pathname
     })()
-    const destIsPortalLogin = destPathname.startsWith('/portal/login')
-    if (!destIsPortalLogin) {
+    const destIsPortalPublic = isPortalPublicPath(destPathname)
+    if (!destIsPortalPublic) {
       // Proteger: redirigir a login del portal si no hay sesión.
       await auth.protect({ unauthenticatedUrl: new URL('/portal/login', req.url).toString() })
     }

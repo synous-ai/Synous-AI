@@ -5,9 +5,11 @@
  *
  * Usa el componente <SignIn> pre-armado de @clerk/nextjs para dar:
  *  - Login email + contraseña
- *  - "Olvidé mi contraseña" (flujo de reset — los clientes entran por acá la
- *    primera vez ya que activateClientPortal genera su cuenta con password random).
+ *  - "Olvidé mi contraseña" (recuperación para cuentas ya activadas)
  *  - Verificación de dispositivo (Client Trust) sin código extra.
+ *
+ * El primer ingreso se hace desde el link de invitación (`/portal/accept-invitation`),
+ * no desde acá — acá sólo se loguean clientes que ya activaron su cuenta.
  *
  * signUpUrl se omite deliberadamente: los clientes se provisionan por el admin
  * (activateClientPortal), no hay self sign-up disponible.
@@ -272,8 +274,7 @@ export default function PortalLoginPage() {
 
             <p className="eyebrow mb-1">Portal de clientes</p>
             <p className="text-sm text-muted-foreground mb-6">
-              Accedé al seguimiento de tu proyecto. Si es tu primer ingreso, usá
-              &ldquo;¿Olvidaste tu contraseña?&rdquo; para crear tu clave.
+              Accedé al seguimiento de tu proyecto con tu email y contraseña.
             </p>
           </div>
 
