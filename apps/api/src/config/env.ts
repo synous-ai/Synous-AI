@@ -27,6 +27,9 @@ const envSchema = z.object({
   // Fathom webhook — opcional; sin secret configurado el webhook responde 401
   FATHOM_WEBHOOK_SECRET: z.string().optional(),
 
+  // Clerk webhook — opcional; sin secret configurado el endpoint responde 401 (fail-closed)
+  CLERK_WEBHOOK_SIGNING_SECRET: z.string().optional(),
+
   // URL pública de la API para pixel de tracking (default: localhost en dev)
   PUBLIC_API_URL: z.string().url().default('http://localhost:3001'),
 
