@@ -31,7 +31,7 @@ Monorepo gestionado con **pnpm workspaces + Turborepo**.
 
 El producto cubre el ciclo completo de la agencia, de lead frío a cliente facturado:
 
-- **Auth unificada con Clerk** — admin y portal del cliente se autentican con **Clerk** (una sola app, identidad federada): el token se verifica y se resuelve `hub_user` (admin) o `client_account` (cliente) por `clerk_user_id`; se distinguen por `publicMetadata.userType` ('admin' | 'client') + lookup en DB. Roles del admin: `owner` / `member` / `collaborator` / `viewer`.
+- **Auth 100% Clerk (admin y portal del cliente)** — no hay JWT propio de sesión: el token de Clerk se verifica y se resuelve `hub_user` (admin) o `client_account` (cliente) por `clerk_user_id`; se distinguen por `publicMetadata.userType` ('admin' | 'client') + lookup en DB. Roles del admin: `owner` / `member` / `collaborator` / `viewer`. El alta de un cliente se vincula a su cuenta de Clerk vía invitación (`accept-invitation`) + `client-account-linking` (ID-first por `publicMetadata.clientAccountId`, con fallback por email exacto).
 - **Pipeline de ventas** — contactos, empresas, deals, pipelines y etapas con historial de cambios.
 - **Calendario / Scheduling propio (estilo Calendly)** — tipos de evento, disponibilidad con rangos múltiples y date overrides, motor de slots con timezones/DST, página pública de reserva (`/book`), emails de confirmación/cancelación y anti-doble-booking a nivel DB.
 - **Onboarding pre-venta** — wizard público tokenizado que pre-carga el lead y crea/reusa su deal.
@@ -46,7 +46,7 @@ El producto cubre el ciclo completo de la agencia, de lead frío a cliente factu
 - **Email tracking** — pixel de apertura + redirect de clicks.
 - **Integraciones de reuniones** — webhook de Fathom (summary, transcript, action items).
 
-> El detalle funcional completo está en [`CRM_NOUS_DOCS.md`](./CRM_NOUS_DOCS.md).
+> El detalle funcional completo está en [`CRM_DEVDUO_DOCS.md`](./CRM_DEVDUO_DOCS.md).
 > Las convenciones de código y reglas de negocio críticas están en [`CLAUDE.md`](./CLAUDE.md).
 
 ---
@@ -61,7 +61,7 @@ El producto cubre el ciclo completo de la agencia, de lead frío a cliente factu
 | ORM                 | Drizzle ORM                                               |
 | Base de datos       | PostgreSQL 16                                             |
 | Auth (admin)        | **Clerk** — identidad federada (`@clerk/nextjs` + `@clerk/backend` `verifyToken` → `hub_user` por `clerk_user_id`) |
-| Auth (portal cliente)| **Clerk** — misma app que el admin, distinguido por `publicMetadata.userType='client'` → `client_account` por `clerk_user_id` |
+| Auth (portal cliente)| **Clerk** — misma app que el admin, sin JWT propio; distinguido por `publicMetadata.userType='client'` → `client_account` por `clerk_user_id` |
 | Jobs / Queue        | BullMQ + Redis                                            |
 | WebSockets          | `@fastify/websocket`                                      |
 | Docs API            | OpenAPI 3 vía `@fastify/swagger` (`/docs`)                |
@@ -101,9 +101,9 @@ docker-compose.dev.yml → Postgres + Redis para desarrollo
 ```
 
 > **Nota:** el portal del cliente **no es una app separada**. Vive dentro de `apps/admin`
-> bajo la ruta `/portal`, con su propio tema y su propio login con **JWT propio** — distinto
-> del admin, que se autentica con **Clerk**. La ruta pública de reserva del calendario vive
-> en `/book` (también dentro de `apps/admin`, sin auth).
+> bajo la ruta `/portal`, con su propio tema y su propio login — pero autenticado con
+> **Clerk**, igual que el admin (no hay JWT propio de sesión). La ruta pública de reserva
+> del calendario vive en `/book` (también dentro de `apps/admin`, sin auth).
 
 ### Estructura interna de la API
 
@@ -130,7 +130,7 @@ apps/api/src/
                     migrate-processes-to-library (procesos → SOPs, idempotente)
   lib/            → errors (AppError), jwt (solo portal cliente), password (bcrypt),
                     mailer (Resend), clerk-auth (verify + resolveHubUser), pagination, money, etc.
-  middleware/     → authenticate (hub_user vía Clerk) · authenticate-client (JWT portal) · authorize
+  middleware/     → authenticate (hub_user vía Clerk) · authenticate-client (client_account vía Clerk) · authorize
   jobs/           → colas y workers BullMQ (reminders)
   modules/        → 35 módulos de dominio (ver más abajo)
 ```
@@ -145,7 +145,7 @@ apps/admin/
     p/[token]/         → vista pública de propuesta (link tokenizado)
     book/              → reserva pública del calendario (slug del event type + cancel/reschedule)
     admin/             → panel interno (login Clerk + dashboard con todas las secciones)
-    portal/            → portal del cliente (login JWT propio + app, tema propio)
+    portal/            → portal del cliente (login vía Clerk + app, tema propio)
   components/      → componentes por dominio (deals, contacts, finance, setter, ui shadcn, …)
   lib/            → hooks (data layer con TanStack Query), store Zustand, api client
   portal-lib/     → librería propia del portal del cliente y del wizard de onboarding
@@ -175,15 +175,13 @@ errores con `AppError(code, message, statusCode)`; paginación por cursor; soft-
 
 - `components/<dominio>/` → componentes presentacionales por dominio.
 - `lib/hooks/<dominio>.ts` → todo el data fetching con TanStack Query (`useQuery` / `useMutation`).
-- auth admin → **Clerk** (`@clerk/nextjs`): el `ClerkProvider` envuelve la app y el `clerkMiddleware` protege `/admin/*`. El portal del cliente conserva su store Zustand con token propio.
+- auth → **Clerk** (`@clerk/nextjs`) en ambos lados: el `ClerkProvider` envuelve la app y el `clerkMiddleware` protege `/admin/*` y `/portal/(app)/*`. El portal del cliente ya no mantiene un store de sesión propio; el alta se resuelve por invitación de Clerk + vínculo a `client_account` (`client-account-linking`).
 - `components/ui/` → primitivos shadcn/ui.
 
 **Cliente HTTP.** `packages/api-client` expone una factory `createApiClient()` que
 añade el `Authorization: Bearer`, maneja el envelope `{ data, meta }` y, ante un 401,
-ejecuta `onAuthFailure`. El `getToken` acepta getters **sync o async**: el admin pasa uno
-async que lee el token de sesión de Clerk (`window.Clerk.session.getToken()`); el portal
-del cliente pasa uno sync desde su store y refresca vía cookie httpOnly (`refreshPath`,
-con deduplicación de llamadas concurrentes).
+ejecuta `onAuthFailure`. El `getToken` es async en ambos lados: tanto el admin como el
+portal del cliente leen el token de sesión de Clerk (`window.Clerk.session.getToken()`).
 
 ---
 
@@ -253,8 +251,9 @@ pnpm --filter admin dev   # Admin + portal cliente → http://localhost:3000
 ## Variables de entorno
 
 La API valida sus variables con Zod en `apps/api/src/config/env.ts`. Las **requeridas** mínimas
-para desarrollo local son `DATABASE_URL`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET` y
-`CLERK_SECRET_KEY` (auth del admin).
+para desarrollo local son `DATABASE_URL` y `ACCESS_TOKEN_SECRET`. `CLERK_SECRET_KEY` es
+requerida en producción (sin ella `verifyToken` falla y nadie autentica), pero tiene default
+`''` para no romper el boot/tests en local.
 
 ```bash
 # ── Entorno ────────────────────────────────────────────────
@@ -267,19 +266,18 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5433/nous
 # ── Redis (opcional — sin esto los workers BullMQ se deshabilitan) ─
 REDIS_URL=redis://localhost:6379
 
-# ── Clerk — auth del ADMIN (REQUERIDO: CLERK_SECRET_KEY) ───
-# El panel admin usa Clerk; los hub_user se federan por clerk_user_id.
+# ── Clerk — auth de SESIÓN, admin y portal del cliente (REQUERIDO en prod) ─
+# Ambos se federan por clerk_user_id; no hay JWT propio de sesión en ningún lado.
 CLERK_SECRET_KEY=sk_test_...
 CLERK_WEBHOOK_SIGNING_SECRET=whsec_...      # opcional — sync user.created/updated/deleted
 # En apps/admin/.env.local además: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_... + CLERK_SECRET_KEY
 
-# ── JWT — auth del PORTAL DEL CLIENTE (REQUERIDO, mínimo 32 chars c/u) ──
-# Lo usa SOLO el portal del cliente (el admin ya no usa JWT propio).
-# Generá secretos fuertes: openssl rand -base64 48
+# ── ACCESS_TOKEN_SECRET (REQUERIDO, mínimo 32 caracteres) ──
+# NO es de sesión — firma tokens de NEGOCIO puntuales: booking (cancel/reschedule
+# en calendar.service.ts) y el token de onboarding. La auth de sesión (admin y
+# cliente) es 100% Clerk y no usa este secreto.
+# Generá un secreto fuerte: openssl rand -base64 48
 ACCESS_TOKEN_SECRET=cambiar_por_un_secreto_de_al_menos_32_caracteres
-REFRESH_TOKEN_SECRET=cambiar_por_otro_secreto_de_al_menos_32_caracteres
-ACCESS_TOKEN_TTL=15m
-REFRESH_TOKEN_TTL=7d
 
 # ── URLs de las apps (opcional — emails, CORS, tracking) ───
 ADMIN_URL=http://localhost:3000
@@ -310,6 +308,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-6
 EVOLUTION_API_URL=
 EVOLUTION_API_KEY=
 EVOLUTION_INSTANCE=
+EVOLUTION_WEBHOOK_SECRET=
 
 # ── Booking real del Setter (opcional) ─────────────────────
 GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON=
@@ -375,7 +374,7 @@ La API expone 35 módulos de dominio en `apps/api/src/modules/`:
 
 | Módulo               | Qué hace                                                                       |
 | -------------------- | ------------------------------------------------------------------------------ |
-| `auth`               | Auth del equipo (`hub_user`) vía **Clerk**: `verifyToken` + lookup por `clerk_user_id` (mantiene `request.hubUser`); endpoint `/me`. El JWT propio quedó solo para el portal del cliente |
+| `auth`               | Auth del equipo (`hub_user`) vía **Clerk**: `verifyToken` + lookup por `clerk_user_id` (mantiene `request.hubUser`); endpoint `/me` |
 | `users`              | Gestión del equipo: CRUD y roles                                               |
 | `contacts`           | CRUD de contactos + sugerencia de próxima acción con IA                        |
 | `companies`          | CRUD de empresas vinculadas a contactos y deals                                |
@@ -397,7 +396,7 @@ La API expone 35 módulos de dominio en `apps/api/src/modules/`:
 | `finance`            | Facturas, ítems, pagos y PDF de factura (easyinvoice)                          |
 | `intake`             | Formularios de onboarding asignables a deals (admin + cliente)                 |
 | `client`             | Vista del portal del cliente (deal, files, intakes, CRs, branding)             |
-| `client-auth`        | Autenticación separada del portal del cliente (token propio)                   |
+| `client-auth`        | Sesión del portal del cliente vía **Clerk**: `verifyToken` + lookup por `clerk_user_id` en `client_account`; endpoint `/me`. El alta se resuelve por invitación de Clerk + `client-account-linking` |
 | `branding`           | White-label por cliente (logo, nombre, colores)                                |
 | `files`              | Subida/descarga de archivos (disco local, límite 25 MB)                        |
 | `library`            | Biblioteca interna: documentos, plantillas, contratos/propuestas base, doc técnica y la entidad operativa **Procesos y checklists** (`type='sop'` con `kind: 'procedure' \| 'checklist'`, `steps[]` ordenados + `owner`). Es REFERENCIA pura, sin estado de ejecución (el "tildar" para un caso vive en Tareas/Proyecto) |
@@ -448,7 +447,7 @@ Resumen — el detalle completo está en [`CLAUDE.md`](./CLAUDE.md):
 - **API:** todo endpoint valida con Zod; errores con `AppError`; respuestas `{ data, meta? }` / `{ error }`.
 - **DB:** operaciones multi-tabla en `db.transaction()`; merge JSONB con `||` **solo** sobre la columna `custom`;
   nunca borrar (soft-delete `archived = true`); historial en `record_history`; siempre filtrar `archived = false`.
-- **Seguridad:** el admin se autentica con **Clerk** (`hub_user`) y el portal del cliente con su **JWT propio** (`client_account`) — son sistemas separados; un cliente nunca accede a rutas del admin.
+- **Seguridad:** admin (`hub_user`) y portal del cliente (`client_account`) se autentican con **Clerk**, pero son resoluciones completamente separadas (tablas y middlewares distintos); un cliente nunca accede a rutas del admin.
 - **Comentarios:** siempre en español; explican el **qué** y el **porqué**, no el cómo obvio.
 
 ---
@@ -456,7 +455,7 @@ Resumen — el detalle completo está en [`CLAUDE.md`](./CLAUDE.md):
 ## Documentación adicional
 
 - [`CLAUDE.md`](./CLAUDE.md) — convenciones de código, reglas de negocio críticas y arquitectura.
-- [`CRM_NOUS_DOCS.md`](./CRM_NOUS_DOCS.md) — documentación funcional completa del producto.
+- [`CRM_DEVDUO_DOCS.md`](./CRM_DEVDUO_DOCS.md) — documentación funcional completa del producto.
 - [`docs/schema.sql`](./docs/schema.sql) — referencia del esquema de base de datos.
 - [`services/whatsapp-gateway/README.md`](./services/whatsapp-gateway/README.md) — gateway de WhatsApp.
 </content>
