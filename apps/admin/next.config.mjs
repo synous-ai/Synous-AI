@@ -8,7 +8,7 @@ const nextConfig = {
   reactStrictMode: true,
   // El lint se corre aparte (pnpm lint); no bloquea el build.
   eslint: { ignoreDuringBuilds: true },
-  transpilePackages: ['@devduo/shared', '@devduo/api-client'],
+  transpilePackages: ['@nous/shared', '@nous/api-client'],
 }
 
 export default withBundleAnalyzer(nextConfig)

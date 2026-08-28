@@ -13,7 +13,7 @@
  * `signUp.create({ strategy: 'ticket', ... })` + `setActive`.
  */
 
-import { useState, type FormEvent } from 'react'
+import { Suspense, useState, type FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSignUp } from '@clerk/nextjs/legacy'
 import { useAuth } from '@clerk/nextjs'
@@ -40,7 +40,23 @@ function mapClerkError(err: unknown): string {
   return 'No pudimos procesar la invitación. Intentá de nuevo o contactá a soporte.'
 }
 
+// useSearchParams() exige un límite de Suspense para el prerender estático
+// (Next.js hace bail-out a client-side rendering si no lo tiene envuelto).
 export default function AcceptInvitationPage() {
+  return (
+    <Suspense
+      fallback={
+        <InvitationShell>
+          <div className="h-40 w-full animate-pulse rounded-md bg-muted" aria-hidden />
+        </InvitationShell>
+      }
+    >
+      <AcceptInvitationForm />
+    </Suspense>
+  )
+}
+
+function AcceptInvitationForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const ticket = searchParams.get('__clerk_ticket')
