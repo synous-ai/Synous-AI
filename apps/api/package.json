@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "build:bundle": "tsup src/server.ts --format esm --target node20 --clean",
+    "build:vercel-api": "tsup serverless/index.ts --format esm --target node20 --outDir api",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
