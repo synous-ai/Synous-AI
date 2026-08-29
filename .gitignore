@@ -42,3 +42,4 @@ resend-light-style/
 # ── Sistema operativo ─────────────────────────────────────────
 .DS_Store
 Thumbs.db
+.vercel

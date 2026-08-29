@@ -66,6 +66,18 @@ function getSubdomain(host: string): string | null {
     return first && first !== 'www' ? first : null
   }
 
+  // Dominios propios de plataformas de deploy (Vercel, etc.): el nombre del
+  // proyecto ocupa el label de subdominio (ej. synous-ai-admin.vercel.app),
+  // pero NO es un tenant white-label — es la instancia misma de la app. Sin
+  // esta excepción, el fallback heurístico de abajo confunde el deployment
+  // con un cliente y rompe TODO el sitio (rewrite/protección a /portal/* en
+  // cualquier ruta, incluida /admin/login). Bug real observado en producción
+  // antes de este fix, no una precaución teórica.
+  const PLATFORM_DOMAIN_SUFFIXES = ['.vercel.app'] as const
+  if (PLATFORM_DOMAIN_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) {
+    return null
+  }
+
   // fallback heurístico: 3+ labels (sub.dominio.tld) y no www
   const labels = hostname.split('.')
   if (labels.length > 2 && labels[0] && labels[0] !== 'www') return labels[0]
