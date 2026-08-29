@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "builds": [{ "src": "api/index.ts", "use": "@vercel/node" }],
+  "framework": null,
+  "buildCommand": "echo 'sin build propio -- solo funciones serverless de /api'",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
