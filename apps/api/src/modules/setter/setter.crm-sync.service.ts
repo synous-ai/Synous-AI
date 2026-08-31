@@ -112,12 +112,24 @@ async function createSetterDeal(
   tenantName: string,
   actorId: string | null,
 ): Promise<string | null> {
-  const [pl] = await tx
+  // Explícito por label 'Ventas' primero (mismo criterio que db/seed.ts): con
+  // el pipeline "Producción" ya seedeado, ordenar por createdAt asc y tomar
+  // el primero deja de ser determinístico — un reorden o un seed parcial
+  // podría enrutar leads del setter a Producción/Diagnóstico. Solo cae al más
+  // viejo si el portal no tiene un pipeline "Ventas" (legacy/datos de test).
+  let [pl] = await tx
     .select({ id: pipeline.id })
     .from(pipeline)
-    .where(and(eq(pipeline.portalId, portalId), eq(pipeline.archived, false)))
-    .orderBy(asc(pipeline.createdAt))
+    .where(and(eq(pipeline.portalId, portalId), eq(pipeline.archived, false), eq(pipeline.label, 'Ventas')))
     .limit(1)
+  if (!pl) {
+    ;[pl] = await tx
+      .select({ id: pipeline.id })
+      .from(pipeline)
+      .where(and(eq(pipeline.portalId, portalId), eq(pipeline.archived, false)))
+      .orderBy(asc(pipeline.createdAt))
+      .limit(1)
+  }
   if (!pl) return null
 
   const [stage] = await tx

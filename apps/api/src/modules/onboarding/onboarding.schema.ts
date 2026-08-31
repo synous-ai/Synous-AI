@@ -1,23 +1,52 @@
 import { z } from 'zod'
 
 /**
- * Validación del wizard de onboarding (endpoint PÚBLICO, sin auth).
- *
- * Por ser público, el saneo es estricto (defensa en profundidad):
- *  - Tipos y formatos correctos: email, URL http/https, enums cerrados.
- *  - Límite de longitud en TODOS los campos (anti-DoS por payloads enormes).
- *  - Strip de caracteres de control y rechazo de `< >` en campos cortos
- *    (mitiga inyección/XSS aguas abajo: emails, PDF de la propuesta, etc.).
- *  - Zod descarta claves desconocidas por defecto (anti mass-assignment).
- *  - Mensajes de error en español, claros para el usuario final.
- *
- * Vinculación con el CRM (dos caminos):
- *  - CON `token`: el lead YA existe (le mandamos el link tras el primer
- *    contacto). La submission se asocia a ese contacto/deal.
- *  - SIN `token` (fallback): funnel frío; el contacto se busca/crea por email.
+ * Validación del onboarding POST-VENTA (wizard de 8 pasos, cliente autenticado
+ * en el Client Portal). Ver client-onboarding.router.ts.
  */
 
-// ── Helpers de saneo reutilizables ───────────────────────────────────────────
+// ── Status de client_onboarding (mismo check constraint que la tabla) ───────
+export const ONBOARDING_STATUS = {
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+} as const
+export type OnboardingStatusDTO = (typeof ONBOARDING_STATUS)[keyof typeof ONBOARDING_STATUS]
+
+// ── Parte 1 — Orientación (pasos 1-4): PATCH /progress ──────────────────────
+export const OnboardingProgressSchema = z.object({
+  step: z.number().int().min(1, 'Paso inválido').max(4, 'Paso inválido'),
+})
+export type OnboardingProgressDTO = z.infer<typeof OnboardingProgressSchema>
+
+// ── Paso 5 — Firma: POST /signature ──────────────────────────────────────────
+// Firma = checkbox de aceptación + nombre completo tipeado + timestamp + IP
+// (guardados en DB). NO DocuSeal — decisión de negocio explícita.
+export const OnboardingSignatureSchema = z.object({
+  fullName: z
+    .string({ required_error: 'El nombre completo es requerido.' })
+    .min(3, 'El nombre completo es requerido.')
+    .max(200, 'Nombre demasiado largo.'),
+  accepted: z.literal(true, { errorMap: () => ({ message: 'Debés aceptar los términos para firmar.' }) }),
+})
+export type OnboardingSignatureDTO = z.infer<typeof OnboardingSignatureSchema>
+
+// ── Paso 6 — Brief del proyecto (16 preguntas): POST /brief ─────────────────
+const DELIVERY_CHANNELS = [
+  'whatsapp',
+  'notion',
+  'drive',
+  'skool',
+  'circle',
+  'hotmart',
+  'kajabi',
+  'otro',
+] as const
+
+// ── Helpers de saneo reutilizables (mismo espíritu que los `freeText`/
+// `shortSafe` del viejo wizard pre-venta público — límite de longitud en
+// TODO campo de texto libre, anti-DoS por payloads enormes, + strip de
+// caracteres de control). Este endpoint requiere auth de cliente, pero el
+// saneo se mantiene por defensa en profundidad. ──────────────────────────────
 
 /** Saca caracteres de control (incl. NUL) que no deberían viajar en texto. */
 const stripControl = (s: string): string =>
@@ -29,124 +58,72 @@ const stripControl = (s: string): string =>
     })
     .join('')
 
-/** Texto libre OPCIONAL: limita longitud, saca control chars y recorta. */
+/** Texto libre REQUERIDO: limita longitud (anti-DoS), saca control chars y recorta. */
 const freeText = (max: number) =>
+  z
+    .string({ required_error: 'Requerido' })
+    .max(max, `Máximo ${max} caracteres.`)
+    .transform((s) => stripControl(s).trim())
+    .pipe(z.string().min(1, 'Requerido'))
+
+/** Texto libre OPCIONAL: mismo saneo, pero permite vacío/ausente. */
+const freeTextOptional = (max: number) =>
   z
     .string()
     .max(max, `Máximo ${max} caracteres.`)
     .transform((s) => stripControl(s).trim())
     .optional()
 
-/** Texto corto sin HTML (empresa): recorta, limita y rechaza `< >`. */
-const shortSafe = (max: number, label: string) =>
-  z
-    .string()
-    .max(max, `${label}: máximo ${max} caracteres.`)
-    .transform((s) => stripControl(s).trim())
-    .refine((s) => !/[<>]/.test(s), `${label}: contiene caracteres no permitidos.`)
+export const OnboardingBriefSchema = z.object({
+  businessProgram: freeText(2000), // q1
+  activeClients: freeText(500), // q2
+  deliveryChannels: z.array(z.enum(DELIVERY_CHANNELS)).min(1, 'Elegí al menos un canal'), // q3
+  deliveryChannelsOther: freeTextOptional(200),
+  worstChannel: freeText(2000), // q4
+  weeklyTimeDrain: freeText(2000), // q5
+  sixMonthConcern: freeText(2000), // q6
+  idealDayToDay: freeText(2000), // q7
+  desiredStudentFeeling: freeText(2000), // q8
+  referenceApps: freeText(2000), // q9
+  teamRoles: freeText(2000), // q10
+  brandIdentity: freeText(500), // q11
+  requiredIntegrations: freeText(2000), // q12
+  existingClientBase: freeText(2000), // q13
+  howFoundUs: freeText(2000), // q14
+  decisionTrigger: freeText(2000), // q15
+  doubtsBeforeBuying: freeText(2000), // q16
+})
+export type OnboardingBriefDTO = z.infer<typeof OnboardingBriefSchema>
 
-/** Nombre/Apellido: solo letras (con acentos), espacios, puntos y guiones. */
-const personName = (label: string) =>
-  z
-    .string({ required_error: `Tu ${label.toLowerCase()} es requerido.` })
-    .transform((s) => stripControl(s).trim())
-    .pipe(
-      z
-        .string()
-        .min(2, `Ingresá tu ${label.toLowerCase()}.`)
-        .max(60, `${label}: máximo 60 caracteres.`)
-        .regex(
-          /^[\p{L}\p{M}][\p{L}\p{M}\s.'’-]*$/u,
-          `${label}: solo letras, espacios y guiones.`,
-        ),
-    )
-
-/** Enum cerrado con mensaje en español ante valor inválido o ausente. */
-const choice = <T extends readonly [string, ...string[]]>(values: T, label: string) =>
-  z.enum(values, { errorMap: () => ({ message: `Elegí una opción válida en ${label}.` }) })
-
-export const OnboardingSubmitSchema = z.object({
-  // Token de invitación (opcional). JWT firmado; acotamos longitud por las dudas.
-  token: z.string().max(2048).optional(),
-
-  // 1 · Información básica — Nombre y Apellido SEPARADOS.
-  firstName: personName('Nombre'),
-  lastName: personName('Apellido'),
-  email: z
-    .string({ required_error: 'Tu email es requerido.' })
-    .transform((s) => s.trim().toLowerCase())
-    .pipe(
-      z
-        .string()
-        .min(5, 'Email inválido.')
-        .max(254, 'Email demasiado largo.')
-        .email('Ingresá un email válido.'),
-    ),
-  company: shortSafe(160, 'Empresa').optional(),
-  // URL opcional: si no trae protocolo le anteponemos https://; solo http/https.
-  website: z.preprocess(
-    (v) => {
-      if (typeof v !== 'string') return v
-      const t = v.trim()
-      if (!t) return undefined
-      return /^https?:\/\//i.test(t) ? t : `https://${t}`
-    },
-    z.string().url('Ingresá una URL válida (https://…).').max(200, 'URL demasiado larga.').optional(),
-  ),
-  // `source` (cómo nos conoció) quedó OBSOLETO: la fuente se setea al crear el
-  // lead en su canal de origen. Opcional solo por compatibilidad; el wizard ya
-  // no lo envía.
-  source: freeText(160),
-
-  // 2 · El proyecto. La oferta de NOUS es SOFTWARE A MEDIDA (web apps, CRMs,
-  // automatizaciones, portales) — no landings ni sitios de marketing.
-  projectType: choice(['webapp', 'crm', 'automatizacion', 'portal', 'otro'] as const, 'tipo de proyecto'),
-  mainGoal: choice(['operacion', 'escalar', 'reemplazar', 'lanzar'] as const, 'objetivo principal'),
-  // Descripción breve: "¿cómo lo resolvés hoy / qué querés construir?". Es la
-  // materia prima para que la IA arme la propuesta.
-  currentSolution: freeText(600),
-
-  // NOTA: el "Alcance" detallado (disciplinas, contenido listo, referencias) NO
-  // se pregunta acá. Es parte del INTAKE post-cierre, una vez aceptada la
-  // propuesta. El onboarding es solo el calificador pre-venta.
-
-  // 3 · Claridad
-  clarity: choice(['muy_claro', 'mas_o_menos', 'necesito_ayuda'] as const, 'claridad'),
-
-  // 4 · Presupuesto (filtro fuerte) — rangos de software a medida (USD).
-  budget: choice(['<2000', '2000-5000', '5000-10000', '10000+'] as const, 'presupuesto'),
-
-  // 5 · Timing
-  startWhen: freeText(160),
-  deadline: freeText(160),
-
-  // 6 · Automatización / herramientas actuales (contexto para la propuesta).
-  currentCrm: freeText(160),
-  toAutomate: freeText(600),
-
-  // 7 · Prioridad
-  priority: choice(['precio', 'velocidad', 'calidad', 'escalabilidad'] as const, 'prioridad'),
-
-  // 8 · Preferencia final
-  preference: choice(['propuesta', 'llamada'] as const, 'preferencia'),
+// ── Paso 7 — Materiales: POST /materials + POST /materials/upload ───────────
+const MaterialItemSchema = z.object({
+  done: z.boolean(),
+  assetIds: z.array(z.string().min(1)).max(50, 'Máximo 50 archivos por categoría.').optional(),
+  note: z.string().max(500).optional(),
 })
 
-export type OnboardingSubmitDTO = z.infer<typeof OnboardingSubmitSchema>
+export const ONBOARDING_MATERIAL_CATEGORIES = [
+  'logoBrand',
+  'programContent',
+  'clientBase',
+  'toolAccess',
+] as const
+export type OnboardingMaterialCategory = (typeof ONBOARDING_MATERIAL_CATEGORIES)[number]
 
-/**
- * Querystring del endpoint público que resuelve un link de onboarding.
- * `t` es el token firmado; con él pre-cargamos el wizard con los datos del lead.
- */
-export const OnboardingResolveQuerySchema = z.object({
-  t: z.string().min(1, 'Falta el token').max(2048),
+export const OnboardingMaterialsSchema = z.object({
+  materials: z.object({
+    logoBrand: MaterialItemSchema,
+    programContent: MaterialItemSchema,
+    clientBase: MaterialItemSchema,
+    toolAccess: MaterialItemSchema,
+  }),
 })
-export type OnboardingResolveQueryDTO = z.infer<typeof OnboardingResolveQuerySchema>
+export type OnboardingMaterialsDTO = z.infer<typeof OnboardingMaterialsSchema>
 
-/**
- * Body del endpoint admin que genera una invitación de onboarding para un lead.
- * Devuelve el link tokenizado listo para enviarle al contacto.
- */
-export const OnboardingInviteSchema = z.object({
-  contactId: z.string().min(1, 'contactId requerido').max(60),
+/** Querystring del upload de un material (multipart): a qué categoría pertenece el archivo. */
+export const OnboardingMaterialUploadQuerySchema = z.object({
+  category: z.enum(ONBOARDING_MATERIAL_CATEGORIES, {
+    errorMap: () => ({ message: 'Categoría de material inválida' }),
+  }),
 })
-export type OnboardingInviteDTO = z.infer<typeof OnboardingInviteSchema>
+export type OnboardingMaterialUploadQueryDTO = z.infer<typeof OnboardingMaterialUploadQuerySchema>

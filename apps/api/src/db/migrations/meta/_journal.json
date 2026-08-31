@@ -190,6 +190,27 @@
       "when": 1781449779547,
       "tag": "0026_cultured_darkstar",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788127865808,
+      "tag": "0027_milky_darkhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1788130853250,
+      "tag": "0028_client_onboarding_portal_status_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1788130860258,
+      "tag": "0029_backfill_client_onboarding_grandfather",
+      "breakpoints": true
     }
   ]
 }

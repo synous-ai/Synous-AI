@@ -1,356 +1,397 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
-import { db } from '../../db'
-import { onboardingSubmission, portal, contact, company, deal, pipeline, pipelineStage } from '../../db/schema'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { db, type DB } from '../../db'
+import { clientOnboarding, clientAsset, deal, clientAccount, clientDealAccess } from '../../db/schema'
 import { Errors } from '../../lib/errors'
-import { env } from '../../config/env'
-import type { OnboardingSubmitDTO } from './onboarding.schema'
-import { signOnboardingToken, verifyOnboardingToken } from './onboarding-token'
-import { notifyAdmins } from '../notifications/notifications.service'
+import type { Tx } from '../../lib/audit'
+import { createNotification, notifyAdmins } from '../notifications/notifications.service'
+import { moveDealToProduction } from '../deals/stage.service'
+import type { ClientTokenPayload } from '../../middleware/authenticate-client'
+import type { SavedFile } from '../files/files.service'
+import { ONBOARDING_STATUS, type OnboardingBriefDTO, type OnboardingMaterialCategory, type OnboardingMaterialsDTO } from './onboarding.schema'
 
-type SubmissionRow = typeof onboardingSubmission.$inferSelect
+/**
+ * Onboarding POST-VENTA (post-pago): wizard de 8 pasos que el cliente completa
+ * autenticado en el Client Portal. Reemplaza al wizard pre-venta público
+ * (ver git history de este archivo / onboarding_submission en db/schema/onboarding.ts,
+ * que sigue existiendo solo para datos históricos de leads/propuestas).
+ */
 
-// ─── Routing de ventas (la regla del spec) ──────────────────────────────────
-// budget > 2000 (buckets 1000-3000 / 3000+)  ||  claridad baja  →  llamada.
-function decideRouting(budget: string, clarity: string): 'call' | 'proposal' {
-  // Software a medida: presupuesto alto o baja claridad → mejor arrancar con una
-  // llamada para acotar bien el alcance antes de proponer.
-  const highBudget = budget === '5000-10000' || budget === '10000+'
-  const lowClarity = clarity === 'necesito_ayuda'
-  return highBudget || lowClarity ? 'call' : 'proposal'
+type ClientOnboardingRow = typeof clientOnboarding.$inferSelect
+type ClientAssetRow = typeof clientAsset.$inferSelect
+
+// ── Categoría de material → tipo de client_asset (check constraint de la tabla) ──
+const CATEGORY_TO_ASSET_TYPE: Record<OnboardingMaterialCategory, string> = {
+  logoBrand: 'logo',
+  programContent: 'documento',
+  clientBase: 'documento',
+  toolAccess: 'acceso',
 }
 
-// Monto estimado del deal según el bucket de presupuesto (punto medio del rango).
-const BUDGET_AMOUNT: Record<string, string> = {
-  '<2000': '1500.00',
-  '2000-5000': '3500.00',
-  '5000-10000': '7500.00',
-  '10000+': '12000.00',
-}
+// ── Helpers internos ─────────────────────────────────────────────────────────
 
-const PROJECT_TYPE_LABEL: Record<string, string> = {
-  webapp: 'Web App',
-  crm: 'CRM',
-  automatizacion: 'Automatización',
-  portal: 'Portal de Clientes',
-  otro: 'Proyecto',
-}
-
-export interface OnboardingResult {
-  decision: 'call' | 'proposal'
-  submissionId: string
+interface ActiveDeal {
+  id: string
+  portalId: string
 }
 
 /**
- * Procesa una submission pública del wizard: resuelve el portal, calcula el
- * routing y deja todo asociado en el CRM (company opcional + contact + deal +
- * submission). Todo en una transacción porque toca varias tablas.
- *
- * Vinculación del lead — dos caminos:
- *  1. CON token de invitación (camino principal): el lead YA existe en el CRM.
- *     La submission se asocia a ESE contacto y reusa su deal si ya tiene uno.
- *  2. SIN token (fallback frío): se busca el contacto por email y, si no existe,
- *     se crea. El email es citext UNIQUE (portalId, email): reusarlo evita que
- *     completar el wizard dos veces rompa la transacción con un 500.
+ * Resuelve el deal activo del cliente autenticado, vía client_deal_access.
+ * Si el cliente tiene varios deals (poco común hoy), toma el más reciente no
+ * archivado — es el proyecto que está por arrancar.
  */
-export async function submitOnboarding(input: OnboardingSubmitDTO): Promise<OnboardingResult> {
-  // Resolución del portal y, si vino, del contacto del token de invitación.
-  // El token manda sobre el email: si es válido, sabemos exactamente a qué lead
-  // pertenece la submission, sin ambigüedad ni posibilidad de spoofing por email.
-  let tokenContactId: string | null = null
-  let portalId: string
-  if (input.token) {
-    const resolved = verifyOnboardingToken(input.token)
-    tokenContactId = resolved.contactId
-    portalId = resolved.portalId
-  } else {
-    // Single-tenant: hay un solo portal. (Multi-tenant: el slug vendría en la URL.)
-    const [p] = await db.select().from(portal).limit(1)
-    if (!p) throw Errors.internal('No hay portal configurado')
-    portalId = p.id
+async function resolveActiveDeal(clientId: string): Promise<ActiveDeal> {
+  const [row] = await db
+    .select({ id: deal.id, portalId: deal.portalId })
+    .from(clientDealAccess)
+    .innerJoin(deal, eq(deal.id, clientDealAccess.dealId))
+    .where(and(eq(clientDealAccess.clientId, clientId), eq(deal.archived, false)))
+    .orderBy(desc(deal.createdAt))
+    .limit(1)
+  if (!row) throw Errors.notFound('No hay un proyecto activo asociado a esta cuenta')
+  return row
+}
+
+/**
+ * Lazy-get-or-create de la fila de client_onboarding para un deal. Idempotente
+ * y a prueba de carreras (dos requests casi simultáneas del mismo cliente):
+ * el UNIQUE en deal_id + onConflictDoNothing + relectura evita el 500 por
+ * violación de constraint.
+ *
+ * Acepta `db` o un `tx` en curso (patrón `Tx` de lib/audit.ts) — así
+ * `completeOnboarding` puede reusarlo DENTRO de su propia transacción en vez
+ * de reimplementar el lazy-create inline.
+ */
+async function getOrCreateOnboarding(
+  dbOrTx: DB | Tx,
+  portalId: string,
+  dealId: string,
+  clientId: string,
+): Promise<ClientOnboardingRow> {
+  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq(clientOnboarding.dealId, dealId)).limit(1)
+  if (existing) return existing
+
+  const [created] = await dbOrTx
+    .insert(clientOnboarding)
+    .values({ portalId, dealId, clientId })
+    .onConflictDoNothing({ target: clientOnboarding.dealId })
+    .returning()
+  if (created) return created
+
+  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq(clientOnboarding.dealId, dealId)).limit(1)
+  if (!row) throw Errors.internal('No se pudo crear el onboarding')
+  return row
+}
+
+function assertNotCompleted(row: ClientOnboardingRow): void {
+  if (row.status === ONBOARDING_STATUS.COMPLETED) throw Errors.conflict('El onboarding ya está completo')
+}
+
+// ── Cliente: estado general (lazy-create) ────────────────────────────────────
+
+export interface OnboardingStateDTO {
+  onboarding: ClientOnboardingRow
+  assets: ClientAssetRow[]
+}
+
+export async function getOnboardingState(clientId: string): Promise<OnboardingStateDTO> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  // Las dos queries son independientes entre sí: assets depende solo de
+  // activeDeal.id, no de la fila onboarding — se resuelven en paralelo.
+  const [onboarding, assets] = await Promise.all([
+    getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId),
+    db
+      .select()
+      .from(clientAsset)
+      .where(and(eq(clientAsset.dealId, activeDeal.id), isNull(clientAsset.intakeId)))
+      .orderBy(desc(clientAsset.uploadedAt)),
+  ])
+  return { onboarding, assets }
+}
+
+// ── Cliente: Parte 1 — orientación (pasos 1-4) ───────────────────────────────
+
+export async function markStepProgress(clientId: string, step: number): Promise<ClientOnboardingRow> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
+  assertNotCompleted(row)
+
+  const stepsCompleted = { ...row.stepsCompleted, [String(step)]: new Date().toISOString() }
+  const [updated] = await db
+    .update(clientOnboarding)
+    .set({
+      stepsCompleted,
+      currentStep: Math.max(row.currentStep, Math.min(step + 1, 8)),
+      updatedAt: new Date(),
+    })
+    .where(eq(clientOnboarding.id, row.id))
+    .returning()
+  if (!updated) throw Errors.internal('No se pudo actualizar el progreso')
+  return updated
+}
+
+// ── Cliente: Paso 5 — Firma ───────────────────────────────────────────────────
+
+export async function submitSignature(clientId: string, fullName: string, ip: string): Promise<ClientOnboardingRow> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
+  assertNotCompleted(row)
+  if (row.signatureAcceptedAt) throw Errors.conflict('El onboarding ya fue firmado')
+
+  const stepsCompleted = { ...row.stepsCompleted, '5': new Date().toISOString() }
+  const [updated] = await db
+    .update(clientOnboarding)
+    .set({
+      signatureName: fullName,
+      signatureAcceptedAt: new Date(),
+      signatureIp: ip,
+      stepsCompleted,
+      currentStep: Math.max(row.currentStep, 6),
+      updatedAt: new Date(),
+    })
+    .where(eq(clientOnboarding.id, row.id))
+    .returning()
+  if (!updated) throw Errors.internal('No se pudo guardar la firma')
+  return updated
+}
+
+// ── Cliente: Paso 6 — Brief (16 preguntas) ────────────────────────────────────
+
+export async function submitBrief(clientId: string, answers: OnboardingBriefDTO): Promise<ClientOnboardingRow> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
+  assertNotCompleted(row)
+
+  const stepsCompleted = { ...row.stepsCompleted, '6': new Date().toISOString() }
+  const [updated] = await db
+    .update(clientOnboarding)
+    .set({
+      briefAnswers: answers,
+      stepsCompleted,
+      currentStep: Math.max(row.currentStep, 7),
+      updatedAt: new Date(),
+    })
+    .where(eq(clientOnboarding.id, row.id))
+    .returning()
+  if (!updated) throw Errors.internal('No se pudo guardar el brief')
+  return updated
+}
+
+// ── Cliente: Paso 7 — Materiales ──────────────────────────────────────────────
+
+/**
+ * Sube un archivo de material (multipart, ya guardado en disco por
+ * files.service.saveUpload) y crea el client_asset que lo vincula al deal
+ * activo del cliente. El id devuelto es el que el wizard manda en
+ * `materials.<categoria>.assetIds` al llamar a submitMaterials.
+ */
+export async function uploadMaterialAsset(
+  clientId: string,
+  category: OnboardingMaterialCategory,
+  saved: SavedFile,
+): Promise<ClientAssetRow> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  const [row] = await db
+    .insert(clientAsset)
+    .values({
+      portalId: activeDeal.portalId,
+      dealId: activeDeal.id,
+      clientId,
+      intakeId: null,
+      fieldName: category,
+      name: saved.name,
+      type: CATEGORY_TO_ASSET_TYPE[category],
+      mimeType: saved.mimeType,
+      storageKey: saved.storageKey,
+      sizeBytes: saved.sizeBytes,
+    })
+    .returning()
+  if (!row) throw Errors.internal('No se pudo guardar el archivo')
+  return row
+}
+
+export async function submitMaterials(
+  clientId: string,
+  materials: OnboardingMaterialsDTO['materials'],
+): Promise<ClientOnboardingRow> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
+  assertNotCompleted(row)
+
+  // Los assetIds referenciados deben pertenecer al deal del cliente (no dejar
+  // que el cliente vincule client_asset de otro deal por ID adivinado).
+  const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? [])
+  if (allAssetIds.length > 0) {
+    const owned = await db
+      .select({ id: clientAsset.id })
+      .from(clientAsset)
+      .where(and(eq(clientAsset.dealId, activeDeal.id), inArray(clientAsset.id, allAssetIds)))
+    const ownedSet = new Set(owned.map((o) => o.id))
+    const invalid = allAssetIds.filter((id) => !ownedSet.has(id))
+    if (invalid.length > 0) {
+      throw Errors.badRequest('Uno o más archivos no pertenecen a este proyecto', { invalid })
+    }
   }
 
-  const decision = decideRouting(input.budget, input.clarity)
-  // Nombre y apellido ya vienen separados y validados desde el wizard.
-  const firstName = input.firstName
-  const lastName = input.lastName
-  const fullName = `${firstName} ${lastName}`.trim()
-  // Enriquecimiento que guardamos en contact.custom (merge JSONB solo sobre
-  // `custom`, según la regla del CRM). No persistimos el token.
-  const enrich = {
-    mainGoal: input.mainGoal,
-    projectType: input.projectType,
-    channelPreference: input.preference,
-  }
+  const stepsCompleted = { ...row.stepsCompleted, '7': new Date().toISOString() }
+  const [updated] = await db
+    .update(clientOnboarding)
+    .set({
+      materials,
+      stepsCompleted,
+      currentStep: Math.max(row.currentStep, 8),
+      updatedAt: new Date(),
+    })
+    .where(eq(clientOnboarding.id, row.id))
+    .returning()
+  if (!updated) throw Errors.internal('No se pudo guardar los materiales')
+  return updated
+}
+
+// ── Cliente: Paso 8 — Confirmación (gate) ─────────────────────────────────────
+
+export interface CompleteOnboardingResultDTO {
+  onboarding: ClientOnboardingRow
+  ownerId: string | null
+  dealName: string
+  stageLabel: string
+}
+
+/**
+ * GATE del paso 8: exige firma (5) + brief (6) + checklist de materiales (7)
+ * ENVIADO — el checklist puede tener ítems en `done: false` (deliberado: el
+ * cliente puede no tener, p. ej., manual de marca todavía), lo que exige el
+ * gate es que el paso se haya enviado, no que esté "completo".
+ * En una transacción: marca el onboarding como completado y mueve el deal al
+ * pipeline "Producción" / etapa "Diagnóstico" (moveDealToProduction, NO
+ * changeStage — ese valida que el stage pertenezca al pipeline ACTUAL, que acá
+ * es justo lo que estamos cambiando). La notificación al responsable asignado
+ * va DESPUÉS de la transacción (mismo patrón que changeStage).
+ */
+export async function completeOnboarding(clientAccount: ClientTokenPayload): Promise<CompleteOnboardingResultDTO> {
+  const clientId = clientAccount.sub
+  const activeDeal = await resolveActiveDeal(clientId)
 
   const result = await db.transaction(async (tx) => {
-    // Empresa (opcional)
-    let companyId: string | null = null
-    if (input.company?.trim()) {
-      const [co] = await tx
-        .insert(company)
-        .values({
-          portalId,
-          name: input.company.trim(),
-          website: input.website?.trim() || null,
-          custom: { source: 'onboarding' },
-        })
-        .returning({ id: company.id })
-      companyId = co?.id ?? null
+    const row = await getOrCreateOnboarding(tx, activeDeal.portalId, activeDeal.id, clientId)
+    assertNotCompleted(row)
+
+    const missing: string[] = []
+    if (!row.stepsCompleted['5']) missing.push('firma')
+    if (!row.stepsCompleted['6']) missing.push('brief')
+    if (!row.stepsCompleted['7']) missing.push('materiales')
+    if (missing.length > 0) {
+      throw Errors.badRequest(`Faltan completar pasos previos: ${missing.join(', ')}`, { missing })
     }
 
-    // ── Contacto (lead) ──────────────────────────────────────────────────────
-    let contactId: string
-    if (tokenContactId) {
-      // Camino por token: el lead ya existe. Lo enriquecemos con lo recolectado
-      // (merge JSONB solo en `custom`) y le vinculamos la empresa si la informó.
-      contactId = tokenContactId
-      await tx
-        .update(contact)
-        .set({
-          ...(companyId ? { companyId } : {}),
-          custom: sql`COALESCE(${contact.custom}, '{}'::jsonb) || ${JSON.stringify(enrich)}::jsonb`,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(contact.id, contactId), eq(contact.portalId, portalId)))
-    } else {
-      // Fallback frío: buscar por email; reusar si existe, crear si no.
-      const [existing] = await tx
-        .select({ id: contact.id })
-        .from(contact)
-        .where(and(eq(contact.portalId, portalId), eq(contact.email, input.email)))
-        .limit(1)
-
-      if (existing) {
-        contactId = existing.id
-        if (companyId) {
-          await tx.update(contact).set({ companyId }).where(eq(contact.id, contactId))
-        }
-      } else {
-        const [newContact] = await tx
-          .insert(contact)
-          .values({
-            portalId,
-            companyId,
-            firstName,
-            lastName,
-            email: input.email,
-            lifecycleStage: 'lead',
-            custom: { source: 'onboarding', ...enrich },
-          })
-          .returning({ id: contact.id })
-        if (!newContact) throw Errors.internal('No se pudo crear el contacto')
-        contactId = newContact.id
-      }
+    const stepsCompleted = { ...row.stepsCompleted, '8': new Date().toISOString() }
+    // UPDATE condicional (WHERE ... status = 'in_progress'): idempotencia
+    // ante doble click / retry concurrente. Si dos requests llegan casi
+    // simultáneas, ambas pasan `assertNotCompleted` (todavía leen
+    // 'in_progress'), pero solo UNA gana este UPDATE — Postgres serializa el
+    // lock de fila y la segunda, al aplicarse, ya no matchea el WHERE porque
+    // la primera ya la dejó en 'completed'. Sin el WHERE, la segunda
+    // pisaría los mismos campos igual y seguiría de largo a
+    // moveDealToProduction, duplicando record_history/audit_log/notificación.
+    const [updatedOnboarding] = await tx
+      .update(clientOnboarding)
+      .set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: new Date(), stepsCompleted, currentStep: 8, updatedAt: new Date() })
+      .where(and(eq(clientOnboarding.id, row.id), eq(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS)))
+      .returning()
+    if (!updatedOnboarding) {
+      // Otra request ya lo completó entre nuestro SELECT y este UPDATE — no
+      // ejecutar moveDealToProduction de nuevo.
+      throw Errors.conflict('El onboarding ya está completo')
     }
 
-    // ── Deal ─────────────────────────────────────────────────────────────────
-    // Si el lead ya tiene un deal activo (lo creó su canal de origen, p.ej. el
-    // setter), lo reusamos para no duplicar. Si no, creamos uno en la primera
-    // etapa del primer pipeline del portal.
-    let dealId: string | null = null
-    const [existingDeal] = await tx
-      .select({ id: deal.id })
-      .from(deal)
-      .where(and(eq(deal.primaryContactId, contactId), eq(deal.archived, false)))
-      .orderBy(desc(deal.createdAt))
-      .limit(1)
+    const move = await moveDealToProduction(tx, activeDeal.portalId, activeDeal.id, { clientId })
 
-    if (existingDeal) {
-      dealId = existingDeal.id
-    } else {
-      const [pl] = await tx
-        .select({ id: pipeline.id })
-        .from(pipeline)
-        .where(eq(pipeline.portalId, portalId))
-        .orderBy(asc(pipeline.createdAt))
-        .limit(1)
-
-      if (pl) {
-        const [stage] = await tx
-          .select({ id: pipelineStage.id })
-          .from(pipelineStage)
-          .where(eq(pipelineStage.pipelineId, pl.id))
-          .orderBy(asc(pipelineStage.displayOrder))
-          .limit(1)
-
-        if (stage) {
-          const dealName = `${input.company?.trim() || fullName} — ${PROJECT_TYPE_LABEL[input.projectType] ?? 'Proyecto'}`
-          const [newDeal] = await tx
-            .insert(deal)
-            .values({
-              portalId,
-              name: dealName,
-              amount: BUDGET_AMOUNT[input.budget] ?? '0.00',
-              pipelineId: pl.id,
-              stageId: stage.id,
-              primaryContactId: contactId,
-            })
-            .returning({ id: deal.id })
-          dealId = newDeal?.id ?? null
-        }
-      }
-    }
-
-    // ── Submission ───────────────────────────────────────────────────────────
-    // Guardamos TODAS las respuestas + el routing + los IDs asociados. El token
-    // NO se persiste (es un JWT válido; lo sacamos del objeto answers).
-    const { token: _token, ...answers } = input
-    const [sub] = await tx
-      .insert(onboardingSubmission)
-      .values({
-        portalId,
-        fullName,
-        email: input.email,
-        company: input.company?.trim() || null,
-        answers: answers as unknown as Record<string, unknown>,
-        decision,
-        contactId,
-        dealId,
-      })
-      .returning({ id: onboardingSubmission.id })
-    if (!sub) throw Errors.internal('No se pudo guardar la submission')
-
-    return { decision, submissionId: sub.id, contactId }
+    return { onboarding: updatedOnboarding, ...move }
   })
 
-  // Aviso a TODOS los admins: un lead completó el onboarding (lo hizo el lead,
-  // no un admin, así que no se excluye a nadie).
-  await notifyAdmins(portalId, {
-    entityType: 'contact',
-    entityId: result.contactId,
+  const notifyPayload = {
+    entityType: 'deal',
+    entityId: activeDeal.id,
     type: 'onboarding_completed',
-    title: `📋 ${fullName} completó el onboarding`,
-    body: result.decision === 'call' ? 'Sugerido: agendar una llamada.' : 'Sugerido: enviar una propuesta.',
-    actionUrl: `/admin/leads/${result.contactId}`,
-  })
+    title: `Onboarding completado: "${result.dealName}" pasó a ${result.stageLabel}`,
+  } as const
 
-  return { decision: result.decision, submissionId: result.submissionId }
-}
-
-// ─── Invitación al onboarding (token) ────────────────────────────────────────
-
-export interface OnboardingResolvedContact {
-  firstName: string
-  lastName: string
-  email: string
-  company: string | null
-}
-
-/**
- * Resuelve un token de invitación y devuelve los datos del lead para PRE-CARGAR
- * el wizard (nombre/email/empresa). Endpoint público: solo expone lo justo para
- * autocompletar el formulario, nada sensible.
- */
-export async function resolveOnboardingInvite(token: string): Promise<OnboardingResolvedContact> {
-  const { contactId, portalId } = verifyOnboardingToken(token)
-  const [c] = await db
-    .select({
-      firstName: contact.firstName,
-      lastName: contact.lastName,
-      email: contact.email,
-      companyId: contact.companyId,
-    })
-    .from(contact)
-    .where(and(eq(contact.id, contactId), eq(contact.portalId, portalId)))
-    .limit(1)
-  if (!c) throw Errors.notFound('Contacto no encontrado')
-
-  let companyName: string | null = null
-  if (c.companyId) {
-    const [co] = await db
-      .select({ name: company.name })
-      .from(company)
-      .where(eq(company.id, c.companyId))
-      .limit(1)
-    companyName = co?.name ?? null
+  // Si no se resolvió un owner final (helper de assignees.ts sin email
+  // seedeado Y el deal tampoco tenía owner previo), createNotification con
+  // userId=null insertaría una fila que ninguna query de notificaciones
+  // matchea (se pierde en silencio) — broadcast a los admins en su lugar.
+  if (result.ownerId) {
+    await createNotification({ portalId: activeDeal.portalId, userId: result.ownerId, ...notifyPayload })
+  } else {
+    await notifyAdmins(activeDeal.portalId, notifyPayload)
   }
 
+  return result
+}
+
+// ── Admin: progreso de onboardings del portal ────────────────────────────────
+
+export interface AdminOnboardingListItemDTO {
+  dealId: string
+  dealName: string
+  clientEmail: string
+  status: string
+  currentStep: number
+  stepsCompleted: Record<string, string>
+  completedAt: string | null
+  updatedAt: string
+}
+
+function toAdminListItem(onboarding: ClientOnboardingRow, dealName: string, clientEmail: string): AdminOnboardingListItemDTO {
   return {
-    firstName: c.firstName ?? '',
-    lastName: c.lastName ?? '',
-    email: c.email ?? '',
-    company: companyName,
-  }
-}
-
-export interface OnboardingInviteResult {
-  token: string
-  url: string
-}
-
-/**
- * Genera el link tokenizado de onboarding para mandarle a un lead. Lo usa el
- * admin (y, a futuro, el setter como next-step tras calificar). Valida que el
- * contacto pertenezca al portal antes de firmar.
- */
-export async function createOnboardingInvite(
-  portalId: string,
-  contactId: string,
-): Promise<OnboardingInviteResult> {
-  const [c] = await db
-    .select({ id: contact.id })
-    .from(contact)
-    .where(and(eq(contact.id, contactId), eq(contact.portalId, portalId)))
-    .limit(1)
-  if (!c) throw Errors.notFound('Contacto no encontrado')
-
-  const token = signOnboardingToken({ contactId, portalId })
-  // El onboarding vive en el apex del admin (ADMIN_URL). En dev, localhost:3000.
-  const base = env.ADMIN_URL ?? 'http://localhost:3000'
-  const url = `${base}/onboarding?t=${encodeURIComponent(token)}`
-  return { token, url }
-}
-
-// ─── Admin: listado para review ─────────────────────────────────────────────
-
-export interface SubmissionListItem {
-  id: string
-  fullName: string
-  email: string
-  company: string | null
-  decision: string
-  answers: Record<string, unknown>
-  contactId: string | null
-  dealId: string | null
-  dealName: string | null
-  createdAt: string
-}
-
-function toListItem(row: SubmissionRow, dealName: string | null): SubmissionListItem {
-  return {
-    id: row.id,
-    fullName: row.fullName,
-    email: row.email,
-    company: row.company,
-    decision: row.decision,
-    answers: row.answers ?? {},
-    contactId: row.contactId,
-    dealId: row.dealId,
+    dealId: onboarding.dealId,
     dealName,
-    createdAt: row.createdAt.toISOString(),
+    clientEmail,
+    status: onboarding.status,
+    currentStep: onboarding.currentStep,
+    stepsCompleted: onboarding.stepsCompleted,
+    completedAt: onboarding.completedAt?.toISOString() ?? null,
+    updatedAt: onboarding.updatedAt.toISOString(),
   }
 }
 
-export async function listSubmissions(portalId: string): Promise<SubmissionListItem[]> {
+/** Listado para la vista admin de progreso: in_progress primero, luego por updatedAt desc. */
+export async function listOnboardings(portalId: string): Promise<AdminOnboardingListItemDTO[]> {
   const rows = await db
-    .select({ sub: onboardingSubmission, dealName: deal.name })
-    .from(onboardingSubmission)
-    .leftJoin(deal, eq(deal.id, onboardingSubmission.dealId))
-    .where(eq(onboardingSubmission.portalId, portalId))
-    .orderBy(desc(onboardingSubmission.createdAt))
-    .limit(500)
+    .select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email })
+    .from(clientOnboarding)
+    .innerJoin(deal, and(eq(deal.id, clientOnboarding.dealId), eq(deal.archived, false)))
+    .innerJoin(clientAccount, eq(clientAccount.id, clientOnboarding.clientId))
+    .where(eq(clientOnboarding.portalId, portalId))
+    .orderBy(sql`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc(clientOnboarding.updatedAt))
 
-  return rows.map(({ sub, dealName }) => toListItem(sub, dealName))
+  return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail))
 }
 
-export async function getSubmission(portalId: string, id: string): Promise<SubmissionListItem> {
-  const [row] = await db
-    .select({ sub: onboardingSubmission, dealName: deal.name })
-    .from(onboardingSubmission)
-    .leftJoin(deal, eq(deal.id, onboardingSubmission.dealId))
-    .where(and(eq(onboardingSubmission.id, id), eq(onboardingSubmission.portalId, portalId)))
-    .limit(1)
+export interface AdminOnboardingDetailDTO {
+  onboarding: ClientOnboardingRow
+  assets: ClientAssetRow[]
+  dealName: string
+  clientEmail: string
+}
 
-  if (!row) throw Errors.notFound('Submission no encontrada')
-  return toListItem(row.sub, row.dealName)
+export async function getOnboardingByDeal(portalId: string, dealId: string): Promise<AdminOnboardingDetailDTO> {
+  // Las dos queries son independientes (la de assets solo depende del dealId
+  // recibido, no de la fila onboarding) — se resuelven en paralelo.
+  const [[row], assets] = await Promise.all([
+    db
+      .select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email })
+      .from(clientOnboarding)
+      .innerJoin(deal, eq(deal.id, clientOnboarding.dealId))
+      .innerJoin(clientAccount, eq(clientAccount.id, clientOnboarding.clientId))
+      .where(and(eq(clientOnboarding.portalId, portalId), eq(clientOnboarding.dealId, dealId)))
+      .limit(1),
+    db
+      .select()
+      .from(clientAsset)
+      .where(and(eq(clientAsset.dealId, dealId), isNull(clientAsset.intakeId)))
+      .orderBy(desc(clientAsset.uploadedAt)),
+  ])
+  if (!row) throw Errors.notFound('Onboarding no encontrado para este deal')
+
+  return { onboarding: row.onboarding, assets, dealName: row.dealName, clientEmail: row.clientEmail }
 }

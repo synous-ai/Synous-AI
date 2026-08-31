@@ -1,9 +1,11 @@
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { db, closeDb } from './index'
 import { portal, hubUser, pipeline, pipelineStage, contact, deal, clientAccount, clientDealAccess, deliverable } from './schema'
 
 /**
- * Seed idempotente: portal + usuario owner + pipeline de Ventas con etapas.
+ * Seed idempotente: portal + usuario owner + pipeline de Ventas con etapas +
+ * pipeline de Producción (post-venta, onboarding v2) con sus 9 fases +
+ * usuarios responsables de Producción (Lauri, Jeremías).
  * Correr con:  pnpm --filter api db:seed
  */
 async function seed(): Promise<void> {
@@ -38,8 +40,14 @@ async function seed(): Promise<void> {
   }
 
   // 3. Pipeline de Ventas + etapas
-  const [existingPipeline] = await db.select().from(pipeline).where(eq(pipeline.portalId, portalId)).limit(1)
-  if (!existingPipeline) {
+  // OJO: se busca por label (no "existe algún pipeline") para no romper la
+  // idempotencia cuando se agregan más pipelines al portal (p.ej. Producción).
+  const [existingSalesPipeline] = await db
+    .select()
+    .from(pipeline)
+    .where(and(eq(pipeline.portalId, portalId), eq(pipeline.label, 'Ventas')))
+    .limit(1)
+  if (!existingSalesPipeline) {
     const [pl] = await db.insert(pipeline).values({ portalId, label: 'Ventas' }).returning()
     const stages = [
       { label: 'Nuevo Lead', probability: '0.1000' },
@@ -60,14 +68,77 @@ async function seed(): Promise<void> {
     )
     console.log(`✓ pipeline "Ventas" creado con ${stages.length} etapas`)
   } else {
-    console.log('· pipeline ya existe')
+    console.log('· pipeline "Ventas" ya existe')
+  }
+
+  // 3b. Pipeline de Producción + 9 etapas (post-venta, onboarding v2)
+  // Ninguna etapa es isWon=true a propósito: activateClientPortal ya se disparó
+  // al ganar el deal en Ventas — no queremos volver a dispararlo acá.
+  const [existingProductionPipeline] = await db
+    .select()
+    .from(pipeline)
+    .where(and(eq(pipeline.portalId, portalId), eq(pipeline.label, 'Producción')))
+    .limit(1)
+  if (!existingProductionPipeline) {
+    const [pl] = await db.insert(pipeline).values({ portalId, label: 'Producción' }).returning()
+    const stages = [
+      'Diagnóstico',
+      'Blueprint',
+      'Primera Versión (MVP)',
+      'Ajustes',
+      'Construcción',
+      'Verificación',
+      'Lanzamiento',
+      'Estabilización',
+      'Evolución',
+    ]
+    await db.insert(pipelineStage).values(
+      stages.map((label, i) => ({
+        pipelineId: pl!.id,
+        label,
+        displayOrder: i,
+        probability: null,
+        isClosed: false,
+        isWon: false,
+      })),
+    )
+    console.log(`✓ pipeline "Producción" creado con ${stages.length} etapas`)
+  } else {
+    console.log('· pipeline "Producción" ya existe')
+  }
+
+  // 3c. Usuarios responsables de las fases de Producción (idempotentes por email)
+  const productionUsers = [
+    { email: 'laureanosierra.dev@gmail.com', firstName: 'Lauri', role: 'member', clerkUserId: 'clerk_seed_lauri' },
+    { email: 'jeremiasingla@gmail.com', firstName: 'Jeremías', role: 'owner', clerkUserId: 'clerk_seed_jeremias' },
+  ] as const
+  for (const u of productionUsers) {
+    const [existing] = await db.select().from(hubUser).where(eq(hubUser.email, u.email)).limit(1)
+    if (!existing) {
+      await db.insert(hubUser).values({
+        portalId,
+        email: u.email,
+        firstName: u.firstName,
+        role: u.role,
+        clerkUserId: u.clerkUserId,
+      })
+      console.log(`✓ hub_user creado: ${u.email} (auth: Clerk)`)
+    } else {
+      console.log(`· hub_user ya existe: ${u.email}`)
+    }
   }
 
   // 4. Cliente demo (para probar el Client Portal): contacto + deal + cuenta + acceso + entregable
   const clientEmail = 'cliente@demo.com'
   const [existingClient] = await db.select().from(clientAccount).where(eq(clientAccount.email, clientEmail)).limit(1)
   if (!existingClient) {
-    const [pl] = await db.select().from(pipeline).where(eq(pipeline.portalId, portalId)).limit(1)
+    // Explícito por label 'Ventas' — con 2 pipelines seedeados (Ventas +
+    // Producción) el filtro por portalId solo ya no es determinístico.
+    const [pl] = await db
+      .select()
+      .from(pipeline)
+      .where(and(eq(pipeline.portalId, portalId), eq(pipeline.label, 'Ventas')))
+      .limit(1)
     const [firstStage] = await db
       .select()
       .from(pipelineStage)

@@ -21,7 +21,8 @@ export async function recordFieldChanges(input: {
   entityId: string
   before: Record<string, unknown>
   after: Record<string, unknown>
-  changedBy: string
+  /** `changed_by` referencia hub_user.id — null cuando el cambio lo origina un cliente (no hay hub_user actor). */
+  changedBy: string | null
   sourceType?: string
 }): Promise<void> {
   const rows = []
@@ -47,11 +48,16 @@ export async function recordFieldChanges(input: {
   }
 }
 
-/** Inserta una entrada en `audit_log`. */
+/**
+ * Inserta una entrada en `audit_log`. `userId` (hub_user) y `clientId`
+ * (client_account) son mutuamente independientes — una acción originada por el
+ * cliente (p.ej. completar el onboarding) pasa `clientId` y omite `userId`.
+ */
 export async function writeAudit(input: {
   tx: Tx
   portalId: string
-  userId: string
+  userId?: string | null
+  clientId?: string | null
   entityType: string
   entityId: string
   action: string
@@ -59,7 +65,8 @@ export async function writeAudit(input: {
 }): Promise<void> {
   await input.tx.insert(auditLog).values({
     portalId: input.portalId,
-    userId: input.userId,
+    userId: input.userId ?? null,
+    clientId: input.clientId ?? null,
     entityType: input.entityType,
     entityId: input.entityId,
     action: input.action,

@@ -57,7 +57,8 @@ import { setterWhatsappWebhookRoutes } from './modules/setter/webhooks/whatsapp.
 import { prospectingRoutes } from './modules/prospecting/prospecting.router'
 import { proposalAdminRoutes, proposalPublicRoutes } from './modules/proposals/proposals.router'
 import { brandingAdminRoutes, brandingPublicRoutes, brandingClientRoutes } from './modules/branding/branding.router'
-import { onboardingAdminRoutes, onboardingPublicRoutes } from './modules/onboarding/onboarding.router'
+import { onboardingAdminRoutes } from './modules/onboarding/onboarding.router'
+import { clientOnboardingRoutes } from './modules/onboarding/client-onboarding.router'
 import { calendarPublicRoutes } from './modules/calendar/calendar.public.router'
 import { calendarAdminRoutes } from './modules/calendar/calendar.admin.router'
 
@@ -69,6 +70,11 @@ export function buildApp(): FastifyInstance {
         : env.NODE_ENV === 'test'
           ? false
           : true,
+    // Detrás de un proxy (Vercel): sin esto, request.ip devuelve la IP del
+    // proxy para TODOS los requests, no la del cliente real. Crítico para
+    // onboarding.submitSignature, que persiste request.ip como parte del
+    // rastro legal de la firma.
+    trustProxy: true,
   })
 
   // Integración Zod ↔ Fastify (validación + serialización tipadas)
@@ -226,9 +232,9 @@ export function buildApp(): FastifyInstance {
   app.register(brandingClientRoutes, { prefix: '/api/client/branding' })
   app.register(brandingPublicRoutes, { prefix: '/api/public/branding' })
 
-  // --- Onboarding: admin y público (token de invitación) ---
+  // --- Onboarding post-venta: admin (progreso) y cliente (wizard de 8 pasos) ---
   app.register(onboardingAdminRoutes, { prefix: '/api/onboarding' })
-  app.register(onboardingPublicRoutes, { prefix: '/api/public/onboarding' })
+  app.register(clientOnboardingRoutes, { prefix: '/api/client/onboarding' })
 
   // --- Calendario público (booking sin autenticación) ---
   app.register(calendarPublicRoutes, { prefix: '/api/public/calendar' })

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../db'
 import { portal, hubUser, pipeline, pipelineStage } from '../db/schema'
 
@@ -61,6 +61,55 @@ export async function ensurePipeline(portalId: string): Promise<PipelineContext>
       .returning()
   }
   return { pipelineId: pl!.id, firstStageId: stages[0]!.id, wonStageId: stages.at(-1)!.id }
+}
+
+export interface ProductionPipelineContext {
+  pipelineId: string
+  diagnosticoStageId: string
+  blueprintStageId: string
+}
+
+/**
+ * Crea (o reutiliza) el pipeline "Producción" con las etapas "Diagnóstico" y
+ * "Blueprint" — lo mínimo necesario para los tests del onboarding post-venta
+ * (completeOnboarding mueve a Diagnóstico; el reassignment de changeStage se
+ * prueba moviendo a Blueprint).
+ */
+export async function ensureProductionPipeline(portalId: string): Promise<ProductionPipelineContext> {
+  let [pl] = await db
+    .select()
+    .from(pipeline)
+    .where(and(eq(pipeline.portalId, portalId), eq(pipeline.label, 'Producción')))
+    .limit(1)
+  if (!pl) [pl] = await db.insert(pipeline).values({ portalId, label: 'Producción' }).returning()
+
+  let [diag] = await db
+    .select()
+    .from(pipelineStage)
+    .where(and(eq(pipelineStage.pipelineId, pl!.id), eq(pipelineStage.label, 'Diagnóstico')))
+    .limit(1)
+  if (!diag) [diag] = await db.insert(pipelineStage).values({ pipelineId: pl!.id, label: 'Diagnóstico', displayOrder: 0 }).returning()
+
+  let [blueprint] = await db
+    .select()
+    .from(pipelineStage)
+    .where(and(eq(pipelineStage.pipelineId, pl!.id), eq(pipelineStage.label, 'Blueprint')))
+    .limit(1)
+  if (!blueprint) [blueprint] = await db.insert(pipelineStage).values({ pipelineId: pl!.id, label: 'Blueprint', displayOrder: 1 }).returning()
+
+  return { pipelineId: pl!.id, diagnosticoStageId: diag!.id, blueprintStageId: blueprint!.id }
+}
+
+/** Crea (o reutiliza) un hub_user responsable de una fase de Producción, por email. Idempotente. */
+export async function ensureHubUser(portalId: string, email: string, firstName: string): Promise<string> {
+  let [u] = await db.select().from(hubUser).where(eq(hubUser.email, email)).limit(1)
+  if (!u) {
+    ;[u] = await db
+      .insert(hubUser)
+      .values({ portalId, email, firstName, role: 'member', clerkUserId: `clerk_test_${email.toLowerCase().replace(/[^a-z0-9]/g, '_')}` })
+      .returning()
+  }
+  return u!.id
 }
 
 /**

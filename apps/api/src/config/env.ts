@@ -53,6 +53,13 @@ const envSchema = z.object({
   EVOLUTION_API_KEY: z.string().default(''),
   EVOLUTION_INSTANCE: z.string().default(''),
   EVOLUTION_WEBHOOK_SECRET: z.string().default(''),
+
+  // ── Onboarding post-venta: asignación automática de responsable por fase del
+  // pipeline "Producción" (ver modules/onboarding/assignees.ts). Opcionales con
+  // default — si el hub_user no existe (email no seedeado), el helper devuelve
+  // null y no rompe: se mantiene el owner actual del deal.
+  PRODUCTION_ASSIGNEE_DIAGNOSTICO_EMAIL: z.string().email().default('laureanosierra.dev@gmail.com'),
+  PRODUCTION_ASSIGNEE_DEFAULT_EMAIL: z.string().email().default('jeremiasingla@gmail.com'),
 })
 
 const parsed = envSchema.safeParse(process.env)

@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../../db'
-import { deal, pipelineStage, contact, clientAccount, clientDealAccess } from '../../db/schema'
+import { deal, pipeline, pipelineStage, contact, clientAccount, clientDealAccess } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
 import { createNotification } from '../notifications/notifications.service'
 import { ensureClerkUserType } from '../../lib/clerk-provisioning'
+import {
+  PRODUCTION_PIPELINE_LABEL,
+  PRODUCTION_DIAGNOSTICO_STAGE_LABEL,
+  resolveProductionAssignee,
+} from '../onboarding/assignees'
 
 const ENTITY = 'deal'
 type DealRow = typeof deal.$inferSelect
@@ -66,6 +71,32 @@ export async function activateClientPortal(tx: Tx, portalId: string, dealId: str
 }
 
 /**
+ * Resuelve si corresponde reasignar el owner de un deal en el pipeline
+ * "Producción" al entrar a `stageLabel`: consulta resolveProductionAssignee y
+ * compara contra el owner actual. Devuelve el nuevo ownerId SOLO si hay una
+ * reasignación real (el helper resolvió a alguien Y es distinto al actual);
+ * si no, devuelve `null` — el caller no debe pisar el ownerId.
+ *
+ * No escribe en DB: cada caller aplica el update a su manera (`changeStage`
+ * hace un UPDATE dedicado tras el cambio de stage; `moveDealToProduction` lo
+ * combina en el UPDATE único que también cambia pipelineId/stageId).
+ *
+ * Recibe `tx` explícito (no `db` global) — ambos callers corren dentro de una
+ * transacción; resolver el assignee con una conexión aparte del pool mientras
+ * la tx retiene la suya arriesga agotar el pool (serverless/pools chicos).
+ */
+async function reassignProductionOwner(
+  tx: Tx,
+  portalId: string,
+  stageLabel: string,
+  currentOwnerId: string | null,
+): Promise<string | null> {
+  const newOwnerId = await resolveProductionAssignee(tx, portalId, stageLabel)
+  if (!newOwnerId || newOwnerId === currentOwnerId) return null
+  return newOwnerId
+}
+
+/**
  * Cambia el deal de etapa. Centraliza la lógica (NO actualizar stage_id suelto):
  * 1) update del deal  2) record_history  3) audit_log  4) notification
  * 5) si la etapa es is_won → (Fase 3) activar client portal.
@@ -77,12 +108,14 @@ export async function changeStage(
   newStageId: string,
 ): Promise<DealRow> {
   const result = await db.transaction(async (tx) => {
-    const [d] = await tx
-      .select()
+    const [row] = await tx
+      .select({ deal, pipelineLabel: pipeline.label })
       .from(deal)
+      .innerJoin(pipeline, eq(pipeline.id, deal.pipelineId))
       .where(and(eq(deal.portalId, portalId), eq(deal.id, dealId), eq(deal.archived, false)))
       .limit(1)
-    if (!d) throw Errors.notFound('Deal no encontrado')
+    if (!row) throw Errors.notFound('Deal no encontrado')
+    const { deal: d, pipelineLabel } = row
 
     const stage = await assertStageInPipeline(tx, d.pipelineId, newStageId)
     if (d.stageId === newStageId) {
@@ -114,9 +147,40 @@ export async function changeStage(
       action: 'STAGE_CHANGE',
       payload: { from: d.stageId, to: newStageId },
     })
+
+    // Reasignación automática por fase: si el deal está en el pipeline
+    // "Producción", el responsable se resuelve por la fase (Diagnóstico → Lauri;
+    // cualquier otra fase → Jeremías, vía el helper de assignees.ts). No pisa el
+    // owner si el helper no resuelve a nadie (email no seedeado).
+    let finalDeal = updated
+    if (pipelineLabel === PRODUCTION_PIPELINE_LABEL) {
+      const newOwnerId = await reassignProductionOwner(tx, portalId, stage.label, updated.ownerId)
+      if (newOwnerId) {
+        const [reassigned] = await tx
+          .update(deal)
+          .set({ ownerId: newOwnerId, updatedAt: new Date() })
+          .where(eq(deal.id, dealId))
+          .returning()
+        if (reassigned) {
+          finalDeal = reassigned
+          await recordFieldChanges({
+            tx,
+            portalId,
+            entityType: ENTITY,
+            entityId: dealId,
+            before: { ownerId: updated.ownerId },
+            after: { ownerId: newOwnerId },
+            changedBy: userId,
+          })
+        }
+      }
+    }
+
     // Si la etapa es ganada, activar el portal del cliente automáticamente.
     if (stage.isWon) await activateClientPortal(tx, portalId, dealId)
-    return { deal: updated, notify: { ownerId: d.ownerId, dealName: d.name, stageLabel: stage.label } }
+    // Notificar al owner FINAL (el reasignado si lo hubo; si no, sigue siendo
+    // el mismo que ya tenía el deal — nunca al viejo owner pre-reasignación).
+    return { deal: finalDeal, notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label } }
   })
 
   // Notificación fuera de la transacción (insert + emit por WebSocket).
@@ -131,4 +195,98 @@ export async function changeStage(
     })
   }
   return result.deal
+}
+
+export interface MoveDealToProductionResultDTO {
+  ownerId: string | null
+  dealName: string
+  stageLabel: string
+}
+
+/**
+ * Mueve un deal al pipeline "Producción", etapa "Diagnóstico" — el disparador
+ * es completar el onboarding post-venta (client-onboarding). A diferencia de
+ * `changeStage`, ESTE cambia de pipeline (no valida que el stage pertenezca al
+ * pipeline actual del deal — justo lo contrario). Actualiza pipelineId +
+ * stageId + ownerId (si se resolvió un responsable) en la MISMA transacción
+ * que le pasa el caller, con su record_history + audit_log, siguiendo el mismo
+ * patrón que changeStage.
+ *
+ * `actor` es `{ userId }` o `{ clientId }` — el completar el onboarding lo
+ * origina el CLIENTE, no un hub_user, así que `changed_by`/`audit_log.userId`
+ * quedan en null y se deja constancia en `audit_log.clientId`.
+ */
+export async function moveDealToProduction(
+  tx: Tx,
+  portalId: string,
+  dealId: string,
+  actor: { userId?: string | null; clientId?: string | null },
+): Promise<MoveDealToProductionResultDTO> {
+  const [pl] = await tx
+    .select()
+    .from(pipeline)
+    .where(and(eq(pipeline.portalId, portalId), eq(pipeline.label, PRODUCTION_PIPELINE_LABEL)))
+    .limit(1)
+  if (!pl) throw Errors.internal('Pipeline "Producción" no seedeado en este portal')
+
+  const [stage] = await tx
+    .select()
+    .from(pipelineStage)
+    .where(and(eq(pipelineStage.pipelineId, pl.id), eq(pipelineStage.label, PRODUCTION_DIAGNOSTICO_STAGE_LABEL)))
+    .limit(1)
+  if (!stage) throw Errors.internal('Stage "Diagnóstico" no seedeado en el pipeline Producción')
+
+  const [d] = await tx
+    .select()
+    .from(deal)
+    .where(and(eq(deal.portalId, portalId), eq(deal.id, dealId), eq(deal.archived, false)))
+    .limit(1)
+  if (!d) throw Errors.notFound('Deal no encontrado')
+
+  const resolvedOwnerId = await reassignProductionOwner(tx, portalId, stage.label, d.ownerId)
+  const finalOwnerId = resolvedOwnerId ?? d.ownerId
+
+  const [updated] = await tx
+    .update(deal)
+    .set({
+      pipelineId: pl.id,
+      stageId: stage.id,
+      ...(resolvedOwnerId ? { ownerId: resolvedOwnerId } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(deal.id, dealId))
+    .returning()
+  if (!updated) throw Errors.internal('No se pudo mover el deal a Producción')
+
+  await recordFieldChanges({
+    tx,
+    portalId,
+    entityType: ENTITY,
+    entityId: dealId,
+    before: { pipelineId: d.pipelineId, stageId: d.stageId, ownerId: d.ownerId },
+    after: { pipelineId: pl.id, stageId: stage.id, ownerId: finalOwnerId },
+    changedBy: actor.userId ?? null,
+  })
+  await writeAudit({
+    tx,
+    portalId,
+    userId: actor.userId ?? null,
+    clientId: actor.clientId ?? null,
+    entityType: ENTITY,
+    entityId: dealId,
+    action: 'STAGE_CHANGE',
+    payload: { from: d.stageId, to: stage.id, pipelineFrom: d.pipelineId, pipelineTo: pl.id },
+  })
+  await writeAudit({
+    tx,
+    portalId,
+    userId: actor.userId ?? null,
+    clientId: actor.clientId ?? null,
+    entityType: ENTITY,
+    entityId: dealId,
+    action: 'ONBOARDING_COMPLETED',
+    payload: { dealId },
+  })
+
+  return { ownerId: finalOwnerId, dealName: d.name, stageLabel: stage.label }
 }

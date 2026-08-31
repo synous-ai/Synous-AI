@@ -1,0 +1,1 @@
+CREATE INDEX "idx_client_onboarding_portal_status" ON "client_onboarding" USING btree ("portal_id","status");

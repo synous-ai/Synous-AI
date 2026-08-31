@@ -7,7 +7,7 @@
  *  - Consultar slots disponibles
  *  - Crear un booking
  *
- * Patrón de registro: igual a onboardingPublicRoutes / proposalPublicRoutes.
+ * Patrón de registro: igual a proposalPublicRoutes.
  * El JSON parser de Fastify (ya registrado globalmente) maneja el body —
  * NO se necesita rawBody (eso es solo para webhooks con firma HMAC).
  *

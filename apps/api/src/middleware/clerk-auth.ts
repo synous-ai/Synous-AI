@@ -102,6 +102,12 @@ export async function resolveClientAccount(clerkUserId: string): Promise<ClientT
     .limit(1)
 
   if (!account) {
+    // Diagnóstico de sesiones "huérfanas": token de Clerk válido pero sin
+    // client_account vinculado (típico: admin en /portal/*, o cuenta demo
+    // re-vinculada a otro clerk_user_id). El front reacciona cerrando la sesión.
+    console.warn(
+      `[auth-client] Sesión de Clerk válida sin client_account vinculado (clerk_user_id=${clerkUserId}) → 401`,
+    )
     throw Errors.unauthorized('Cliente no encontrado o inactivo.')
   }
 
