@@ -46,11 +46,7 @@ import { ContactDialog } from '@/components/contacts/contact-dialog'
 import { STAGE_LABELS, STAGE_DOT_CLASS } from '@/lib/status'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
 import { PillTabs } from '@/components/ui/pill-tabs'
-import {
-  ContactOnboardingTab,
-  ContactProposalsTab,
-  formatCustomField,
-} from '@/components/contact-detail/contact-extras'
+import { ContactProposalsTab, formatCustomField } from '@/components/contact-detail/contact-extras'
 import { sourceLabel } from '@/lib/labels'
 import { DetailViewSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
@@ -59,7 +55,7 @@ import { StickyNote, ListTodo, History } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type DetailTab = 'activity' | 'notes' | 'tasks' | 'deals' | 'onboarding' | 'proposals' | 'history'
+type DetailTab = 'activity' | 'notes' | 'tasks' | 'deals' | 'proposals' | 'history'
 type InfoTab = 'basic' | 'details'
 
 const SCOPE_LABELS: Record<'leads' | 'clients' | 'contacts', string> = {
@@ -215,7 +211,6 @@ export function ContactDetailView({
     { key: 'notes', label: 'Notas', count: data?.notes.length },
     { key: 'tasks', label: 'Tareas', count: data?.tasks.length },
     { key: 'deals', label: 'Deals', count: data?.deals.length },
-    { key: 'onboarding', label: 'Onboarding' },
     { key: 'proposals', label: 'Propuestas' },
     { key: 'history', label: 'Historial', count: data?.history.length },
   ]
@@ -223,14 +218,14 @@ export function ContactDetailView({
   // ── Loading state ──────────────────────────────────────────────────────────
   // Usa DetailViewSkeleton para imitar fielmente los 2 paneles del layout real
   // (aside avatar+título+acciones+campos / panel derecho con tabs+contenido).
-  // 7 tabs = activity / notas / tareas / deals / onboarding / propuestas / historial.
+  // 6 tabs = activity / notas / tareas / deals / propuestas / historial.
   if (isLoading) {
     return (
       <div className="p-6">
         <DetailViewSkeleton
           label="Cargando detalle…"
           fields={6}
-          tabs={7}
+          tabs={6}
           actions={3}
         />
       </div>
@@ -669,11 +664,6 @@ export function ContactDetailView({
                     ))
                   )}
                 </div>
-              )}
-
-              {/* ── Onboarding tab ────────────────────────────────── */}
-              {detailTab === 'onboarding' && (
-                <ContactOnboardingTab contactId={id} dealId={data?.deals[0]?.id} />
               )}
 
               {/* ── Propuestas tab ────────────────────────────────── */}

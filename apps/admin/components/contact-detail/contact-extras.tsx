@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Sparkles, Loader2, ExternalLink, Copy, ArrowRight } from 'lucide-react'
 import { toast } from 'sonner'
-import { useOnboardingSubmissions, useProposals, useGenerateProposal } from '@/lib/hooks'
+import { useProposals, useGenerateProposal } from '@/lib/hooks'
 import type { Proposal } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -53,10 +53,6 @@ const PREFERENCE: Record<string, string> = {
   llamada: 'Llamada',
 }
 
-function str(v: unknown): string {
-  return typeof v === 'string' ? v : ''
-}
-
 // ─── Formateo de campos `custom` del contacto ────────────────────────────────
 // El onboarding/prospección guardan claves como `mainGoal: operacion` en
 // contact.custom. Para mostrarlas lindas (label humano + valor capitalizado) en
@@ -97,26 +93,6 @@ export function formatCustomField(key: string, value: unknown): { label: string;
   return { label, value: display }
 }
 
-/** Arma la lista de respuestas "cortas" (label → valor) salteando las vacías. */
-function buildFacts(a: Record<string, unknown>): { label: string; value: string }[] {
-  const out: { label: string; value: string }[] = []
-  const push = (label: string, value: string) => {
-    if (value) out.push({ label, value })
-  }
-  push('Tipo de proyecto', PROJECT_TYPE[str(a.projectType)] ?? str(a.projectType))
-  push('Objetivo principal', GOAL[str(a.mainGoal)] ?? str(a.mainGoal))
-  push('Presupuesto', BUDGET[str(a.budget)] ?? str(a.budget))
-  push('Claridad', CLARITY[str(a.clarity)] ?? str(a.clarity))
-  push('Prioridad', PRIORITY[str(a.priority)] ?? str(a.priority))
-  push('Preferencia', PREFERENCE[str(a.preference)] ?? str(a.preference))
-  push('Cuándo empezar', str(a.startWhen))
-  push('Fecha límite', str(a.deadline))
-  push('Empresa', str(a.company))
-  push('Sitio web', str(a.website))
-  push('CRM / herramientas', str(a.currentCrm))
-  return out
-}
-
 /** Botón para generar una propuesta con IA desde un deal del contacto. */
 function GenerateButton({ dealId }: { dealId: string }) {
   const router = useRouter()
@@ -138,81 +114,6 @@ function GenerateButton({ dealId }: { dealId: string }) {
       {generate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
       Generar propuesta
     </Button>
-  )
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  if (!value) return null
-  return (
-    <div>
-      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="text-sm">{value}</dd>
-    </div>
-  )
-}
-
-// ─── Tab: Onboarding del contacto ────────────────────────────────────────────
-
-export function ContactOnboardingTab({ contactId, dealId }: { contactId: string; dealId?: string }) {
-  const { data } = useOnboardingSubmissions()
-  const { data: allProposals } = useProposals()
-  const subs = (data ?? []).filter((s) => s.contactId === contactId)
-  // Propuesta(s) ya generada(s) para este contacto (la más reciente primero).
-  const proposals = (allProposals ?? []).filter((p) => p.contactId === contactId)
-
-  if (!subs.length) {
-    return <p className="text-sm text-muted-foreground">Este contacto todavía no completó el onboarding.</p>
-  }
-
-  return (
-    <div className="space-y-4">
-      {subs.map((s) => {
-        const a = s.answers
-        const facts = buildFacts(a)
-        return (
-          <div key={s.id} className="space-y-4 rounded-xl border p-4">
-            {/* Cabecera: routing + acción de generar */}
-            <div className="flex items-center justify-between gap-2">
-              <StatusBadge kind={s.decision === 'call' ? 'warning' : 'info'}>
-                {s.decision === 'call' ? 'Sugerido: Llamada' : 'Sugerido: Propuesta directa'}
-              </StatusBadge>
-              {dealId && proposals.length === 0 && <GenerateButton dealId={dealId} />}
-            </div>
-
-            {/* TODAS las respuestas cortas */}
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-              {facts.map((f) => (
-                <Fact key={f.label} label={f.label} value={f.value} />
-              ))}
-            </dl>
-
-            {/* Respuestas largas */}
-            <LongAnswer label="Cómo lo resuelve hoy" value={str(a.currentSolution)} />
-            <LongAnswer label="Qué quiere automatizar" value={str(a.toAutomate)} />
-          </div>
-        )
-      })}
-
-      {/* Propuesta generada (si existe) — se ve acá mismo, en el onboarding */}
-      {proposals.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Propuesta generada</p>
-          {proposals.map((p) => (
-            <ProposalRow key={p.id} p={p} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function LongAnswer({ label, value }: { label: string; value: string }) {
-  if (!value) return null
-  return (
-    <div>
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="whitespace-pre-line text-sm text-foreground/90">{value}</p>
-    </div>
   )
 }
 

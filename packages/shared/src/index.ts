@@ -40,6 +40,15 @@ export function fullName(first?: string | null, last?: string | null, fallback?:
   return name || fallback || '—'
 }
 
+/** Tamaño de archivo legible (B/KB/MB). `0` bytes se muestra como '0 B' (no ''). */
+export function formatSize(bytes: number | null): string {
+  if (bytes === null) return ''
+  if (bytes === 0) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------

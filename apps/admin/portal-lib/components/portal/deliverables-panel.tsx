@@ -199,7 +199,7 @@ export function DeliverablesPanel() {
     <div className="space-y-6">
       {actionable.length > 0 && (
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          <h3 className="eyebrow mb-3">
             Para revisar
           </h3>
           <div className="space-y-3">
@@ -211,7 +211,7 @@ export function DeliverablesPanel() {
       )}
       {approved.length > 0 && (
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          <h3 className="eyebrow mb-3">
             Aprobados
           </h3>
           <div className="space-y-3">

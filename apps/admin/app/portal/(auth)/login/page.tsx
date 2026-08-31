@@ -21,10 +21,12 @@
  *    o ausencia de tenant
  */
 
-import { SignIn } from '@clerk/nextjs'
+import { SignIn, useAuth } from '@clerk/nextjs'
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { API_URL } from '@nous/shared'
+import { apiGet } from '@portal/lib/api'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -144,6 +146,35 @@ export default function PortalLoginPage() {
   const [branding, setBranding] = useState<PublicBranding | null>(null)
   // Indica si ya terminamos el intento de fetch (para no mostrar flash al hacer fallback)
   const [brandingResolved, setBrandingResolved] = useState(false)
+  const { isLoaded, isSignedIn } = useAuth()
+  const router = useRouter()
+
+  // Con sesión de Clerk activa el <SignIn> no se monta (queda un panel vacío).
+  // Pero NO redirigimos a ciegas a /portal: si la sesión no corresponde a un
+  // client_account vinculado (p. ej. admin, o cuenta re-vinculada), el backend
+  // devuelve 401 y se generaba un loop de recarga login → portal → 401 → login.
+  // Verificamos la sesión contra /api/client-auth/me: si es de cliente → /portal;
+  // si no, el onAuthFailure del api-client cierra la sesión huérfana y el form
+  // se monta solo cuando isSignedIn pasa a false.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return
+    let cancelled = false
+    console.debug('[portal-auth] Sesión de Clerk activa en /portal/login — verificando si es de cliente…')
+    apiGet<{ id: string }>('/api/client-auth/me')
+      .then(() => {
+        if (cancelled) return
+        console.debug('[portal-auth] Sesión de cliente válida → redirigiendo a /portal')
+        router.replace('/portal')
+      })
+      .catch((err: unknown) => {
+        // 401 → onAuthFailure ya cerró la sesión de Clerk (sin redirigir porque
+        // estamos en /portal/login); el <SignIn> se monta al flip de isSignedIn.
+        console.warn('[portal-auth] La sesión activa no es de un cliente vinculado — se cerró para mostrar el login', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isLoaded, isSignedIn, router])
 
   useEffect(() => {
     const slug = readSlugCookie()

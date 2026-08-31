@@ -119,3 +119,89 @@
   --sidebar-border: 155 18% 17%;
   --sidebar-ring: 95 50% 50%;
 }
+
+/*
+ * ─── Editorial oscuro (onboarding wizard + shell del Client Portal) ──────────
+ *
+ * Scope aparte de `.portal-theme` / `.dark .portal-theme` (el fintech verde de
+ * arriba, que sigue siendo el look del LOGIN — no tocar). `.portal-editorial`
+ * se aplica en un wrapper DENTRO de `(app)/layout.tsx`, así que sus variables
+ * pisan a las de `.portal-theme` solo para el shell autenticado del portal y
+ * el wizard — nunca para /portal/login ni /portal/accept-invitation.
+ *
+ * Es dark-only a propósito (no depende de .dark ni del toggle de tema): la
+ * referencia de diseño (K100) es un negro casi puro con textura de puntos,
+ * cards gris carbón y acentos blanco-sobre-negro, sin variante clara.
+ */
+.portal-editorial {
+  --background: 0 0% 5%;
+  --foreground: 0 0% 96%;
+
+  --card: 0 0% 9%;
+  --card-foreground: 0 0% 96%;
+
+  --popover: 0 0% 10%;
+  --popover-foreground: 0 0% 96%;
+
+  --primary: 0 0% 100%;
+  --primary-foreground: 0 0% 7%;
+
+  --secondary: 0 0% 14%;
+  --secondary-foreground: 0 0% 93%;
+
+  --muted: 0 0% 13%;
+  --muted-foreground: 0 0% 60%;
+
+  --accent: 0 0% 17%;
+  --accent-foreground: 0 0% 96%;
+
+  /* Acento cálido — único color de la paleta, reservado para "requiere tu atención". */
+  --signal: 42 88% 61%;
+  --signal-foreground: 32 55% 12%;
+
+  --destructive: 0 72% 58%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 0 0% 19%;
+  --input: 0 0% 19%;
+  --ring: 0 0% 46%;
+
+  --chart-1: 0 0% 96%;
+  --chart-2: 42 88% 61%;
+  --chart-3: 0 0% 70%;
+  --chart-4: 0 0% 45%;
+  --chart-5: 0 0% 28%;
+
+  background-color: hsl(var(--background));
+  background-image: radial-gradient(hsl(0 0% 100% / 6%) 1px, transparent 0);
+  background-size: 24px 24px;
+  color: hsl(var(--foreground));
+  min-height: 100vh;
+}
+
+/* Serif display — solo para títulos grandes (StepHeader, section headers del portal). */
+.portal-editorial .font-editorial {
+  font-family: var(--font-editorial-serif), Georgia, 'Times New Roman', serif;
+}
+
+/* Eyebrows más anchos que el `.eyebrow` genérico de globals.css — look editorial. */
+.portal-editorial .eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Sheen sutil arriba de una card — luz radial, tipo vidrio esmerilado. */
+.portal-editorial .editorial-sheen {
+  position: relative;
+  isolation: isolate;
+}
+.portal-editorial .editorial-sheen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(120% 60% at 50% -20%, hsl(0 0% 100% / 8%), transparent 60%);
+  pointer-events: none;
+}

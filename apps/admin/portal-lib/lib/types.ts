@@ -103,3 +103,138 @@ export interface Deliverable {
   feedback: string | null
   createdAt: string
 }
+
+// ─── Onboarding POST-VENTA (wizard de 8 pasos, Client Portal) ─────────────────
+// Ver apps/api/src/modules/onboarding/{onboarding.schema,client-onboarding.router}.ts
+// — contrato verificado contra el código real del backend.
+
+export type OnboardingStatus = 'in_progress' | 'completed'
+
+/** Las 8 claves posibles de `stepsCompleted`, como string (así viaja el JSON). */
+export type OnboardingStepKey = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8'
+
+export type OnboardingDeliveryChannel =
+  | 'whatsapp'
+  | 'notion'
+  | 'drive'
+  | 'skool'
+  | 'circle'
+  | 'hotmart'
+  | 'kajabi'
+  | 'otro'
+
+export const ONBOARDING_DELIVERY_CHANNELS: { value: OnboardingDeliveryChannel; label: string }[] = [
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'notion', label: 'Notion' },
+  { value: 'drive', label: 'Drive' },
+  { value: 'skool', label: 'Skool' },
+  { value: 'circle', label: 'Circle' },
+  { value: 'hotmart', label: 'Hotmart' },
+  { value: 'kajabi', label: 'Kajabi' },
+  { value: 'otro', label: 'Otro' },
+]
+
+/** Las 16 respuestas del brief (paso 6). Ver OnboardingBriefSchema en el backend. */
+export interface OnboardingBriefAnswers {
+  businessProgram: string
+  activeClients: string
+  deliveryChannels: OnboardingDeliveryChannel[]
+  deliveryChannelsOther?: string
+  worstChannel: string
+  weeklyTimeDrain: string
+  sixMonthConcern: string
+  idealDayToDay: string
+  desiredStudentFeeling: string
+  referenceApps: string
+  teamRoles: string
+  brandIdentity: string
+  requiredIntegrations: string
+  existingClientBase: string
+  howFoundUs: string
+  decisionTrigger: string
+  doubtsBeforeBuying: string
+}
+
+export type OnboardingMaterialCategory = 'logoBrand' | 'programContent' | 'clientBase' | 'toolAccess'
+
+export interface OnboardingMaterialItem {
+  done: boolean
+  assetIds?: string[]
+  note?: string
+}
+
+/**
+ * `client_onboarding.materials` en DB es `jsonb` con default `{}` — antes del
+ * paso 7 puede llegar como objeto vacío, por eso las 4 claves son opcionales acá
+ * (no confiar en que siempre estén las 4 presentes).
+ */
+export type OnboardingMaterialsState = Partial<Record<OnboardingMaterialCategory, OnboardingMaterialItem>>
+
+/** Archivo subido en el paso de materiales (fila de `client_asset`). */
+export interface OnboardingAsset {
+  id: string
+  dealId: string
+  fieldName: string | null
+  name: string
+  type: string
+  mimeType: string | null
+  storageKey: string
+  sizeBytes: number | null
+  uploadedAt: string
+}
+
+/** Fila de `client_onboarding` tal como la devuelve la API (fechas ya como ISO string). */
+export interface ClientOnboarding {
+  id: string
+  portalId: string
+  dealId: string
+  clientId: string
+  status: OnboardingStatus
+  currentStep: number
+  stepsCompleted: Partial<Record<OnboardingStepKey, string>>
+  signatureName: string | null
+  signatureAcceptedAt: string | null
+  signatureIp: string | null
+  briefAnswers: OnboardingBriefAnswers | null
+  materials: OnboardingMaterialsState
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OnboardingStateDTO {
+  onboarding: ClientOnboarding
+  assets: OnboardingAsset[]
+}
+
+export interface CompleteOnboardingResultDTO {
+  onboarding: ClientOnboarding
+  ownerId: string | null
+  dealName: string
+  stageLabel: string
+}
+
+// ── Admin (vistas de progreso/detalle en apps/admin/app/admin/(dashboard)/onboarding) ──
+// Viven acá (no en apps/admin/lib/types/onboarding.ts) para que TODOS los
+// tipos de onboarding tengan una única fuente de verdad — ese archivo
+// re-exporta desde acá.
+
+/** GET /api/onboarding — item de listado. */
+export interface AdminOnboardingListItemDTO {
+  dealId: string
+  dealName: string
+  clientEmail: string
+  status: OnboardingStatus
+  currentStep: number
+  stepsCompleted: Partial<Record<OnboardingStepKey, string>>
+  completedAt: string | null
+  updatedAt: string
+}
+
+/** GET /api/onboarding/deals/:id — detalle completo de un deal. */
+export interface AdminOnboardingDetailDTO {
+  onboarding: ClientOnboarding
+  assets: OnboardingAsset[]
+  dealName: string
+  clientEmail: string
+}

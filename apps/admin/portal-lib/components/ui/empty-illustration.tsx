@@ -11,7 +11,17 @@ const SQUIRCLE_96 =
 /**
  * Ilustración de empty-state estilo Resend: glow difuminado + tile squircle 3D
  * embossed + ícono lucide muted, con float sutil. Decorativa (aria-hidden).
- * Reqs: keyframes `float`/`glow-breathe` en globals.css. Theme-aware.
+ * Reqs: keyframes `float`/`glow-breathe` en globals.css.
+ *
+ * RESTYLE editorial oscuro: este componente SOLO se usa dentro de
+ * `.portal-editorial` (los 5 paneles del Client Portal — ver grep de
+ * `EmptyIllustration` limitado a `portal-lib/components/portal/*`), que es
+ * dark-only por diseño. Antes tenía las dos variantes vía `dark:` de
+ * Tailwind, pero ese proyecto usa `darkMode: 'media'` (prefers-color-scheme
+ * del SO), NO la clase `.dark` de next-themes — con el toggle del portal
+ * quitado, esa ilustración podía quedar clara sobre el fondo negro si el SO
+ * del cliente no estaba en modo oscuro. Se hardcodea directo a la variante
+ * oscura (antes bajo `dark:`) en vez de depender de `prefers-color-scheme`.
  */
 export function EmptyIllustration({
   icon: Icon,
@@ -41,16 +51,14 @@ export function EmptyIllustration({
         <div
           className={cn(
             'flex items-center justify-center',
-            'bg-gradient-to-b from-white to-neutral-100',
-            'dark:from-neutral-700 dark:to-neutral-900',
-            'border border-black/[0.06] dark:border-white/[0.06]',
-            'shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_10px_24px_-8px_rgba(0,0,0,0.25)]',
-            'dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_24px_-8px_rgba(0,0,0,0.5)]',
+            'bg-gradient-to-b from-neutral-700 to-neutral-900',
+            'border border-white/[0.06]',
+            'shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_24px_-8px_rgba(0,0,0,0.5)]',
           )}
           style={{ width: 96, height: 96, clipPath: SQUIRCLE_96 }}
         >
           <Icon
-            className="h-9 w-9 text-neutral-500 dark:text-neutral-300"
+            className="h-9 w-9 text-neutral-300"
             style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.15))' }}
             strokeWidth={1.75}
           />

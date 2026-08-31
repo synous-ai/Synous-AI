@@ -175,7 +175,7 @@ export function FormsPanel() {
     <div className="space-y-6">
       {pending.length > 0 && (
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          <h3 className="eyebrow mb-3">
             Pendientes
           </h3>
           <div className="space-y-3">
@@ -187,7 +187,7 @@ export function FormsPanel() {
       )}
       {completed.length > 0 && (
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          <h3 className="eyebrow mb-3">
             Completados
           </h3>
           <div className="space-y-3">

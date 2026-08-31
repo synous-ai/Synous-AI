@@ -4,4 +4,4 @@
 // NOTE: initials() signature changed from initials(name) to initials(first, last).
 // The function was not called anywhere in client-portal beyond its definition,
 // so there are no call sites to update.
-export { cn, formatCurrency, initials, formatDate, fullName } from '@nous/shared'
+export { cn, formatCurrency, initials, formatDate, fullName, formatSize } from '@nous/shared'

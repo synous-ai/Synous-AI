@@ -204,7 +204,7 @@ export function RequestsPanel() {
     <div className="space-y-6">
       {pending.length > 0 && (
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          <h3 className="eyebrow mb-3">
             Requieren tu decisión
           </h3>
           <div className="space-y-3">
@@ -216,7 +216,7 @@ export function RequestsPanel() {
       )}
       {resolved.length > 0 && (
         <section>
-          <h3 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          <h3 className="eyebrow mb-3">
             Resueltas
           </h3>
           <div className="space-y-3">
