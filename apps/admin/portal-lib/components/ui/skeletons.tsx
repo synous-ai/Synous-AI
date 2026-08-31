@@ -92,6 +92,41 @@ export function FormSkeleton({
 }
 
 /**
+ * ProjectStatusSkeleton — sección "Tu proyecto" del Home del portal:
+ * eyebrow + nombre, card de fase actual, roadmap acordeón (varias filas) y
+ * un renglón de novedad. Coherente con el resto de estados de carga del
+ * portal (barras animate-pulse dentro de SkeletonGroup).
+ */
+export function ProjectStatusSkeleton({
+  label = 'Cargando tu proyecto…',
+  className,
+}: {
+  label?: string
+  className?: string
+}) {
+  return (
+    <SkeletonGroup label={label} className={cn('space-y-4', className)}>
+      <Skeleton className="h-3 w-24" />
+      <Skeleton className="h-7 w-56" />
+      <div className="rounded-2xl border border-border bg-card p-5 space-y-2">
+        <Skeleton className="h-3 w-32" />
+        <Skeleton className="h-4 w-full" />
+      </div>
+      <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-4 px-5 py-4">
+            <Skeleton className="h-6 w-6" />
+            <Skeleton className="h-4 flex-1" />
+          </div>
+        ))}
+      </div>
+      <Skeleton className="h-3 w-20" />
+      <Skeleton className="h-16 w-full rounded-xl" />
+    </SkeletonGroup>
+  )
+}
+
+/**
  * HomePanelSkeleton — grid 2 columnas de SummaryCards.
  * Cada SummaryCard: icon+título+badge arriba, descripción + botón abajo.
  */

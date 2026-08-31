@@ -7,6 +7,7 @@ import type {
   ChangeRequest,
   ClientInvoice,
   ClientDocument,
+  ClientProject,
   OnboardingStateDTO,
   ClientOnboarding,
   OnboardingBriefAnswers,
@@ -22,6 +23,15 @@ export function useClientDeals() {
   return useQuery<Deal[]>({
     queryKey: ['client', 'deals'],
     queryFn: () => apiGet<Deal[]>('/api/client/deals'),
+  })
+}
+
+// ─── Estado de proyecto (roadmap + novedades, Home del portal) ────────────────
+
+export function useClientProject() {
+  return useQuery<ClientProject>({
+    queryKey: ['client', 'project'],
+    queryFn: () => apiGet<ClientProject>('/api/client/project'),
   })
 }
 

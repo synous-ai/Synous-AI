@@ -27,10 +27,20 @@ export default function ProjectsPage(): React.JSX.Element {
   const pipelines = pipelinesQ.data ?? []
   const companies = companiesQ.data ?? []
 
-  // Un "proyecto" = deal en una etapa ganada (is_won).
+  // Un "proyecto" = deal en el pipeline "Producción" (las 9 fases post-venta,
+  // todas con isWon=false) O deal en cualquier etapa ganada (is_won) de otro
+  // pipeline — cubre el momento en que un deal se gana pero todavía no pasó a
+  // Producción. Antes el criterio era SOLO isWon, así que ningún deal ya en
+  // Producción aparecía acá (bug: las 9 fases de Producción son isWon=false).
   const wonStageIds = useMemo(() => {
     const ids = new Set<string>()
     for (const p of pipelines) for (const s of p.stages) if (s.isWon) ids.add(s.id)
+    return ids
+  }, [pipelines])
+
+  const productionPipelineIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const p of pipelines) if (p.label === 'Producción') ids.add(p.id)
     return ids
   }, [pipelines])
 
@@ -41,7 +51,9 @@ export default function ProjectsPage(): React.JSX.Element {
     return m
   }, [pipelines])
 
-  const projects = (dealsQ.data ?? []).filter((d) => wonStageIds.has(d.stageId))
+  const projects = (dealsQ.data ?? []).filter(
+    (d) => wonStageIds.has(d.stageId) || productionPipelineIds.has(d.pipelineId),
+  )
 
   return (
     <div className="p-6">

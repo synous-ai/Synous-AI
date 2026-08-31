@@ -43,6 +43,9 @@ import {
   useCreateDocument,
   useDeleteDocument,
   useUsers,
+  useDealUpdates,
+  useCreateDealUpdate,
+  useArchiveDealUpdate,
 } from '@/lib/hooks'
 import { uploadFile } from '@/lib/hooks/misc'
 import { API_URL } from '@/lib/config'
@@ -67,7 +70,7 @@ import { PillTabs } from '@/components/ui/pill-tabs'
 import { DetailViewSkeleton, ListSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
-import { StickyNote, ListTodo, Users, PackageCheck, GitPullRequest, History, FolderOpen, Download } from 'lucide-react'
+import { StickyNote, ListTodo, Users, PackageCheck, GitPullRequest, History, FolderOpen, Download, Megaphone, Archive } from 'lucide-react'
 
 type DetailTab =
   | 'activity'
@@ -75,6 +78,7 @@ type DetailTab =
   | 'notes'
   | 'tasks'
   | 'deliverables'
+  | 'updates'
   | 'intakes'
   | 'change-requests'
   | 'history'
@@ -135,6 +139,9 @@ export default function DealDetailPage(): React.JSX.Element {
   const documentsQ = useDealDocuments(id)
   const createDocument = useCreateDocument()
   const deleteDocument = useDeleteDocument()
+  const updatesQ = useDealUpdates(id)
+  const createDealUpdate = useCreateDealUpdate()
+  const archiveDealUpdate = useArchiveDealUpdate()
 
   const [detailTab, setDetailTab] = useState<DetailTab>('activity')
   const [editOpen, setEditOpen] = useState(false)
@@ -154,6 +161,7 @@ export default function DealDetailPage(): React.JSX.Element {
   const [docFile, setDocFile] = useState<File | null>(null)
   const [docUploading, setDocUploading] = useState(false)
   const [crItems, setCrItems] = useState<{ description: string; unitPrice: string; quantity: string }[]>([])
+  const [updateBody, setUpdateBody] = useState('')
 
   const pipelines = pipelinesQ.data ?? []
   const companies = companiesQ.data ?? []
@@ -270,6 +278,12 @@ export default function DealDetailPage(): React.JSX.Element {
     setCrOpen(false)
   }
 
+  async function addDealUpdate(): Promise<void> {
+    if (!updateBody.trim()) return
+    await createDealUpdate.mutateAsync({ dealId: id, body: updateBody.trim() })
+    setUpdateBody('')
+  }
+
   async function uploadDocument(): Promise<void> {
     if (!docName.trim() || !docFile) return
     setDocUploading(true)
@@ -289,6 +303,7 @@ export default function DealDetailPage(): React.JSX.Element {
     { key: 'notes', label: 'Notas', count: data?.notes.length },
     { key: 'tasks', label: 'Tareas', count: data?.tasks.length },
     { key: 'deliverables', label: 'Entregables', count: deliverablesQ.data?.length },
+    { key: 'updates', label: 'Novedades', count: updatesQ.data?.length },
     { key: 'intakes', label: 'Formularios', count: dealIntakesQ.data?.length },
     { key: 'change-requests', label: 'CRs', count: crsQ.data?.length },
     { key: 'history', label: 'Historial', count: data?.history.length },
@@ -296,15 +311,15 @@ export default function DealDetailPage(): React.JSX.Element {
   ]
 
   // ── Loading state ──────────────────────────────────────────────────────────
-  // 9 tabs: actividad / contactos / notas / tareas / entregables /
-  //         formularios / CRs / historial / docs.
+  // 10 tabs: actividad / contactos / notas / tareas / entregables / novedades /
+  //          formularios / CRs / historial / docs.
   if (isLoading) {
     return (
       <div className="p-6">
         <DetailViewSkeleton
           label="Cargando deal…"
           fields={4}
-          tabs={9}
+          tabs={10}
           actions={2}
         />
       </div>
@@ -804,6 +819,86 @@ export default function DealDetailPage(): React.JSX.Element {
                         </div>
                       )}
                     </>
+                  )}
+                </div>
+              )}
+
+              {/* ── Novedades para el cliente ─────────────────────────────── */}
+              {detailTab === 'updates' && (
+                <div className="space-y-4">
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Megaphone className="h-3.5 w-3.5 shrink-0" />
+                    Esto lo ve el cliente en su portal.
+                  </p>
+                  <div className="flex gap-2">
+                    <textarea
+                      value={updateBody}
+                      onChange={(e) => setUpdateBody(e.target.value)}
+                      placeholder="Escribí una novedad para el cliente…"
+                      rows={3}
+                      maxLength={2000}
+                      className="flex-1 rounded-xl border border-border bg-muted/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => void addDealUpdate()}
+                      disabled={!updateBody.trim() || createDealUpdate.isPending}
+                      className="mt-auto"
+                    >
+                      Publicar
+                    </Button>
+                  </div>
+                  {updatesQ.isLoading ? (
+                    <ListSkeleton rows={3} rowClassName="h-16 rounded-xl" label="Cargando novedades…" />
+                  ) : (updatesQ.data ?? []).length === 0 ? (
+                    <Empty className="border-dashed py-8">
+                      <EmptyHeader>
+                        <EmptyIllustration icon={Megaphone} />
+                        <EmptyTitle>Sin Novedades</EmptyTitle>
+                      </EmptyHeader>
+                    </Empty>
+                  ) : (
+                    <div className="space-y-2">
+                      {updatesQ.data!.map((u) => (
+                        <div
+                          key={u.id}
+                          className={cn(
+                            'group rounded-xl border bg-background/60 px-3 py-2.5',
+                            u.archived && 'opacity-50',
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="whitespace-pre-wrap text-sm">{u.body}</p>
+                            {!u.archived && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => archiveDealUpdate.mutate({ id: u.id, dealId: id })}
+                                title="Archivar"
+                                className="h-8 w-8 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                              >
+                                <Archive className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span>{u.createdBy.firstName ?? u.createdBy.email}</span>
+                            <span>·</span>
+                            <span className="font-mono">{new Date(u.createdAt).toLocaleString('es')}</span>
+                            {u.phaseLabel && (
+                              <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-accent-foreground">
+                                {u.phaseLabel}
+                              </span>
+                            )}
+                            {u.archived && (
+                              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                                Archivada
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}

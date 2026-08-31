@@ -57,6 +57,23 @@ export interface Deliverable {
   createdAt: string
 }
 
+/**
+ * Novedad de proyecto ("estado de proyecto visible al cliente") curada por el
+ * equipo. Ver apps/api/src/modules/deals/project-updates.service.ts
+ * (`AdminProjectUpdateDTO`) — `GET /api/deals/:id/updates`, admin-only, trae
+ * TODAS las novedades (incluidas las archivadas, con `archived`/`archivedAt`).
+ * El cliente en su portal solo ve las no archivadas vía `GET /api/client/project`.
+ */
+export interface ProjectUpdate {
+  id: string
+  body: string
+  archived: boolean
+  archivedAt: string | null
+  createdAt: string
+  phaseLabel: string | null
+  createdBy: { id: string; firstName: string | null; email: string }
+}
+
 export interface ChangeRequest {
   id: string
   dealId: string

@@ -12,6 +12,7 @@ import type {
   CRDetail,
   Document,
   DocumentType,
+  ProjectUpdate,
 } from '../types'
 
 // ─── Documents ────────────────────────────────────────────────────────────────
@@ -139,6 +140,39 @@ export function useDeleteDeliverable() {
   return useMutation({
     mutationFn: (id: string) => apiDelete<{ success: boolean }>(`/api/deliverables/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['deliverables'] }),
+  })
+}
+
+// ─── Novedades de proyecto ("estado de proyecto visible al cliente") ──────────
+// Ver apps/api/src/modules/deals/{project-updates.schema,project-updates.service}.ts
+// (montado en deals.router.ts, prefix /api/deals). El listado admin incluye
+// TODAS las novedades (con `archived`); el cliente solo ve las no archivadas.
+
+export function useDealUpdates(dealId: string | null) {
+  return useQuery({
+    queryKey: ['deals', 'updates', dealId],
+    queryFn: () => apiGet<ProjectUpdate[]>(`/api/deals/${dealId}/updates`),
+    enabled: dealId != null,
+  })
+}
+
+export function useCreateDealUpdate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ dealId, body, stageId }: { dealId: string; body: string; stageId?: string }) =>
+      apiPost<ProjectUpdate>(`/api/deals/${dealId}/updates`, { body, stageId }),
+    onSuccess: (_data, { dealId }) => qc.invalidateQueries({ queryKey: ['deals', 'updates', dealId] }),
+  })
+}
+
+export function useArchiveDealUpdate() {
+  const qc = useQueryClient()
+  return useMutation({
+    // `dealId` no viaja en la URL (el endpoint de archive solo toma el id de la
+    // novedad) — lo recibimos igual para poder invalidar la queryKey correcta.
+    mutationFn: ({ id }: { id: string; dealId: string }) =>
+      apiPatch<{ success: boolean }>(`/api/deals/updates/${id}/archive`),
+    onSuccess: (_data, { dealId }) => qc.invalidateQueries({ queryKey: ['deals', 'updates', dealId] }),
   })
 }
 

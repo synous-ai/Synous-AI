@@ -88,6 +88,36 @@ export interface ClientDocument {
   createdAt: string
 }
 
+// ─── Estado de proyecto (roadmap + novedades) ─────────────────────────────────
+// Ver GET /api/client/project — apps/api/src/modules/client/client.service.ts
+// (`ClientProjectDTO`). `currentPhase`/`phases` solo vienen resueltos si
+// `inProduction` es true; `updates` siempre viene (aunque el deal esté en
+// Ventas, sin fase asociada todavía).
+
+export interface ClientProjectPhase {
+  id: string
+  label: string
+  description: string | null
+  displayOrder: number
+  isCurrent: boolean
+  isDone: boolean
+}
+
+export interface ClientProjectUpdate {
+  id: string
+  body: string
+  phaseLabel: string | null
+  createdAt: string
+}
+
+export interface ClientProject {
+  deal: { id: string; name: string }
+  inProduction: boolean
+  currentPhase: { id: string; label: string; description: string | null } | null
+  phases: ClientProjectPhase[] | null
+  updates: ClientProjectUpdate[]
+}
+
 // Entregable con estado y acciones
 export type DeliverableStatus = 'pending_review' | 'approved' | 'changes_requested'
 
