@@ -2344,6 +2344,145 @@ async function ensureClerkUserType(args) {
   }
 }
 
+// src/lib/mailer.ts
+import { Resend } from "resend";
+var resendClient = null;
+function getResend() {
+  if (!env.RESEND_API_KEY) return null;
+  if (!resendClient) {
+    resendClient = new Resend(env.RESEND_API_KEY);
+  }
+  return resendClient;
+}
+async function sendEmail(params) {
+  const client4 = getResend();
+  if (!client4) {
+    console.info("[mailer] RESEND_API_KEY no configurada \u2014 email omitido", {
+      to: params.to,
+      subject: params.subject
+    });
+    return;
+  }
+  const from = params.from ?? env.FROM_EMAIL ?? "noreply@onboarding.resend.dev";
+  const { error } = await client4.emails.send({
+    from,
+    to: Array.isArray(params.to) ? params.to : [params.to],
+    subject: params.subject,
+    html: params.html
+  });
+  if (error) {
+    console.error("[mailer] Error al enviar email via Resend", {
+      to: params.to,
+      subject: params.subject,
+      error
+    });
+  }
+}
+
+// src/lib/portal-url.ts
+var DEV_FALLBACK = "http://localhost:3000";
+var warnedMissingBase = false;
+function baseUrl() {
+  if (!env.ADMIN_URL) {
+    if (env.RESEND_API_KEY && !warnedMissingBase) {
+      warnedMissingBase = true;
+      console.error(
+        `[portal-url] ADMIN_URL no est\xE1 configurada pero RESEND_API_KEY s\xED: los emails al cliente van a salir con links a ${DEV_FALLBACK}, que no es accesible para ellos.`
+      );
+    }
+    return DEV_FALLBACK;
+  }
+  return env.ADMIN_URL.replace(/\/+$/, "");
+}
+function portalPrefix(brandSlug) {
+  return brandSlug ? `/c/${encodeURIComponent(brandSlug)}` : "/portal";
+}
+function portalLoginUrl(brandSlug) {
+  return `${baseUrl()}${portalPrefix(brandSlug)}/login`;
+}
+function portalHomeUrl(brandSlug) {
+  return `${baseUrl()}${portalPrefix(brandSlug)}`;
+}
+
+// src/lib/emails/esc.ts
+function escHtml(s) {
+  if (!s) return "";
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function escAttr(s) {
+  if (!s) return "#";
+  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function escParagraphs(s, style = "") {
+  const attr = style ? ` style="${style}"` : "";
+  return s.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean).map((block) => `<p${attr}>${escHtml(block).replace(/\n/g, "<br />")}</p>`).join("\n");
+}
+
+// src/modules/deals/emails/portal-welcome.ts
+function portalWelcomeSubject(dealName) {
+  return `Tu panel de proyecto ya est\xE1 listo \u2014 ${dealName}`;
+}
+function portalWelcomeHtml(p) {
+  const saludo = p.firstName ? `Hola ${escHtml(p.firstName)},` : "Hola,";
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tu panel de proyecto</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f5f5f4;">
+  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #1c1917; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
+
+    <div style="background: #0c0a09; border-radius: 16px; padding: 32px 28px; margin-bottom: 24px;">
+      <p style="margin: 0 0 8px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #a8a29e;">Tu proyecto arranc\xF3</p>
+      <h1 style="margin: 0; font-size: 26px; line-height: 1.25; font-weight: 600; color: #fafaf9;">${escHtml(p.dealName)}</h1>
+    </div>
+
+    <p style="font-size: 15px; line-height: 1.6;">${saludo}</p>
+
+    <p style="font-size: 15px; line-height: 1.6;">
+      Ya ten\xE9s acceso a tu panel de cliente. Ah\xED vas a poder seguir en qu\xE9 fase est\xE1 el
+      proyecto, ver las novedades que publica el equipo, revisar y aprobar entregables,
+      completar los formularios que te pidamos y consultar tus documentos y facturas.
+    </p>
+
+    <p style="font-size: 15px; line-height: 1.6;">
+      El primer paso es el <strong>onboarding</strong>: unas pantallas cortas para que
+      sepas c\xF3mo trabajamos y para que nos pases la informaci\xF3n del negocio con la que
+      arrancamos. Te va a aparecer apenas entres.
+    </p>
+
+    <p style="margin: 28px 0;">
+      <a href="${escAttr(p.loginUrl)}"
+         style="display: inline-block; padding: 14px 28px; background: #0c0a09; color: #fafaf9; border-radius: 999px; text-decoration: none; font-size: 15px; font-weight: 600;">
+        Entrar a mi panel
+      </a>
+    </p>
+
+    <div style="background: #ffffff; border: 1px solid #e7e5e4; border-radius: 12px; padding: 16px 18px; margin: 24px 0;">
+      <p style="margin: 0 0 6px; font-size: 13px; color: #57534e;">Entr\xE1s con este email:</p>
+      <p style="margin: 0; font-size: 15px; font-weight: 600;">${escHtml(p.email)}</p>
+      <p style="margin: 10px 0 0; font-size: 13px; color: #57534e; line-height: 1.5;">
+        No necesit\xE1s contrase\xF1a. Te vamos a mandar un c\xF3digo de acceso a esta misma
+        direcci\xF3n cada vez que entres.
+      </p>
+    </div>
+
+    <p style="font-size: 15px; line-height: 1.6;">
+      Si algo no funciona o ten\xE9s una duda, respond\xE9 este email y te contestamos.
+    </p>
+
+    <hr style="margin: 32px 0 16px; border: none; border-top: 1px solid #e7e5e4;" />
+    <p style="font-size: 12px; color: #78716c; line-height: 1.5;">
+      Si no esperabas este email, pod\xE9s ignorarlo: sin acceso a esta casilla no se puede
+      entrar al panel.
+    </p>
+  </div>
+</body>
+</html>`;
+}
+
 // src/modules/onboarding/assignees.ts
 import { and as and7, eq as eq8 } from "drizzle-orm";
 var PRODUCTION_PIPELINE_LABEL = "Producci\xF3n";
@@ -2364,13 +2503,14 @@ async function assertStageInPipeline(tx, pipelineId, stageId) {
 }
 async function activateClientPortal(tx, portalId, dealId) {
   const [d] = await tx.select().from(deal).where(eq9(deal.id, dealId)).limit(1);
-  if (!d?.primaryContactId) return;
+  if (!d?.primaryContactId) return null;
   const [c] = await tx.select().from(contact).where(eq9(contact.id, d.primaryContactId)).limit(1);
-  if (!c?.email) return;
+  if (!c?.email) return null;
   let [account] = await tx.select().from(clientAccount).where(and8(eq9(clientAccount.portalId, portalId), eq9(clientAccount.email, c.email))).limit(1);
+  const isNewAccount = !account;
   if (!account) {
     ;
-    [account] = await tx.insert(clientAccount).values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID(), inviteSentAt: /* @__PURE__ */ new Date() }).returning();
+    [account] = await tx.insert(clientAccount).values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID() }).returning();
   }
   await tx.insert(clientDealAccess).values({ clientId: account.id, dealId }).onConflictDoNothing();
   if (c.lifecycleStage !== "customer") {
@@ -2386,6 +2526,34 @@ async function activateClientPortal(tx, portalId, dealId) {
     if (clerkUserId) {
       await tx.update(clientAccount).set({ clerkUserId }).where(eq9(clientAccount.id, account.id));
     }
+  }
+  if (!isNewAccount || !account) return null;
+  return {
+    email: c.email,
+    firstName: c.firstName,
+    dealName: d.name,
+    brandSlug: account.brandSlug,
+    clientAccountId: account.id
+  };
+}
+async function sendPortalWelcome(pending) {
+  try {
+    await sendEmail({
+      to: pending.email,
+      subject: portalWelcomeSubject(pending.dealName),
+      html: portalWelcomeHtml({
+        firstName: pending.firstName,
+        dealName: pending.dealName,
+        email: pending.email,
+        loginUrl: portalLoginUrl(pending.brandSlug)
+      })
+    });
+    await db.update(clientAccount).set({ inviteSentAt: /* @__PURE__ */ new Date() }).where(eq9(clientAccount.id, pending.clientAccountId));
+  } catch (err) {
+    console.error("[stage.service] No se pudo enviar el email de bienvenida al portal", {
+      clientAccountId: pending.clientAccountId,
+      error: err?.message ?? err
+    });
   }
 }
 async function reassignProductionOwner(tx, portalId, stageLabel, currentOwnerId) {
@@ -2441,8 +2609,12 @@ async function changeStage(portalId, userId, dealId, newStageId) {
         }
       }
     }
-    if (stage.isWon) await activateClientPortal(tx, portalId, dealId);
-    return { deal: finalDeal, notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label } };
+    const welcome = stage.isWon ? await activateClientPortal(tx, portalId, dealId) : null;
+    return {
+      deal: finalDeal,
+      welcome,
+      notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label }
+    };
   });
   if (result.notify) {
     await createNotification({
@@ -2454,6 +2626,7 @@ async function changeStage(portalId, userId, dealId, newStageId) {
       title: `El deal "${result.notify.dealName}" pas\xF3 a la etapa "${result.notify.stageLabel}"`
     });
   }
+  if (result.welcome) await sendPortalWelcome(result.welcome);
   return result.deal;
 }
 async function moveDealToProduction(tx, portalId, dealId, actor) {
@@ -2623,6 +2796,50 @@ async function assertDealInPortal(portalId, dealId) {
   return d;
 }
 
+// src/modules/deals/emails/project-update-published.ts
+function projectUpdateSubject(dealName) {
+  return `Novedad de tu proyecto \u2014 ${dealName}`;
+}
+function projectUpdateHtml(p) {
+  const saludo = p.firstName ? `Hola ${escHtml(p.firstName)},` : "Hola,";
+  const fase = p.phaseLabel ? `<p style="margin: 0 0 16px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716c;">Fase: ${escHtml(p.phaseLabel)}</p>` : "";
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Novedad de tu proyecto</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f5f5f4;">
+  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #1c1917; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
+
+    <p style="margin: 0 0 4px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716c;">Novedad del proyecto</p>
+    <h1 style="margin: 0 0 24px; font-size: 22px; line-height: 1.3; font-weight: 600;">${escHtml(p.dealName)}</h1>
+
+    <p style="font-size: 15px; line-height: 1.6;">${saludo}</p>
+
+    <div style="background: #ffffff; border: 1px solid #e7e5e4; border-radius: 12px; padding: 20px 22px; margin: 20px 0;">
+      ${fase}
+      ${escParagraphs(p.body, "margin: 0 0 12px; font-size: 15px; line-height: 1.6;")}
+    </div>
+
+    <p style="margin: 24px 0;">
+      <a href="${escAttr(p.portalUrl)}"
+         style="display: inline-block; padding: 12px 24px; background: #0c0a09; color: #fafaf9; border-radius: 999px; text-decoration: none; font-size: 14px; font-weight: 600;">
+        Ver el estado del proyecto
+      </a>
+    </p>
+
+    <hr style="margin: 32px 0 16px; border: none; border-top: 1px solid #e7e5e4;" />
+    <p style="font-size: 12px; color: #78716c; line-height: 1.5;">
+      Recib\xEDs este aviso porque ten\xE9s un proyecto activo con nosotros.
+      Respond\xE9 este email si quer\xE9s hacernos una consulta.
+    </p>
+  </div>
+</body>
+</html>`;
+}
+
 // src/modules/deals/project-updates.service.ts
 var ENTITY5 = "project_update";
 async function assertStageInPipeline3(tx, pipelineId, stageId) {
@@ -2656,7 +2873,7 @@ async function listDealUpdates(portalId, dealId) {
 }
 async function createDealUpdate(portalId, userId, dealId, input) {
   const d = await assertDealInPortal(portalId, dealId);
-  return db.transaction(async (tx) => {
+  const row = await db.transaction(async (tx) => {
     let stageId = null;
     if (input.stageId) {
       const stage = await assertStageInPipeline3(tx, d.pipelineId, input.stageId);
@@ -2665,19 +2882,61 @@ async function createDealUpdate(portalId, userId, dealId, input) {
       const [pl] = await tx.select({ label: pipeline.label }).from(pipeline).where(eq12(pipeline.id, d.pipelineId)).limit(1);
       if (pl?.label === PRODUCTION_PIPELINE_LABEL) stageId = d.stageId;
     }
-    const [row] = await tx.insert(projectUpdate).values({ portalId, dealId, stageId, body: input.body, createdBy: userId }).returning();
-    if (!row) throw Errors.internal("No se pudo crear la novedad");
+    const [row2] = await tx.insert(projectUpdate).values({ portalId, dealId, stageId, body: input.body, createdBy: userId }).returning();
+    if (!row2) throw Errors.internal("No se pudo crear la novedad");
     await writeAudit({
       tx,
       portalId,
       userId,
       entityType: ENTITY5,
-      entityId: row.id,
+      entityId: row2.id,
       action: "PROJECT_UPDATE_CREATED",
       payload: { dealId, stageId }
     });
-    return row;
+    return row2;
   });
+  await notifyClientOfUpdate(portalId, dealId, row);
+  return row;
+}
+async function notifyClientOfUpdate(portalId, dealId, row) {
+  try {
+    const [d] = await db.select({ name: deal.name }).from(deal).where(eq12(deal.id, dealId)).limit(1);
+    if (!d) return;
+    let phaseLabel = null;
+    if (row.stageId) {
+      const [stage] = await db.select({ label: pipelineStage.label }).from(pipelineStage).where(eq12(pipelineStage.id, row.stageId)).limit(1);
+      phaseLabel = stage?.label ?? null;
+    }
+    const recipients = await db.select({
+      email: clientAccount.email,
+      brandSlug: clientAccount.brandSlug,
+      firstName: contact.firstName
+    }).from(clientDealAccess).innerJoin(clientAccount, eq12(clientAccount.id, clientDealAccess.clientId)).leftJoin(contact, eq12(contact.id, clientAccount.contactId)).where(
+      and11(
+        eq12(clientDealAccess.dealId, dealId),
+        eq12(clientAccount.portalId, portalId),
+        eq12(clientAccount.isActive, true)
+      )
+    );
+    for (const r of recipients) {
+      await sendEmail({
+        to: r.email,
+        subject: projectUpdateSubject(d.name),
+        html: projectUpdateHtml({
+          firstName: r.firstName,
+          dealName: d.name,
+          phaseLabel,
+          body: row.body,
+          portalUrl: portalHomeUrl(r.brandSlug)
+        })
+      });
+    }
+  } catch (err) {
+    console.error("[project-updates.service] No se pudo avisar al cliente de la novedad", {
+      projectUpdateId: row.id,
+      error: err?.message ?? err
+    });
+  }
 }
 async function archiveDealUpdate(portalId, userId, id) {
   await db.transaction(async (tx) => {
@@ -3592,41 +3851,6 @@ import { addMinutes as addMinutes2 } from "date-fns";
 import { format as formatTz2, toZonedTime as toZonedTime2 } from "date-fns-tz";
 import jwt from "jsonwebtoken";
 
-// src/lib/mailer.ts
-import { Resend } from "resend";
-var resendClient = null;
-function getResend() {
-  if (!env.RESEND_API_KEY) return null;
-  if (!resendClient) {
-    resendClient = new Resend(env.RESEND_API_KEY);
-  }
-  return resendClient;
-}
-async function sendEmail(params) {
-  const client4 = getResend();
-  if (!client4) {
-    console.info("[mailer] RESEND_API_KEY no configurada \u2014 email omitido", {
-      to: params.to,
-      subject: params.subject
-    });
-    return;
-  }
-  const from = params.from ?? env.FROM_EMAIL ?? "noreply@onboarding.resend.dev";
-  const { error } = await client4.emails.send({
-    from,
-    to: Array.isArray(params.to) ? params.to : [params.to],
-    subject: params.subject,
-    html: params.html
-  });
-  if (error) {
-    console.error("[mailer] Error al enviar email via Resend", {
-      to: params.to,
-      subject: params.subject,
-      error
-    });
-  }
-}
-
 // src/modules/calendar/slots.service.ts
 import { fromZonedTime, toZonedTime, format as formatTz } from "date-fns-tz";
 import { addMinutes, addDays, startOfDay, isBefore, isAfter } from "date-fns";
@@ -3792,17 +4016,17 @@ function bookingConfirmInviteeHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #2563eb;">\u2705 Reuni\xF3n confirmada</h2>
 
-  <p>Hola ${escHtml(p.guestName)},</p>
+  <p>Hola ${escHtml2(p.guestName)},</p>
   <p>Tu reuni\xF3n ha sido confirmada. Aqu\xED est\xE1n los detalles:</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml2(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora</td>
-      <td style="padding: 8px 12px;">${escHtml(p.startLocal)}</td>
+      <td style="padding: 8px 12px;">${escHtml2(p.startLocal)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Duraci\xF3n</td>
@@ -3810,17 +4034,17 @@ function bookingConfirmInviteeHtml(p) {
     </tr>
     ${p.location ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Ubicaci\xF3n / Link</td>
-      <td style="padding: 8px 12px;"><a href="${escAttr(p.location)}" style="color: #2563eb;">${escHtml(p.location)}</a></td>
+      <td style="padding: 8px 12px;"><a href="${escAttr2(p.location)}" style="color: #2563eb;">${escHtml2(p.location)}</a></td>
     </tr>` : ""}
   </table>
 
   <p style="margin-top: 24px;">\xBFNecesit\xE1s cambiar algo?</p>
   <p>
-    <a href="${escAttr(p.cancelUrl)}"
+    <a href="${escAttr2(p.cancelUrl)}"
        style="display: inline-block; margin-right: 12px; padding: 10px 18px; background: #ef4444; color: #fff; border-radius: 6px; text-decoration: none;">
       Cancelar reuni\xF3n
     </a>
-    <a href="${escAttr(p.rescheduleUrl)}"
+    <a href="${escAttr2(p.rescheduleUrl)}"
        style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; border-radius: 6px; text-decoration: none;">
       Reprogramar
     </a>
@@ -3834,11 +4058,11 @@ function bookingConfirmInviteeHtml(p) {
 </body>
 </html>`;
 }
-function escHtml(s) {
+function escHtml2(s) {
   if (!s) return "";
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr(s) {
+function escAttr2(s) {
   if (!s) return "#";
   return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -3855,17 +4079,17 @@ function bookingCancelledHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #ef4444;">\u274C Reuni\xF3n cancelada</h2>
 
-  <p>Hola ${escHtml2(p.guestName)},</p>
+  <p>Hola ${escHtml3(p.guestName)},</p>
   <p>Tu reuni\xF3n ha sido cancelada.</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml2(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml3(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora original</td>
-      <td style="padding: 8px 12px;">${escHtml2(p.startLocal)}</td>
+      <td style="padding: 8px 12px;">${escHtml3(p.startLocal)}</td>
     </tr>
   </table>
 
@@ -3878,14 +4102,14 @@ function bookingCancelledHtml(p) {
 </body>
 </html>`;
 }
-function escHtml2(s) {
+function escHtml3(s) {
   if (!s) return "";
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/calendar/emails/booking-host-notify.ts
 function bookingHostNotifyHtml(p) {
-  const greeting = p.hostName ? `Hola ${escHtml3(p.hostName)},` : "Hola,";
+  const greeting = p.hostName ? `Hola ${escHtml4(p.hostName)},` : "Hola,";
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -3896,21 +4120,21 @@ function bookingHostNotifyHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #2563eb;">\u{1F4C5} Nueva reuni\xF3n agendada</h2>
 
-  <p>${escHtml3(greeting)}</p>
+  <p>${escHtml4(greeting)}</p>
   <p>Ten\xE9s una nueva reuni\xF3n confirmada en tu agenda:</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Invitado</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.guestName)} &lt;<a href="mailto:${escAttr2(p.guestEmail)}" style="color: #2563eb;">${escHtml3(p.guestEmail)}</a>&gt;</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.guestName)} &lt;<a href="mailto:${escAttr3(p.guestEmail)}" style="color: #2563eb;">${escHtml4(p.guestEmail)}</a>&gt;</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.startLocalHost)}</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.startLocalHost)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Duraci\xF3n</td>
@@ -3918,11 +4142,11 @@ function bookingHostNotifyHtml(p) {
     </tr>
     ${p.location ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Ubicaci\xF3n / Link</td>
-      <td style="padding: 8px 12px;"><a href="${escAttr2(p.location)}" style="color: #2563eb;">${escHtml3(p.location)}</a></td>
+      <td style="padding: 8px 12px;"><a href="${escAttr3(p.location)}" style="color: #2563eb;">${escHtml4(p.location)}</a></td>
     </tr>` : ""}
     ${p.notes ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Notas</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.notes)}</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.notes)}</td>
     </tr>` : ""}
   </table>
 
@@ -3933,11 +4157,11 @@ function bookingHostNotifyHtml(p) {
 </body>
 </html>`;
 }
-function escHtml3(s) {
+function escHtml4(s) {
   if (!s) return "";
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr2(s) {
+function escAttr3(s) {
   if (!s) return "#";
   return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -4166,7 +4390,7 @@ async function getPublicSlots(portalId, eventSlug, from, to, tz) {
     startLocal: toInviteeDisplay(s.startUtc, tz, "yyyy-MM-dd HH:mm")
   }));
 }
-async function createPublicBooking(portalId, eventSlug, input, baseUrl) {
+async function createPublicBooking(portalId, eventSlug, input, baseUrl2) {
   const [mt] = await db.select().from(meetingType).where(
     and15(
       eq17(meetingType.portalId, portalId),
@@ -4209,8 +4433,8 @@ async function createPublicBooking(portalId, eventSlug, input, baseUrl) {
   const rescheduleToken = signBookingToken(newBooking.id, "booking-reschedule", startsAt);
   const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq17(booking.id, newBooking.id)).returning();
   const finalBooking = updated ?? newBooking;
-  const cancelUrl = `${baseUrl}/book/cancel?token=${cancelToken}`;
-  const rescheduleUrl = `${baseUrl}/book/reschedule?token=${rescheduleToken}`;
+  const cancelUrl = `${baseUrl2}/book/cancel?token=${cancelToken}`;
+  const rescheduleUrl = `${baseUrl2}/book/reschedule?token=${rescheduleToken}`;
   const startLocal = toInviteeDisplay(startsAt.toISOString(), input.inviteeTimeZone, "yyyy-MM-dd HH:mm");
   const location = Array.isArray(mt.locations) && mt.locations.length > 0 ? mt.locations[0]?.link ?? mt.locations[0]?.address ?? null : null;
   try {
@@ -4300,7 +4524,7 @@ async function cancelPublicBooking(token) {
   }
   return { booking: cancelled ?? existing };
 }
-async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
+async function reschedulePublicBooking(token, rescheduleData, baseUrl2) {
   const decoded = verifyBookingToken(token, "booking-reschedule");
   const [original] = await db.select().from(booking).where(eq17(booking.id, decoded.sub)).limit(1);
   if (!original) throw Errors.notFound("Booking no encontrado");
@@ -4356,8 +4580,8 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
   const rescheduleToken = signBookingToken(newBooking.id, "booking-reschedule", newStartsAt);
   const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq17(booking.id, newBooking.id)).returning();
   const finalBooking = updated ?? newBooking;
-  const cancelUrl = `${baseUrl}/book/cancel?token=${cancelToken}`;
-  const rescheduleUrl = `${baseUrl}/book/reschedule?token=${rescheduleToken}`;
+  const cancelUrl = `${baseUrl2}/book/cancel?token=${cancelToken}`;
+  const rescheduleUrl = `${baseUrl2}/book/reschedule?token=${rescheduleToken}`;
   const startLocal = toInviteeDisplay(newStartsAt.toISOString(), inviteeTimeZone, "yyyy-MM-dd HH:mm");
   const location = Array.isArray(mt.locations) && mt.locations.length > 0 ? mt.locations[0]?.link ?? mt.locations[0]?.address ?? null : null;
   try {
@@ -12282,8 +12506,8 @@ async function calendarPublicRoutes(app2) {
       const { portalId, eventSlug } = request.params;
       const protocol = request.headers["x-forwarded-proto"] ?? "http";
       const frontendHost = process.env["NEXT_PUBLIC_APP_URL"] ?? `${protocol}://${request.headers["x-forwarded-host"] ?? "localhost:3000"}`;
-      const baseUrl = frontendHost.endsWith("/") ? frontendHost.slice(0, -1) : frontendHost;
-      const result = await createPublicBooking(portalId, eventSlug, request.body, baseUrl);
+      const baseUrl2 = frontendHost.endsWith("/") ? frontendHost.slice(0, -1) : frontendHost;
+      const result = await createPublicBooking(portalId, eventSlug, request.body, baseUrl2);
       return reply.status(201).send(ok(result));
     }
   );
@@ -12319,8 +12543,8 @@ async function calendarPublicRoutes(app2) {
       const { token, ...rescheduleData } = request.body;
       const protocol = request.headers["x-forwarded-proto"] ?? "http";
       const frontendHost = process.env["NEXT_PUBLIC_APP_URL"] ?? `${protocol}://${request.headers["x-forwarded-host"] ?? "localhost:3000"}`;
-      const baseUrl = frontendHost.endsWith("/") ? frontendHost.slice(0, -1) : frontendHost;
-      const result = await reschedulePublicBooking(token, rescheduleData, baseUrl);
+      const baseUrl2 = frontendHost.endsWith("/") ? frontendHost.slice(0, -1) : frontendHost;
+      const result = await reschedulePublicBooking(token, rescheduleData, baseUrl2);
       return reply.status(201).send(ok(result));
     }
   );
