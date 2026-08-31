@@ -1,10 +1,22 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../../db'
-import { projectUpdate, pipeline, pipelineStage, hubUser } from '../../db/schema'
+import {
+  projectUpdate,
+  deal,
+  pipeline,
+  pipelineStage,
+  hubUser,
+  clientAccount,
+  clientDealAccess,
+  contact,
+} from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { writeAudit, type Tx } from '../../lib/audit'
 import { assertDealInPortal } from '../../lib/portal-access'
+import { sendEmail } from '../../lib/mailer'
+import { portalHomeUrl } from '../../lib/portal-url'
 import { PRODUCTION_PIPELINE_LABEL } from '../onboarding/assignees'
+import { projectUpdateHtml, projectUpdateSubject } from './emails/project-update-published'
 import type { CreateProjectUpdateDTO } from './project-updates.schema'
 
 const ENTITY = 'project_update'
@@ -82,7 +94,7 @@ export async function createDealUpdate(
 ): Promise<ProjectUpdateRow> {
   const d = await assertDealInPortal(portalId, dealId)
 
-  return db.transaction(async (tx) => {
+  const row = await db.transaction(async (tx) => {
     let stageId: string | null = null
     if (input.stageId) {
       const stage = await assertStageInPipeline(tx, d.pipelineId, input.stageId)
@@ -110,6 +122,74 @@ export async function createDealUpdate(
 
     return row
   })
+
+  // Aviso al cliente FUERA de la transacción: si el envío fallara adentro (o la
+  // transacción hiciera rollback después de mandarlo), el cliente recibiría un
+  // email sobre una novedad inexistente. Best-effort: nunca rompe la creación.
+  await notifyClientOfUpdate(portalId, dealId, row)
+
+  return row
+}
+
+/**
+ * Manda el aviso de novedad a los clientes con acceso al deal.
+ *
+ * Silencioso por diseño en tres casos: si el deal no tiene ningún
+ * `client_account` activo asociado (todavía no se activó el portal), si la
+ * cuenta no tiene contacto con email, o si `sendEmail` falla. En ninguno de
+ * esos casos la novedad deja de existir — ya está publicada en el portal.
+ */
+async function notifyClientOfUpdate(portalId: string, dealId: string, row: ProjectUpdateRow): Promise<void> {
+  try {
+    const [d] = await db.select({ name: deal.name }).from(deal).where(eq(deal.id, dealId)).limit(1)
+    if (!d) return
+
+    let phaseLabel: string | null = null
+    if (row.stageId) {
+      const [stage] = await db
+        .select({ label: pipelineStage.label })
+        .from(pipelineStage)
+        .where(eq(pipelineStage.id, row.stageId))
+        .limit(1)
+      phaseLabel = stage?.label ?? null
+    }
+
+    const recipients = await db
+      .select({
+        email: clientAccount.email,
+        brandSlug: clientAccount.brandSlug,
+        firstName: contact.firstName,
+      })
+      .from(clientDealAccess)
+      .innerJoin(clientAccount, eq(clientAccount.id, clientDealAccess.clientId))
+      .leftJoin(contact, eq(contact.id, clientAccount.contactId))
+      .where(
+        and(
+          eq(clientDealAccess.dealId, dealId),
+          eq(clientAccount.portalId, portalId),
+          eq(clientAccount.isActive, true),
+        ),
+      )
+
+    for (const r of recipients) {
+      await sendEmail({
+        to: r.email,
+        subject: projectUpdateSubject(d.name),
+        html: projectUpdateHtml({
+          firstName: r.firstName,
+          dealName: d.name,
+          phaseLabel,
+          body: row.body,
+          portalUrl: portalHomeUrl(r.brandSlug),
+        }),
+      })
+    }
+  } catch (err) {
+    console.error('[project-updates.service] No se pudo avisar al cliente de la novedad', {
+      projectUpdateId: row.id,
+      error: (err as Error)?.message ?? err,
+    })
+  }
 }
 
 /** Archiva una novedad (nunca DELETE). 404 si no existe o si ya estaba archivada (mismo patrón que archiveDeal). */

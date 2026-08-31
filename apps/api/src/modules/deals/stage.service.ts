@@ -6,6 +6,9 @@ import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
 import { createNotification } from '../notifications/notifications.service'
 import { ensureClerkUserType } from '../../lib/clerk-provisioning'
+import { sendEmail } from '../../lib/mailer'
+import { portalLoginUrl } from '../../lib/portal-url'
+import { portalWelcomeHtml, portalWelcomeSubject } from './emails/portal-welcome'
 import {
   PRODUCTION_PIPELINE_LABEL,
   PRODUCTION_DIAGNOSTICO_STAGE_LABEL,
@@ -28,24 +31,55 @@ async function assertStageInPipeline(
 }
 
 /**
+ * Email de bienvenida pendiente de envío, devuelto por `activateClientPortal`.
+ *
+ * La activación corre DENTRO de una transacción, y mandar el email ahí adentro
+ * sería un bug: si la transacción hace rollback, el email ya salió y el cliente
+ * recibe un link a un portal cuya cuenta no existe. Por eso la función no manda
+ * nada — describe el envío y el caller lo dispara después del commit, igual que
+ * `changeStage` ya hace con `createNotification`.
+ */
+export interface PendingPortalWelcome {
+  email: string
+  firstName: string | null
+  dealName: string
+  brandSlug: string | null
+  clientAccountId: string
+}
+
+/**
  * Activa el portal del cliente al ganar un deal: crea client_account (con invite_token)
  * si no existe, le da acceso al deal y marca el contacto como customer. Idempotente.
+ *
+ * @returns el email de bienvenida a enviar si se creó la cuenta en esta llamada,
+ *          o `null` si no había a quién avisarle o la cuenta ya existía (la
+ *          idempotencia de la activación se extiende al email: se manda UNA vez).
  */
-export async function activateClientPortal(tx: Tx, portalId: string, dealId: string): Promise<void> {
+export async function activateClientPortal(
+  tx: Tx,
+  portalId: string,
+  dealId: string,
+): Promise<PendingPortalWelcome | null> {
   const [d] = await tx.select().from(deal).where(eq(deal.id, dealId)).limit(1)
-  if (!d?.primaryContactId) return
+  if (!d?.primaryContactId) return null
   const [c] = await tx.select().from(contact).where(eq(contact.id, d.primaryContactId)).limit(1)
-  if (!c?.email) return
+  if (!c?.email) return null
 
   let [account] = await tx
     .select()
     .from(clientAccount)
     .where(and(eq(clientAccount.portalId, portalId), eq(clientAccount.email, c.email)))
     .limit(1)
+  // `isNewAccount` decide si corresponde el email de bienvenida: si la cuenta ya
+  // existía, el cliente ya fue invitado antes y no hay que volver a avisarle.
+  const isNewAccount = !account
   if (!account) {
     ;[account] = await tx
       .insert(clientAccount)
-      .values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID(), inviteSentAt: new Date() })
+      // `inviteSentAt` se setea recién cuando el email se manda de verdad (lo hace
+      // el caller). Antes se seteaba acá, con lo cual la columna afirmaba haber
+      // mandado una invitación que nunca salía.
+      .values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID() })
       .returning()
   }
 
@@ -67,7 +101,45 @@ export async function activateClientPortal(tx: Tx, portalId: string, dealId: str
       await tx.update(clientAccount).set({ clerkUserId }).where(eq(clientAccount.id, account.id))
     }
   }
-  // TODO: asignar intake forms por defecto + enviar email de invitación (Resend) cuando estén configurados.
+  // TODO: asignar intake forms por defecto cuando estén configurados.
+
+  if (!isNewAccount || !account) return null
+  return {
+    email: c.email,
+    firstName: c.firstName,
+    dealName: d.name,
+    brandSlug: account.brandSlug,
+    clientAccountId: account.id,
+  }
+}
+
+/**
+ * Manda el email de bienvenida al portal y recién ahí marca `inviteSentAt`.
+ *
+ * Best-effort y SIEMPRE fuera de la transacción de activación: si el envío
+ * falla, el cliente ya tiene la cuenta y el acceso creados — se loguea y sigue.
+ * `inviteSentAt` solo se escribe si `sendEmail` no tiró, para que la columna
+ * refleje envíos reales.
+ */
+export async function sendPortalWelcome(pending: PendingPortalWelcome): Promise<void> {
+  try {
+    await sendEmail({
+      to: pending.email,
+      subject: portalWelcomeSubject(pending.dealName),
+      html: portalWelcomeHtml({
+        firstName: pending.firstName,
+        dealName: pending.dealName,
+        email: pending.email,
+        loginUrl: portalLoginUrl(pending.brandSlug),
+      }),
+    })
+    await db.update(clientAccount).set({ inviteSentAt: new Date() }).where(eq(clientAccount.id, pending.clientAccountId))
+  } catch (err) {
+    console.error('[stage.service] No se pudo enviar el email de bienvenida al portal', {
+      clientAccountId: pending.clientAccountId,
+      error: (err as Error)?.message ?? err,
+    })
+  }
 }
 
 /**
@@ -177,10 +249,15 @@ export async function changeStage(
     }
 
     // Si la etapa es ganada, activar el portal del cliente automáticamente.
-    if (stage.isWon) await activateClientPortal(tx, portalId, dealId)
+    // El email de bienvenida NO se manda acá: sale después del commit.
+    const welcome = stage.isWon ? await activateClientPortal(tx, portalId, dealId) : null
     // Notificar al owner FINAL (el reasignado si lo hubo; si no, sigue siendo
     // el mismo que ya tenía el deal — nunca al viejo owner pre-reasignación).
-    return { deal: finalDeal, notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label } }
+    return {
+      deal: finalDeal,
+      welcome,
+      notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label },
+    }
   })
 
   // Notificación fuera de la transacción (insert + emit por WebSocket).
@@ -194,6 +271,8 @@ export async function changeStage(
       title: `El deal "${result.notify.dealName}" pasó a la etapa "${result.notify.stageLabel}"`,
     })
   }
+  // Bienvenida al portal, también fuera de la transacción y best-effort.
+  if (result.welcome) await sendPortalWelcome(result.welcome)
   return result.deal
 }
 
