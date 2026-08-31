@@ -59,7 +59,13 @@ var envSchema = z.object({
   EVOLUTION_API_URL: z.string().default(""),
   EVOLUTION_API_KEY: z.string().default(""),
   EVOLUTION_INSTANCE: z.string().default(""),
-  EVOLUTION_WEBHOOK_SECRET: z.string().default("")
+  EVOLUTION_WEBHOOK_SECRET: z.string().default(""),
+  // ── Onboarding post-venta: asignación automática de responsable por fase del
+  // pipeline "Producción" (ver modules/onboarding/assignees.ts). Opcionales con
+  // default — si el hub_user no existe (email no seedeado), el helper devuelve
+  // null y no rompe: se mantiene el owner actual del deal.
+  PRODUCTION_ASSIGNEE_DIAGNOSTICO_EMAIL: z.string().email().default("laureanosierra.dev@gmail.com"),
+  PRODUCTION_ASSIGNEE_DEFAULT_EMAIL: z.string().email().default("jeremiasingla@gmail.com")
 });
 var parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
@@ -92,7 +98,7 @@ var Errors = {
 };
 
 // src/modules/health/health.router.ts
-import { sql as sql22 } from "drizzle-orm";
+import { sql as sql23 } from "drizzle-orm";
 
 // src/db/index.ts
 import { drizzle as drizzleNodePostgres } from "drizzle-orm/node-postgres";
@@ -120,6 +126,7 @@ __export(schema_exports, {
   clientAccount: () => clientAccount,
   clientAsset: () => clientAsset,
   clientDealAccess: () => clientDealAccess,
+  clientOnboarding: () => clientOnboarding,
   company: () => company,
   contact: () => contact,
   crmList: () => crmList,
@@ -1191,266 +1198,298 @@ var onboardingSubmission = pgTable24("onboarding_submission", {
   index20("idx_onboarding_submission_portal").on(table.portalId)
 ]);
 
-// src/db/schema/prospecting.ts
-import { pgTable as pgTable25, text as text25, integer as integer9, numeric as numeric5, jsonb as jsonb12, timestamp as timestamp25, index as index21, check as check17 } from "drizzle-orm/pg-core";
+// src/db/schema/client-onboarding.ts
+import { pgTable as pgTable25, text as text25, integer as integer9, jsonb as jsonb12, timestamp as timestamp25, unique as unique10, check as check17, index as index21 } from "drizzle-orm/pg-core";
 import { sql as sql19 } from "drizzle-orm";
-var prospectSearch = pgTable25("prospect_search", {
+var clientOnboarding = pgTable25("client_onboarding", {
   id: text25("id").primaryKey().$defaultFn(() => createId()),
   portalId: text25("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  query: text25("query").notNull(),
-  ourServices: text25("our_services"),
-  requestedLimit: integer9("requested_limit").notNull().default(5),
-  resultCount: integer9("result_count").notNull().default(0),
-  status: text25("status").notNull().default("running"),
-  error: text25("error"),
-  createdBy: text25("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  createdAt: timestamp25("created_at", { withTimezone: true }).notNull().defaultNow()
+  dealId: text25("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
+  clientId: text25("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
+  status: text25("status").notNull().default("in_progress"),
+  currentStep: integer9("current_step").notNull().default(1),
+  /** Mapa { "1": ISOtimestamp, ..., "8": ISOtimestamp } de pasos completados. */
+  stepsCompleted: jsonb12("steps_completed").$type().notNull().default({}),
+  // ── Paso 5 — Firma. Checkbox de aceptación + nombre tipeado + timestamp + IP.
+  // NO DocuSeal (decisión de negocio explícita).
+  signatureName: text25("signature_name"),
+  signatureAcceptedAt: timestamp25("signature_accepted_at", { withTimezone: true }),
+  signatureIp: text25("signature_ip"),
+  // ── Paso 6 — Brief del proyecto (16 preguntas, ver OnboardingBriefSchema).
+  briefAnswers: jsonb12("brief_answers").$type(),
+  // ── Paso 7 — Materiales. Estado por categoría fija (logoBrand, programContent,
+  // clientBase, toolAccess) + IDs de client_asset vinculados por cada una.
+  materials: jsonb12("materials").$type().notNull().default({}),
+  completedAt: timestamp25("completed_at", { withTimezone: true }),
+  createdAt: timestamp25("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp25("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check17("prospect_search_status_check", sql19`${table.status} IN ('running','completed','failed')`),
-  index21("idx_prospect_search_portal").on(table.portalId)
+  unique10("client_onboarding_deal_id_unique").on(table.dealId),
+  check17("client_onboarding_status_check", sql19`${table.status} IN ('in_progress','completed')`),
+  // listOnboardings (admin) filtra por portal_id y ordena por status/updated_at.
+  index21("idx_client_onboarding_portal_status").on(table.portalId, table.status)
 ]);
-var prospect = pgTable25("prospect", {
-  id: text25("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text25("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  searchId: text25("search_id").notNull().references(() => prospectSearch.id, { onDelete: "cascade" }),
-  // ── Datos del negocio (Google Places + scraping) ──
-  name: text25("name").notNull(),
-  address: text25("address"),
-  phone: text25("phone"),
-  website: text25("website"),
-  email: text25("email"),
-  rating: numeric5("rating", { precision: 2, scale: 1 }),
-  userRatingsTotal: integer9("user_ratings_total"),
-  googlePlaceId: text25("google_place_id"),
-  types: jsonb12("types").$type().notNull().default([]),
-  // ── Análisis IA (Vertex / Gemini) ──
-  aiAnalysis: text25("ai_analysis"),
-  aiProposal: jsonb12("ai_proposal").$type(),
-  // ── Estado en el flujo de prospección ──
-  status: text25("status").notNull().default("new"),
-  importedContactId: text25("imported_contact_id").references(() => contact.id, { onDelete: "set null" }),
-  createdAt: timestamp25("created_at", { withTimezone: true }).notNull().defaultNow()
+
+// src/db/schema/prospecting.ts
+import { pgTable as pgTable26, text as text26, integer as integer10, numeric as numeric5, jsonb as jsonb13, timestamp as timestamp26, index as index22, check as check18 } from "drizzle-orm/pg-core";
+import { sql as sql20 } from "drizzle-orm";
+var prospectSearch = pgTable26("prospect_search", {
+  id: text26("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  query: text26("query").notNull(),
+  ourServices: text26("our_services"),
+  requestedLimit: integer10("requested_limit").notNull().default(5),
+  resultCount: integer10("result_count").notNull().default(0),
+  status: text26("status").notNull().default("running"),
+  error: text26("error"),
+  createdBy: text26("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check17("prospect_status_check", sql19`${table.status} IN ('new','imported','discarded')`),
-  index21("idx_prospect_portal").on(table.portalId),
-  index21("idx_prospect_search").on(table.searchId)
+  check18("prospect_search_status_check", sql20`${table.status} IN ('running','completed','failed')`),
+  index22("idx_prospect_search_portal").on(table.portalId)
+]);
+var prospect = pgTable26("prospect", {
+  id: text26("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  searchId: text26("search_id").notNull().references(() => prospectSearch.id, { onDelete: "cascade" }),
+  // ── Datos del negocio (Google Places + scraping) ──
+  name: text26("name").notNull(),
+  address: text26("address"),
+  phone: text26("phone"),
+  website: text26("website"),
+  email: text26("email"),
+  rating: numeric5("rating", { precision: 2, scale: 1 }),
+  userRatingsTotal: integer10("user_ratings_total"),
+  googlePlaceId: text26("google_place_id"),
+  types: jsonb13("types").$type().notNull().default([]),
+  // ── Análisis IA (Vertex / Gemini) ──
+  aiAnalysis: text26("ai_analysis"),
+  aiProposal: jsonb13("ai_proposal").$type(),
+  // ── Estado en el flujo de prospección ──
+  status: text26("status").notNull().default("new"),
+  importedContactId: text26("imported_contact_id").references(() => contact.id, { onDelete: "set null" }),
+  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check18("prospect_status_check", sql20`${table.status} IN ('new','imported','discarded')`),
+  index22("idx_prospect_portal").on(table.portalId),
+  index22("idx_prospect_search").on(table.searchId)
 ]);
 
 // src/db/schema/setter.ts
 import {
-  pgTable as pgTable26,
-  text as text26,
+  pgTable as pgTable27,
+  text as text27,
   boolean as boolean14,
-  integer as integer10,
-  jsonb as jsonb13,
-  timestamp as timestamp26,
+  integer as integer11,
+  jsonb as jsonb14,
+  timestamp as timestamp27,
   uniqueIndex as uniqueIndex2,
-  index as index22,
-  check as check18
+  index as index23,
+  check as check19
 } from "drizzle-orm/pg-core";
-import { sql as sql20 } from "drizzle-orm";
-var setterTenant = pgTable26("setter_tenant", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
+import { sql as sql21 } from "drizzle-orm";
+var setterTenant = pgTable27("setter_tenant", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
   // El setter es interno del CRM: su config cuelga del portal (la org admin).
-  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  name: text26("name").notNull(),
+  portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  name: text27("name").notNull(),
   // Lo que el agente "conoce": qué vende, ICP, qué califica, oferta, FAQs, precios.
-  businessBrief: text26("business_brief").notNull(),
-  agentName: text26("agent_name").notNull(),
-  ownerName: text26("owner_name").notNull(),
-  timezone: text26("timezone").notNull().default("America/Argentina/Buenos_Aires"),
+  businessBrief: text27("business_brief").notNull(),
+  agentName: text27("agent_name").notNull(),
+  ownerName: text27("owner_name").notNull(),
+  timezone: text27("timezone").notNull().default("America/Argentina/Buenos_Aires"),
   // shadow global en Sprint 0; el campo existe para el salto a híbrido/autopilot.
-  operationMode: text26("operation_mode").notNull().default("shadow"),
+  operationMode: text27("operation_mode").notNull().default("shadow"),
   // Model Switcher: qué LLM genera los mensajes ('gemini' | 'claude').
-  modelProvider: text26("model_provider").notNull().default("gemini"),
+  modelProvider: text27("model_provider").notNull().default("gemini"),
   // Prospección automática desde la oferta: qué ofrecemos (contexto para la IA)
   // y los nichos/ICP sugeridos para buscar leads sin tipear nada.
-  prospectingServices: text26("prospecting_services"),
-  prospectingNiches: jsonb13("prospecting_niches").$type().notNull().default([]),
+  prospectingServices: text27("prospecting_services"),
+  prospectingNiches: jsonb14("prospecting_niches").$type().notNull().default([]),
   // Autopilot de prospección (loop nicho×ciudad cada 1h).
-  prospectingCities: jsonb13("prospecting_cities").$type().notNull().default([]),
+  prospectingCities: jsonb14("prospecting_cities").$type().notNull().default([]),
   prospectingAutopilot: boolean14("prospecting_autopilot").notNull().default(false),
-  prospectingAutopilotCursor: integer10("prospecting_autopilot_cursor").notNull().default(0),
+  prospectingAutopilotCursor: integer11("prospecting_autopilot_cursor").notNull().default(0),
   // Nombre de la instancia de Evolution para este tenant (puede venir de env).
-  evolutionInstance: text26("evolution_instance"),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp26("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+  evolutionInstance: text27("evolution_instance"),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
 }, (table) => [
-  check18(
+  check19(
     "setter_tenant_operation_mode_check",
-    sql20`${table.operationMode} IN ('shadow','hybrid','autopilot')`
+    sql21`${table.operationMode} IN ('shadow','hybrid','autopilot')`
   ),
-  check18("setter_tenant_model_provider_check", sql20`${table.modelProvider} IN ('gemini','claude')`)
+  check19("setter_tenant_model_provider_check", sql21`${table.modelProvider} IN ('gemini','claude')`)
 ]);
-var setterPerson = pgTable26("setter_person", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text26("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  name: text26("name"),
+var setterPerson = pgTable27("setter_person", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  name: text27("name"),
   // E.164 (+549...). En Sprint 0 (solo WhatsApp) es la clave de identidad.
-  phone: text26("phone"),
+  phone: text27("phone"),
   // Guardrail no negociable: si opta por salir, nunca más se le genera ni envía.
   optedOut: boolean14("opted_out").notNull().default(false),
-  optedOutAt: timestamp26("opted_out_at", { withTimezone: true }),
+  optedOutAt: timestamp27("opted_out_at", { withTimezone: true }),
   // Sync con el CRM: este Person es también un contact del CRM (lead/cliente).
-  crmContactId: text26("crm_contact_id").references(() => contact.id, { onDelete: "set null" }),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
+  crmContactId: text27("crm_contact_id").references(() => contact.id, { onDelete: "set null" }),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   uniqueIndex2("uq_setter_person_tenant_phone").on(table.tenantId, table.phone)
 ]);
-var setterLead = pgTable26("setter_lead", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text26("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  personId: text26("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
-  status: text26("status").notNull().default("NEW"),
+var setterLead = pgTable27("setter_lead", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  personId: text27("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
+  status: text27("status").notNull().default("NEW"),
   // { pain, fit, authority, timing, score, notes } — lo llena save_qualification.
-  qualification: jsonb13("qualification").$type(),
-  source: text26("source"),
+  qualification: jsonb14("qualification").$type(),
+  source: text27("source"),
   // Cuándo cierra la ventana de servicio (último msg del lead + 24h).
-  windowExpiresAt: timestamp26("window_expires_at", { withTimezone: true }),
+  windowExpiresAt: timestamp27("window_expires_at", { withTimezone: true }),
   // Sync con el CRM: el deal generado para este lead (al calificar).
-  crmDealId: text26("crm_deal_id").references(() => deal.id, { onDelete: "set null" }),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp26("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+  crmDealId: text27("crm_deal_id").references(() => deal.id, { onDelete: "set null" }),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
 }, (table) => [
-  check18(
+  check19(
     "setter_lead_status_check",
-    sql20`${table.status} IN ('NEW','CONTACTED','ENGAGED','QUALIFYING','QUALIFIED','BOOKING','BOOKED','NOT_INTERESTED','HANDED_OFF','OPTED_OUT')`
+    sql21`${table.status} IN ('NEW','CONTACTED','ENGAGED','QUALIFYING','QUALIFIED','BOOKING','BOOKED','NOT_INTERESTED','HANDED_OFF','OPTED_OUT')`
   ),
-  index22("idx_setter_lead_person").on(table.personId),
-  index22("idx_setter_lead_status").on(table.status),
-  index22("idx_setter_lead_window").on(table.windowExpiresAt)
+  index23("idx_setter_lead_person").on(table.personId),
+  index23("idx_setter_lead_status").on(table.status),
+  index23("idx_setter_lead_window").on(table.windowExpiresAt)
 ]);
-var setterConversation = pgTable26("setter_conversation", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text26("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  personId: text26("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
-  channel: text26("channel").notNull().default("whatsapp"),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
+var setterConversation = pgTable27("setter_conversation", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  personId: text27("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
+  channel: text27("channel").notNull().default("whatsapp"),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   // Una conversación por persona en Sprint 0 (memoria única cross-canal).
   uniqueIndex2("uq_setter_conversation_person").on(table.personId)
 ]);
-var setterMessage = pgTable26("setter_message", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  conversationId: text26("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
-  role: text26("role").notNull(),
-  content: text26("content").notNull(),
+var setterMessage = pgTable27("setter_message", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  conversationId: text27("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
+  role: text27("role").notNull(),
+  content: text27("content").notNull(),
   // Idempotencia: id del mensaje en el canal (unique; admite múltiples NULL en PG).
-  messageId: text26("message_id"),
+  messageId: text27("message_id"),
   // Etiqueta de momento (apertura/calificación/objeción/booking…). Reusada por híbrido.
-  beat: text26("beat"),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
+  beat: text27("beat"),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check18(
+  check19(
     "setter_message_role_check",
-    sql20`${table.role} IN ('user','assistant','system','tool')`
+    sql21`${table.role} IN ('user','assistant','system','tool')`
   ),
   uniqueIndex2("uq_setter_message_message_id").on(table.messageId),
-  index22("idx_setter_message_conversation").on(table.conversationId, table.createdAt)
+  index23("idx_setter_message_conversation").on(table.conversationId, table.createdAt)
 ]);
-var setterAppointment = pgTable26("setter_appointment", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text26("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  leadId: text26("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
-  startsAt: timestamp26("starts_at", { withTimezone: true }).notNull(),
-  endsAt: timestamp26("ends_at", { withTimezone: true }).notNull(),
+var setterAppointment = pgTable27("setter_appointment", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  leadId: text27("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
+  startsAt: timestamp27("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp27("ends_at", { withTimezone: true }).notNull(),
   // Event id de Google Calendar (no guardamos URLs que expiran).
-  calendarRef: text26("calendar_ref"),
-  status: text26("status").notNull().default("confirmed"),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
+  calendarRef: text27("calendar_ref"),
+  status: text27("status").notNull().default("confirmed"),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check18(
+  check19(
     "setter_appointment_status_check",
-    sql20`${table.status} IN ('confirmed','cancelled','no_show','rescheduled')`
+    sql21`${table.status} IN ('confirmed','cancelled','no_show','rescheduled')`
   ),
   uniqueIndex2("uq_setter_appointment_lead").on(table.leadId)
 ]);
-var setterDraft = pgTable26("setter_draft", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text26("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  conversationId: text26("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
-  leadId: text26("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
+var setterDraft = pgTable27("setter_draft", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  conversationId: text27("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
+  leadId: text27("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
   // Texto propuesto por la IA (lo que se enviaría al aprobar).
-  content: text26("content").notNull(),
+  content: text27("content").notNull(),
   // Versión editada por el humano antes de enviar (si la hubo).
-  editedContent: text26("edited_content"),
-  beat: text26("beat"),
+  editedContent: text27("edited_content"),
+  beat: text27("beat"),
   // beatPolicy: text en Sprint 0; voice llega en Sprint 2.
-  format: text26("format").notNull().default("text"),
-  status: text26("status").notNull().default("pending"),
+  format: text27("format").notNull().default("text"),
+  status: text27("status").notNull().default("pending"),
   // "Por qué dijo esto": tool calls + datos capturados (transparencia de la Bandeja).
-  toolCalls: jsonb13("tool_calls").$type(),
+  toolCalls: jsonb14("tool_calls").$type(),
   // Mensaje saliente generado al aprobar y enviar.
-  sentMessageId: text26("sent_message_id").references(() => setterMessage.id, {
+  sentMessageId: text27("sent_message_id").references(() => setterMessage.id, {
     onDelete: "set null"
   }),
   // Quién aprobó/editó (integra con los usuarios del CRM).
-  approvedBy: text26("approved_by").references(() => hubUser.id, { onDelete: "set null" }),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp26("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+  approvedBy: text27("approved_by").references(() => hubUser.id, { onDelete: "set null" }),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
 }, (table) => [
-  check18("setter_draft_format_check", sql20`${table.format} IN ('text','voice')`),
-  check18(
+  check19("setter_draft_format_check", sql21`${table.format} IN ('text','voice')`),
+  check19(
     "setter_draft_status_check",
-    sql20`${table.status} IN ('pending','approved','edited','rejected','sent')`
+    sql21`${table.status} IN ('pending','approved','edited','rejected','sent')`
   ),
-  index22("idx_setter_draft_status").on(table.status),
-  index22("idx_setter_draft_conversation").on(table.conversationId),
-  index22("idx_setter_draft_tenant").on(table.tenantId)
+  index23("idx_setter_draft_status").on(table.status),
+  index23("idx_setter_draft_conversation").on(table.conversationId),
+  index23("idx_setter_draft_tenant").on(table.tenantId)
 ]);
-var setterEvent = pgTable26("setter_event", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text26("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  level: text26("level").notNull().default("info"),
+var setterEvent = pgTable27("setter_event", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  level: text27("level").notNull().default("info"),
   // inbound | agent | draft | approval | sync | autopilot | optout | error
-  type: text26("type").notNull(),
-  message: text26("message").notNull(),
-  leadId: text26("lead_id"),
-  meta: jsonb13("meta").$type(),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
+  type: text27("type").notNull(),
+  message: text27("message").notNull(),
+  leadId: text27("lead_id"),
+  meta: jsonb14("meta").$type(),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check18("setter_event_level_check", sql20`${table.level} IN ('info','success','warn','error')`),
-  index22("idx_setter_event_tenant_time").on(table.tenantId, table.createdAt)
+  check19("setter_event_level_check", sql21`${table.level} IN ('info','success','warn','error')`),
+  index23("idx_setter_event_tenant_time").on(table.tenantId, table.createdAt)
 ]);
 
 // src/db/schema/proposals.ts
-import { pgTable as pgTable27, text as text27, jsonb as jsonb14, numeric as numeric6, char as char3, timestamp as timestamp27, index as index23, check as check19 } from "drizzle-orm/pg-core";
-import { sql as sql21 } from "drizzle-orm";
-var proposal = pgTable27(
+import { pgTable as pgTable28, text as text28, jsonb as jsonb15, numeric as numeric6, char as char3, timestamp as timestamp28, index as index24, check as check20 } from "drizzle-orm/pg-core";
+import { sql as sql22 } from "drizzle-orm";
+var proposal = pgTable28(
   "proposal",
   {
-    id: text27("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    id: text28("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text28("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
     // Deal/contacto que origina la propuesta (set null si se archivan).
-    dealId: text27("deal_id").references(() => deal.id, { onDelete: "set null" }),
-    contactId: text27("contact_id").references(() => contact.id, { onDelete: "set null" }),
+    dealId: text28("deal_id").references(() => deal.id, { onDelete: "set null" }),
+    contactId: text28("contact_id").references(() => contact.id, { onDelete: "set null" }),
     // Submission del onboarding que alimentó la generación (trazabilidad).
-    onboardingSubmissionId: text27("onboarding_submission_id").references(() => onboardingSubmission.id, {
+    onboardingSubmissionId: text28("onboarding_submission_id").references(() => onboardingSubmission.id, {
       onDelete: "set null"
     }),
     // Credencial pública del link `/p/<token>`. Inadivinable.
-    token: text27("token").notNull().$defaultFn(() => createId()),
-    title: text27("title").notNull(),
-    status: text27("status").notNull().default("draft"),
-    content: jsonb14("content").$type().notNull(),
+    token: text28("token").notNull().$defaultFn(() => createId()),
+    title: text28("title").notNull(),
+    status: text28("status").notNull().default("draft"),
+    content: jsonb15("content").$type().notNull(),
     // Provider de IA que la generó (gemini | claude | manual).
-    model: text27("model"),
+    model: text28("model"),
     // Total denormalizado para listados rápidos.
     amount: numeric6("amount", { precision: 12, scale: 2 }),
     currency: char3("currency", { length: 3 }).notNull().default("USD"),
-    acceptedAt: timestamp27("accepted_at", { withTimezone: true }),
-    sentAt: timestamp27("sent_at", { withTimezone: true }),
-    viewedAt: timestamp27("viewed_at", { withTimezone: true }),
+    acceptedAt: timestamp28("accepted_at", { withTimezone: true }),
+    sentAt: timestamp28("sent_at", { withTimezone: true }),
+    viewedAt: timestamp28("viewed_at", { withTimezone: true }),
     // Primera vez que el cliente llegó al ÚLTIMO paso de la presentación.
-    completedAt: timestamp27("completed_at", { withTimezone: true }),
-    createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+    completedAt: timestamp28("completed_at", { withTimezone: true }),
+    createdAt: timestamp28("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp28("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
   },
   (table) => [
-    check19("proposal_status_check", sql21`${table.status} IN ('draft','accepted','sent','viewed')`),
-    index23("idx_proposal_portal").on(table.portalId),
-    index23("idx_proposal_token").on(table.token),
-    index23("idx_proposal_deal").on(table.dealId)
+    check20("proposal_status_check", sql22`${table.status} IN ('draft','accepted','sent','viewed')`),
+    index24("idx_proposal_portal").on(table.portalId),
+    index24("idx_proposal_token").on(table.token),
+    index24("idx_proposal_deal").on(table.dealId)
   ]
 );
 
@@ -1495,7 +1534,7 @@ async function healthRoutes(app2) {
     },
     async (_request, reply) => {
       try {
-        await db.execute(sql22`select 1`);
+        await db.execute(sql23`select 1`);
         return ok({ status: "ready", db: "up" });
       } catch {
         return reply.status(503).send({
@@ -1534,6 +1573,9 @@ async function resolveClientAccount(clerkUserId) {
     )
   ).limit(1);
   if (!account) {
+    console.warn(
+      `[auth-client] Sesi\xF3n de Clerk v\xE1lida sin client_account vinculado (clerk_user_id=${clerkUserId}) \u2192 401`
+    );
     throw Errors.unauthorized("Cliente no encontrado o inactivo.");
   }
   return {
@@ -1768,7 +1810,8 @@ async function recordFieldChanges(input) {
 async function writeAudit(input) {
   await input.tx.insert(auditLog).values({
     portalId: input.portalId,
-    userId: input.userId,
+    userId: input.userId ?? null,
+    clientId: input.clientId ?? null,
     entityType: input.entityType,
     entityId: input.entityId,
     action: input.action,
@@ -2163,11 +2206,11 @@ var DealContactParamSchema = z6.object({
 });
 
 // src/modules/deals/deals.service.ts
-import { and as and8, desc as desc5, eq as eq9, inArray as inArray3 } from "drizzle-orm";
+import { and as and9, desc as desc5, eq as eq10, inArray as inArray3 } from "drizzle-orm";
 
 // src/modules/deals/stage.service.ts
 import { randomUUID } from "crypto";
-import { and as and7, eq as eq8 } from "drizzle-orm";
+import { and as and8, eq as eq9 } from "drizzle-orm";
 
 // src/modules/notifications/notifications.service.ts
 import { and as and6, count, desc as desc4, eq as eq7, isNull as isNull2 } from "drizzle-orm";
@@ -2269,27 +2312,37 @@ async function ensureClerkUserType(args) {
   }
 }
 
+// src/modules/onboarding/assignees.ts
+import { and as and7, eq as eq8 } from "drizzle-orm";
+var PRODUCTION_PIPELINE_LABEL = "Producci\xF3n";
+var PRODUCTION_DIAGNOSTICO_STAGE_LABEL = "Diagn\xF3stico";
+async function resolveProductionAssignee(dbOrTx, portalId, stageLabel) {
+  const email = stageLabel === PRODUCTION_DIAGNOSTICO_STAGE_LABEL ? env.PRODUCTION_ASSIGNEE_DIAGNOSTICO_EMAIL : env.PRODUCTION_ASSIGNEE_DEFAULT_EMAIL;
+  const [u] = await dbOrTx.select({ id: hubUser.id }).from(hubUser).where(and7(eq8(hubUser.portalId, portalId), eq8(hubUser.email, email), eq8(hubUser.isActive, true))).limit(1);
+  return u?.id ?? null;
+}
+
 // src/modules/deals/stage.service.ts
 var ENTITY3 = "deal";
 async function assertStageInPipeline(tx, pipelineId, stageId) {
-  const [stage] = await tx.select().from(pipelineStage).where(eq8(pipelineStage.id, stageId)).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(eq9(pipelineStage.id, stageId)).limit(1);
   if (!stage) throw Errors.badRequest("Stage inexistente");
   if (stage.pipelineId !== pipelineId) throw Errors.badRequest("El stage no pertenece al pipeline indicado");
   return stage;
 }
 async function activateClientPortal(tx, portalId, dealId) {
-  const [d] = await tx.select().from(deal).where(eq8(deal.id, dealId)).limit(1);
+  const [d] = await tx.select().from(deal).where(eq9(deal.id, dealId)).limit(1);
   if (!d?.primaryContactId) return;
-  const [c] = await tx.select().from(contact).where(eq8(contact.id, d.primaryContactId)).limit(1);
+  const [c] = await tx.select().from(contact).where(eq9(contact.id, d.primaryContactId)).limit(1);
   if (!c?.email) return;
-  let [account] = await tx.select().from(clientAccount).where(and7(eq8(clientAccount.portalId, portalId), eq8(clientAccount.email, c.email))).limit(1);
+  let [account] = await tx.select().from(clientAccount).where(and8(eq9(clientAccount.portalId, portalId), eq9(clientAccount.email, c.email))).limit(1);
   if (!account) {
     ;
     [account] = await tx.insert(clientAccount).values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID(), inviteSentAt: /* @__PURE__ */ new Date() }).returning();
   }
   await tx.insert(clientDealAccess).values({ clientId: account.id, dealId }).onConflictDoNothing();
   if (c.lifecycleStage !== "customer") {
-    await tx.update(contact).set({ lifecycleStage: "customer", updatedAt: /* @__PURE__ */ new Date() }).where(eq8(contact.id, c.id));
+    await tx.update(contact).set({ lifecycleStage: "customer", updatedAt: /* @__PURE__ */ new Date() }).where(eq9(contact.id, c.id));
   }
   if (account && !account.clerkUserId) {
     const clerkUserId = await ensureClerkUserType({
@@ -2299,19 +2352,25 @@ async function activateClientPortal(tx, portalId, dealId) {
       userType: "client"
     });
     if (clerkUserId) {
-      await tx.update(clientAccount).set({ clerkUserId }).where(eq8(clientAccount.id, account.id));
+      await tx.update(clientAccount).set({ clerkUserId }).where(eq9(clientAccount.id, account.id));
     }
   }
 }
+async function reassignProductionOwner(tx, portalId, stageLabel, currentOwnerId) {
+  const newOwnerId = await resolveProductionAssignee(tx, portalId, stageLabel);
+  if (!newOwnerId || newOwnerId === currentOwnerId) return null;
+  return newOwnerId;
+}
 async function changeStage(portalId, userId, dealId, newStageId) {
   const result = await db.transaction(async (tx) => {
-    const [d] = await tx.select().from(deal).where(and7(eq8(deal.portalId, portalId), eq8(deal.id, dealId), eq8(deal.archived, false))).limit(1);
-    if (!d) throw Errors.notFound("Deal no encontrado");
+    const [row] = await tx.select({ deal, pipelineLabel: pipeline.label }).from(deal).innerJoin(pipeline, eq9(pipeline.id, deal.pipelineId)).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, dealId), eq9(deal.archived, false))).limit(1);
+    if (!row) throw Errors.notFound("Deal no encontrado");
+    const { deal: d, pipelineLabel } = row;
     const stage = await assertStageInPipeline(tx, d.pipelineId, newStageId);
     if (d.stageId === newStageId) {
       return { deal: d, notify: null };
     }
-    const [updated] = await tx.update(deal).set({ stageId: newStageId, updatedAt: /* @__PURE__ */ new Date() }).where(eq8(deal.id, dealId)).returning();
+    const [updated] = await tx.update(deal).set({ stageId: newStageId, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, dealId)).returning();
     if (!updated) throw Errors.internal("No se pudo cambiar la etapa");
     await recordFieldChanges({
       tx,
@@ -2331,8 +2390,27 @@ async function changeStage(portalId, userId, dealId, newStageId) {
       action: "STAGE_CHANGE",
       payload: { from: d.stageId, to: newStageId }
     });
+    let finalDeal = updated;
+    if (pipelineLabel === PRODUCTION_PIPELINE_LABEL) {
+      const newOwnerId = await reassignProductionOwner(tx, portalId, stage.label, updated.ownerId);
+      if (newOwnerId) {
+        const [reassigned] = await tx.update(deal).set({ ownerId: newOwnerId, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, dealId)).returning();
+        if (reassigned) {
+          finalDeal = reassigned;
+          await recordFieldChanges({
+            tx,
+            portalId,
+            entityType: ENTITY3,
+            entityId: dealId,
+            before: { ownerId: updated.ownerId },
+            after: { ownerId: newOwnerId },
+            changedBy: userId
+          });
+        }
+      }
+    }
     if (stage.isWon) await activateClientPortal(tx, portalId, dealId);
-    return { deal: updated, notify: { ownerId: d.ownerId, dealName: d.name, stageLabel: stage.label } };
+    return { deal: finalDeal, notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label } };
   });
   if (result.notify) {
     await createNotification({
@@ -2346,6 +2424,53 @@ async function changeStage(portalId, userId, dealId, newStageId) {
   }
   return result.deal;
 }
+async function moveDealToProduction(tx, portalId, dealId, actor) {
+  const [pl] = await tx.select().from(pipeline).where(and8(eq9(pipeline.portalId, portalId), eq9(pipeline.label, PRODUCTION_PIPELINE_LABEL))).limit(1);
+  if (!pl) throw Errors.internal('Pipeline "Producci\xF3n" no seedeado en este portal');
+  const [stage] = await tx.select().from(pipelineStage).where(and8(eq9(pipelineStage.pipelineId, pl.id), eq9(pipelineStage.label, PRODUCTION_DIAGNOSTICO_STAGE_LABEL))).limit(1);
+  if (!stage) throw Errors.internal('Stage "Diagn\xF3stico" no seedeado en el pipeline Producci\xF3n');
+  const [d] = await tx.select().from(deal).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, dealId), eq9(deal.archived, false))).limit(1);
+  if (!d) throw Errors.notFound("Deal no encontrado");
+  const resolvedOwnerId = await reassignProductionOwner(tx, portalId, stage.label, d.ownerId);
+  const finalOwnerId = resolvedOwnerId ?? d.ownerId;
+  const [updated] = await tx.update(deal).set({
+    pipelineId: pl.id,
+    stageId: stage.id,
+    ...resolvedOwnerId ? { ownerId: resolvedOwnerId } : {},
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(eq9(deal.id, dealId)).returning();
+  if (!updated) throw Errors.internal("No se pudo mover el deal a Producci\xF3n");
+  await recordFieldChanges({
+    tx,
+    portalId,
+    entityType: ENTITY3,
+    entityId: dealId,
+    before: { pipelineId: d.pipelineId, stageId: d.stageId, ownerId: d.ownerId },
+    after: { pipelineId: pl.id, stageId: stage.id, ownerId: finalOwnerId },
+    changedBy: actor.userId ?? null
+  });
+  await writeAudit({
+    tx,
+    portalId,
+    userId: actor.userId ?? null,
+    clientId: actor.clientId ?? null,
+    entityType: ENTITY3,
+    entityId: dealId,
+    action: "STAGE_CHANGE",
+    payload: { from: d.stageId, to: stage.id, pipelineFrom: d.pipelineId, pipelineTo: pl.id }
+  });
+  await writeAudit({
+    tx,
+    portalId,
+    userId: actor.userId ?? null,
+    clientId: actor.clientId ?? null,
+    entityType: ENTITY3,
+    entityId: dealId,
+    action: "ONBOARDING_COMPLETED",
+    payload: { dealId }
+  });
+  return { ownerId: finalOwnerId, dealName: d.name, stageLabel: stage.label };
+}
 
 // src/modules/deals/deals.service.ts
 var ENTITY4 = "deal";
@@ -2353,7 +2478,7 @@ function toAmount(amount) {
   return amount === void 0 ? void 0 : amount.toFixed(2);
 }
 async function assertStageInPipeline2(tx, pipelineId, stageId) {
-  const [stage] = await tx.select().from(pipelineStage).where(eq9(pipelineStage.id, stageId)).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(eq10(pipelineStage.id, stageId)).limit(1);
   if (!stage) throw Errors.badRequest("Stage inexistente");
   if (stage.pipelineId !== pipelineId) throw Errors.badRequest("El stage no pertenece al pipeline indicado");
   return stage;
@@ -2361,18 +2486,18 @@ async function assertStageInPipeline2(tx, pipelineId, stageId) {
 async function listDeals(portalId, query) {
   const cursor = decodeCursor(query.cursor);
   const rows = await db.select().from(deal).where(
-    and8(eq9(deal.portalId, portalId), eq9(deal.archived, false), cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
+    and9(eq10(deal.portalId, portalId), eq10(deal.archived, false), cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
   ).orderBy(desc5(deal.createdAt), desc5(deal.id)).limit(query.limit + 1);
   return paginateRows(rows, query.limit);
 }
 async function getDeal(portalId, id) {
-  const [row] = await db.select().from(deal).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, id), eq9(deal.archived, false))).limit(1);
+  const [row] = await db.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Deal no encontrado");
   return row;
 }
 async function createDeal(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [pl] = await tx.select().from(pipeline).where(and8(eq9(pipeline.id, input.pipelineId), eq9(pipeline.portalId, portalId))).limit(1);
+    const [pl] = await tx.select().from(pipeline).where(and9(eq10(pipeline.id, input.pipelineId), eq10(pipeline.portalId, portalId))).limit(1);
     if (!pl) throw Errors.badRequest("Pipeline inexistente");
     await assertStageInPipeline2(tx, input.pipelineId, input.stageId);
     const [row] = await tx.insert(deal).values({ ...input, amount: toAmount(input.amount), portalId }).returning();
@@ -2383,10 +2508,10 @@ async function createDeal(portalId, userId, input) {
 }
 async function updateDeal(portalId, userId, id, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(deal).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, id), eq9(deal.archived, false))).limit(1);
+    const [existing] = await tx.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Deal no encontrado");
     const patch = { ...input, amount: toAmount(input.amount) };
-    const [updated] = await tx.update(deal).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, id)).returning();
+    const [updated] = await tx.update(deal).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq10(deal.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el deal");
     await recordFieldChanges({ tx, portalId, entityType: ENTITY4, entityId: id, before: existing, after: patch, changedBy: userId });
     await writeAudit({ tx, portalId, userId, entityType: ENTITY4, entityId: id, action: "UPDATE", payload: input });
@@ -2395,40 +2520,40 @@ async function updateDeal(portalId, userId, id, input) {
 }
 async function archiveDeal(portalId, userId, id) {
   await db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(deal).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, id), eq9(deal.archived, false))).limit(1);
+    const [existing] = await tx.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Deal no encontrado");
-    await tx.update(deal).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, id));
+    await tx.update(deal).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq10(deal.id, id));
     await writeAudit({ tx, portalId, userId, entityType: ENTITY4, entityId: id, action: "DELETE" });
   });
 }
 async function addDealContact(portalId, dealId, contactId, role) {
   await getDeal(portalId, dealId);
-  const [c] = await db.select().from(contact).where(and8(eq9(contact.portalId, portalId), eq9(contact.id, contactId))).limit(1);
+  const [c] = await db.select().from(contact).where(and9(eq10(contact.portalId, portalId), eq10(contact.id, contactId))).limit(1);
   if (!c) throw Errors.badRequest("Contacto inexistente");
   await db.insert(dealContact).values({ dealId, contactId, role }).onConflictDoNothing();
 }
 async function removeDealContact(portalId, dealId, contactId) {
   await getDeal(portalId, dealId);
-  await db.delete(dealContact).where(and8(eq9(dealContact.dealId, dealId), eq9(dealContact.contactId, contactId)));
+  await db.delete(dealContact).where(and9(eq10(dealContact.dealId, dealId), eq10(dealContact.contactId, contactId)));
 }
 async function getDealDetail(portalId, id) {
   const dealRow = await getDeal(portalId, id);
   let companyRow = null;
   if (dealRow.companyId) {
-    const [c] = await db.select().from(company).where(eq9(company.id, dealRow.companyId)).limit(1);
+    const [c] = await db.select().from(company).where(eq10(company.id, dealRow.companyId)).limit(1);
     companyRow = c ?? null;
   }
   const ids = /* @__PURE__ */ new Set();
   if (dealRow.primaryContactId) ids.add(dealRow.primaryContactId);
-  const links = await db.select({ contactId: dealContact.contactId }).from(dealContact).where(eq9(dealContact.dealId, id));
+  const links = await db.select({ contactId: dealContact.contactId }).from(dealContact).where(eq10(dealContact.dealId, id));
   for (const l of links) ids.add(l.contactId);
   let contacts = [];
   if (ids.size > 0) {
-    contacts = await db.select().from(contact).where(and8(eq9(contact.portalId, portalId), inArray3(contact.id, [...ids])));
+    contacts = await db.select().from(contact).where(and9(eq10(contact.portalId, portalId), inArray3(contact.id, [...ids])));
   }
-  const notes = await db.select().from(note).where(and8(eq9(note.portalId, portalId), eq9(note.dealId, id))).orderBy(desc5(note.createdAt)).limit(50);
-  const tasks = await db.select().from(task).where(and8(eq9(task.portalId, portalId), eq9(task.dealId, id))).orderBy(desc5(task.createdAt)).limit(50);
-  const history = await db.select().from(recordHistory).where(and8(eq9(recordHistory.entityType, ENTITY4), eq9(recordHistory.entityId, id))).orderBy(desc5(recordHistory.changedAt)).limit(50);
+  const notes = await db.select().from(note).where(and9(eq10(note.portalId, portalId), eq10(note.dealId, id))).orderBy(desc5(note.createdAt)).limit(50);
+  const tasks = await db.select().from(task).where(and9(eq10(task.portalId, portalId), eq10(task.dealId, id))).orderBy(desc5(task.createdAt)).limit(50);
+  const history = await db.select().from(recordHistory).where(and9(eq10(recordHistory.entityType, ENTITY4), eq10(recordHistory.entityId, id))).orderBy(desc5(recordHistory.changedAt)).limit(50);
   return { deal: dealRow, company: companyRow, contacts, notes, tasks, history };
 }
 var DEAL_FIELDS = {
@@ -2446,7 +2571,7 @@ async function searchDeals(portalId, body) {
   const cond = body.filter ? buildFilter(body.filter, DEAL_FIELDS) : void 0;
   const cursor = decodeCursor(body.cursor);
   const rows = await db.select().from(deal).where(
-    and8(eq9(deal.portalId, portalId), eq9(deal.archived, false), cond, cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
+    and9(eq10(deal.portalId, portalId), eq10(deal.archived, false), cond, cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
   ).orderBy(desc5(deal.createdAt), desc5(deal.id)).limit(body.limit + 1);
   return paginateRows(rows, body.limit);
 }
@@ -2598,14 +2723,14 @@ var UpdateStageSchema = z7.object({
 });
 
 // src/modules/pipelines/pipelines.service.ts
-import { and as and9, asc, count as count2, eq as eq10 } from "drizzle-orm";
+import { and as and10, asc, count as count2, eq as eq11 } from "drizzle-orm";
 async function assertPipeline(portalId, pipelineId) {
-  const [pl] = await db.select({ id: pipeline.id }).from(pipeline).where(and9(eq10(pipeline.id, pipelineId), eq10(pipeline.portalId, portalId))).limit(1);
+  const [pl] = await db.select({ id: pipeline.id }).from(pipeline).where(and10(eq11(pipeline.id, pipelineId), eq11(pipeline.portalId, portalId))).limit(1);
   if (!pl) throw Errors.notFound("Pipeline no encontrado");
 }
 async function addStage(portalId, pipelineId, input) {
   await assertPipeline(portalId, pipelineId);
-  const existing = await db.select({ id: pipelineStage.id }).from(pipelineStage).where(eq10(pipelineStage.pipelineId, pipelineId));
+  const existing = await db.select({ id: pipelineStage.id }).from(pipelineStage).where(eq11(pipelineStage.pipelineId, pipelineId));
   const [row] = await db.insert(pipelineStage).values({
     pipelineId,
     label: input.label,
@@ -2621,24 +2746,24 @@ async function addStage(portalId, pipelineId, input) {
 }
 async function deleteStage(portalId, pipelineId, stageId) {
   await assertPipeline(portalId, pipelineId);
-  const [used] = await db.select({ n: count2() }).from(deal).where(eq10(deal.stageId, stageId));
+  const [used] = await db.select({ n: count2() }).from(deal).where(eq11(deal.stageId, stageId));
   if ((used?.n ?? 0) > 0) throw Errors.badRequest("La etapa tiene deals; movelos antes de eliminarla");
-  const res = await db.delete(pipelineStage).where(and9(eq10(pipelineStage.id, stageId), eq10(pipelineStage.pipelineId, pipelineId))).returning({ id: pipelineStage.id });
+  const res = await db.delete(pipelineStage).where(and10(eq11(pipelineStage.id, stageId), eq11(pipelineStage.pipelineId, pipelineId))).returning({ id: pipelineStage.id });
   if (res.length === 0) throw Errors.notFound("Etapa no encontrada");
 }
 async function listPipelines(portalId) {
-  const pipelines = await db.select().from(pipeline).where(and9(eq10(pipeline.portalId, portalId), eq10(pipeline.archived, false))).orderBy(asc(pipeline.displayOrder), asc(pipeline.id));
+  const pipelines = await db.select().from(pipeline).where(and10(eq11(pipeline.portalId, portalId), eq11(pipeline.archived, false))).orderBy(asc(pipeline.displayOrder), asc(pipeline.id));
   const result = [];
   for (const pl of pipelines) {
-    const stages = await db.select().from(pipelineStage).where(and9(eq10(pipelineStage.pipelineId, pl.id), eq10(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
+    const stages = await db.select().from(pipelineStage).where(and10(eq11(pipelineStage.pipelineId, pl.id), eq11(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
     result.push({ ...pl, stages });
   }
   return result;
 }
 async function getStages(portalId, pipelineId) {
-  const [pl] = await db.select().from(pipeline).where(and9(eq10(pipeline.id, pipelineId), eq10(pipeline.portalId, portalId))).limit(1);
+  const [pl] = await db.select().from(pipeline).where(and10(eq11(pipeline.id, pipelineId), eq11(pipeline.portalId, portalId))).limit(1);
   if (!pl) throw Errors.notFound("Pipeline no encontrado");
-  return db.select().from(pipelineStage).where(and9(eq10(pipelineStage.pipelineId, pipelineId), eq10(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
+  return db.select().from(pipelineStage).where(and10(eq11(pipelineStage.pipelineId, pipelineId), eq11(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
 }
 async function updateStage(portalId, pipelineId, stageId, input) {
   await assertPipeline(portalId, pipelineId);
@@ -2650,7 +2775,7 @@ async function updateStage(portalId, pipelineId, stageId, input) {
   if ("probability" in input) updates.probability = input.probability === void 0 || input.probability === null ? null : input.probability.toFixed(4);
   if ("exitCriteria" in input) updates.exitCriteria = input.exitCriteria ?? null;
   if ("description" in input) updates.description = input.description ?? null;
-  const [row] = await db.update(pipelineStage).set(updates).where(and9(eq10(pipelineStage.id, stageId), eq10(pipelineStage.pipelineId, pipelineId))).returning();
+  const [row] = await db.update(pipelineStage).set(updates).where(and10(eq11(pipelineStage.id, stageId), eq11(pipelineStage.pipelineId, pipelineId))).returning();
   if (!row) throw Errors.notFound("Etapa no encontrada");
   return row;
 }
@@ -2794,7 +2919,7 @@ async function leadsRoutes(app2) {
 }
 
 // src/modules/clients/clients.service.ts
-import { eq as eq11, inArray as inArray4, desc as desc6 } from "drizzle-orm";
+import { eq as eq12, inArray as inArray4, desc as desc6 } from "drizzle-orm";
 var CLIENT_STAGES = ["customer"];
 function listClients(portalId, query) {
   return listContactsByLifecycle(portalId, CLIENT_STAGES, query);
@@ -2809,7 +2934,7 @@ async function listClientAccounts(portalId) {
     inviteAccepted: clientAccount.inviteAccepted,
     isActive: clientAccount.isActive,
     createdAt: clientAccount.createdAt
-  }).from(clientAccount).where(eq11(clientAccount.portalId, portalId)).orderBy(desc6(clientAccount.createdAt));
+  }).from(clientAccount).where(eq12(clientAccount.portalId, portalId)).orderBy(desc6(clientAccount.createdAt));
   if (accounts.length === 0) return [];
   const accIds = accounts.map((a) => a.id);
   const accesses = await db.select({ clientId: clientDealAccess.clientId, dealId: clientDealAccess.dealId }).from(clientDealAccess).where(inArray4(clientDealAccess.clientId, accIds));
@@ -2920,21 +3045,21 @@ var TaskQuerySchema = z9.object({
 });
 
 // src/modules/activities/activities.service.ts
-import { and as and10, desc as desc7, eq as eq12 } from "drizzle-orm";
+import { and as and11, desc as desc7, eq as eq13 } from "drizzle-orm";
 async function createNote(portalId, userId, input) {
   const [row] = await db.insert(note).values({ ...input, portalId, createdBy: userId }).returning();
   if (!row) throw Errors.internal("No se pudo crear la nota");
   return row;
 }
 async function listNotes(portalId, filters) {
-  const conds = [eq12(note.portalId, portalId)];
-  if (filters.contactId) conds.push(eq12(note.contactId, filters.contactId));
-  if (filters.dealId) conds.push(eq12(note.dealId, filters.dealId));
-  if (filters.companyId) conds.push(eq12(note.companyId, filters.companyId));
-  return db.select().from(note).where(and10(...conds)).orderBy(desc7(note.createdAt)).limit(100);
+  const conds = [eq13(note.portalId, portalId)];
+  if (filters.contactId) conds.push(eq13(note.contactId, filters.contactId));
+  if (filters.dealId) conds.push(eq13(note.dealId, filters.dealId));
+  if (filters.companyId) conds.push(eq13(note.companyId, filters.companyId));
+  return db.select().from(note).where(and11(...conds)).orderBy(desc7(note.createdAt)).limit(100);
 }
 async function deleteNote(portalId, id) {
-  const res = await db.delete(note).where(and10(eq12(note.portalId, portalId), eq12(note.id, id))).returning({ id: note.id });
+  const res = await db.delete(note).where(and11(eq13(note.portalId, portalId), eq13(note.id, id))).returning({ id: note.id });
   if (res.length === 0) throw Errors.notFound("Nota no encontrada");
 }
 async function createTask(portalId, userId, input) {
@@ -2944,15 +3069,15 @@ async function createTask(portalId, userId, input) {
   return row;
 }
 async function listTasks(portalId, filters) {
-  const conds = [eq12(task.portalId, portalId)];
-  if (filters.status) conds.push(eq12(task.status, filters.status));
-  if (filters.assignedTo) conds.push(eq12(task.assignedTo, filters.assignedTo));
-  if (filters.contactId) conds.push(eq12(task.contactId, filters.contactId));
-  if (filters.dealId) conds.push(eq12(task.dealId, filters.dealId));
-  return db.select().from(task).where(and10(...conds)).orderBy(desc7(task.createdAt)).limit(200);
+  const conds = [eq13(task.portalId, portalId)];
+  if (filters.status) conds.push(eq13(task.status, filters.status));
+  if (filters.assignedTo) conds.push(eq13(task.assignedTo, filters.assignedTo));
+  if (filters.contactId) conds.push(eq13(task.contactId, filters.contactId));
+  if (filters.dealId) conds.push(eq13(task.dealId, filters.dealId));
+  return db.select().from(task).where(and11(...conds)).orderBy(desc7(task.createdAt)).limit(200);
 }
 async function updateTask(portalId, id, input) {
-  const [existing] = await db.select().from(task).where(and10(eq12(task.portalId, portalId), eq12(task.id, id))).limit(1);
+  const [existing] = await db.select().from(task).where(and11(eq13(task.portalId, portalId), eq13(task.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Tarea no encontrada");
   const patch = {};
   if (input.title !== void 0) patch.title = input.title;
@@ -2965,12 +3090,12 @@ async function updateTask(portalId, id, input) {
     if (input.status === "completed") patch.completedAt = existing.completedAt ?? /* @__PURE__ */ new Date();
     else patch.completedAt = null;
   }
-  const [row] = await db.update(task).set(patch).where(eq12(task.id, id)).returning();
+  const [row] = await db.update(task).set(patch).where(eq13(task.id, id)).returning();
   if (!row) throw Errors.internal("No se pudo actualizar la tarea");
   return row;
 }
 async function deleteTask(portalId, id) {
-  const res = await db.delete(task).where(and10(eq12(task.portalId, portalId), eq12(task.id, id))).returning({ id: task.id });
+  const res = await db.delete(task).where(and11(eq13(task.portalId, portalId), eq13(task.id, id))).returning({ id: task.id });
   if (res.length === 0) throw Errors.notFound("Tarea no encontrada");
 }
 
@@ -3088,7 +3213,7 @@ async function tasksRoutes(app2) {
 }
 
 // src/modules/dashboard/dashboard.service.ts
-import { and as and11, asc as asc2, count as count3, desc as desc8, eq as eq13, inArray as inArray5, notInArray, sql as sql23 } from "drizzle-orm";
+import { and as and12, asc as asc2, count as count3, desc as desc8, eq as eq14, inArray as inArray5, notInArray, sql as sql24 } from "drizzle-orm";
 var OPEN_TASK_STATUSES = ["completed", "cancelled"];
 async function getDashboard(portalId) {
   const [
@@ -3102,25 +3227,25 @@ async function getDashboard(portalId) {
     recentTasks,
     recentDeals
   ] = await Promise.all([
-    db.select({ n: count3() }).from(contact).where(and11(eq13(contact.portalId, portalId), eq13(contact.archived, false), inArray5(contact.lifecycleStage, LEAD_STAGES))),
-    db.select({ n: count3() }).from(contact).where(and11(eq13(contact.portalId, portalId), eq13(contact.archived, false), eq13(contact.lifecycleStage, "customer"))),
-    db.select({ n: count3() }).from(company).where(and11(eq13(company.portalId, portalId), eq13(company.archived, false))),
-    db.select({ n: count3() }).from(task).where(and11(eq13(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
-    db.select({ openDeals: count3(), openValue: sql23`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and11(eq13(deal.portalId, portalId), eq13(deal.archived, false))),
+    db.select({ n: count3() }).from(contact).where(and12(eq14(contact.portalId, portalId), eq14(contact.archived, false), inArray5(contact.lifecycleStage, LEAD_STAGES))),
+    db.select({ n: count3() }).from(contact).where(and12(eq14(contact.portalId, portalId), eq14(contact.archived, false), eq14(contact.lifecycleStage, "customer"))),
+    db.select({ n: count3() }).from(company).where(and12(eq14(company.portalId, portalId), eq14(company.archived, false))),
+    db.select({ n: count3() }).from(task).where(and12(eq14(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
+    db.select({ openDeals: count3(), openValue: sql24`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and12(eq14(deal.portalId, portalId), eq14(deal.archived, false))),
     db.select({
-      weighted: sql23`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
-    }).from(deal).innerJoin(pipelineStage, eq13(deal.stageId, pipelineStage.id)).where(and11(eq13(deal.portalId, portalId), eq13(deal.archived, false))),
+      weighted: sql24`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
+    }).from(deal).innerJoin(pipelineStage, eq14(deal.stageId, pipelineStage.id)).where(and12(eq14(deal.portalId, portalId), eq14(deal.archived, false))),
     db.select({
       stageId: pipelineStage.id,
       label: pipelineStage.label,
       deals: count3(deal.id),
-      value: sql23`coalesce(sum(${deal.amount}), 0)`
+      value: sql24`coalesce(sum(${deal.amount}), 0)`
     }).from(pipelineStage).innerJoin(
       pipeline,
-      and11(eq13(pipelineStage.pipelineId, pipeline.id), eq13(pipeline.portalId, portalId), eq13(pipeline.archived, false))
-    ).leftJoin(deal, and11(eq13(deal.stageId, pipelineStage.id), eq13(deal.archived, false))).groupBy(pipelineStage.id, pipelineStage.label, pipelineStage.displayOrder).orderBy(asc2(pipelineStage.displayOrder)),
-    db.select().from(task).where(and11(eq13(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))).orderBy(asc2(task.dueDate), desc8(task.createdAt)).limit(6),
-    db.select().from(deal).where(and11(eq13(deal.portalId, portalId), eq13(deal.archived, false))).orderBy(desc8(deal.createdAt)).limit(6)
+      and12(eq14(pipelineStage.pipelineId, pipeline.id), eq14(pipeline.portalId, portalId), eq14(pipeline.archived, false))
+    ).leftJoin(deal, and12(eq14(deal.stageId, pipelineStage.id), eq14(deal.archived, false))).groupBy(pipelineStage.id, pipelineStage.label, pipelineStage.displayOrder).orderBy(asc2(pipelineStage.displayOrder)),
+    db.select().from(task).where(and12(eq14(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))).orderBy(asc2(task.dueDate), desc8(task.createdAt)).limit(6),
+    db.select().from(deal).where(and12(eq14(deal.portalId, portalId), eq14(deal.archived, false))).orderBy(desc8(deal.createdAt)).limit(6)
   ]);
   return {
     counts: {
@@ -3294,7 +3419,7 @@ var WeekBookingsQuerySchema = z10.object({
 });
 
 // src/modules/calendar/calendar.service.ts
-import { and as and12, asc as asc3, eq as eq14, gte as gte2, inArray as inArray6, lte as lte2 } from "drizzle-orm";
+import { and as and13, asc as asc3, eq as eq15, gte as gte2, inArray as inArray6, lte as lte2 } from "drizzle-orm";
 import { addMinutes as addMinutes2 } from "date-fns";
 import { format as formatTz2, toZonedTime as toZonedTime2 } from "date-fns-tz";
 import jwt from "jsonwebtoken";
@@ -3654,7 +3779,7 @@ function slugify(s) {
   return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 async function listMeetingTypes(portalId) {
-  return db.select().from(meetingType).where(eq14(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
+  return db.select().from(meetingType).where(eq15(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
 }
 async function createMeetingType(portalId, ownerId, input) {
   const [row] = await db.insert(meetingType).values({
@@ -3672,17 +3797,17 @@ async function createMeetingType(portalId, ownerId, input) {
   return row;
 }
 async function updateMeetingType(portalId, id, input) {
-  const [existing] = await db.select().from(meetingType).where(and12(eq14(meetingType.portalId, portalId), eq14(meetingType.id, id))).limit(1);
+  const [existing] = await db.select().from(meetingType).where(and13(eq15(meetingType.portalId, portalId), eq15(meetingType.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
-  const [row] = await db.update(meetingType).set({ ...input, slug: input.slug ? slugify(input.slug) : void 0 }).where(eq14(meetingType.id, id)).returning();
+  const [row] = await db.update(meetingType).set({ ...input, slug: input.slug ? slugify(input.slug) : void 0 }).where(eq15(meetingType.id, id)).returning();
   return row;
 }
 async function deleteMeetingType(portalId, id) {
-  const res = await db.delete(meetingType).where(and12(eq14(meetingType.portalId, portalId), eq14(meetingType.id, id))).returning({ id: meetingType.id });
+  const res = await db.delete(meetingType).where(and13(eq15(meetingType.portalId, portalId), eq15(meetingType.id, id))).returning({ id: meetingType.id });
   if (res.length === 0) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
 }
 async function listAvailabilityRules(ownerId) {
-  return db.select().from(availabilityRule).where(eq14(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
+  return db.select().from(availabilityRule).where(eq15(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
 }
 async function createAvailabilityRule(ownerId, input) {
   if (input.endTime <= input.startTime) throw Errors.badRequest("La hora de fin debe ser posterior a la de inicio");
@@ -3697,17 +3822,17 @@ async function createAvailabilityRule(ownerId, input) {
   return row;
 }
 async function deleteAvailabilityRule(ownerId, id) {
-  const res = await db.delete(availabilityRule).where(and12(eq14(availabilityRule.ownerId, ownerId), eq14(availabilityRule.id, id))).returning({ id: availabilityRule.id });
+  const res = await db.delete(availabilityRule).where(and13(eq15(availabilityRule.ownerId, ownerId), eq15(availabilityRule.id, id))).returning({ id: availabilityRule.id });
   if (res.length === 0) throw Errors.notFound("Regla no encontrada");
 }
 async function loadHostSchedule(mt, ownerId) {
   if (mt.availabilityScheduleId) {
-    const [schedule] = await db.select().from(availabilitySchedule).where(eq14(availabilitySchedule.id, mt.availabilityScheduleId)).limit(1);
+    const [schedule] = await db.select().from(availabilitySchedule).where(eq15(availabilitySchedule.id, mt.availabilityScheduleId)).limit(1);
     if (!schedule) {
       return loadLegacyRules(ownerId);
     }
-    const intervals = await db.select().from(availabilityInterval).where(eq14(availabilityInterval.scheduleId, schedule.id)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime));
-    const overrides = await db.select().from(dateOverride).where(eq14(dateOverride.scheduleId, schedule.id));
+    const intervals = await db.select().from(availabilityInterval).where(eq15(availabilityInterval.scheduleId, schedule.id)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime));
+    const overrides = await db.select().from(dateOverride).where(eq15(dateOverride.scheduleId, schedule.id));
     const weeklyIntervals = intervals.map((i) => ({
       dayOfWeek: i.dayOfWeek,
       // Los campos time en Drizzle/PG llegan como string 'HH:MM:SS' → tomar solo 'HH:MM'
@@ -3728,7 +3853,7 @@ async function loadHostSchedule(mt, ownerId) {
   return loadLegacyRules(ownerId);
 }
 async function loadLegacyRules(ownerId) {
-  const rules = await db.select().from(availabilityRule).where(eq14(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
+  const rules = await db.select().from(availabilityRule).where(eq15(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
   const timeZone = rules[0]?.timeZone ?? "America/Argentina/Buenos_Aires";
   const intervals = rules.map((r) => ({
     dayOfWeek: r.dayOfWeek,
@@ -3765,10 +3890,10 @@ function verifyBookingToken(token, expectedType) {
 }
 async function getPublicEventType(portalId, eventSlug) {
   const [mt] = await db.select().from(meetingType).where(
-    and12(
-      eq14(meetingType.portalId, portalId),
-      eq14(meetingType.slug, eventSlug),
-      eq14(meetingType.isActive, true)
+    and13(
+      eq15(meetingType.portalId, portalId),
+      eq15(meetingType.slug, eventSlug),
+      eq15(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
@@ -3801,7 +3926,7 @@ function toEventTypeConfig(mt) {
 }
 async function getSchedulesForMeetingType(mt) {
   if (mt.kind === "group") {
-    const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq14(eventMembership.meetingTypeId, mt.id));
+    const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq15(eventMembership.meetingTypeId, mt.id));
     const hostIds = memberships.map((m) => m.hostId);
     if (hostIds.length === 0) return { schedules: [], hostIds: [] };
     const schedules = await Promise.all(hostIds.map((hostId) => loadHostSchedule(mt, hostId)));
@@ -3811,7 +3936,7 @@ async function getSchedulesForMeetingType(mt) {
 }
 async function getBusyBookings(hostIds, excludeBookingId) {
   if (hostIds.length === 0) return [];
-  const rows = await db.select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status }).from(booking).where(and12(inArray6(booking.ownerId, hostIds), eq14(booking.status, "confirmed")));
+  const rows = await db.select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status }).from(booking).where(and13(inArray6(booking.ownerId, hostIds), eq15(booking.status, "confirmed")));
   return rows.filter((b) => b.id !== excludeBookingId).map((b) => ({
     startsAt: new Date(b.startsAt).toISOString(),
     endsAt: new Date(b.endsAt).toISOString(),
@@ -3846,10 +3971,10 @@ async function assertSlotAvailable(mt, startsAtIso, excludeBookingId) {
 }
 async function getPublicSlots(portalId, eventSlug, from, to, tz) {
   const [mt] = await db.select().from(meetingType).where(
-    and12(
-      eq14(meetingType.portalId, portalId),
-      eq14(meetingType.slug, eventSlug),
-      eq14(meetingType.isActive, true)
+    and13(
+      eq15(meetingType.portalId, portalId),
+      eq15(meetingType.slug, eventSlug),
+      eq15(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
@@ -3875,17 +4000,17 @@ async function getPublicSlots(portalId, eventSlug, from, to, tz) {
 }
 async function createPublicBooking(portalId, eventSlug, input, baseUrl) {
   const [mt] = await db.select().from(meetingType).where(
-    and12(
-      eq14(meetingType.portalId, portalId),
-      eq14(meetingType.slug, eventSlug),
-      eq14(meetingType.isActive, true)
+    and13(
+      eq15(meetingType.portalId, portalId),
+      eq15(meetingType.slug, eventSlug),
+      eq15(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
   await assertSlotAvailable(mt, input.startsAt);
   const startsAt = new Date(input.startsAt);
   const endsAt = addMinutes2(startsAt, mt.durationMin);
-  const [owner] = await db.select({ email: hubUser.email, firstName: hubUser.firstName, lastName: hubUser.lastName }).from(hubUser).where(eq14(hubUser.id, mt.ownerId)).limit(1);
+  const [owner] = await db.select({ email: hubUser.email, firstName: hubUser.firstName, lastName: hubUser.lastName }).from(hubUser).where(eq15(hubUser.id, mt.ownerId)).limit(1);
   let newBooking;
   try {
     newBooking = await db.transaction(async (tx) => {
@@ -3914,7 +4039,7 @@ async function createPublicBooking(portalId, eventSlug, input, baseUrl) {
   }
   const cancelToken = signBookingToken(newBooking.id, "booking-cancel", startsAt);
   const rescheduleToken = signBookingToken(newBooking.id, "booking-reschedule", startsAt);
-  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq14(booking.id, newBooking.id)).returning();
+  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq15(booking.id, newBooking.id)).returning();
   const finalBooking = updated ?? newBooking;
   const cancelUrl = `${baseUrl}/book/cancel?token=${cancelToken}`;
   const rescheduleUrl = `${baseUrl}/book/reschedule?token=${rescheduleToken}`;
@@ -3972,7 +4097,7 @@ async function createPublicBooking(portalId, eventSlug, input, baseUrl) {
 }
 async function cancelPublicBooking(token) {
   const decoded = verifyBookingToken(token, "booking-cancel");
-  const [existing] = await db.select().from(booking).where(eq14(booking.id, decoded.sub)).limit(1);
+  const [existing] = await db.select().from(booking).where(eq15(booking.id, decoded.sub)).limit(1);
   if (!existing) throw Errors.notFound("Booking no encontrado");
   if (existing.cancelToken !== token) {
     throw Errors.unauthorized("Token de cancelaci\xF3n ya revocado o inv\xE1lido");
@@ -3985,8 +4110,8 @@ async function cancelPublicBooking(token) {
     cancelledAt: /* @__PURE__ */ new Date(),
     cancelToken: null
     // Revocar para que no pueda usarse dos veces
-  }).where(eq14(booking.id, existing.id)).returning();
-  const [mt] = await db.select({ name: meetingType.name }).from(meetingType).where(eq14(meetingType.id, existing.meetingTypeId)).limit(1);
+  }).where(eq15(booking.id, existing.id)).returning();
+  const [mt] = await db.select({ name: meetingType.name }).from(meetingType).where(eq15(meetingType.id, existing.meetingTypeId)).limit(1);
   try {
     const startLocal = toInviteeDisplay(
       new Date(existing.startsAt).toISOString(),
@@ -4009,7 +4134,7 @@ async function cancelPublicBooking(token) {
 }
 async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
   const decoded = verifyBookingToken(token, "booking-reschedule");
-  const [original] = await db.select().from(booking).where(eq14(booking.id, decoded.sub)).limit(1);
+  const [original] = await db.select().from(booking).where(eq15(booking.id, decoded.sub)).limit(1);
   if (!original) throw Errors.notFound("Booking no encontrado");
   if (original.rescheduleToken !== token) {
     throw Errors.unauthorized("Token de reprogramaci\xF3n ya revocado o inv\xE1lido");
@@ -4017,7 +4142,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
   if (original.status === "cancelled") {
     throw Errors.badRequest("No se puede reprogramar un booking cancelado");
   }
-  const [mt] = await db.select().from(meetingType).where(eq14(meetingType.id, original.meetingTypeId)).limit(1);
+  const [mt] = await db.select().from(meetingType).where(eq15(meetingType.id, original.meetingTypeId)).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
   await assertSlotAvailable(mt, rescheduleData.newStartsAt, original.id);
   const newStartsAt = new Date(rescheduleData.newStartsAt);
@@ -4032,7 +4157,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
         cancelToken: null,
         rescheduleToken: null
         // Revocar ambos tokens del original
-      }).where(eq14(booking.id, original.id));
+      }).where(eq15(booking.id, original.id));
       const [row] = await tx.insert(booking).values({
         meetingTypeId: original.meetingTypeId,
         ownerId: original.ownerId,
@@ -4061,7 +4186,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
   }
   const cancelToken = signBookingToken(newBooking.id, "booking-cancel", newStartsAt);
   const rescheduleToken = signBookingToken(newBooking.id, "booking-reschedule", newStartsAt);
-  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq14(booking.id, newBooking.id)).returning();
+  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq15(booking.id, newBooking.id)).returning();
   const finalBooking = updated ?? newBooking;
   const cancelUrl = `${baseUrl}/book/cancel?token=${cancelToken}`;
   const rescheduleUrl = `${baseUrl}/book/reschedule?token=${rescheduleToken}`;
@@ -4091,7 +4216,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
   };
 }
 async function listSchedules(portalId) {
-  const schedules = await db.select().from(availabilitySchedule).where(eq14(availabilitySchedule.portalId, portalId)).orderBy(asc3(availabilitySchedule.name));
+  const schedules = await db.select().from(availabilitySchedule).where(eq15(availabilitySchedule.portalId, portalId)).orderBy(asc3(availabilitySchedule.name));
   if (schedules.length === 0) return [];
   const scheduleIds = schedules.map((s) => s.id);
   const [intervals, overrides] = await Promise.all([
@@ -4105,25 +4230,25 @@ async function listSchedules(portalId) {
   }));
 }
 async function getSchedule(portalId, scheduleId) {
-  const [schedule] = await db.select().from(availabilitySchedule).where(and12(eq14(availabilitySchedule.id, scheduleId), eq14(availabilitySchedule.portalId, portalId))).limit(1);
+  const [schedule] = await db.select().from(availabilitySchedule).where(and13(eq15(availabilitySchedule.id, scheduleId), eq15(availabilitySchedule.portalId, portalId))).limit(1);
   if (!schedule) throw Errors.notFound("Schedule no encontrado");
   const [intervals, overrides] = await Promise.all([
-    db.select().from(availabilityInterval).where(eq14(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
-    db.select().from(dateOverride).where(eq14(dateOverride.scheduleId, scheduleId))
+    db.select().from(availabilityInterval).where(eq15(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
+    db.select().from(dateOverride).where(eq15(dateOverride.scheduleId, scheduleId))
   ]);
   return { ...schedule, intervals, dateOverrides: overrides };
 }
 async function createSchedule(portalId, ownerId, input) {
   return db.transaction(async (tx) => {
     const existing = await tx.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(
-      and12(eq14(availabilitySchedule.portalId, portalId), eq14(availabilitySchedule.ownerId, ownerId))
+      and13(eq15(availabilitySchedule.portalId, portalId), eq15(availabilitySchedule.ownerId, ownerId))
     );
     const makeDefault = input.isDefault === true || existing.length === 0;
     if (makeDefault && existing.length > 0) {
       await tx.update(availabilitySchedule).set({ isDefault: false }).where(
-        and12(
-          eq14(availabilitySchedule.portalId, portalId),
-          eq14(availabilitySchedule.ownerId, ownerId)
+        and13(
+          eq15(availabilitySchedule.portalId, portalId),
+          eq15(availabilitySchedule.ownerId, ownerId)
         )
       );
     }
@@ -4134,13 +4259,13 @@ async function createSchedule(portalId, ownerId, input) {
 }
 async function updateSchedule(portalId, scheduleId, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(availabilitySchedule).where(and12(eq14(availabilitySchedule.id, scheduleId), eq14(availabilitySchedule.portalId, portalId))).limit(1);
+    const [existing] = await tx.select().from(availabilitySchedule).where(and13(eq15(availabilitySchedule.id, scheduleId), eq15(availabilitySchedule.portalId, portalId))).limit(1);
     if (!existing) throw Errors.notFound("Schedule no encontrado");
     if (input.isDefault === true && !existing.isDefault) {
       await tx.update(availabilitySchedule).set({ isDefault: false }).where(
-        and12(
-          eq14(availabilitySchedule.portalId, portalId),
-          eq14(availabilitySchedule.ownerId, existing.ownerId)
+        and13(
+          eq15(availabilitySchedule.portalId, portalId),
+          eq15(availabilitySchedule.ownerId, existing.ownerId)
         )
       );
     }
@@ -4148,21 +4273,21 @@ async function updateSchedule(portalId, scheduleId, input) {
     if (input.name !== void 0) updateData.name = input.name;
     if (input.timeZone !== void 0) updateData.timeZone = input.timeZone;
     if (input.isDefault !== void 0) updateData.isDefault = input.isDefault;
-    const [updated] = await tx.update(availabilitySchedule).set(updateData).where(eq14(availabilitySchedule.id, scheduleId)).returning();
+    const [updated] = await tx.update(availabilitySchedule).set(updateData).where(eq15(availabilitySchedule.id, scheduleId)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el schedule");
     const [intervals, overrides] = await Promise.all([
-      tx.select().from(availabilityInterval).where(eq14(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
-      tx.select().from(dateOverride).where(eq14(dateOverride.scheduleId, scheduleId))
+      tx.select().from(availabilityInterval).where(eq15(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
+      tx.select().from(dateOverride).where(eq15(dateOverride.scheduleId, scheduleId))
     ]);
     return { ...updated, intervals, dateOverrides: overrides };
   });
 }
 async function deleteSchedule(portalId, scheduleId) {
-  const res = await db.delete(availabilitySchedule).where(and12(eq14(availabilitySchedule.id, scheduleId), eq14(availabilitySchedule.portalId, portalId))).returning({ id: availabilitySchedule.id });
+  const res = await db.delete(availabilitySchedule).where(and13(eq15(availabilitySchedule.id, scheduleId), eq15(availabilitySchedule.portalId, portalId))).returning({ id: availabilitySchedule.id });
   if (res.length === 0) throw Errors.notFound("Schedule no encontrado");
 }
 async function assertScheduleOwnership(portalId, scheduleId) {
-  const [s] = await db.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(and12(eq14(availabilitySchedule.id, scheduleId), eq14(availabilitySchedule.portalId, portalId))).limit(1);
+  const [s] = await db.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(and13(eq15(availabilitySchedule.id, scheduleId), eq15(availabilitySchedule.portalId, portalId))).limit(1);
   if (!s) throw Errors.notFound("Schedule no encontrado");
 }
 async function addScheduleInterval(portalId, scheduleId, input) {
@@ -4189,7 +4314,7 @@ async function replaceScheduleIntervals(portalId, scheduleId, input) {
     }
   }
   return db.transaction(async (tx) => {
-    await tx.delete(availabilityInterval).where(eq14(availabilityInterval.scheduleId, scheduleId));
+    await tx.delete(availabilityInterval).where(eq15(availabilityInterval.scheduleId, scheduleId));
     if (input.intervals.length === 0) return [];
     const rows = await tx.insert(availabilityInterval).values(
       input.intervals.map((i) => ({
@@ -4205,15 +4330,15 @@ async function replaceScheduleIntervals(portalId, scheduleId, input) {
 async function deleteScheduleInterval(portalId, scheduleId, intervalId) {
   await assertScheduleOwnership(portalId, scheduleId);
   const res = await db.delete(availabilityInterval).where(
-    and12(eq14(availabilityInterval.id, intervalId), eq14(availabilityInterval.scheduleId, scheduleId))
+    and13(eq15(availabilityInterval.id, intervalId), eq15(availabilityInterval.scheduleId, scheduleId))
   ).returning({ id: availabilityInterval.id });
   if (res.length === 0) throw Errors.notFound("Intervalo no encontrado");
 }
 async function upsertDateOverride(portalId, scheduleId, input) {
   await assertScheduleOwnership(portalId, scheduleId);
-  const [existing] = await db.select().from(dateOverride).where(and12(eq14(dateOverride.scheduleId, scheduleId), eq14(dateOverride.date, input.date))).limit(1);
+  const [existing] = await db.select().from(dateOverride).where(and13(eq15(dateOverride.scheduleId, scheduleId), eq15(dateOverride.date, input.date))).limit(1);
   if (existing) {
-    const [updated] = await db.update(dateOverride).set({ intervals: input.intervals }).where(eq14(dateOverride.id, existing.id)).returning();
+    const [updated] = await db.update(dateOverride).set({ intervals: input.intervals }).where(eq15(dateOverride.id, existing.id)).returning();
     return updated;
   }
   const [row] = await db.insert(dateOverride).values({ scheduleId, date: input.date, intervals: input.intervals }).returning();
@@ -4222,7 +4347,7 @@ async function upsertDateOverride(portalId, scheduleId, input) {
 }
 async function deleteDateOverride(portalId, scheduleId, overrideId) {
   await assertScheduleOwnership(portalId, scheduleId);
-  const res = await db.delete(dateOverride).where(and12(eq14(dateOverride.id, overrideId), eq14(dateOverride.scheduleId, scheduleId))).returning({ id: dateOverride.id });
+  const res = await db.delete(dateOverride).where(and13(eq15(dateOverride.id, overrideId), eq15(dateOverride.scheduleId, scheduleId))).returning({ id: dateOverride.id });
   if (res.length === 0) throw Errors.notFound("Override no encontrado");
 }
 function toEventTypeV2(mt, hosts) {
@@ -4256,7 +4381,7 @@ function toEventTypeV2(mt, hosts) {
   };
 }
 async function listEventTypesV2(portalId) {
-  const types = await db.select().from(meetingType).where(eq14(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
+  const types = await db.select().from(meetingType).where(eq15(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
   if (types.length === 0) return [];
   const typeIds = types.map((t) => t.id);
   const memberships = await db.select({ meetingTypeId: eventMembership.meetingTypeId, hostId: eventMembership.hostId }).from(eventMembership).where(inArray6(eventMembership.meetingTypeId, typeIds));
@@ -4266,9 +4391,9 @@ async function listEventTypesV2(portalId) {
   });
 }
 async function getEventTypeV2(portalId, id) {
-  const [mt] = await db.select().from(meetingType).where(and12(eq14(meetingType.id, id), eq14(meetingType.portalId, portalId))).limit(1);
+  const [mt] = await db.select().from(meetingType).where(and13(eq15(meetingType.id, id), eq15(meetingType.portalId, portalId))).limit(1);
   if (!mt) throw Errors.notFound("Event type no encontrado");
-  const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq14(eventMembership.meetingTypeId, id));
+  const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq15(eventMembership.meetingTypeId, id));
   return toEventTypeV2(mt, memberships.map((m) => m.hostId));
 }
 async function createEventTypeV2(portalId, ownerId, input) {
@@ -4311,7 +4436,7 @@ async function createEventTypeV2(portalId, ownerId, input) {
 }
 async function updateEventTypeV2(portalId, id, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(meetingType).where(and12(eq14(meetingType.id, id), eq14(meetingType.portalId, portalId))).limit(1);
+    const [existing] = await tx.select().from(meetingType).where(and13(eq15(meetingType.id, id), eq15(meetingType.portalId, portalId))).limit(1);
     if (!existing) throw Errors.notFound("Event type no encontrado");
     const updateData = {};
     if (input.name !== void 0) updateData.name = input.name;
@@ -4336,24 +4461,24 @@ async function updateEventTypeV2(portalId, id, input) {
     if (input.dailyLimit !== void 0) updateData.dailyLimit = input.dailyLimit;
     if (input.maxInvitees !== void 0) updateData.maxInvitees = input.maxInvitees;
     if (input.availabilityScheduleId !== void 0) updateData.availabilityScheduleId = input.availabilityScheduleId;
-    const [updated] = await tx.update(meetingType).set(updateData).where(eq14(meetingType.id, id)).returning();
+    const [updated] = await tx.update(meetingType).set(updateData).where(eq15(meetingType.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el event type");
     let hostIds;
     if (input.hostIds !== void 0) {
-      await tx.delete(eventMembership).where(eq14(eventMembership.meetingTypeId, id));
+      await tx.delete(eventMembership).where(eq15(eventMembership.meetingTypeId, id));
       if (input.hostIds.length > 0) {
         await tx.insert(eventMembership).values(input.hostIds.map((hostId) => ({ meetingTypeId: id, hostId })));
       }
       hostIds = input.hostIds;
     } else {
-      const memberships = await tx.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq14(eventMembership.meetingTypeId, id));
+      const memberships = await tx.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq15(eventMembership.meetingTypeId, id));
       hostIds = memberships.map((m) => m.hostId);
     }
     return toEventTypeV2(updated, hostIds);
   });
 }
 async function deleteEventTypeV2(portalId, id) {
-  const res = await db.delete(meetingType).where(and12(eq14(meetingType.id, id), eq14(meetingType.portalId, portalId))).returning({ id: meetingType.id });
+  const res = await db.delete(meetingType).where(and13(eq15(meetingType.id, id), eq15(meetingType.portalId, portalId))).returning({ id: meetingType.id });
   if (res.length === 0) throw Errors.notFound("Event type no encontrado");
 }
 async function listWeekBookings(portalId, from, to) {
@@ -4370,9 +4495,9 @@ async function listWeekBookings(portalId, from, to) {
     inviteeTimeZone: booking.inviteeTimeZone,
     meetingTypeName: meetingType.name,
     meetingTypeColor: meetingType.color
-  }).from(booking).innerJoin(meetingType, eq14(booking.meetingTypeId, meetingType.id)).where(
-    and12(
-      eq14(meetingType.portalId, portalId),
+  }).from(booking).innerJoin(meetingType, eq15(booking.meetingTypeId, meetingType.id)).where(
+    and13(
+      eq15(meetingType.portalId, portalId),
       gte2(booking.startsAt, fromDate),
       lte2(booking.startsAt, toDate)
     )
@@ -4383,7 +4508,7 @@ async function cancelAdminBooking(portalId, bookingId) {
     id: booking.id,
     status: booking.status,
     portalId: meetingType.portalId
-  }).from(booking).innerJoin(meetingType, eq14(booking.meetingTypeId, meetingType.id)).where(eq14(booking.id, bookingId)).limit(1);
+  }).from(booking).innerJoin(meetingType, eq15(booking.meetingTypeId, meetingType.id)).where(eq15(booking.id, bookingId)).limit(1);
   if (!existing) throw Errors.notFound("Booking no encontrado");
   if (existing.portalId !== portalId) throw Errors.notFound("Booking no encontrado");
   if (existing.status === "cancelled") {
@@ -4394,7 +4519,7 @@ async function cancelAdminBooking(portalId, bookingId) {
     cancelledAt: /* @__PURE__ */ new Date(),
     cancelToken: null,
     rescheduleToken: null
-  }).where(eq14(booking.id, bookingId)).returning({ id: booking.id });
+  }).where(eq15(booking.id, bookingId)).returning({ id: booking.id });
   return { bookingId: cancelled.id };
 }
 async function listBookings(portalId) {
@@ -4407,7 +4532,7 @@ async function listBookings(portalId) {
     status: booking.status,
     meetLink: booking.meetLink,
     meetingTypeName: meetingType.name
-  }).from(booking).innerJoin(meetingType, eq14(booking.meetingTypeId, meetingType.id)).where(eq14(meetingType.portalId, portalId)).orderBy(asc3(booking.startsAt)).limit(100);
+  }).from(booking).innerJoin(meetingType, eq15(booking.meetingTypeId, meetingType.id)).where(eq15(meetingType.portalId, portalId)).orderBy(asc3(booking.startsAt)).limit(100);
 }
 
 // src/modules/calendar/calendar.router.ts
@@ -4488,7 +4613,7 @@ var UpdateUserSchema = z11.object({
 }).partial();
 
 // src/modules/users/users.service.ts
-import { and as and13, asc as asc4, eq as eq15 } from "drizzle-orm";
+import { and as and14, asc as asc4, eq as eq16 } from "drizzle-orm";
 var publicCols = {
   id: hubUser.id,
   email: hubUser.email,
@@ -4498,10 +4623,10 @@ var publicCols = {
   isActive: hubUser.isActive
 };
 async function listUsers(portalId) {
-  return db.select(publicCols).from(hubUser).where(eq15(hubUser.portalId, portalId)).orderBy(asc4(hubUser.id));
+  return db.select(publicCols).from(hubUser).where(eq16(hubUser.portalId, portalId)).orderBy(asc4(hubUser.id));
 }
 async function createUser(portalId, input) {
-  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and13(eq15(hubUser.portalId, portalId), eq15(hubUser.email, input.email))).limit(1);
+  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and14(eq16(hubUser.portalId, portalId), eq16(hubUser.email, input.email))).limit(1);
   if (existing) throw Errors.conflict("Ya existe un usuario con ese email");
   const [row] = await db.insert(hubUser).values({
     portalId,
@@ -4518,14 +4643,14 @@ async function createUser(portalId, input) {
     userType: "admin"
   });
   if (clerkUserId) {
-    await db.update(hubUser).set({ clerkUserId }).where(eq15(hubUser.id, row.id));
+    await db.update(hubUser).set({ clerkUserId }).where(eq16(hubUser.id, row.id));
   }
   return row;
 }
 async function updateUser(portalId, id, input) {
-  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and13(eq15(hubUser.portalId, portalId), eq15(hubUser.id, id))).limit(1);
+  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and14(eq16(hubUser.portalId, portalId), eq16(hubUser.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Usuario no encontrado");
-  const [row] = await db.update(hubUser).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq15(hubUser.id, id)).returning(publicCols);
+  const [row] = await db.update(hubUser).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq16(hubUser.id, id)).returning(publicCols);
   return row;
 }
 
@@ -4556,7 +4681,7 @@ async function usersRoutes(app2) {
 }
 
 // src/modules/settings/settings.service.ts
-import { eq as eq16 } from "drizzle-orm";
+import { eq as eq17 } from "drizzle-orm";
 import { z as z12 } from "zod";
 var UpdatePortalSchema = z12.object({
   name: z12.string().min(1).optional(),
@@ -4564,12 +4689,12 @@ var UpdatePortalSchema = z12.object({
   currency: z12.string().length(3).optional()
 });
 async function getPortal(portalId) {
-  const [row] = await db.select().from(portal).where(eq16(portal.id, portalId)).limit(1);
+  const [row] = await db.select().from(portal).where(eq17(portal.id, portalId)).limit(1);
   if (!row) throw Errors.notFound("Portal no encontrado");
   return row;
 }
 async function updatePortal(portalId, input) {
-  const [row] = await db.update(portal).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq16(portal.id, portalId)).returning();
+  const [row] = await db.update(portal).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq17(portal.id, portalId)).returning();
   if (!row) throw Errors.notFound("Portal no encontrado");
   return row;
 }
@@ -4603,7 +4728,7 @@ async function authenticateClient(request, _reply) {
 }
 
 // src/modules/client-auth/client-auth.service.ts
-import { eq as eq17 } from "drizzle-orm";
+import { eq as eq18 } from "drizzle-orm";
 function toPublicClient(row) {
   return {
     id: row.id,
@@ -4617,7 +4742,7 @@ function toPublicClient(row) {
   };
 }
 async function getClientAccount(id) {
-  const [account] = await db.select().from(clientAccount).where(eq17(clientAccount.id, id)).limit(1);
+  const [account] = await db.select().from(clientAccount).where(eq18(clientAccount.id, id)).limit(1);
   if (!account) throw Errors.notFound("Cuenta de cliente no encontrada");
   return toPublicClient(account);
 }
@@ -4666,28 +4791,28 @@ var DeliverableListQuerySchema = z13.object({
 });
 
 // src/modules/deliverables/deliverables.service.ts
-import { and as and15, desc as desc9, eq as eq19 } from "drizzle-orm";
+import { and as and16, desc as desc9, eq as eq20 } from "drizzle-orm";
 
 // src/lib/portal-access.ts
-import { and as and14, eq as eq18 } from "drizzle-orm";
+import { and as and15, eq as eq19 } from "drizzle-orm";
 async function clientDealIds(clientId) {
-  const rows = await db.select({ dealId: clientDealAccess.dealId }).from(clientDealAccess).where(eq18(clientDealAccess.clientId, clientId));
+  const rows = await db.select({ dealId: clientDealAccess.dealId }).from(clientDealAccess).where(eq19(clientDealAccess.clientId, clientId));
   return rows.map((r) => r.dealId);
 }
 async function assertDealInPortal(portalId, dealId) {
-  const [d] = await db.select().from(deal).where(and14(eq18(deal.id, dealId), eq18(deal.portalId, portalId), eq18(deal.archived, false))).limit(1);
+  const [d] = await db.select().from(deal).where(and15(eq19(deal.id, dealId), eq19(deal.portalId, portalId), eq19(deal.archived, false))).limit(1);
   if (!d) throw Errors.badRequest("Deal inexistente");
   return d;
 }
 
 // src/modules/deliverables/deliverables.service.ts
 async function requireDeliverableInPortal(tx, id, portalId) {
-  const [row] = await tx.select({ deliverable }).from(deliverable).innerJoin(deal, and15(eq19(deal.id, deliverable.dealId), eq19(deal.portalId, portalId), eq19(deal.archived, false))).where(eq19(deliverable.id, id)).limit(1);
+  const [row] = await tx.select({ deliverable }).from(deliverable).innerJoin(deal, and16(eq20(deal.id, deliverable.dealId), eq20(deal.portalId, portalId), eq20(deal.archived, false))).where(eq20(deliverable.id, id)).limit(1);
   if (!row) throw Errors.notFound("Entregable no encontrado");
   return row.deliverable;
 }
 async function listDeliverables(portalId, query) {
-  const rows = await db.select({ deliverable }).from(deliverable).innerJoin(deal, and15(eq19(deal.id, deliverable.dealId), eq19(deal.portalId, portalId), eq19(deal.archived, false))).where(query.dealId ? eq19(deliverable.dealId, query.dealId) : void 0).orderBy(desc9(deliverable.createdAt));
+  const rows = await db.select({ deliverable }).from(deliverable).innerJoin(deal, and16(eq20(deal.id, deliverable.dealId), eq20(deal.portalId, portalId), eq20(deal.archived, false))).where(query.dealId ? eq20(deliverable.dealId, query.dealId) : void 0).orderBy(desc9(deliverable.createdAt));
   return rows.map((r) => r.deliverable);
 }
 async function createDeliverable(portalId, userId, input) {
@@ -4712,7 +4837,7 @@ async function updateDeliverable(portalId, id, input) {
     const [updated] = await tx.update(deliverable).set({
       ...input,
       ...reviewTimestamp ? { reviewedAt: reviewTimestamp } : {}
-    }).where(eq19(deliverable.id, id)).returning();
+    }).where(eq20(deliverable.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el entregable");
     return updated;
   });
@@ -4720,7 +4845,7 @@ async function updateDeliverable(portalId, id, input) {
 async function deleteDeliverable(portalId, id) {
   await db.transaction(async (tx) => {
     await requireDeliverableInPortal(tx, id, portalId);
-    await tx.delete(deliverable).where(eq19(deliverable.id, id));
+    await tx.delete(deliverable).where(eq20(deliverable.id, id));
   });
 }
 
@@ -4803,11 +4928,11 @@ async function deliverablesRoutes(app2) {
 import { z as z14 } from "zod";
 
 // src/modules/client/client.service.ts
-import { and as and16, desc as desc10, eq as eq20, inArray as inArray7, sql as sql24 } from "drizzle-orm";
+import { and as and17, desc as desc10, eq as eq21, inArray as inArray7, sql as sql25 } from "drizzle-orm";
 async function clientDeals(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select().from(deal).where(and16(inArray7(deal.id, ids), eq20(deal.archived, false)));
+  return db.select().from(deal).where(and17(inArray7(deal.id, ids), eq21(deal.archived, false)));
 }
 async function clientDeliverables(clientId) {
   const ids = await clientDealIds(clientId);
@@ -4816,27 +4941,27 @@ async function clientDeliverables(clientId) {
 }
 async function assertClientDeliverable(clientId, deliverableId) {
   const ids = await clientDealIds(clientId);
-  const [dv] = await db.select().from(deliverable).where(eq20(deliverable.id, deliverableId)).limit(1);
+  const [dv] = await db.select().from(deliverable).where(eq21(deliverable.id, deliverableId)).limit(1);
   if (!dv || !ids.includes(dv.dealId)) throw Errors.notFound("Entregable no encontrado");
   return dv;
 }
 async function approveDeliverable(clientId, deliverableId) {
   await assertClientDeliverable(clientId, deliverableId);
-  await db.update(deliverable).set({ status: "approved", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback: null }).where(eq20(deliverable.id, deliverableId));
+  await db.update(deliverable).set({ status: "approved", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback: null }).where(eq21(deliverable.id, deliverableId));
 }
 async function requestChanges(clientId, deliverableId, feedback) {
   await assertClientDeliverable(clientId, deliverableId);
-  await db.update(deliverable).set({ status: "changes_requested", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback }).where(eq20(deliverable.id, deliverableId));
+  await db.update(deliverable).set({ status: "changes_requested", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback }).where(eq21(deliverable.id, deliverableId));
 }
 async function listClientInvoices(clientId) {
   const dealIds = await clientDealIds(clientId);
   if (dealIds.length === 0) return [];
-  const invoices = await db.select().from(invoice).where(and16(inArray7(invoice.dealId, dealIds), eq20(invoice.archived, false))).orderBy(desc10(invoice.createdAt));
+  const invoices = await db.select().from(invoice).where(and17(inArray7(invoice.dealId, dealIds), eq21(invoice.archived, false))).orderBy(desc10(invoice.createdAt));
   if (invoices.length === 0) return [];
   const invoiceIds = invoices.map((inv) => inv.id);
   const paymentTotals = await db.select({
     invoiceId: payment.invoiceId,
-    paid: sql24`COALESCE(SUM(${payment.amount}), '0')`
+    paid: sql25`COALESCE(SUM(${payment.amount}), '0')`
   }).from(payment).where(inArray7(payment.invoiceId, invoiceIds)).groupBy(payment.invoiceId);
   const paidByInvoice = new Map(
     paymentTotals.map((r) => [r.invoiceId, Number(r.paid)])
@@ -4858,7 +4983,7 @@ async function listClientInvoices(clientId) {
 }
 
 // src/modules/documents/documents.service.ts
-import { and as and17, desc as desc11, eq as eq21, inArray as inArray8 } from "drizzle-orm";
+import { and as and18, desc as desc11, eq as eq22, inArray as inArray8 } from "drizzle-orm";
 function toDTO(row) {
   return {
     id: row.id,
@@ -4875,11 +5000,11 @@ function toDTO(row) {
   };
 }
 async function listDocuments(portalId, query) {
-  const conditions = [eq21(document.portalId, portalId)];
+  const conditions = [eq22(document.portalId, portalId)];
   if (query.dealId) {
-    conditions.push(eq21(document.dealId, query.dealId));
+    conditions.push(eq22(document.dealId, query.dealId));
   }
-  const rows = await db.select().from(document).where(and17(...conditions)).orderBy(desc11(document.createdAt));
+  const rows = await db.select().from(document).where(and18(...conditions)).orderBy(desc11(document.createdAt));
   return rows.map(toDTO);
 }
 async function createDocument(portalId, userId, input) {
@@ -4897,9 +5022,9 @@ async function createDocument(portalId, userId, input) {
   return toDTO(row);
 }
 async function deleteDocument(portalId, id) {
-  const [row] = await db.select({ id: document.id }).from(document).where(and17(eq21(document.id, id), eq21(document.portalId, portalId))).limit(1);
+  const [row] = await db.select({ id: document.id }).from(document).where(and18(eq22(document.id, id), eq22(document.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Documento no encontrado");
-  await db.delete(document).where(eq21(document.id, id));
+  await db.delete(document).where(eq22(document.id, id));
 }
 async function listClientDocuments(dealIds) {
   if (dealIds.length === 0) return [];
@@ -5005,12 +5130,12 @@ var RespondIntakeSchema = z15.object({
 });
 
 // src/modules/intake/intake.service.ts
-import { and as and18, asc as asc5, desc as desc12, eq as eq22, inArray as inArray9 } from "drizzle-orm";
+import { and as and19, asc as asc5, desc as desc12, eq as eq23, inArray as inArray9 } from "drizzle-orm";
 function slugify2(s) {
   return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 async function listIntakeForms(portalId) {
-  return db.select().from(intakeForm).where(eq22(intakeForm.portalId, portalId)).orderBy(asc5(intakeForm.name));
+  return db.select().from(intakeForm).where(eq23(intakeForm.portalId, portalId)).orderBy(asc5(intakeForm.name));
 }
 async function createIntakeForm(portalId, input) {
   const [row] = await db.insert(intakeForm).values({
@@ -5031,12 +5156,12 @@ async function listDealIntakes(portalId, dealId) {
     dueDate: dealIntake.dueDate,
     completedAt: dealIntake.completedAt,
     formName: intakeForm.name
-  }).from(dealIntake).innerJoin(deal, and18(eq22(deal.id, dealIntake.dealId), eq22(deal.portalId, portalId))).innerJoin(intakeForm, eq22(intakeForm.id, dealIntake.formId)).where(eq22(dealIntake.dealId, dealId)).orderBy(desc12(dealIntake.createdAt));
+  }).from(dealIntake).innerJoin(deal, and19(eq23(deal.id, dealIntake.dealId), eq23(deal.portalId, portalId))).innerJoin(intakeForm, eq23(intakeForm.id, dealIntake.formId)).where(eq23(dealIntake.dealId, dealId)).orderBy(desc12(dealIntake.createdAt));
 }
 async function assignIntake(portalId, input) {
-  const [d] = await db.select().from(deal).where(and18(eq22(deal.id, input.dealId), eq22(deal.portalId, portalId))).limit(1);
+  const [d] = await db.select().from(deal).where(and19(eq23(deal.id, input.dealId), eq23(deal.portalId, portalId))).limit(1);
   if (!d) throw Errors.badRequest("Deal inexistente");
-  const [f] = await db.select().from(intakeForm).where(and18(eq22(intakeForm.id, input.formId), eq22(intakeForm.portalId, portalId))).limit(1);
+  const [f] = await db.select().from(intakeForm).where(and19(eq23(intakeForm.id, input.formId), eq23(intakeForm.portalId, portalId))).limit(1);
   if (!f) throw Errors.badRequest("Formulario inexistente");
   const [row] = await db.insert(dealIntake).values({
     dealId: input.dealId,
@@ -5056,14 +5181,14 @@ async function clientIntakes(clientId) {
     dueDate: dealIntake.dueDate,
     fields: intakeForm.fields,
     answers: dealIntakeResponse.answers
-  }).from(dealIntake).innerJoin(intakeForm, eq22(intakeForm.id, dealIntake.formId)).leftJoin(dealIntakeResponse, eq22(dealIntakeResponse.intakeId, dealIntake.id)).where(inArray9(dealIntake.dealId, ids)).orderBy(asc5(dealIntake.status));
+  }).from(dealIntake).innerJoin(intakeForm, eq23(intakeForm.id, dealIntake.formId)).leftJoin(dealIntakeResponse, eq23(dealIntakeResponse.intakeId, dealIntake.id)).where(inArray9(dealIntake.dealId, ids)).orderBy(asc5(dealIntake.status));
 }
 async function respondIntake(clientId, intakeId, answers) {
   const ids = await clientDealIds(clientId);
-  const [intake] = await db.select().from(dealIntake).where(eq22(dealIntake.id, intakeId)).limit(1);
+  const [intake] = await db.select().from(dealIntake).where(eq23(dealIntake.id, intakeId)).limit(1);
   if (!intake || !ids.includes(intake.dealId)) throw Errors.notFound("Formulario no encontrado");
   await db.insert(dealIntakeResponse).values({ intakeId, clientId, answers }).onConflictDoUpdate({ target: dealIntakeResponse.intakeId, set: { answers, clientId, submittedAt: /* @__PURE__ */ new Date() } });
-  await db.update(dealIntake).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq22(dealIntake.id, intakeId));
+  await db.update(dealIntake).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq23(dealIntake.id, intakeId));
 }
 
 // src/modules/intake/intake.router.ts
@@ -5285,7 +5410,7 @@ var CommentSchema = z16.object({ body: z16.string().min(1) });
 var ClientDecisionSchema = z16.object({ comment: z16.string().optional() });
 
 // src/modules/change-requests/cr.service.ts
-import { and as and19, asc as asc6, desc as desc13, eq as eq23, inArray as inArray10, ne as ne2, sql as sql25 } from "drizzle-orm";
+import { and as and20, asc as asc6, desc as desc13, eq as eq24, inArray as inArray10, ne as ne2, sql as sql26 } from "drizzle-orm";
 
 // src/lib/money.ts
 function toDecimal(n) {
@@ -5294,24 +5419,24 @@ function toDecimal(n) {
 
 // src/modules/change-requests/cr.service.ts
 async function getCRInPortal(portalId, id) {
-  const [cr] = await db.select().from(changeRequest).where(and19(eq23(changeRequest.id, id), eq23(changeRequest.portalId, portalId))).limit(1);
+  const [cr] = await db.select().from(changeRequest).where(and20(eq24(changeRequest.id, id), eq24(changeRequest.portalId, portalId))).limit(1);
   if (!cr) throw Errors.notFound("Change request no encontrada");
   return cr;
 }
 async function listCRs(portalId, dealId) {
-  return db.select().from(changeRequest).where(dealId ? and19(eq23(changeRequest.portalId, portalId), eq23(changeRequest.dealId, dealId)) : eq23(changeRequest.portalId, portalId)).orderBy(desc13(changeRequest.createdAt));
+  return db.select().from(changeRequest).where(dealId ? and20(eq24(changeRequest.portalId, portalId), eq24(changeRequest.dealId, dealId)) : eq24(changeRequest.portalId, portalId)).orderBy(desc13(changeRequest.createdAt));
 }
 async function getCRDetail(portalId, id) {
   const cr = await getCRInPortal(portalId, id);
-  const items = await db.select().from(changeRequestItem).where(eq23(changeRequestItem.changeRequestId, id));
-  const comments = await db.select().from(changeRequestComment).where(eq23(changeRequestComment.changeRequestId, id)).orderBy(asc6(changeRequestComment.createdAt));
-  const history = await db.select().from(changeRequestHistory).where(eq23(changeRequestHistory.changeRequestId, id)).orderBy(desc13(changeRequestHistory.changedAt));
+  const items = await db.select().from(changeRequestItem).where(eq24(changeRequestItem.changeRequestId, id));
+  const comments = await db.select().from(changeRequestComment).where(eq24(changeRequestComment.changeRequestId, id)).orderBy(asc6(changeRequestComment.createdAt));
+  const history = await db.select().from(changeRequestHistory).where(eq24(changeRequestHistory.changeRequestId, id)).orderBy(desc13(changeRequestHistory.changedAt));
   return { changeRequest: cr, items, comments, history };
 }
 async function createCR(portalId, userId, input) {
   await assertDealInPortal(portalId, input.dealId);
   return db.transaction(async (tx) => {
-    const numRows = await tx.select({ next: sql25`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq23(changeRequest.dealId, input.dealId));
+    const numRows = await tx.select({ next: sql26`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq24(changeRequest.dealId, input.dealId));
     const next = numRows[0]?.next ?? 1;
     const [cr] = await tx.insert(changeRequest).values({
       portalId,
@@ -5344,7 +5469,7 @@ async function createCR(portalId, userId, input) {
 async function updateCR(portalId, id, input) {
   const cr = await getCRInPortal(portalId, id);
   if (cr.status !== "draft") throw Errors.badRequest("Solo se puede editar una CR en borrador");
-  const [row] = await db.update(changeRequest).set({ ...input, totalAmount: toDecimal(input.totalAmount), updatedAt: /* @__PURE__ */ new Date() }).where(eq23(changeRequest.id, id)).returning();
+  const [row] = await db.update(changeRequest).set({ ...input, totalAmount: toDecimal(input.totalAmount), updatedAt: /* @__PURE__ */ new Date() }).where(eq24(changeRequest.id, id)).returning();
   return row;
 }
 async function addItem(portalId, id, input) {
@@ -5361,13 +5486,13 @@ async function addItem(portalId, id, input) {
 }
 async function deleteItem(portalId, id, itemId) {
   await getCRInPortal(portalId, id);
-  await db.delete(changeRequestItem).where(and19(eq23(changeRequestItem.id, itemId), eq23(changeRequestItem.changeRequestId, id)));
+  await db.delete(changeRequestItem).where(and20(eq24(changeRequestItem.id, itemId), eq24(changeRequestItem.changeRequestId, id)));
 }
 async function transitionCR(portalId, userId, id, status, comment) {
   const cr = await getCRInPortal(portalId, id);
   const patch = { status, updatedAt: /* @__PURE__ */ new Date() };
   if (status === "completed") patch.completedAt = /* @__PURE__ */ new Date();
-  const [row] = await db.update(changeRequest).set(patch).where(eq23(changeRequest.id, id)).returning();
+  const [row] = await db.update(changeRequest).set(patch).where(eq24(changeRequest.id, id)).returning();
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: status, comment, changedByUser: userId });
   return row;
 }
@@ -5378,14 +5503,14 @@ async function addComment(portalId, userId, id, body) {
 }
 async function getClientCR(clientId, id) {
   const ids = await clientDealIds(clientId);
-  const [cr] = await db.select().from(changeRequest).where(eq23(changeRequest.id, id)).limit(1);
+  const [cr] = await db.select().from(changeRequest).where(eq24(changeRequest.id, id)).limit(1);
   if (!cr || !ids.includes(cr.dealId)) throw Errors.notFound("Change request no encontrada");
   return cr;
 }
 async function clientListCRs(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select().from(changeRequest).where(and19(inArray10(changeRequest.dealId, ids), ne2(changeRequest.status, "draft"))).orderBy(desc13(changeRequest.createdAt));
+  return db.select().from(changeRequest).where(and20(inArray10(changeRequest.dealId, ids), ne2(changeRequest.status, "draft"))).orderBy(desc13(changeRequest.createdAt));
 }
 async function clientDecision(clientId, id, decision, comment) {
   const cr = await getClientCR(clientId, id);
@@ -5393,7 +5518,7 @@ async function clientDecision(clientId, id, decision, comment) {
     status: decision,
     updatedAt: /* @__PURE__ */ new Date(),
     ...decision === "approved" ? { approvedAt: /* @__PURE__ */ new Date(), approvedBy: clientId } : {}
-  }).where(eq23(changeRequest.id, id));
+  }).where(eq24(changeRequest.id, id));
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: decision, comment, changedByClient: clientId });
   await createNotification({
     portalId: cr.portalId,
@@ -5551,20 +5676,20 @@ var ListLibraryQuerySchema = z18.object({
 });
 
 // src/modules/library/library.service.ts
-import { and as and20, desc as desc14, eq as eq24 } from "drizzle-orm";
+import { and as and21, desc as desc14, eq as eq25 } from "drizzle-orm";
 async function requireItemInPortal(portalId, id) {
-  const [row] = await db.select().from(libraryItem).where(and20(eq24(libraryItem.id, id), eq24(libraryItem.portalId, portalId), eq24(libraryItem.archived, false))).limit(1);
+  const [row] = await db.select().from(libraryItem).where(and21(eq25(libraryItem.id, id), eq25(libraryItem.portalId, portalId), eq25(libraryItem.archived, false))).limit(1);
   if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
   return row;
 }
 async function listLibraryItems(portalId, query) {
   const conditions = [
-    eq24(libraryItem.portalId, portalId),
-    eq24(libraryItem.archived, false),
-    ...query.type ? [eq24(libraryItem.type, query.type)] : [],
-    ...query.kind ? [eq24(libraryItem.kind, query.kind)] : []
+    eq25(libraryItem.portalId, portalId),
+    eq25(libraryItem.archived, false),
+    ...query.type ? [eq25(libraryItem.type, query.type)] : [],
+    ...query.kind ? [eq25(libraryItem.kind, query.kind)] : []
   ];
-  return db.select().from(libraryItem).where(and20(...conditions)).orderBy(desc14(libraryItem.createdAt));
+  return db.select().from(libraryItem).where(and21(...conditions)).orderBy(desc14(libraryItem.createdAt));
 }
 async function getLibraryItem(portalId, id) {
   return requireItemInPortal(portalId, id);
@@ -5590,7 +5715,7 @@ async function createLibraryItem(portalId, userId, input) {
 }
 async function updateLibraryItem(portalId, id, input) {
   return db.transaction(async (tx) => {
-    await tx.select({ id: libraryItem.id }).from(libraryItem).where(and20(eq24(libraryItem.id, id), eq24(libraryItem.portalId, portalId), eq24(libraryItem.archived, false))).limit(1).then(([row]) => {
+    await tx.select({ id: libraryItem.id }).from(libraryItem).where(and21(eq25(libraryItem.id, id), eq25(libraryItem.portalId, portalId), eq25(libraryItem.archived, false))).limit(1).then(([row]) => {
       if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
     });
     const patch = { updatedAt: /* @__PURE__ */ new Date() };
@@ -5605,16 +5730,16 @@ async function updateLibraryItem(portalId, id, input) {
     if (input.steps !== void 0) {
       patch.steps = input.steps;
     }
-    const [updated] = await tx.update(libraryItem).set(patch).where(eq24(libraryItem.id, id)).returning();
+    const [updated] = await tx.update(libraryItem).set(patch).where(eq25(libraryItem.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el \xEDtem de biblioteca");
     return updated;
   });
 }
 async function archiveLibraryItem(portalId, id) {
   await db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: libraryItem.id }).from(libraryItem).where(and20(eq24(libraryItem.id, id), eq24(libraryItem.portalId, portalId), eq24(libraryItem.archived, false))).limit(1);
+    const [row] = await tx.select({ id: libraryItem.id }).from(libraryItem).where(and21(eq25(libraryItem.id, id), eq25(libraryItem.portalId, portalId), eq25(libraryItem.archived, false))).limit(1);
     if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
-    await tx.update(libraryItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq24(libraryItem.id, id));
+    await tx.update(libraryItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq25(libraryItem.id, id));
   });
 }
 
@@ -5740,15 +5865,15 @@ var ListWorkItemsQuerySchema = z19.object({
 });
 
 // src/modules/work-items/work-items.service.ts
-import { and as and21, desc as desc15, eq as eq25 } from "drizzle-orm";
+import { and as and22, desc as desc15, eq as eq26 } from "drizzle-orm";
 async function listWorkItems(portalId, query) {
   const conditions = [
-    eq25(workItem.portalId, portalId),
-    eq25(workItem.archived, false),
-    ...query.type ? [eq25(workItem.type, query.type)] : [],
-    ...query.status ? [eq25(workItem.status, query.status)] : []
+    eq26(workItem.portalId, portalId),
+    eq26(workItem.archived, false),
+    ...query.type ? [eq26(workItem.type, query.type)] : [],
+    ...query.status ? [eq26(workItem.status, query.status)] : []
   ];
-  return db.select().from(workItem).where(and21(...conditions)).orderBy(desc15(workItem.createdAt));
+  return db.select().from(workItem).where(and22(...conditions)).orderBy(desc15(workItem.createdAt));
 }
 async function createWorkItem(portalId, userId, input) {
   const [row] = await db.insert(workItem).values({
@@ -5767,19 +5892,19 @@ async function createWorkItem(portalId, userId, input) {
 }
 async function updateWorkItem(portalId, id, input) {
   return db.transaction(async (tx) => {
-    await tx.select({ id: workItem.id }).from(workItem).where(and21(eq25(workItem.id, id), eq25(workItem.portalId, portalId), eq25(workItem.archived, false))).limit(1).then(([row]) => {
+    await tx.select({ id: workItem.id }).from(workItem).where(and22(eq26(workItem.id, id), eq26(workItem.portalId, portalId), eq26(workItem.archived, false))).limit(1).then(([row]) => {
       if (!row) throw Errors.notFound("\xCDtem de operaciones no encontrado");
     });
-    const [updated] = await tx.update(workItem).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq25(workItem.id, id)).returning();
+    const [updated] = await tx.update(workItem).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq26(workItem.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el \xEDtem de operaciones");
     return updated;
   });
 }
 async function archiveWorkItem(portalId, id) {
   await db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: workItem.id }).from(workItem).where(and21(eq25(workItem.id, id), eq25(workItem.portalId, portalId), eq25(workItem.archived, false))).limit(1);
+    const [row] = await tx.select({ id: workItem.id }).from(workItem).where(and22(eq26(workItem.id, id), eq26(workItem.portalId, portalId), eq26(workItem.archived, false))).limit(1);
     if (!row) throw Errors.notFound("\xCDtem de operaciones no encontrado");
-    await tx.update(workItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq25(workItem.id, id));
+    await tx.update(workItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq26(workItem.id, id));
   });
 }
 
@@ -6014,7 +6139,7 @@ var DebtorsQuerySchema = z20.object({
 });
 
 // src/modules/finance/finance.service.ts
-import { and as and22, asc as asc7, between, desc as desc16, eq as eq26, gte as gte3, inArray as inArray11, lte as lte3, sql as sql26, sum as sum2 } from "drizzle-orm";
+import { and as and23, asc as asc7, between, desc as desc16, eq as eq27, gte as gte3, inArray as inArray11, lte as lte3, sql as sql27, sum as sum2 } from "drizzle-orm";
 
 // src/lib/fx.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
@@ -6068,17 +6193,17 @@ function calcAmountBase(amount, currency, exchangeRate) {
   return amount / exchangeRate;
 }
 async function requireInvoice(portalId, id) {
-  const [row] = await db.select().from(invoice).where(and22(eq26(invoice.id, id), eq26(invoice.portalId, portalId), eq26(invoice.archived, false))).limit(1);
+  const [row] = await db.select().from(invoice).where(and23(eq27(invoice.id, id), eq27(invoice.portalId, portalId), eq27(invoice.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Factura no encontrada");
   return row;
 }
 async function requireExpense(portalId, id) {
-  const [row] = await db.select().from(expense).where(and22(eq26(expense.id, id), eq26(expense.portalId, portalId), eq26(expense.archived, false))).limit(1);
+  const [row] = await db.select().from(expense).where(and23(eq27(expense.id, id), eq27(expense.portalId, portalId), eq27(expense.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Gasto no encontrado");
   return row;
 }
 async function requireRetainer(portalId, id) {
-  const [row] = await db.select().from(retainer).where(and22(eq26(retainer.id, id), eq26(retainer.portalId, portalId), eq26(retainer.archived, false))).limit(1);
+  const [row] = await db.select().from(retainer).where(and23(eq27(retainer.id, id), eq27(retainer.portalId, portalId), eq27(retainer.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Retainer no encontrado");
   return row;
 }
@@ -6093,20 +6218,20 @@ function computeDerivedStatus(inv, balance) {
   return "enviada";
 }
 async function listInvoices(portalId, query) {
-  const conditions = [eq26(invoice.portalId, portalId), eq26(invoice.archived, false)];
+  const conditions = [eq27(invoice.portalId, portalId), eq27(invoice.archived, false)];
   const { tab, status } = query;
   if (status) {
-    conditions.push(eq26(invoice.status, status));
+    conditions.push(eq27(invoice.status, status));
   } else if (tab === "borradores") {
-    conditions.push(eq26(invoice.status, "draft"));
+    conditions.push(eq27(invoice.status, "draft"));
   } else if (tab === "vencidas") {
-    conditions.push(eq26(invoice.status, "overdue"));
+    conditions.push(eq27(invoice.status, "overdue"));
   } else if (tab === "pagadas") {
-    conditions.push(eq26(invoice.status, "paid"));
+    conditions.push(eq27(invoice.status, "paid"));
   } else if (tab === "por_cobrar") {
     conditions.push(inArray11(invoice.status, ["sent", "overdue"]));
   }
-  const invoices = await db.select().from(invoice).where(and22(...conditions)).orderBy(desc16(invoice.createdAt));
+  const invoices = await db.select().from(invoice).where(and23(...conditions)).orderBy(desc16(invoice.createdAt));
   if (invoices.length === 0) return [];
   const ids = invoices.map((i) => i.id);
   const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray11(payment.invoiceId, ids)).groupBy(payment.invoiceId);
@@ -6132,15 +6257,15 @@ async function listInvoices(portalId, query) {
 }
 async function getInvoiceDetail(portalId, id) {
   const inv = await requireInvoice(portalId, id);
-  const items = await db.select().from(invoiceItem).where(eq26(invoiceItem.invoiceId, id));
-  const payments_ = await db.select().from(payment).where(eq26(payment.invoiceId, id)).orderBy(desc16(payment.paidAt));
+  const items = await db.select().from(invoiceItem).where(eq27(invoiceItem.invoiceId, id));
+  const payments_ = await db.select().from(payment).where(eq27(payment.invoiceId, id)).orderBy(desc16(payment.paidAt));
   const totalPaid = payments_.reduce((acc, p) => acc + Number(p.amountBase), 0);
   const balance = num(Math.max(0, Number(inv.amountBase) - totalPaid));
   return { invoice: inv, items, payments: payments_, balance };
 }
 async function createInvoice(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [numRow] = await tx.select({ next: sql26`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq26(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq27(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const subtotal = input.items.reduce((acc, it) => acc + (it.quantity ?? 1) * it.unitPrice, 0);
     const tax = input.tax ?? 0;
@@ -6194,22 +6319,22 @@ async function updateInvoice(portalId, id, input) {
     ...needsRecalc ? { exchangeRate: num(exchangeRate), amountBase: num(amountBase) } : {},
     ...input.notes !== void 0 ? { notes: input.notes } : {},
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq26(invoice.id, id)).returning();
+  }).where(eq27(invoice.id, id)).returning();
   return row;
 }
 async function transitionInvoice(portalId, id, status) {
   await requireInvoice(portalId, id);
-  const [row] = await db.update(invoice).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq26(invoice.id, id)).returning();
+  const [row] = await db.update(invoice).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq27(invoice.id, id)).returning();
   return row;
 }
 async function archiveInvoice(portalId, id) {
   await requireInvoice(portalId, id);
-  await db.update(invoice).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq26(invoice.id, id));
+  await db.update(invoice).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq27(invoice.id, id));
 }
 async function listPayments(portalId, query) {
-  const conditions = [eq26(payment.portalId, portalId)];
-  if (query.method) conditions.push(eq26(payment.method, query.method));
-  if (query.invoiceId) conditions.push(eq26(payment.invoiceId, query.invoiceId));
+  const conditions = [eq27(payment.portalId, portalId)];
+  if (query.method) conditions.push(eq27(payment.method, query.method));
+  if (query.invoiceId) conditions.push(eq27(payment.invoiceId, query.invoiceId));
   if (query.from && query.to) {
     conditions.push(between(payment.paidAt, new Date(query.from), /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   } else if (query.from) {
@@ -6217,7 +6342,7 @@ async function listPayments(portalId, query) {
   } else if (query.to) {
     conditions.push(lte3(payment.paidAt, /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   }
-  const payments_ = await db.select().from(payment).where(and22(...conditions)).orderBy(desc16(payment.paidAt));
+  const payments_ = await db.select().from(payment).where(and23(...conditions)).orderBy(desc16(payment.paidAt));
   if (payments_.length === 0) {
     return { payments: [], meta: { totalPeriod: "0.00" } };
   }
@@ -6253,7 +6378,7 @@ async function listPayments(portalId, query) {
 }
 async function registerPayment(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [inv] = await tx.select().from(invoice).where(and22(eq26(invoice.id, input.invoiceId), eq26(invoice.portalId, portalId), eq26(invoice.archived, false))).limit(1);
+    const [inv] = await tx.select().from(invoice).where(and23(eq27(invoice.id, input.invoiceId), eq27(invoice.portalId, portalId), eq27(invoice.archived, false))).limit(1);
     if (!inv) throw Errors.notFound("Factura no encontrada");
     const currency = input.currency ?? "USD";
     const exchangeRate = currency === "ARS" ? input.exchangeRate ?? 1 : 1;
@@ -6271,19 +6396,19 @@ async function registerPayment(portalId, userId, input) {
       createdBy: userId
     }).returning();
     if (!row) throw Errors.internal("No se pudo registrar el cobro");
-    const [totals] = await tx.select({ total: sum2(payment.amountBase) }).from(payment).where(eq26(payment.invoiceId, input.invoiceId));
+    const [totals] = await tx.select({ total: sum2(payment.amountBase) }).from(payment).where(eq27(payment.invoiceId, input.invoiceId));
     const totalPaid = Number(totals?.total ?? 0);
     if (totalPaid >= Number(inv.amountBase)) {
-      await tx.update(invoice).set({ status: "paid", updatedAt: /* @__PURE__ */ new Date() }).where(eq26(invoice.id, input.invoiceId));
+      await tx.update(invoice).set({ status: "paid", updatedAt: /* @__PURE__ */ new Date() }).where(eq27(invoice.id, input.invoiceId));
     }
     return row;
   });
 }
 async function listExpenses(portalId, query) {
-  const conditions = [eq26(expense.portalId, portalId), eq26(expense.archived, false)];
-  if (query.category) conditions.push(eq26(expense.category, query.category));
-  if (query.dealId) conditions.push(eq26(expense.dealId, query.dealId));
-  if (query.isRecurring != null) conditions.push(eq26(expense.isRecurring, query.isRecurring));
+  const conditions = [eq27(expense.portalId, portalId), eq27(expense.archived, false)];
+  if (query.category) conditions.push(eq27(expense.category, query.category));
+  if (query.dealId) conditions.push(eq27(expense.dealId, query.dealId));
+  if (query.isRecurring != null) conditions.push(eq27(expense.isRecurring, query.isRecurring));
   if (query.from && query.to) {
     conditions.push(between(expense.expenseDate, query.from, query.to));
   } else if (query.from) {
@@ -6291,7 +6416,7 @@ async function listExpenses(portalId, query) {
   } else if (query.to) {
     conditions.push(lte3(expense.expenseDate, query.to));
   }
-  return db.select().from(expense).where(and22(...conditions)).orderBy(desc16(expense.expenseDate));
+  return db.select().from(expense).where(and23(...conditions)).orderBy(desc16(expense.expenseDate));
 }
 async function createExpense(portalId, userId, input) {
   return db.transaction(async (tx) => {
@@ -6363,7 +6488,7 @@ async function updateExpense(portalId, id, userId, input) {
     if (input.isRecurring != null) patch.isRecurring = input.isRecurring;
     if (input.notes !== void 0) patch.notes = input.notes ?? null;
     if (input.storageKey !== void 0) patch.storageKey = input.storageKey ?? null;
-    const [updated] = await tx.update(expense).set(patch).where(eq26(expense.id, id)).returning();
+    const [updated] = await tx.update(expense).set(patch).where(eq27(expense.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el gasto");
     await recordFieldChanges({
       tx,
@@ -6380,10 +6505,10 @@ async function updateExpense(portalId, id, userId, input) {
 }
 async function archiveExpense(portalId, id) {
   await requireExpense(portalId, id);
-  await db.update(expense).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq26(expense.id, id));
+  await db.update(expense).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq27(expense.id, id));
 }
 async function expenseSummary(portalId) {
-  const expenses = await db.select().from(expense).where(and22(eq26(expense.portalId, portalId), eq26(expense.archived, false)));
+  const expenses = await db.select().from(expense).where(and23(eq27(expense.portalId, portalId), eq27(expense.archived, false)));
   let totalUsd = 0;
   let totalArs = 0;
   const byCategory = {};
@@ -6404,10 +6529,10 @@ async function expenseSummary(portalId) {
   };
 }
 async function listRetainers(portalId, query) {
-  const conditions = [eq26(retainer.portalId, portalId), eq26(retainer.archived, false)];
-  if (query.status) conditions.push(eq26(retainer.status, query.status));
-  if (query.companyId) conditions.push(eq26(retainer.companyId, query.companyId));
-  const retainers = await db.select().from(retainer).where(and22(...conditions)).orderBy(asc7(retainer.startDate));
+  const conditions = [eq27(retainer.portalId, portalId), eq27(retainer.archived, false)];
+  if (query.status) conditions.push(eq27(retainer.status, query.status));
+  if (query.companyId) conditions.push(eq27(retainer.companyId, query.companyId));
+  const retainers = await db.select().from(retainer).where(and23(...conditions)).orderBy(asc7(retainer.startDate));
   if (retainers.length === 0) return [];
   const companyIds = [...new Set(retainers.map((r) => r.companyId))];
   const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray11(company.id, companyIds));
@@ -6416,8 +6541,8 @@ async function listRetainers(portalId, query) {
 }
 async function getRetainerDetail(portalId, id) {
   const ret = await requireRetainer(portalId, id);
-  const [companyRow] = await db.select({ name: company.name }).from(company).where(eq26(company.id, ret.companyId)).limit(1);
-  const invoices_ = await db.select().from(invoice).where(and22(eq26(invoice.retainerId, id), eq26(invoice.archived, false))).orderBy(desc16(invoice.createdAt));
+  const [companyRow] = await db.select({ name: company.name }).from(company).where(eq27(company.id, ret.companyId)).limit(1);
+  const invoices_ = await db.select().from(invoice).where(and23(eq27(invoice.retainerId, id), eq27(invoice.archived, false))).orderBy(desc16(invoice.createdAt));
   return {
     ...ret,
     companyName: companyRow?.name ?? null,
@@ -6425,7 +6550,7 @@ async function getRetainerDetail(portalId, id) {
   };
 }
 async function createRetainer(portalId, userId, input) {
-  const [companyRow] = await db.select().from(company).where(and22(eq26(company.id, input.companyId), eq26(company.portalId, portalId))).limit(1);
+  const [companyRow] = await db.select().from(company).where(and23(eq27(company.id, input.companyId), eq27(company.portalId, portalId))).limit(1);
   if (!companyRow) throw Errors.notFound("Empresa no encontrada");
   const currency = input.currency;
   const exchangeRate = currency === "ARS" ? input.exchangeRate ?? 1 : 1;
@@ -6467,15 +6592,15 @@ async function updateRetainer(portalId, id, input) {
       ...input.endDate !== void 0 ? { endDate: input.endDate ?? null } : {},
       ...input.notes !== void 0 ? { notes: input.notes ?? null } : {},
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq26(retainer.id, id)).returning();
+    }).where(eq27(retainer.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el retainer");
-    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq26(company.id, updated.companyId)).limit(1);
+    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq27(company.id, updated.companyId)).limit(1);
     return { ...updated, companyName: companyRow?.name ?? null };
   });
 }
 async function archiveRetainer(portalId, id) {
   await requireRetainer(portalId, id);
-  await db.update(retainer).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq26(retainer.id, id));
+  await db.update(retainer).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq27(retainer.id, id));
 }
 async function generateRetainerInvoice(portalId, retainerId, userId) {
   return db.transaction(async (tx) => {
@@ -6485,15 +6610,15 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
     }
     const currentMonth = (/* @__PURE__ */ new Date()).toISOString().slice(0, 7);
     const [existing] = await tx.select().from(invoice).where(
-      and22(
-        eq26(invoice.retainerId, retainerId),
-        eq26(invoice.archived, false),
+      and23(
+        eq27(invoice.retainerId, retainerId),
+        eq27(invoice.archived, false),
         // issueDate LIKE 'YYYY-MM-%'
-        sql26`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
+        sql27`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
       )
     ).limit(1);
     if (existing) return { invoice: existing, created: false };
-    const [numRow] = await tx.select({ next: sql26`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq26(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq27(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const [row] = await tx.insert(invoice).values({
@@ -6525,7 +6650,7 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
   });
 }
 async function financeSummary(portalId, query) {
-  const invoiceConds = [eq26(invoice.portalId, portalId), eq26(invoice.archived, false)];
+  const invoiceConds = [eq27(invoice.portalId, portalId), eq27(invoice.archived, false)];
   if (query.from && query.to) {
     invoiceConds.push(between(invoice.issueDate, query.from, query.to));
   } else if (query.from) {
@@ -6533,13 +6658,13 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     invoiceConds.push(lte3(invoice.issueDate, query.to));
   }
-  const invoicesInPeriod = await db.select().from(invoice).where(and22(...invoiceConds));
+  const invoicesInPeriod = await db.select().from(invoice).where(and23(...invoiceConds));
   const totalInvoiced = invoicesInPeriod.filter((i) => i.status !== "void").reduce((acc, i) => acc + Number(i.amountBase), 0);
   const invoicesByStatus = {};
   for (const inv of invoicesInPeriod) {
     invoicesByStatus[inv.status] = (invoicesByStatus[inv.status] ?? 0) + 1;
   }
-  const paymentConds = [eq26(payment.portalId, portalId)];
+  const paymentConds = [eq27(payment.portalId, portalId)];
   if (query.from && query.to) {
     paymentConds.push(between(payment.paidAt, new Date(query.from), /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   } else if (query.from) {
@@ -6547,9 +6672,9 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     paymentConds.push(lte3(payment.paidAt, /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   }
-  const [payTotals] = await db.select({ total: sum2(payment.amountBase) }).from(payment).where(and22(...paymentConds));
+  const [payTotals] = await db.select({ total: sum2(payment.amountBase) }).from(payment).where(and23(...paymentConds));
   const totalPaid = Number(payTotals?.total ?? 0);
-  const expenseConds = [eq26(expense.portalId, portalId), eq26(expense.archived, false)];
+  const expenseConds = [eq27(expense.portalId, portalId), eq27(expense.archived, false)];
   if (query.from && query.to) {
     expenseConds.push(between(expense.expenseDate, query.from, query.to));
   } else if (query.from) {
@@ -6557,13 +6682,13 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     expenseConds.push(lte3(expense.expenseDate, query.to));
   }
-  const [expTotals] = await db.select({ total: sum2(expense.amountBase) }).from(expense).where(and22(...expenseConds));
+  const [expTotals] = await db.select({ total: sum2(expense.amountBase) }).from(expense).where(and23(...expenseConds));
   const totalExpenses = Number(expTotals?.total ?? 0);
   const netProfit = totalPaid - totalExpenses;
   const openInvoices = await db.select().from(invoice).where(
-    and22(
-      eq26(invoice.portalId, portalId),
-      eq26(invoice.archived, false),
+    and23(
+      eq27(invoice.portalId, portalId),
+      eq27(invoice.archived, false),
       inArray11(invoice.status, ["sent", "overdue"])
     )
   );
@@ -6578,7 +6703,7 @@ async function financeSummary(portalId, query) {
       outstanding += Math.max(0, Number(inv.amountBase) - (paidMap.get(inv.id) ?? 0));
     }
   }
-  const [mrrRow] = await db.select({ total: sum2(retainer.amountBase) }).from(retainer).where(and22(eq26(retainer.portalId, portalId), eq26(retainer.status, "active"), eq26(retainer.archived, false)));
+  const [mrrRow] = await db.select({ total: sum2(retainer.amountBase) }).from(retainer).where(and23(eq27(retainer.portalId, portalId), eq27(retainer.status, "active"), eq27(retainer.archived, false)));
   const mrr = Number(mrrRow?.total ?? 0);
   return {
     totalInvoiced: num(totalInvoiced),
@@ -6601,19 +6726,19 @@ async function monthlySummary(portalId, months = 6) {
   const from = points[0].month + "-01";
   const to = now.toISOString().slice(0, 10);
   const incomeRows = await db.select({
-    month: sql26`to_char(${payment.paidAt}, 'YYYY-MM')`,
+    month: sql27`to_char(${payment.paidAt}, 'YYYY-MM')`,
     total: sum2(payment.amountBase)
-  }).from(payment).where(and22(eq26(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql26`to_char(${payment.paidAt}, 'YYYY-MM')`);
+  }).from(payment).where(and23(eq27(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql27`to_char(${payment.paidAt}, 'YYYY-MM')`);
   const expenseRows = await db.select({
-    month: sql26`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
+    month: sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
     total: sum2(expense.amountBase)
   }).from(expense).where(
-    and22(
-      eq26(expense.portalId, portalId),
-      eq26(expense.archived, false),
+    and23(
+      eq27(expense.portalId, portalId),
+      eq27(expense.archived, false),
       between(expense.expenseDate, from, to)
     )
-  ).groupBy(sql26`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
+  ).groupBy(sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
   const incomeMap = new Map(incomeRows.map((r) => [r.month, Number(r.total ?? 0)]));
   const expenseMap = new Map(expenseRows.map((r) => [r.month, Number(r.total ?? 0)]));
   return points.map((p) => {
@@ -6624,9 +6749,9 @@ async function monthlySummary(portalId, months = 6) {
 }
 async function topDebtors(portalId, limit = 5) {
   const openInvoices = await db.select().from(invoice).where(
-    and22(
-      eq26(invoice.portalId, portalId),
-      eq26(invoice.archived, false),
+    and23(
+      eq27(invoice.portalId, portalId),
+      eq27(invoice.archived, false),
       inArray11(invoice.status, ["sent", "overdue"])
     )
   );
@@ -6654,11 +6779,11 @@ async function topDebtors(portalId, limit = 5) {
 }
 async function generateInvoicePdf(portalId, id) {
   const { invoice: inv, items } = await getInvoiceDetail(portalId, id);
-  const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq26(portal.id, portalId)).limit(1);
+  const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq27(portal.id, portalId)).limit(1);
   const portalName = portalRow?.name ?? "NOUS";
   let companyName = "\u2014";
   if (inv.companyId) {
-    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq26(company.id, inv.companyId)).limit(1);
+    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq27(company.id, inv.companyId)).limit(1);
     companyName = companyRow?.name ?? "\u2014";
   }
   const easyinvoice = (await import("easyinvoice")).default;
@@ -7116,7 +7241,7 @@ var BulkUpsertPrefSchema = z22.object({
 });
 
 // src/modules/notification-prefs/notification-prefs.service.ts
-import { and as and23, eq as eq27 } from "drizzle-orm";
+import { and as and24, eq as eq28 } from "drizzle-orm";
 function defaultPref(portalId, userId, eventType) {
   return {
     id: "",
@@ -7130,7 +7255,7 @@ function defaultPref(portalId, userId, eventType) {
   };
 }
 async function listPrefs(portalId, userId) {
-  const rows = await db.select().from(notificationPref).where(and23(eq27(notificationPref.portalId, portalId), eq27(notificationPref.userId, userId)));
+  const rows = await db.select().from(notificationPref).where(and24(eq28(notificationPref.portalId, portalId), eq28(notificationPref.userId, userId)));
   const rowsByType = new Map(rows.map((r) => [r.eventType, r]));
   return KNOWN_EVENT_TYPES.map(
     (et) => rowsByType.get(et) ?? defaultPref(portalId, userId, et)
@@ -7223,22 +7348,22 @@ var ListCustomFieldsQuerySchema = z23.object({
 });
 
 // src/modules/custom-fields/custom-fields.service.ts
-import { and as and24, asc as asc8, eq as eq28 } from "drizzle-orm";
+import { and as and25, asc as asc8, eq as eq29 } from "drizzle-orm";
 async function listCustomFields(portalId, query) {
   const conditions = [
-    eq28(customField.portalId, portalId),
-    eq28(customField.archived, false),
-    ...query.entityType ? [eq28(customField.entityType, query.entityType)] : []
+    eq29(customField.portalId, portalId),
+    eq29(customField.archived, false),
+    ...query.entityType ? [eq29(customField.entityType, query.entityType)] : []
   ];
-  return db.select().from(customField).where(and24(...conditions)).orderBy(asc8(customField.displayOrder), asc8(customField.createdAt));
+  return db.select().from(customField).where(and25(...conditions)).orderBy(asc8(customField.displayOrder), asc8(customField.createdAt));
 }
 async function createCustomField(portalId, input) {
   const [existing] = await db.select({ id: customField.id }).from(customField).where(
-    and24(
-      eq28(customField.portalId, portalId),
-      eq28(customField.entityType, input.entityType),
-      eq28(customField.key, input.key),
-      eq28(customField.archived, false)
+    and25(
+      eq29(customField.portalId, portalId),
+      eq29(customField.entityType, input.entityType),
+      eq29(customField.key, input.key),
+      eq29(customField.archived, false)
     )
   ).limit(1);
   if (existing) {
@@ -7270,14 +7395,14 @@ async function createCustomField(portalId, input) {
 async function updateCustomField(portalId, id, input) {
   return db.transaction(async (tx) => {
     const [existing] = await tx.select({ id: customField.id }).from(customField).where(
-      and24(
-        eq28(customField.id, id),
-        eq28(customField.portalId, portalId),
-        eq28(customField.archived, false)
+      and25(
+        eq29(customField.id, id),
+        eq29(customField.portalId, portalId),
+        eq29(customField.archived, false)
       )
     ).limit(1);
     if (!existing) throw Errors.notFound("Campo personalizado no encontrado");
-    const [updated] = await tx.update(customField).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq28(customField.id, id)).returning();
+    const [updated] = await tx.update(customField).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq29(customField.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el campo personalizado");
     return updated;
   });
@@ -7285,14 +7410,14 @@ async function updateCustomField(portalId, id, input) {
 async function archiveCustomField(portalId, id) {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({ id: customField.id }).from(customField).where(
-      and24(
-        eq28(customField.id, id),
-        eq28(customField.portalId, portalId),
-        eq28(customField.archived, false)
+      and25(
+        eq29(customField.id, id),
+        eq29(customField.portalId, portalId),
+        eq29(customField.archived, false)
       )
     ).limit(1);
     if (!row) throw Errors.notFound("Campo personalizado no encontrado");
-    await tx.update(customField).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(customField.id, id));
+    await tx.update(customField).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq29(customField.id, id));
   });
 }
 
@@ -7413,16 +7538,16 @@ var TimelineQuerySchema = z24.object({
 });
 
 // src/modules/timeline/timeline.service.ts
-import { and as and25, desc as desc17, eq as eq30, inArray as inArray12 } from "drizzle-orm";
+import { and as and26, desc as desc17, eq as eq31, inArray as inArray12 } from "drizzle-orm";
 
 // src/modules/email-tracking/email-tracking.service.ts
-import { eq as eq29 } from "drizzle-orm";
+import { eq as eq30 } from "drizzle-orm";
 var TRACKING_PIXEL_GIF = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
   "base64"
 );
 async function recordOpen(trackingId, userAgent, ip) {
-  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq29(emailSend.trackingId, trackingId)).limit(1);
+  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq30(emailSend.trackingId, trackingId)).limit(1);
   if (!send) return;
   await db.insert(emailEvent).values({
     emailId: send.id,
@@ -7432,7 +7557,7 @@ async function recordOpen(trackingId, userAgent, ip) {
   });
 }
 async function recordClick(trackingId, url, userAgent, ip) {
-  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq29(emailSend.trackingId, trackingId)).limit(1);
+  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq30(emailSend.trackingId, trackingId)).limit(1);
   if (!send) return;
   await db.insert(emailEvent).values({
     emailId: send.id,
@@ -7509,7 +7634,7 @@ async function logEmail(portalId, _userId, input) {
   if (!row) throw Errors.internal("No se pudo registrar el email");
   if (input.bodyHtml) {
     const htmlWithPixel = injectTrackingPixel(input.bodyHtml, row.trackingId);
-    const [updated] = await db.update(emailSend).set({ bodyHtml: htmlWithPixel }).where(eq30(emailSend.id, row.id)).returning();
+    const [updated] = await db.update(emailSend).set({ bodyHtml: htmlWithPixel }).where(eq31(emailSend.id, row.id)).returning();
     if (updated) return updated;
   }
   return row;
@@ -7518,10 +7643,10 @@ async function getTimeline(portalId, query) {
   const { dealId, contactId, companyId } = query;
   const items = [];
   if (dealId != null || contactId != null) {
-    const callConds = [eq30(call.portalId, portalId)];
-    if (dealId != null) callConds.push(eq30(call.dealId, dealId));
-    else if (contactId != null) callConds.push(eq30(call.contactId, contactId));
-    const calls = await db.select().from(call).where(and25(...callConds)).orderBy(desc17(call.occurredAt)).limit(100);
+    const callConds = [eq31(call.portalId, portalId)];
+    if (dealId != null) callConds.push(eq31(call.dealId, dealId));
+    else if (contactId != null) callConds.push(eq31(call.contactId, contactId));
+    const calls = await db.select().from(call).where(and26(...callConds)).orderBy(desc17(call.occurredAt)).limit(100);
     for (const c of calls) {
       items.push({
         kind: "call",
@@ -7537,10 +7662,10 @@ async function getTimeline(portalId, query) {
     }
   }
   if (dealId != null || contactId != null) {
-    const meetConds = [eq30(meeting.portalId, portalId)];
-    if (dealId != null) meetConds.push(eq30(meeting.dealId, dealId));
-    else if (contactId != null) meetConds.push(eq30(meeting.contactId, contactId));
-    const meetings = await db.select().from(meeting).where(and25(...meetConds)).orderBy(desc17(meeting.createdAt)).limit(100);
+    const meetConds = [eq31(meeting.portalId, portalId)];
+    if (dealId != null) meetConds.push(eq31(meeting.dealId, dealId));
+    else if (contactId != null) meetConds.push(eq31(meeting.contactId, contactId));
+    const meetings = await db.select().from(meeting).where(and26(...meetConds)).orderBy(desc17(meeting.createdAt)).limit(100);
     for (const m of meetings) {
       items.push({
         kind: "meeting",
@@ -7557,10 +7682,10 @@ async function getTimeline(portalId, query) {
     }
   }
   if (dealId != null || contactId != null) {
-    const emailConds = [eq30(emailSend.portalId, portalId)];
-    if (dealId != null) emailConds.push(eq30(emailSend.dealId, dealId));
-    else if (contactId != null) emailConds.push(eq30(emailSend.contactId, contactId));
-    const emails = await db.select().from(emailSend).where(and25(...emailConds)).orderBy(desc17(emailSend.sentAt)).limit(100);
+    const emailConds = [eq31(emailSend.portalId, portalId)];
+    if (dealId != null) emailConds.push(eq31(emailSend.dealId, dealId));
+    else if (contactId != null) emailConds.push(eq31(emailSend.contactId, contactId));
+    const emails = await db.select().from(emailSend).where(and26(...emailConds)).orderBy(desc17(emailSend.sentAt)).limit(100);
     const emailIds = emails.map((e) => e.id);
     const eventRows = emailIds.length ? await db.select({ emailId: emailEvent.emailId, type: emailEvent.type }).from(emailEvent).where(inArray12(emailEvent.emailId, emailIds)) : [];
     const openedSet = /* @__PURE__ */ new Set();
@@ -7588,11 +7713,11 @@ async function getTimeline(portalId, query) {
     }
   }
   {
-    const noteConds = [eq30(note.portalId, portalId)];
-    if (dealId != null) noteConds.push(eq30(note.dealId, dealId));
-    else if (contactId != null) noteConds.push(eq30(note.contactId, contactId));
-    else if (companyId != null) noteConds.push(eq30(note.companyId, companyId));
-    const notes = await db.select().from(note).where(and25(...noteConds)).orderBy(desc17(note.createdAt)).limit(100);
+    const noteConds = [eq31(note.portalId, portalId)];
+    if (dealId != null) noteConds.push(eq31(note.dealId, dealId));
+    else if (contactId != null) noteConds.push(eq31(note.contactId, contactId));
+    else if (companyId != null) noteConds.push(eq31(note.companyId, companyId));
+    const notes = await db.select().from(note).where(and26(...noteConds)).orderBy(desc17(note.createdAt)).limit(100);
     for (const n of notes) {
       items.push({
         kind: "note",
@@ -7604,11 +7729,11 @@ async function getTimeline(portalId, query) {
     }
   }
   {
-    const taskConds = [eq30(task.portalId, portalId)];
-    if (dealId != null) taskConds.push(eq30(task.dealId, dealId));
-    else if (contactId != null) taskConds.push(eq30(task.contactId, contactId));
-    else if (companyId != null) taskConds.push(eq30(task.companyId, companyId));
-    const tasks = await db.select().from(task).where(and25(...taskConds)).orderBy(desc17(task.createdAt)).limit(100);
+    const taskConds = [eq31(task.portalId, portalId)];
+    if (dealId != null) taskConds.push(eq31(task.dealId, dealId));
+    else if (contactId != null) taskConds.push(eq31(task.contactId, contactId));
+    else if (companyId != null) taskConds.push(eq31(task.companyId, companyId));
+    const tasks = await db.select().from(task).where(and26(...taskConds)).orderBy(desc17(task.createdAt)).limit(100);
     for (const t of tasks) {
       items.push({
         kind: "task",
@@ -7639,10 +7764,10 @@ async function getTimeline(portalId, query) {
       entityId = companyId;
     }
     const history = await db.select().from(recordHistory).where(
-      and25(
-        eq30(recordHistory.portalId, portalId),
-        eq30(recordHistory.entityType, entityType),
-        eq30(recordHistory.entityId, entityId)
+      and26(
+        eq31(recordHistory.portalId, portalId),
+        eq31(recordHistory.entityType, entityType),
+        eq31(recordHistory.entityId, entityId)
       )
     ).orderBy(desc17(recordHistory.changedAt)).limit(100);
     for (const h of history) {
@@ -7754,7 +7879,7 @@ var FocusQuerySchema = z25.object({
 });
 
 // src/modules/focus/focus.service.ts
-import { and as and26, asc as asc9, eq as eq31, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql27 } from "drizzle-orm";
+import { and as and27, asc as asc9, eq as eq32, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql28 } from "drizzle-orm";
 
 // src/lib/dates.ts
 function startOfDay2(d) {
@@ -7777,14 +7902,14 @@ async function getFollowUps(portalId, userId) {
   const todayStart = startOfDay2(now);
   const sevenDaysEnd = endOfDay(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1e3));
   const baseConds = [
-    eq31(task.portalId, portalId),
+    eq32(task.portalId, portalId),
     inArray13(task.status, ["pending", "in_progress"]),
     isNotNull2(task.dueDate),
     lte4(task.dueDate, sevenDaysEnd)
     // only up to 7 days out
   ];
-  if (userId != null) baseConds.push(eq31(task.assignedTo, userId));
-  const openTasks = await db.select().from(task).where(and26(...baseConds)).orderBy(asc9(task.dueDate));
+  if (userId != null) baseConds.push(eq32(task.assignedTo, userId));
+  const openTasks = await db.select().from(task).where(and27(...baseConds)).orderBy(asc9(task.dueDate));
   const dealIds = [...new Set(openTasks.filter((t) => t.dealId != null).map((t) => t.dealId))];
   const contactIds = [...new Set(openTasks.filter((t) => t.contactId != null).map((t) => t.contactId))];
   const companyIds = [...new Set(openTasks.filter((t) => t.companyId != null).map((t) => t.companyId))];
@@ -7844,18 +7969,18 @@ async function getDealsNeedingAttention(portalId) {
     ownerId: deal.ownerId,
     createdAt: deal.createdAt,
     stageLabel: pipelineStage.label
-  }).from(deal).innerJoin(pipelineStage, eq31(deal.stageId, pipelineStage.id)).where(
-    and26(
-      eq31(deal.portalId, portalId),
-      eq31(deal.archived, false),
-      eq31(pipelineStage.isClosed, false)
+  }).from(deal).innerJoin(pipelineStage, eq32(deal.stageId, pipelineStage.id)).where(
+    and27(
+      eq32(deal.portalId, portalId),
+      eq32(deal.archived, false),
+      eq32(pipelineStage.isClosed, false)
     )
   );
   if (openDeals.length === 0) return { noNextAction: [], stale: [] };
   const dealIds = openDeals.map((d) => d.id);
   const openTaskRows = await db.select({ dealId: task.dealId, id: task.id, dueDate: task.dueDate }).from(task).where(
-    and26(
-      eq31(task.portalId, portalId),
+    and27(
+      eq32(task.portalId, portalId),
       inArray13(task.status, ["pending", "in_progress"]),
       inArray13(task.dealId, dealIds)
     )
@@ -7863,21 +7988,21 @@ async function getDealsNeedingAttention(portalId) {
   const dealsWithTask = new Set(openTaskRows.map((t) => t.dealId).filter((id) => id != null));
   const [callAgg, meetingAgg, emailAgg, noteAgg, taskAgg] = await Promise.all([
     // calls: max(occurredAt)
-    db.select({ dealId: call.dealId, maxDate: sql27`max(${call.occurredAt})` }).from(call).where(and26(eq31(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
+    db.select({ dealId: call.dealId, maxDate: sql28`max(${call.occurredAt})` }).from(call).where(and27(eq32(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
     // meetings: max(coalesce(starts_at, created_at))
     db.select({
       dealId: meeting.dealId,
-      maxDate: sql27`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
-    }).from(meeting).where(and26(eq31(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
+      maxDate: sql28`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
+    }).from(meeting).where(and27(eq32(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
     // emails: max(sentAt)
-    db.select({ dealId: emailSend.dealId, maxDate: sql27`max(${emailSend.sentAt})` }).from(emailSend).where(and26(eq31(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
+    db.select({ dealId: emailSend.dealId, maxDate: sql28`max(${emailSend.sentAt})` }).from(emailSend).where(and27(eq32(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
     // notes: max(createdAt)
-    db.select({ dealId: note.dealId, maxDate: sql27`max(${note.createdAt})` }).from(note).where(and26(eq31(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
+    db.select({ dealId: note.dealId, maxDate: sql28`max(${note.createdAt})` }).from(note).where(and27(eq32(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
     // tasks (any task, completed too): max(completedAt ?? createdAt)
     db.select({
       dealId: task.dealId,
-      maxDate: sql27`max(coalesce(${task.completedAt}, ${task.createdAt}))`
-    }).from(task).where(and26(eq31(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
+      maxDate: sql28`max(coalesce(${task.completedAt}, ${task.createdAt}))`
+    }).from(task).where(and27(eq32(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
   ]);
   const lastActivityMap = /* @__PURE__ */ new Map();
   function applyAgg(rows) {
@@ -7955,7 +8080,7 @@ var ReportsQuerySchema = z26.object({
 });
 
 // src/modules/reports/reports.service.ts
-import { and as and27, asc as asc10, count as count4, eq as eq32, gte as gte5, inArray as inArray14, lte as lte5, sql as sql28 } from "drizzle-orm";
+import { and as and28, asc as asc10, count as count4, eq as eq33, gte as gte5, inArray as inArray14, lte as lte5, sql as sql29 } from "drizzle-orm";
 async function getReports(portalId, params) {
   const now = /* @__PURE__ */ new Date();
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -7989,15 +8114,15 @@ async function fetchPipelineFunnel(portalId) {
     isClosed: pipelineStage.isClosed,
     isWon: pipelineStage.isWon,
     currentDeals: count4(deal.id),
-    currentValue: sql28`coalesce(sum(${deal.amount}), 0)`
+    currentValue: sql29`coalesce(sum(${deal.amount}), 0)`
   }).from(pipelineStage).innerJoin(
     pipeline,
-    and27(
-      eq32(pipelineStage.pipelineId, pipeline.id),
-      eq32(pipeline.portalId, portalId),
-      eq32(pipeline.archived, false)
+    and28(
+      eq33(pipelineStage.pipelineId, pipeline.id),
+      eq33(pipeline.portalId, portalId),
+      eq33(pipeline.archived, false)
     )
-  ).leftJoin(deal, and27(eq32(deal.stageId, pipelineStage.id), eq32(deal.archived, false))).where(eq32(pipelineStage.archived, false)).groupBy(
+  ).leftJoin(deal, and28(eq33(deal.stageId, pipelineStage.id), eq33(deal.archived, false))).where(eq33(pipelineStage.archived, false)).groupBy(
     pipelineStage.id,
     pipelineStage.label,
     pipelineStage.displayOrder,
@@ -8005,12 +8130,12 @@ async function fetchPipelineFunnel(portalId) {
     pipelineStage.isWon
   ).orderBy(asc10(pipelineStage.displayOrder));
   const [winRateRow] = await db.select({
-    won: sql28`count(*) filter (where ${pipelineStage.isWon} = true)`,
-    closed: sql28`count(*) filter (where ${pipelineStage.isClosed} = true)`
-  }).from(deal).innerJoin(pipelineStage, eq32(deal.stageId, pipelineStage.id)).innerJoin(
+    won: sql29`count(*) filter (where ${pipelineStage.isWon} = true)`,
+    closed: sql29`count(*) filter (where ${pipelineStage.isClosed} = true)`
+  }).from(deal).innerJoin(pipelineStage, eq33(deal.stageId, pipelineStage.id)).innerJoin(
     pipeline,
-    and27(eq32(pipelineStage.pipelineId, pipeline.id), eq32(pipeline.portalId, portalId))
-  ).where(and27(eq32(deal.portalId, portalId), eq32(deal.archived, false)));
+    and28(eq33(pipelineStage.pipelineId, pipeline.id), eq33(pipeline.portalId, portalId))
+  ).where(and28(eq33(deal.portalId, portalId), eq33(deal.archived, false)));
   const won = Number(winRateRow?.won ?? 0);
   const closed = Number(winRateRow?.closed ?? 0);
   const winRate = closed > 0 ? Math.round(won / closed * 100) : null;
@@ -8028,10 +8153,10 @@ async function fetchPipelineFunnel(portalId) {
 }
 async function fetchConversionBySource(portalId) {
   const rows = await db.select({
-    source: sql28`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
+    source: sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
     total: count4(),
-    customers: sql28`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
-  }).from(contact).where(and27(eq32(contact.portalId, portalId), eq32(contact.archived, false))).groupBy(sql28`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql28`count(*) desc`);
+    customers: sql29`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
+  }).from(contact).where(and28(eq33(contact.portalId, portalId), eq33(contact.archived, false))).groupBy(sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql29`count(*) desc`);
   return rows.map((r) => {
     const leads = Number(r.total);
     const customers = Number(r.customers);
@@ -8049,14 +8174,14 @@ async function fetchActivityByUser(portalId, from, to) {
     firstName: hubUser.firstName,
     lastName: hubUser.lastName,
     email: hubUser.email
-  }).from(hubUser).where(and27(eq32(hubUser.portalId, portalId), eq32(hubUser.isActive, true)));
+  }).from(hubUser).where(and28(eq33(hubUser.portalId, portalId), eq33(hubUser.isActive, true)));
   if (users.length === 0) return [];
   const userIds = users.map((u) => u.id);
   const [callRows, meetingRows, noteRows, taskCreatedRows, taskCompletedRows] = await Promise.all([
     // calls by createdBy
     db.select({ userId: call.createdBy, n: count4() }).from(call).where(
-      and27(
-        eq32(call.portalId, portalId),
+      and28(
+        eq33(call.portalId, portalId),
         inArray14(call.createdBy, userIds),
         gte5(call.createdAt, from),
         lte5(call.createdAt, to)
@@ -8064,8 +8189,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(call.createdBy),
     // meetings by createdBy
     db.select({ userId: meeting.createdBy, n: count4() }).from(meeting).where(
-      and27(
-        eq32(meeting.portalId, portalId),
+      and28(
+        eq33(meeting.portalId, portalId),
         inArray14(meeting.createdBy, userIds),
         gte5(meeting.createdAt, from),
         lte5(meeting.createdAt, to)
@@ -8073,8 +8198,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(meeting.createdBy),
     // notes by createdBy
     db.select({ userId: note.createdBy, n: count4() }).from(note).where(
-      and27(
-        eq32(note.portalId, portalId),
+      and28(
+        eq33(note.portalId, portalId),
         inArray14(note.createdBy, userIds),
         gte5(note.createdAt, from),
         lte5(note.createdAt, to)
@@ -8082,8 +8207,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(note.createdBy),
     // tasks created by user
     db.select({ userId: task.createdBy, n: count4() }).from(task).where(
-      and27(
-        eq32(task.portalId, portalId),
+      and28(
+        eq33(task.portalId, portalId),
         inArray14(task.createdBy, userIds),
         gte5(task.createdAt, from),
         lte5(task.createdAt, to)
@@ -8091,10 +8216,10 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(task.createdBy),
     // tasks completed by assignedTo (in period)
     db.select({ userId: task.assignedTo, n: count4() }).from(task).where(
-      and27(
-        eq32(task.portalId, portalId),
+      and28(
+        eq33(task.portalId, portalId),
         inArray14(task.assignedTo, userIds),
-        eq32(task.status, "completed"),
+        eq33(task.status, "completed"),
         gte5(task.completedAt, from),
         lte5(task.completedAt, to)
       )
@@ -8119,16 +8244,16 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
   async function fetchPeriod(start, end) {
     const [row] = await db.select({
       n: count4(),
-      value: sql28`coalesce(sum(${deal.amount}), 0)`
-    }).from(deal).innerJoin(pipelineStage, eq32(deal.stageId, pipelineStage.id)).innerJoin(
+      value: sql29`coalesce(sum(${deal.amount}), 0)`
+    }).from(deal).innerJoin(pipelineStage, eq33(deal.stageId, pipelineStage.id)).innerJoin(
       pipeline,
-      and27(eq32(pipelineStage.pipelineId, pipeline.id), eq32(pipeline.portalId, portalId))
+      and28(eq33(pipelineStage.pipelineId, pipeline.id), eq33(pipeline.portalId, portalId))
     ).where(
-      and27(
-        eq32(deal.portalId, portalId),
-        eq32(pipelineStage.isWon, true),
-        gte5(sql28`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
-        lte5(sql28`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
+      and28(
+        eq33(deal.portalId, portalId),
+        eq33(pipelineStage.isWon, true),
+        gte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
+        lte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
       )
     );
     return { count: Number(row?.n ?? 0), value: String(row?.value ?? "0") };
@@ -8169,7 +8294,7 @@ import { z as z27 } from "zod";
 
 // src/modules/webhooks/webhooks.service.ts
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq as eq33, and as and28 } from "drizzle-orm";
+import { eq as eq34, and as and29 } from "drizzle-orm";
 function verifyFathomSignature(rawBody, signature) {
   if (!env.FATHOM_WEBHOOK_SECRET || !signature) return false;
   const bodyStr = typeof rawBody === "string" ? rawBody : rawBody.toString("utf8");
@@ -8189,13 +8314,13 @@ async function resolvePortalId() {
   return row?.id ?? null;
 }
 async function findContactByEmail(portalId, email) {
-  const [row] = await db.select({ id: contact.id }).from(contact).where(and28(eq33(contact.portalId, portalId), eq33(contact.email, email))).limit(1);
+  const [row] = await db.select({ id: contact.id }).from(contact).where(and29(eq34(contact.portalId, portalId), eq34(contact.email, email))).limit(1);
   if (!row) return null;
   const [dealRow] = await db.select({ id: deal.id }).from(deal).where(
-    and28(
-      eq33(deal.portalId, portalId),
-      eq33(deal.primaryContactId, row.id),
-      eq33(deal.archived, false)
+    and29(
+      eq34(deal.portalId, portalId),
+      eq34(deal.primaryContactId, row.id),
+      eq34(deal.archived, false)
     )
   ).limit(1);
   return { id: row.id, primaryDealId: dealRow?.id ?? null };
@@ -8223,9 +8348,9 @@ async function handleFathomMeeting(portalId, payload) {
   }
   if (fathomTranscriptUrl) {
     const [existing] = await db.select({ id: meeting.id }).from(meeting).where(
-      and28(
-        eq33(meeting.portalId, portalId),
-        eq33(meeting.fathomTranscriptUrl, fathomTranscriptUrl)
+      and29(
+        eq34(meeting.portalId, portalId),
+        eq34(meeting.fathomTranscriptUrl, fathomTranscriptUrl)
       )
     ).limit(1);
     if (existing) {
@@ -8238,7 +8363,7 @@ async function handleFathomMeeting(portalId, payload) {
         fathomParticipants,
         contactId: contactId ?? void 0,
         dealId: dealId ?? void 0
-      }).where(eq33(meeting.id, existing.id));
+      }).where(eq34(meeting.id, existing.id));
       return;
     }
   }
@@ -8444,7 +8569,7 @@ async function documentsRoutes(app2) {
 }
 
 // src/modules/setter/setter.router.ts
-import { sql as sql29 } from "drizzle-orm";
+import { sql as sql30 } from "drizzle-orm";
 
 // src/modules/setter/channels/evolution.client.ts
 import axios from "axios";
@@ -8462,8 +8587,8 @@ var OPT_OUT_KEYWORDS = [
   "stop",
   "unsubscribe"
 ];
-function normalize(text28) {
-  return text28.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+function normalize(text29) {
+  return text29.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 }
 var EvolutionProvider = class {
   http;
@@ -8495,8 +8620,8 @@ var EvolutionProvider = class {
     }
   }
   /** Opt-out por keywords. El opt-out es no negociable (guardrail Sprint 0). */
-  detectOptOut(text28) {
-    const normalized = normalize(text28);
+  detectOptOut(text29) {
+    const normalized = normalize(text29);
     return OPT_OUT_KEYWORDS.some((k) => normalized.includes(k));
   }
   // ── Envío (Fase 2) ───────────────────────────────────────────────────────
@@ -8508,11 +8633,11 @@ var EvolutionProvider = class {
     return this.http;
   }
   /** Envía un único texto. `number` para Evolution = dígitos sin `+`. */
-  async sendText(to, text28) {
+  async sendText(to, text29) {
     const http = this.requireHttp();
     const res = await http.post(`/message/sendText/${env.EVOLUTION_INSTANCE}`, {
       number: toNumber(to),
-      text: text28
+      text: text29
     });
     const channelMessageId = res.data?.key?.id ?? null;
     return { channelMessageId, ok: true };
@@ -8565,8 +8690,8 @@ function randomDelayMs() {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-function splitIntoBubbles(text28, maxBubbles = 3) {
-  const trimmed = text28.trim();
+function splitIntoBubbles(text29, maxBubbles = 3) {
+  const trimmed = text29.trim();
   if (!trimmed) return [];
   const byLines = trimmed.split(/\n+/).map((s) => s.trim()).filter(Boolean);
   const units = byLines.length > 1 ? byLines : trimmed.split(/(?<=[.?!])\s+/).filter(Boolean);
@@ -8611,11 +8736,11 @@ function getRedisConnectionOptions() {
 }
 
 // src/modules/setter/agent/brain.ts
-import { asc as asc12, eq as eq37 } from "drizzle-orm";
+import { asc as asc12, eq as eq38 } from "drizzle-orm";
 
 // src/modules/setter/agent/tools.ts
 import { Type } from "@google/genai";
-import { eq as eq34 } from "drizzle-orm";
+import { eq as eq35 } from "drizzle-orm";
 var TOOL_DECLARATIONS = [
   {
     name: "check_availability",
@@ -8725,7 +8850,7 @@ async function bookAppointment(args, ctx) {
     target: setterAppointment.leadId,
     set: { startsAt, endsAt, calendarRef, status: "confirmed" }
   });
-  await db.update(setterLead).set({ status: "BOOKED" }).where(eq34(setterLead.id, ctx.leadId));
+  await db.update(setterLead).set({ status: "BOOKED" }).where(eq35(setterLead.id, ctx.leadId));
   return { ok: true, calendarRef, startsAt: startsAt.toISOString(), mock: true };
 }
 async function saveQualification(args, ctx) {
@@ -8733,7 +8858,7 @@ async function saveQualification(args, ctx) {
   for (const key of ["pain", "fit", "authority", "timing", "score", "notes"]) {
     if (args[key] !== void 0 && args[key] !== null) fields[key] = args[key];
   }
-  const [lead] = await db.select({ qualification: setterLead.qualification, status: setterLead.status }).from(setterLead).where(eq34(setterLead.id, ctx.leadId)).limit(1);
+  const [lead] = await db.select({ qualification: setterLead.qualification, status: setterLead.status }).from(setterLead).where(eq35(setterLead.id, ctx.leadId)).limit(1);
   const merged = { ...lead?.qualification ?? {}, ...fields };
   const score = typeof fields["score"] === "number" ? fields["score"] : void 0;
   const terminal = ["BOOKED", "NOT_INTERESTED", "HANDED_OFF", "OPTED_OUT", "BOOKING"];
@@ -8741,15 +8866,15 @@ async function saveQualification(args, ctx) {
   if (lead && !terminal.includes(lead.status)) {
     nextStatus = score !== void 0 && score >= 10 ? "QUALIFIED" : "QUALIFYING";
   }
-  await db.update(setterLead).set({ qualification: merged, status: nextStatus }).where(eq34(setterLead.id, ctx.leadId));
+  await db.update(setterLead).set({ qualification: merged, status: nextStatus }).where(eq35(setterLead.id, ctx.leadId));
   return { ok: true, status: nextStatus };
 }
 async function handoffToHuman(args, ctx) {
-  await db.update(setterLead).set({ status: "HANDED_OFF" }).where(eq34(setterLead.id, ctx.leadId));
+  await db.update(setterLead).set({ status: "HANDED_OFF" }).where(eq35(setterLead.id, ctx.leadId));
   return { ok: true, reason: args["reason"] ?? null };
 }
 async function markNotInterested(args, ctx) {
-  await db.update(setterLead).set({ status: "NOT_INTERESTED" }).where(eq34(setterLead.id, ctx.leadId));
+  await db.update(setterLead).set({ status: "NOT_INTERESTED" }).where(eq35(setterLead.id, ctx.leadId));
   return { ok: true, reason: args["reason"] ?? null };
 }
 var TOOLS = {
@@ -8856,12 +8981,12 @@ function deriveBeat(statusBefore, toolsCalled) {
   if (statusBefore === "NEW" || statusBefore === "CONTACTED") return "apertura";
   return "conversacion";
 }
-function validateOutput(text28, checkAvailabilityCalled) {
-  const mentionsTime = /\b\d{1,2}([:.]\d{2})?\s?(hs?|am|pm)\b/i.test(text28);
+function validateOutput(text29, checkAvailabilityCalled) {
+  const mentionsTime = /\b\d{1,2}([:.]\d{2})?\s?(hs?|am|pm)\b/i.test(text29);
   if (mentionsTime && !checkAvailabilityCalled) {
     return { ok: false, reason: "menciona un horario sin haber llamado check_availability" };
   }
-  const mentionsPrice = /(usd|u\$s|us\$|\$)\s?\d{2,}/i.test(text28);
+  const mentionsPrice = /(usd|u\$s|us\$|\$)\s?\d{2,}/i.test(text29);
   if (mentionsPrice) {
     return { ok: false, reason: "menciona un precio concreto (el setter no cotiza)" };
   }
@@ -9009,17 +9134,17 @@ var claudeGenerate = async (req) => {
   });
   const functionCalls = [];
   const parts = [];
-  let text28 = "";
+  let text29 = "";
   for (const block of res.content) {
     if (block.type === "text") {
-      text28 += block.text;
+      text29 += block.text;
       parts.push({ text: block.text });
     } else if (block.type === "tool_use") {
       functionCalls.push({ id: block.id, name: block.name, args: block.input });
       parts.push({ functionCall: { id: block.id, name: block.name, args: block.input } });
     }
   }
-  return { functionCalls, text: text28, modelContent: { role: "model", parts } };
+  return { functionCalls, text: text29, modelContent: { role: "model", parts } };
 };
 
 // src/modules/setter/agent/providers/index.ts
@@ -9028,10 +9153,10 @@ function getProvider(provider) {
 }
 
 // src/modules/setter/setter.crm-sync.service.ts
-import { and as and30, asc as asc11, eq as eq36 } from "drizzle-orm";
+import { and as and31, asc as asc11, eq as eq37 } from "drizzle-orm";
 
 // src/modules/setter/setter.events.service.ts
-import { and as and29, desc as desc18, eq as eq35, gt as gt2 } from "drizzle-orm";
+import { and as and30, desc as desc18, eq as eq36, gt as gt2 } from "drizzle-orm";
 
 // src/modules/setter/setter.event-bus.ts
 import { EventEmitter as EventEmitter2 } from "events";
@@ -9072,7 +9197,7 @@ async function logSetterEvent(input) {
   }
 }
 async function listSetterEvents(portalId, opts) {
-  const conds = [eq35(setterTenant.portalId, portalId)];
+  const conds = [eq36(setterTenant.portalId, portalId)];
   if (opts?.since) conds.push(gt2(setterEvent.createdAt, opts.since));
   return db.select({
     id: setterEvent.id,
@@ -9082,7 +9207,7 @@ async function listSetterEvents(portalId, opts) {
     leadId: setterEvent.leadId,
     meta: setterEvent.meta,
     createdAt: setterEvent.createdAt
-  }).from(setterEvent).innerJoin(setterTenant, eq35(setterEvent.tenantId, setterTenant.id)).where(and29(...conds)).orderBy(desc18(setterEvent.createdAt)).limit(opts?.limit ?? 150);
+  }).from(setterEvent).innerJoin(setterTenant, eq36(setterEvent.tenantId, setterTenant.id)).where(and30(...conds)).orderBy(desc18(setterEvent.createdAt)).limit(opts?.limit ?? 150);
 }
 
 // src/modules/setter/setter.crm-sync.service.ts
@@ -9119,7 +9244,7 @@ function isDowngrade(current, next) {
 async function findOrCreateContact(tx, portalId, person, lifecycle, actorId) {
   if (person.phone) {
     const [existing] = await tx.select({ id: contact.id }).from(contact).where(
-      and30(eq36(contact.portalId, portalId), eq36(contact.phone, person.phone), eq36(contact.archived, false))
+      and31(eq37(contact.portalId, portalId), eq37(contact.phone, person.phone), eq37(contact.archived, false))
     ).limit(1);
     if (existing) return existing.id;
   }
@@ -9145,9 +9270,13 @@ async function findOrCreateContact(tx, portalId, person, lifecycle, actorId) {
   return created.id;
 }
 async function createSetterDeal(tx, portalId, contactId, person, tenantName, actorId) {
-  const [pl] = await tx.select({ id: pipeline.id }).from(pipeline).where(and30(eq36(pipeline.portalId, portalId), eq36(pipeline.archived, false))).orderBy(asc11(pipeline.createdAt)).limit(1);
+  let [pl] = await tx.select({ id: pipeline.id }).from(pipeline).where(and31(eq37(pipeline.portalId, portalId), eq37(pipeline.archived, false), eq37(pipeline.label, "Ventas"))).limit(1);
+  if (!pl) {
+    ;
+    [pl] = await tx.select({ id: pipeline.id }).from(pipeline).where(and31(eq37(pipeline.portalId, portalId), eq37(pipeline.archived, false))).orderBy(asc11(pipeline.createdAt)).limit(1);
+  }
   if (!pl) return null;
-  const [stage] = await tx.select({ id: pipelineStage.id }).from(pipelineStage).where(and30(eq36(pipelineStage.pipelineId, pl.id), eq36(pipelineStage.archived, false))).orderBy(asc11(pipelineStage.displayOrder)).limit(1);
+  const [stage] = await tx.select({ id: pipelineStage.id }).from(pipelineStage).where(and31(eq37(pipelineStage.pipelineId, pl.id), eq37(pipelineStage.archived, false))).orderBy(asc11(pipelineStage.displayOrder)).limit(1);
   if (!stage) return null;
   const [created] = await tx.insert(deal).values({
     portalId,
@@ -9173,9 +9302,9 @@ async function createSetterDeal(tx, portalId, contactId, person, tenantName, act
   return created.id;
 }
 async function advanceDealOnBooked(portalId, actorId, dealId) {
-  const [d] = await db.select({ pipelineId: deal.pipelineId, stageId: deal.stageId }).from(deal).where(eq36(deal.id, dealId)).limit(1);
+  const [d] = await db.select({ pipelineId: deal.pipelineId, stageId: deal.stageId }).from(deal).where(eq37(deal.id, dealId)).limit(1);
   if (!d) return;
-  const stages = await db.select({ id: pipelineStage.id, isWon: pipelineStage.isWon, isClosed: pipelineStage.isClosed }).from(pipelineStage).where(eq36(pipelineStage.pipelineId, d.pipelineId)).orderBy(asc11(pipelineStage.displayOrder));
+  const stages = await db.select({ id: pipelineStage.id, isWon: pipelineStage.isWon, isClosed: pipelineStage.isClosed }).from(pipelineStage).where(eq37(pipelineStage.pipelineId, d.pipelineId)).orderBy(asc11(pipelineStage.displayOrder));
   const idx = stages.findIndex((s) => s.id === d.stageId);
   const next = idx >= 0 ? stages[idx + 1] : void 0;
   if (next && !next.isWon && !next.isClosed) {
@@ -9183,17 +9312,17 @@ async function advanceDealOnBooked(portalId, actorId, dealId) {
   }
 }
 async function syncLeadToCrm(leadId) {
-  const [lead] = await db.select().from(setterLead).where(eq36(setterLead.id, leadId)).limit(1);
+  const [lead] = await db.select().from(setterLead).where(eq37(setterLead.id, leadId)).limit(1);
   if (!lead) return;
-  const [person] = await db.select().from(setterPerson).where(eq36(setterPerson.id, lead.personId)).limit(1);
+  const [person] = await db.select().from(setterPerson).where(eq37(setterPerson.id, lead.personId)).limit(1);
   if (!person) return;
-  const [tenant] = await db.select({ portalId: setterTenant.portalId, name: setterTenant.name }).from(setterTenant).where(eq36(setterTenant.id, lead.tenantId)).limit(1);
+  const [tenant] = await db.select({ portalId: setterTenant.portalId, name: setterTenant.name }).from(setterTenant).where(eq37(setterTenant.id, lead.tenantId)).limit(1);
   if (!tenant) return;
   const portalId = tenant.portalId;
   const status = lead.status;
   const lifecycle = STATUS_TO_LIFECYCLE[status];
-  const [owner] = await db.select({ id: hubUser.id }).from(hubUser).where(and30(eq36(hubUser.portalId, portalId), eq36(hubUser.role, "owner"))).limit(1) ?? [];
-  const [anyUser] = owner ? [owner] : await db.select({ id: hubUser.id }).from(hubUser).where(eq36(hubUser.portalId, portalId)).limit(1);
+  const [owner] = await db.select({ id: hubUser.id }).from(hubUser).where(and31(eq37(hubUser.portalId, portalId), eq37(hubUser.role, "owner"))).limit(1) ?? [];
+  const [anyUser] = owner ? [owner] : await db.select({ id: hubUser.id }).from(hubUser).where(eq37(hubUser.portalId, portalId)).limit(1);
   const actorId = anyUser?.id ?? null;
   let advanceDealId = null;
   let linkedContactId = null;
@@ -9203,13 +9332,13 @@ async function syncLeadToCrm(leadId) {
     if (!contactId) {
       if (!CREATE_CONTACT_STATUSES.has(status)) return;
       contactId = await findOrCreateContact(tx, portalId, person, lifecycle ?? "lead", actorId);
-      await tx.update(setterPerson).set({ crmContactId: contactId }).where(eq36(setterPerson.id, person.id));
+      await tx.update(setterPerson).set({ crmContactId: contactId }).where(eq37(setterPerson.id, person.id));
       linkedContactId = contactId;
     }
     if (lifecycle) {
-      const [c] = await tx.select({ lifecycleStage: contact.lifecycleStage }).from(contact).where(eq36(contact.id, contactId)).limit(1);
+      const [c] = await tx.select({ lifecycleStage: contact.lifecycleStage }).from(contact).where(eq37(contact.id, contactId)).limit(1);
       if (c && c.lifecycleStage !== lifecycle && !isDowngrade(c.lifecycleStage, lifecycle)) {
-        await tx.update(contact).set({ lifecycleStage: lifecycle, updatedAt: /* @__PURE__ */ new Date() }).where(eq36(contact.id, contactId));
+        await tx.update(contact).set({ lifecycleStage: lifecycle, updatedAt: /* @__PURE__ */ new Date() }).where(eq37(contact.id, contactId));
         if (actorId) {
           await recordFieldChanges({
             tx,
@@ -9227,7 +9356,7 @@ async function syncLeadToCrm(leadId) {
     if (CREATE_DEAL_STATUSES.has(status) && !lead.crmDealId) {
       const dealId = await createSetterDeal(tx, portalId, contactId, person, tenant.name, actorId);
       if (dealId) {
-        await tx.update(setterLead).set({ crmDealId: dealId }).where(eq36(setterLead.id, lead.id));
+        await tx.update(setterLead).set({ crmDealId: dealId }).where(eq37(setterLead.id, lead.id));
         newDealId = dealId;
         if (status === "BOOKED") advanceDealId = dealId;
       }
@@ -9268,19 +9397,19 @@ function toContents(messages) {
   }));
 }
 async function runAgentTurn(leadId, opts) {
-  const [lead] = await db.select().from(setterLead).where(eq37(setterLead.id, leadId)).limit(1);
+  const [lead] = await db.select().from(setterLead).where(eq38(setterLead.id, leadId)).limit(1);
   if (!lead) throw new Error(`Lead no encontrado: ${leadId}`);
-  const [person] = await db.select().from(setterPerson).where(eq37(setterPerson.id, lead.personId)).limit(1);
+  const [person] = await db.select().from(setterPerson).where(eq38(setterPerson.id, lead.personId)).limit(1);
   if (person?.optedOut) return { draftId: null, beat: null, status: lead.status, skipped: "opted_out" };
-  const [tenant] = await db.select().from(setterTenant).where(eq37(setterTenant.id, lead.tenantId)).limit(1);
+  const [tenant] = await db.select().from(setterTenant).where(eq38(setterTenant.id, lead.tenantId)).limit(1);
   if (!tenant) throw new Error(`Tenant no encontrado: ${lead.tenantId}`);
   const generate = opts?.generate ?? getProvider(tenant.modelProvider);
-  const [conversation] = await db.select().from(setterConversation).where(eq37(setterConversation.personId, lead.personId)).limit(1);
+  const [conversation] = await db.select().from(setterConversation).where(eq38(setterConversation.personId, lead.personId)).limit(1);
   if (!conversation) throw new Error(`Conversaci\xF3n no encontrada para person ${lead.personId}`);
-  const messages = await db.select({ role: setterMessage.role, content: setterMessage.content }).from(setterMessage).where(eq37(setterMessage.conversationId, conversation.id)).orderBy(asc12(setterMessage.createdAt)).limit(40);
+  const messages = await db.select({ role: setterMessage.role, content: setterMessage.content }).from(setterMessage).where(eq38(setterMessage.conversationId, conversation.id)).orderBy(asc12(setterMessage.createdAt)).limit(40);
   const statusBefore = lead.status;
   if (statusBefore === "NEW" || statusBefore === "CONTACTED") {
-    await db.update(setterLead).set({ status: "ENGAGED" }).where(eq37(setterLead.id, leadId));
+    await db.update(setterLead).set({ status: "ENGAGED" }).where(eq38(setterLead.id, leadId));
   }
   const statusForGuide = statusBefore === "NEW" || statusBefore === "CONTACTED" ? "ENGAGED" : statusBefore;
   const systemInstruction = buildSystemInstruction(tenant, statusForGuide);
@@ -9333,7 +9462,7 @@ async function runAgentTurn(leadId, opts) {
     beat = "handoff";
     finalText = finalText && validation.ok ? finalText : "Dejame que el due\xF1o te responda esto directamente, te escribe en un rato por ac\xE1 \u{1F44D}";
   }
-  const [after] = await db.select({ status: setterLead.status }).from(setterLead).where(eq37(setterLead.id, leadId)).limit(1);
+  const [after] = await db.select({ status: setterLead.status }).from(setterLead).where(eq38(setterLead.id, leadId)).limit(1);
   const [draft] = await db.insert(setterDraft).values({
     tenantId: tenant.id,
     conversationId: conversation.id,
@@ -9412,7 +9541,7 @@ async function setterRoutes(app2) {
     },
     async () => {
       const [dbStatus, bullmq, evolution] = await Promise.all([
-        db.execute(sql29`select 1`).then(() => "ok").catch(() => "down"),
+        db.execute(sql30`select 1`).then(() => "ok").catch(() => "down"),
         pingSetterQueue(),
         evolutionProvider.ping()
       ]);
@@ -9449,7 +9578,7 @@ var ListEventsQuerySchema = z30.object({
 });
 
 // src/modules/setter/setter.approval.service.ts
-import { and as and31, asc as asc13, eq as eq38 } from "drizzle-orm";
+import { and as and32, asc as asc13, eq as eq39 } from "drizzle-orm";
 var DRAFT_COLUMNS = {
   id: setterDraft.id,
   tenantId: setterDraft.tenantId,
@@ -9471,14 +9600,14 @@ var DRAFT_COLUMNS = {
   crmDealId: setterLead.crmDealId
 };
 function baseQuery() {
-  return db.select(DRAFT_COLUMNS).from(setterDraft).innerJoin(setterTenant, eq38(setterDraft.tenantId, setterTenant.id)).innerJoin(setterLead, eq38(setterDraft.leadId, setterLead.id)).innerJoin(setterConversation, eq38(setterDraft.conversationId, setterConversation.id)).innerJoin(setterPerson, eq38(setterLead.personId, setterPerson.id)).$dynamic();
+  return db.select(DRAFT_COLUMNS).from(setterDraft).innerJoin(setterTenant, eq39(setterDraft.tenantId, setterTenant.id)).innerJoin(setterLead, eq39(setterDraft.leadId, setterLead.id)).innerJoin(setterConversation, eq39(setterDraft.conversationId, setterConversation.id)).innerJoin(setterPerson, eq39(setterLead.personId, setterPerson.id)).$dynamic();
 }
 async function listDrafts(portalId, status) {
-  return baseQuery().where(and31(eq38(setterTenant.portalId, portalId), eq38(setterDraft.status, status))).orderBy(asc13(setterDraft.createdAt));
+  return baseQuery().where(and32(eq39(setterTenant.portalId, portalId), eq39(setterDraft.status, status))).orderBy(asc13(setterDraft.createdAt));
 }
 async function getDraftDetail(portalId, id) {
   const [draft] = await baseQuery().where(
-    and31(eq38(setterTenant.portalId, portalId), eq38(setterDraft.id, id))
+    and32(eq39(setterTenant.portalId, portalId), eq39(setterDraft.id, id))
   );
   if (!draft) throw Errors.notFound("Draft no encontrado");
   const messages = await db.select({
@@ -9486,12 +9615,12 @@ async function getDraftDetail(portalId, id) {
     content: setterMessage.content,
     beat: setterMessage.beat,
     createdAt: setterMessage.createdAt
-  }).from(setterMessage).where(eq38(setterMessage.conversationId, draft.conversationId)).orderBy(asc13(setterMessage.createdAt));
+  }).from(setterMessage).where(eq39(setterMessage.conversationId, draft.conversationId)).orderBy(asc13(setterMessage.createdAt));
   return { ...draft, messages };
 }
 async function loadDraft(portalId, id) {
   const [draft] = await baseQuery().where(
-    and31(eq38(setterTenant.portalId, portalId), eq38(setterDraft.id, id))
+    and32(eq39(setterTenant.portalId, portalId), eq39(setterDraft.id, id))
   );
   if (!draft) throw Errors.notFound("Draft no encontrado");
   return draft;
@@ -9524,7 +9653,7 @@ async function sendAndFinalize(draft, finalContent, userId, edited) {
     editedContent: edited ? finalContent : null,
     sentMessageId: msg.id,
     approvedBy: userId
-  }).where(eq38(setterDraft.id, draft.id));
+  }).where(eq39(setterDraft.id, draft.id));
   void logSetterEvent({
     tenantId: draft.tenantId,
     level: "success",
@@ -9575,7 +9704,7 @@ async function rejectDraft(portalId, userId, id) {
   if (draft.status !== "pending") {
     throw Errors.conflict(`El draft ya est\xE1 en estado "${draft.status}"`);
   }
-  await db.update(setterDraft).set({ status: "rejected" }).where(eq38(setterDraft.id, id));
+  await db.update(setterDraft).set({ status: "rejected" }).where(eq39(setterDraft.id, id));
   void logSetterEvent({
     tenantId: draft.tenantId,
     type: "approval",
@@ -9599,7 +9728,7 @@ async function rejectDraft(portalId, userId, id) {
 }
 async function regenerateDraft(portalId, id) {
   const draft = await loadDraft(portalId, id);
-  await db.update(setterDraft).set({ status: "rejected" }).where(eq38(setterDraft.id, id));
+  await db.update(setterDraft).set({ status: "rejected" }).where(eq39(setterDraft.id, id));
   const result = await runAgentTurn(draft.leadId);
   if (!result.draftId) {
     throw Errors.conflict("No se gener\xF3 un nuevo draft (lead en opt-out o sin texto)");
@@ -9608,7 +9737,7 @@ async function regenerateDraft(portalId, id) {
 }
 
 // src/modules/setter/setter.config.service.ts
-import { eq as eq39 } from "drizzle-orm";
+import { eq as eq40 } from "drizzle-orm";
 var setterConfigCols = {
   id: setterTenant.id,
   portalId: setterTenant.portalId,
@@ -9623,7 +9752,7 @@ var setterConfigCols = {
   prospectingAutopilot: setterTenant.prospectingAutopilot
 };
 async function loadTenant(portalId) {
-  const [tenant] = await db.select(setterConfigCols).from(setterTenant).where(eq39(setterTenant.portalId, portalId)).limit(1);
+  const [tenant] = await db.select(setterConfigCols).from(setterTenant).where(eq40(setterTenant.portalId, portalId)).limit(1);
   if (!tenant) throw Errors.notFound("No hay setter configurado para este portal");
   return tenant;
 }
@@ -9649,12 +9778,12 @@ async function getSetterConfig(portalId) {
 }
 async function setModelProvider(portalId, provider) {
   const tenant = await loadTenant(portalId);
-  await db.update(setterTenant).set({ modelProvider: provider }).where(eq39(setterTenant.id, tenant.id));
+  await db.update(setterTenant).set({ modelProvider: provider }).where(eq40(setterTenant.id, tenant.id));
   return getSetterConfig(portalId);
 }
 async function setProspectingAutopilot(portalId, enabled) {
   const tenant = await loadTenant(portalId);
-  await db.update(setterTenant).set({ prospectingAutopilot: enabled }).where(eq39(setterTenant.id, tenant.id));
+  await db.update(setterTenant).set({ prospectingAutopilot: enabled }).where(eq40(setterTenant.id, tenant.id));
   return getSetterConfig(portalId);
 }
 
@@ -9830,7 +9959,7 @@ async function setterApprovalRoutes(app2) {
 }
 
 // src/modules/setter/setter.ws.ts
-import { eq as eq40 } from "drizzle-orm";
+import { eq as eq41 } from "drizzle-orm";
 async function setterWsRoutes(app2) {
   app2.get("/ws/setter/events", { websocket: true }, async (socket, request) => {
     const token = request.query.token;
@@ -9843,7 +9972,7 @@ async function setterWsRoutes(app2) {
       socket.close(1008, "unauthorized");
       return;
     }
-    const tenants = await db.select({ id: setterTenant.id }).from(setterTenant).where(eq40(setterTenant.portalId, user.portalId));
+    const tenants = await db.select({ id: setterTenant.id }).from(setterTenant).where(eq41(setterTenant.portalId, user.portalId));
     const tenantIds = new Set(tenants.map((t) => t.id));
     const handler2 = (event) => {
       if (!tenantIds.has(event.tenantId)) return;
@@ -9862,7 +9991,7 @@ async function setterWsRoutes(app2) {
 import { timingSafeEqual as timingSafeEqual2 } from "crypto";
 
 // src/modules/setter/setter.service.ts
-import { and as and32, eq as eq41 } from "drizzle-orm";
+import { and as and33, eq as eq42 } from "drizzle-orm";
 var SERVICE_WINDOW_MS = 24 * 60 * 60 * 1e3;
 async function getSetterTenantId() {
   const [tenant] = await db.select({ id: setterTenant.id }).from(setterTenant).limit(1);
@@ -9876,13 +10005,13 @@ async function handleInboundMessage(input) {
   const optedOutByKeyword = evolutionProvider.detectOptOut(input.text);
   const result = await db.transaction(async (tx) => {
     await tx.insert(setterPerson).values({ tenantId, name: input.name ?? null, phone: input.from }).onConflictDoNothing({ target: [setterPerson.tenantId, setterPerson.phone] });
-    const [person] = await tx.select().from(setterPerson).where(and32(eq41(setterPerson.tenantId, tenantId), eq41(setterPerson.phone, input.from))).limit(1);
+    const [person] = await tx.select().from(setterPerson).where(and33(eq42(setterPerson.tenantId, tenantId), eq42(setterPerson.phone, input.from))).limit(1);
     if (person.optedOut) {
       return { status: "skipped_opted_out" };
     }
     await tx.insert(setterConversation).values({ tenantId, personId: person.id, channel: input.channel ?? "whatsapp" }).onConflictDoNothing({ target: setterConversation.personId });
-    const [conversation] = await tx.select().from(setterConversation).where(eq41(setterConversation.personId, person.id)).limit(1);
-    let [lead] = await tx.select().from(setterLead).where(eq41(setterLead.personId, person.id)).limit(1);
+    const [conversation] = await tx.select().from(setterConversation).where(eq42(setterConversation.personId, person.id)).limit(1);
+    let [lead] = await tx.select().from(setterLead).where(eq42(setterLead.personId, person.id)).limit(1);
     if (!lead) {
       ;
       [lead] = await tx.insert(setterLead).values({ tenantId, personId: person.id, status: "NEW", source: input.channel ?? "whatsapp" }).returning();
@@ -9896,10 +10025,10 @@ async function handleInboundMessage(input) {
     if (inserted.length === 0) {
       return { status: "duplicate" };
     }
-    await tx.update(setterLead).set({ windowExpiresAt: new Date(Date.now() + SERVICE_WINDOW_MS) }).where(eq41(setterLead.id, lead.id));
+    await tx.update(setterLead).set({ windowExpiresAt: new Date(Date.now() + SERVICE_WINDOW_MS) }).where(eq42(setterLead.id, lead.id));
     if (optedOutByKeyword) {
-      await tx.update(setterPerson).set({ optedOut: true, optedOutAt: /* @__PURE__ */ new Date() }).where(eq41(setterPerson.id, person.id));
-      await tx.update(setterLead).set({ status: "OPTED_OUT" }).where(eq41(setterLead.id, lead.id));
+      await tx.update(setterPerson).set({ optedOut: true, optedOutAt: /* @__PURE__ */ new Date() }).where(eq42(setterPerson.id, person.id));
+      await tx.update(setterLead).set({ status: "OPTED_OUT" }).where(eq42(setterLead.id, lead.id));
       return { status: "opted_out", leadId: lead.id };
     }
     return { status: "processed", leadId: lead.id, conversationId: conversation.id };
@@ -9961,15 +10090,15 @@ function parseEvolutionInbound(body) {
   if (!key?.remoteJid || !key.id) return null;
   if (key.fromMe) return null;
   if (key.remoteJid.endsWith("@g.us")) return null;
-  const text28 = extractText(body.data?.message);
-  if (!text28) return null;
+  const text29 = extractText(body.data?.message);
+  if (!text29) return null;
   const digits = key.remoteJid.split("@")[0]?.replace(/\D/g, "");
   if (!digits) return null;
   return {
     from: `+${digits}`,
     name: body.data?.pushName ?? null,
     messageId: key.id,
-    text: text28,
+    text: text29,
     channel: "whatsapp"
   };
 }
@@ -10030,7 +10159,7 @@ var ListProspectsQuerySchema = z31.object({
 });
 
 // src/modules/prospecting/prospecting.service.ts
-import { and as and33, desc as desc19, eq as eq42, inArray as inArray15 } from "drizzle-orm";
+import { and as and34, desc as desc19, eq as eq43, inArray as inArray15 } from "drizzle-orm";
 
 // src/modules/prospecting/places.client.ts
 import axios2 from "axios";
@@ -10287,10 +10416,10 @@ async function analyzeBusiness(input) {
       temperature: 0.85
     }
   });
-  const text28 = res.text;
-  if (!text28) return null;
+  const text29 = res.text;
+  if (!text29) return null;
   try {
-    return JSON.parse(text28);
+    return JSON.parse(text29);
   } catch {
     return null;
   }
@@ -10335,9 +10464,9 @@ async function suggestProspectingServices(hint) {
   if (!isVertexConfigured()) {
     throw new AppError("AI_NOT_CONFIGURED", "La sugerencia con IA requiere Vertex configurado.", 503);
   }
-  const text28 = await suggestServices(hint);
-  if (!text28) throw Errors.internal("La IA no devolvi\xF3 una sugerencia");
-  return text28;
+  const text29 = await suggestServices(hint);
+  if (!text29) throw Errors.internal("La IA no devolvi\xF3 una sugerencia");
+  return text29;
 }
 async function runProspectSearch(portalId, userId, input) {
   if (!isPlacesConfigured()) {
@@ -10359,7 +10488,7 @@ async function runProspectSearch(portalId, userId, input) {
   try {
     const places = await searchBusinesses(input.query, input.limit);
     const placeIds = places.map((p) => p.googlePlaceId).filter((id) => Boolean(id));
-    const alreadySeen = placeIds.length ? await db.select({ googlePlaceId: prospect.googlePlaceId }).from(prospect).where(and33(eq42(prospect.portalId, portalId), inArray15(prospect.googlePlaceId, placeIds))) : [];
+    const alreadySeen = placeIds.length ? await db.select({ googlePlaceId: prospect.googlePlaceId }).from(prospect).where(and34(eq43(prospect.portalId, portalId), inArray15(prospect.googlePlaceId, placeIds))) : [];
     const seen = new Set(alreadySeen.map((r) => r.googlePlaceId));
     const batchSeen = /* @__PURE__ */ new Set();
     const fresh = places.filter((p) => {
@@ -10405,11 +10534,11 @@ async function runProspectSearch(portalId, userId, input) {
       ).returning();
       prospects = rows.map(toProspectDTO);
     }
-    const [updated] = await db.update(prospectSearch).set({ status: "completed", resultCount: prospects.length }).where(eq42(prospectSearch.id, search.id)).returning();
+    const [updated] = await db.update(prospectSearch).set({ status: "completed", resultCount: prospects.length }).where(eq43(prospectSearch.id, search.id)).returning();
     return { search: toSearchDTO(updated ?? search), prospects };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
-    await db.update(prospectSearch).set({ status: "failed", error: message }).where(eq42(prospectSearch.id, search.id));
+    await db.update(prospectSearch).set({ status: "failed", error: message }).where(eq43(prospectSearch.id, search.id));
     if (err instanceof AppError) throw err;
     throw new AppError("PROSPECTING_FAILED", `La prospecci\xF3n fall\xF3: ${message}`, 502);
   }
@@ -10417,8 +10546,8 @@ async function runProspectSearch(portalId, userId, input) {
 async function listSearches(portalId, query) {
   const cursor = decodeCursor(query.cursor);
   const rows = await db.select().from(prospectSearch).where(
-    and33(
-      eq42(prospectSearch.portalId, portalId),
+    and34(
+      eq43(prospectSearch.portalId, portalId),
       cursor ? cursorWhere(prospectSearch.createdAt, prospectSearch.id, cursor) : void 0
     )
   ).orderBy(desc19(prospectSearch.createdAt), desc19(prospectSearch.id)).limit(query.limit + 1);
@@ -10426,20 +10555,20 @@ async function listSearches(portalId, query) {
   return { items: page.items.map(toSearchDTO), nextCursor: page.nextCursor };
 }
 async function getSearchWithProspects(portalId, searchId) {
-  const [row] = await db.select().from(prospectSearch).where(and33(eq42(prospectSearch.id, searchId), eq42(prospectSearch.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(prospectSearch).where(and34(eq43(prospectSearch.id, searchId), eq43(prospectSearch.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("B\xFAsqueda no encontrada");
-  const prospects = await db.select().from(prospect).where(and33(eq42(prospect.searchId, searchId), eq42(prospect.portalId, portalId))).orderBy(desc19(prospect.createdAt));
+  const prospects = await db.select().from(prospect).where(and34(eq43(prospect.searchId, searchId), eq43(prospect.portalId, portalId))).orderBy(desc19(prospect.createdAt));
   return { search: toSearchDTO(row), prospects: prospects.map(toProspectDTO) };
 }
 async function listProspects(portalId, query) {
-  const conditions = [eq42(prospect.portalId, portalId)];
-  if (query.searchId) conditions.push(eq42(prospect.searchId, query.searchId));
-  if (query.status) conditions.push(eq42(prospect.status, query.status));
-  const rows = await db.select().from(prospect).where(and33(...conditions)).orderBy(desc19(prospect.createdAt)).limit(500);
+  const conditions = [eq43(prospect.portalId, portalId)];
+  if (query.searchId) conditions.push(eq43(prospect.searchId, query.searchId));
+  if (query.status) conditions.push(eq43(prospect.status, query.status));
+  const rows = await db.select().from(prospect).where(and34(...conditions)).orderBy(desc19(prospect.createdAt)).limit(500);
   return rows.map(toProspectDTO);
 }
 async function findProspect(portalId, id) {
-  const [row] = await db.select().from(prospect).where(and33(eq42(prospect.id, id), eq42(prospect.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(prospect).where(and34(eq43(prospect.id, id), eq43(prospect.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Prospecto no encontrado");
   return row;
 }
@@ -10475,7 +10604,7 @@ async function importProspect(portalId, userId, id) {
       throw Errors.conflict("Ya existe un contacto con ese email en el CRM");
     }
     if (!newContact) throw Errors.internal("No se pudo crear el contacto");
-    await tx.update(prospect).set({ status: "imported", importedContactId: newContact.id }).where(eq42(prospect.id, row.id));
+    await tx.update(prospect).set({ status: "imported", importedContactId: newContact.id }).where(eq43(prospect.id, row.id));
     return { contactId: newContact.id, companyId: newCompany.id };
   });
   const who = await actorName(portalId, userId);
@@ -10494,7 +10623,7 @@ async function importProspect(portalId, userId, id) {
 }
 async function discardProspect(portalId, id) {
   await findProspect(portalId, id);
-  const [updated] = await db.update(prospect).set({ status: "discarded" }).where(and33(eq42(prospect.id, id), eq42(prospect.portalId, portalId))).returning();
+  const [updated] = await db.update(prospect).set({ status: "discarded" }).where(and34(eq43(prospect.id, id), eq43(prospect.portalId, portalId))).returning();
   if (!updated) throw Errors.internal("No se pudo descartar el prospecto");
   return toProspectDTO(updated);
 }
@@ -10690,7 +10819,7 @@ var ProposalTokenParamSchema = z32.object({
 });
 
 // src/modules/proposals/proposals.service.ts
-import { and as and34, desc as desc20, eq as eq43 } from "drizzle-orm";
+import { and as and35, desc as desc20, eq as eq44 } from "drizzle-orm";
 
 // src/modules/proposals/proposals.ai.ts
 var PROJECT_TYPE_LABEL = {
@@ -10760,8 +10889,8 @@ function buildPrompt2(input) {
 DATOS DEL LEAD:
 ${lines.join("\n")}`;
 }
-function safeJsonParse(text28) {
-  let t = text28.trim();
+function safeJsonParse(text29) {
+  let t = text29.trim();
   t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   try {
     return JSON.parse(t);
@@ -10966,7 +11095,7 @@ function publicUrl(token) {
   return `${base}/p/${token}`;
 }
 async function getModelProvider(portalId) {
-  const [t] = await db.select({ p: setterTenant.modelProvider }).from(setterTenant).where(eq43(setterTenant.portalId, portalId)).limit(1);
+  const [t] = await db.select({ p: setterTenant.modelProvider }).from(setterTenant).where(eq44(setterTenant.portalId, portalId)).limit(1);
   return t?.p === "claude" ? "claude" : "gemini";
 }
 function toDTO2(row) {
@@ -10995,19 +11124,19 @@ async function generateProposal(portalId, dealId, actorId) {
     id: deal.id,
     primaryContactId: deal.primaryContactId,
     companyId: deal.companyId
-  }).from(deal).where(and34(eq43(deal.id, dealId), eq43(deal.portalId, portalId), eq43(deal.archived, false))).limit(1);
+  }).from(deal).where(and35(eq44(deal.id, dealId), eq44(deal.portalId, portalId), eq44(deal.archived, false))).limit(1);
   if (!d) throw Errors.notFound("Deal no encontrado");
   let contactName = "Cliente";
   if (d.primaryContactId) {
-    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq43(contact.id, d.primaryContactId)).limit(1);
+    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq44(contact.id, d.primaryContactId)).limit(1);
     if (c) contactName = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || contactName;
   }
   let companyName;
   if (d.companyId) {
-    const [co] = await db.select({ name: company.name }).from(company).where(eq43(company.id, d.companyId)).limit(1);
+    const [co] = await db.select({ name: company.name }).from(company).where(eq44(company.id, d.companyId)).limit(1);
     companyName = co?.name;
   }
-  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and34(eq43(onboardingSubmission.portalId, portalId), eq43(onboardingSubmission.dealId, dealId))).orderBy(desc20(onboardingSubmission.createdAt)).limit(1);
+  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and35(eq44(onboardingSubmission.portalId, portalId), eq44(onboardingSubmission.dealId, dealId))).orderBy(desc20(onboardingSubmission.createdAt)).limit(1);
   const a = sub?.answers ?? {};
   const input = {
     contactName,
@@ -11063,11 +11192,11 @@ async function generateProposal(portalId, dealId, actorId) {
   return toDTO2(row);
 }
 async function listProposals(portalId) {
-  const rows = await db.select().from(proposal).where(eq43(proposal.portalId, portalId)).orderBy(desc20(proposal.createdAt)).limit(500);
+  const rows = await db.select().from(proposal).where(eq44(proposal.portalId, portalId)).orderBy(desc20(proposal.createdAt)).limit(500);
   return rows.map(toDTO2);
 }
 async function getProposal(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and34(eq43(proposal.id, id), eq43(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and35(eq44(proposal.id, id), eq44(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
@@ -11080,12 +11209,12 @@ async function updateProposal(portalId, id, input) {
     patch.currency = input.content.pricing.currency || "USD";
   }
   if (Object.keys(patch).length === 0) return getProposal(portalId, id);
-  const [row] = await db.update(proposal).set(patch).where(and34(eq43(proposal.id, id), eq43(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set(patch).where(and35(eq44(proposal.id, id), eq44(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
 async function acceptProposal(portalId, id, actorId) {
-  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and34(eq43(proposal.id, id), eq43(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and35(eq44(proposal.id, id), eq44(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   const who = await actorName(portalId, actorId);
   await notifyAdmins(
@@ -11103,26 +11232,26 @@ async function acceptProposal(portalId, id, actorId) {
   return toDTO2(row);
 }
 async function markProposalSent(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and34(eq43(proposal.id, id), eq43(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and35(eq44(proposal.id, id), eq44(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   if (!row.sentAt) {
-    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and34(eq43(proposal.id, id), eq43(proposal.portalId, portalId))).returning();
+    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and35(eq44(proposal.id, id), eq44(proposal.portalId, portalId))).returning();
     if (updated) return toDTO2(updated);
   }
   return toDTO2(row);
 }
 async function markProposalCompleted(token) {
-  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq43(proposal.token, token)).limit(1);
+  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq44(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") return;
   if (!row.completedAt) {
-    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq43(proposal.id, row.id));
+    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq44(proposal.id, row.id));
   }
 }
 async function getPublicProposal(token) {
-  const [row] = await db.select().from(proposal).where(eq43(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq44(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   if (!row.viewedAt) {
-    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq43(proposal.id, row.id));
+    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq44(proposal.id, row.id));
     const cliente = row.content.companyName || row.content.clientName;
     await notifyAdmins(row.portalId, {
       entityType: "proposal",
@@ -11144,7 +11273,7 @@ function slugify3(s) {
   return s.normalize("NFD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "propuesta";
 }
 async function getPublicProposalPdf(token) {
-  const [row] = await db.select().from(proposal).where(eq43(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq44(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   const buffer = await buildProposalPdf(row.content);
   return { filename: `${slugify3(row.title)}.pdf`, buffer };
@@ -11290,7 +11419,7 @@ var SlugParamSchema = z33.object({
 });
 
 // src/modules/branding/branding.service.ts
-import { and as and35, asc as asc14, eq as eq44 } from "drizzle-orm";
+import { and as and36, asc as asc14, eq as eq45 } from "drizzle-orm";
 function logoUrl(key) {
   return key ? `${env.PUBLIC_API_URL}/api/files/${key}` : null;
 }
@@ -11309,7 +11438,7 @@ async function getBrandingBySlug(slug) {
     brandLogoKey: clientAccount.brandLogoKey,
     brandPrimary: clientAccount.brandPrimary,
     brandSecondary: clientAccount.brandSecondary
-  }).from(clientAccount).where(eq44(clientAccount.brandSlug, slug)).limit(1);
+  }).from(clientAccount).where(eq45(clientAccount.brandSlug, slug)).limit(1);
   if (!row) return null;
   return {
     brandName: row.brandName,
@@ -11319,7 +11448,7 @@ async function getBrandingBySlug(slug) {
   };
 }
 async function listClientBranding(portalId) {
-  const rows = await db.select(brandingCols).from(clientAccount).where(eq44(clientAccount.portalId, portalId)).orderBy(asc14(clientAccount.email));
+  const rows = await db.select(brandingCols).from(clientAccount).where(eq45(clientAccount.portalId, portalId)).orderBy(asc14(clientAccount.email));
   return rows.map((r) => ({
     id: r.id,
     email: r.email,
@@ -11332,7 +11461,7 @@ async function listClientBranding(portalId) {
   }));
 }
 async function updateClientBranding(portalId, accountId, input) {
-  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and35(eq44(clientAccount.id, accountId), eq44(clientAccount.portalId, portalId))).limit(1);
+  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and36(eq45(clientAccount.id, accountId), eq45(clientAccount.portalId, portalId))).limit(1);
   if (!exists) throw Errors.notFound("Cuenta de cliente no encontrada");
   let row;
   try {
@@ -11343,7 +11472,7 @@ async function updateClientBranding(portalId, accountId, input) {
       brandLogoKey: input.brandLogoKey ?? null,
       brandPrimary: input.brandPrimary ?? null,
       brandSecondary: input.brandSecondary ?? null
-    }).where(eq44(clientAccount.id, accountId)).returning(brandingCols);
+    }).where(eq45(clientAccount.id, accountId)).returning(brandingCols);
   } catch {
     throw new AppError("SLUG_TAKEN", "Ese slug ya est\xE1 en uso por otro cliente", 409);
   }
@@ -11360,7 +11489,7 @@ async function updateClientBranding(portalId, accountId, input) {
   };
 }
 async function getOwnBranding(clientId) {
-  const [row] = await db.select(brandingCols).from(clientAccount).where(eq44(clientAccount.id, clientId)).limit(1);
+  const [row] = await db.select(brandingCols).from(clientAccount).where(eq45(clientAccount.id, clientId)).limit(1);
   if (!row) throw Errors.notFound("Cuenta no encontrada");
   return {
     id: row.id,
@@ -11379,7 +11508,7 @@ async function updateOwnBranding(clientId, input) {
     brandLogoKey: input.brandLogoKey ?? null,
     brandPrimary: input.brandPrimary ?? null,
     brandSecondary: input.brandSecondary ?? null
-  }).where(eq44(clientAccount.id, clientId)).returning(brandingCols);
+  }).where(eq45(clientAccount.id, clientId)).returning(brandingCols);
   if (!row) throw Errors.notFound("Cuenta no encontrada");
   return {
     id: row.id,
@@ -11454,348 +11583,408 @@ async function brandingClientRoutes(app2) {
   );
 }
 
+// src/modules/onboarding/onboarding.service.ts
+import { and as and37, desc as desc21, eq as eq46, inArray as inArray16, isNull as isNull4, sql as sql31 } from "drizzle-orm";
+
 // src/modules/onboarding/onboarding.schema.ts
 import { z as z34 } from "zod";
+var ONBOARDING_STATUS = {
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed"
+};
+var OnboardingProgressSchema = z34.object({
+  step: z34.number().int().min(1, "Paso inv\xE1lido").max(4, "Paso inv\xE1lido")
+});
+var OnboardingSignatureSchema = z34.object({
+  fullName: z34.string({ required_error: "El nombre completo es requerido." }).min(3, "El nombre completo es requerido.").max(200, "Nombre demasiado largo."),
+  accepted: z34.literal(true, { errorMap: () => ({ message: "Deb\xE9s aceptar los t\xE9rminos para firmar." }) })
+});
+var DELIVERY_CHANNELS = [
+  "whatsapp",
+  "notion",
+  "drive",
+  "skool",
+  "circle",
+  "hotmart",
+  "kajabi",
+  "otro"
+];
 var stripControl = (s) => s.split("").filter((c) => {
   const code = c.charCodeAt(0);
   return code > 31 && code !== 127;
 }).join("");
-var freeText = (max) => z34.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).optional();
-var shortSafe = (max, label) => z34.string().max(max, `${label}: m\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).refine((s) => !/[<>]/.test(s), `${label}: contiene caracteres no permitidos.`);
-var personName = (label) => z34.string({ required_error: `Tu ${label.toLowerCase()} es requerido.` }).transform((s) => stripControl(s).trim()).pipe(
-  z34.string().min(2, `Ingres\xE1 tu ${label.toLowerCase()}.`).max(60, `${label}: m\xE1ximo 60 caracteres.`).regex(
-    /^[\p{L}\p{M}][\p{L}\p{M}\s.'’-]*$/u,
-    `${label}: solo letras, espacios y guiones.`
-  )
-);
-var choice = (values, label) => z34.enum(values, { errorMap: () => ({ message: `Eleg\xED una opci\xF3n v\xE1lida en ${label}.` }) });
-var OnboardingSubmitSchema = z34.object({
-  // Token de invitación (opcional). JWT firmado; acotamos longitud por las dudas.
-  token: z34.string().max(2048).optional(),
-  // 1 · Información básica — Nombre y Apellido SEPARADOS.
-  firstName: personName("Nombre"),
-  lastName: personName("Apellido"),
-  email: z34.string({ required_error: "Tu email es requerido." }).transform((s) => s.trim().toLowerCase()).pipe(
-    z34.string().min(5, "Email inv\xE1lido.").max(254, "Email demasiado largo.").email("Ingres\xE1 un email v\xE1lido.")
-  ),
-  company: shortSafe(160, "Empresa").optional(),
-  // URL opcional: si no trae protocolo le anteponemos https://; solo http/https.
-  website: z34.preprocess(
-    (v) => {
-      if (typeof v !== "string") return v;
-      const t = v.trim();
-      if (!t) return void 0;
-      return /^https?:\/\//i.test(t) ? t : `https://${t}`;
-    },
-    z34.string().url("Ingres\xE1 una URL v\xE1lida (https://\u2026).").max(200, "URL demasiado larga.").optional()
-  ),
-  // `source` (cómo nos conoció) quedó OBSOLETO: la fuente se setea al crear el
-  // lead en su canal de origen. Opcional solo por compatibilidad; el wizard ya
-  // no lo envía.
-  source: freeText(160),
-  // 2 · El proyecto. La oferta de NOUS es SOFTWARE A MEDIDA (web apps, CRMs,
-  // automatizaciones, portales) — no landings ni sitios de marketing.
-  projectType: choice(["webapp", "crm", "automatizacion", "portal", "otro"], "tipo de proyecto"),
-  mainGoal: choice(["operacion", "escalar", "reemplazar", "lanzar"], "objetivo principal"),
-  // Descripción breve: "¿cómo lo resolvés hoy / qué querés construir?". Es la
-  // materia prima para que la IA arme la propuesta.
-  currentSolution: freeText(600),
-  // NOTA: el "Alcance" detallado (disciplinas, contenido listo, referencias) NO
-  // se pregunta acá. Es parte del INTAKE post-cierre, una vez aceptada la
-  // propuesta. El onboarding es solo el calificador pre-venta.
-  // 3 · Claridad
-  clarity: choice(["muy_claro", "mas_o_menos", "necesito_ayuda"], "claridad"),
-  // 4 · Presupuesto (filtro fuerte) — rangos de software a medida (USD).
-  budget: choice(["<2000", "2000-5000", "5000-10000", "10000+"], "presupuesto"),
-  // 5 · Timing
-  startWhen: freeText(160),
-  deadline: freeText(160),
-  // 6 · Automatización / herramientas actuales (contexto para la propuesta).
-  currentCrm: freeText(160),
-  toAutomate: freeText(600),
-  // 7 · Prioridad
-  priority: choice(["precio", "velocidad", "calidad", "escalabilidad"], "prioridad"),
-  // 8 · Preferencia final
-  preference: choice(["propuesta", "llamada"], "preferencia")
+var freeText = (max) => z34.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).pipe(z34.string().min(1, "Requerido"));
+var freeTextOptional = (max) => z34.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).optional();
+var OnboardingBriefSchema = z34.object({
+  businessProgram: freeText(2e3),
+  // q1
+  activeClients: freeText(500),
+  // q2
+  deliveryChannels: z34.array(z34.enum(DELIVERY_CHANNELS)).min(1, "Eleg\xED al menos un canal"),
+  // q3
+  deliveryChannelsOther: freeTextOptional(200),
+  worstChannel: freeText(2e3),
+  // q4
+  weeklyTimeDrain: freeText(2e3),
+  // q5
+  sixMonthConcern: freeText(2e3),
+  // q6
+  idealDayToDay: freeText(2e3),
+  // q7
+  desiredStudentFeeling: freeText(2e3),
+  // q8
+  referenceApps: freeText(2e3),
+  // q9
+  teamRoles: freeText(2e3),
+  // q10
+  brandIdentity: freeText(500),
+  // q11
+  requiredIntegrations: freeText(2e3),
+  // q12
+  existingClientBase: freeText(2e3),
+  // q13
+  howFoundUs: freeText(2e3),
+  // q14
+  decisionTrigger: freeText(2e3),
+  // q15
+  doubtsBeforeBuying: freeText(2e3)
+  // q16
 });
-var OnboardingResolveQuerySchema = z34.object({
-  t: z34.string().min(1, "Falta el token").max(2048)
+var MaterialItemSchema = z34.object({
+  done: z34.boolean(),
+  assetIds: z34.array(z34.string().min(1)).max(50, "M\xE1ximo 50 archivos por categor\xEDa.").optional(),
+  note: z34.string().max(500).optional()
 });
-var OnboardingInviteSchema = z34.object({
-  contactId: z34.string().min(1, "contactId requerido").max(60)
+var ONBOARDING_MATERIAL_CATEGORIES = [
+  "logoBrand",
+  "programContent",
+  "clientBase",
+  "toolAccess"
+];
+var OnboardingMaterialsSchema = z34.object({
+  materials: z34.object({
+    logoBrand: MaterialItemSchema,
+    programContent: MaterialItemSchema,
+    clientBase: MaterialItemSchema,
+    toolAccess: MaterialItemSchema
+  })
+});
+var OnboardingMaterialUploadQuerySchema = z34.object({
+  category: z34.enum(ONBOARDING_MATERIAL_CATEGORIES, {
+    errorMap: () => ({ message: "Categor\xEDa de material inv\xE1lida" })
+  })
 });
 
 // src/modules/onboarding/onboarding.service.ts
-import { and as and36, asc as asc15, desc as desc21, eq as eq45, sql as sql30 } from "drizzle-orm";
-
-// src/modules/onboarding/onboarding-token.ts
-import jwt2 from "jsonwebtoken";
-var ONBOARDING_TOKEN_TTL = "30d";
-function signOnboardingToken(payload) {
-  return jwt2.sign({ ...payload, type: "onboarding" }, env.ACCESS_TOKEN_SECRET, {
-    expiresIn: ONBOARDING_TOKEN_TTL
-  });
-}
-function verifyOnboardingToken(token) {
-  try {
-    const decoded = jwt2.verify(token, env.ACCESS_TOKEN_SECRET);
-    if (decoded.type !== "onboarding") throw Errors.unauthorized("Tipo de token inv\xE1lido");
-    return { contactId: decoded.contactId, portalId: decoded.portalId };
-  } catch {
-    throw Errors.unauthorized("Link de onboarding inv\xE1lido o expirado");
-  }
-}
-
-// src/modules/onboarding/onboarding.service.ts
-function decideRouting(budget, clarity) {
-  const highBudget = budget === "5000-10000" || budget === "10000+";
-  const lowClarity = clarity === "necesito_ayuda";
-  return highBudget || lowClarity ? "call" : "proposal";
-}
-var BUDGET_AMOUNT = {
-  "<2000": "1500.00",
-  "2000-5000": "3500.00",
-  "5000-10000": "7500.00",
-  "10000+": "12000.00"
+var CATEGORY_TO_ASSET_TYPE = {
+  logoBrand: "logo",
+  programContent: "documento",
+  clientBase: "documento",
+  toolAccess: "acceso"
 };
-var PROJECT_TYPE_LABEL2 = {
-  webapp: "Web App",
-  crm: "CRM",
-  automatizacion: "Automatizaci\xF3n",
-  portal: "Portal de Clientes",
-  otro: "Proyecto"
-};
-async function submitOnboarding(input) {
-  let tokenContactId = null;
-  let portalId;
-  if (input.token) {
-    const resolved = verifyOnboardingToken(input.token);
-    tokenContactId = resolved.contactId;
-    portalId = resolved.portalId;
-  } else {
-    const [p] = await db.select().from(portal).limit(1);
-    if (!p) throw Errors.internal("No hay portal configurado");
-    portalId = p.id;
+async function resolveActiveDeal(clientId) {
+  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq46(deal.id, clientDealAccess.dealId)).where(and37(eq46(clientDealAccess.clientId, clientId), eq46(deal.archived, false))).orderBy(desc21(deal.createdAt)).limit(1);
+  if (!row) throw Errors.notFound("No hay un proyecto activo asociado a esta cuenta");
+  return row;
+}
+async function getOrCreateOnboarding(dbOrTx, portalId, dealId, clientId) {
+  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq46(clientOnboarding.dealId, dealId)).limit(1);
+  if (existing) return existing;
+  const [created] = await dbOrTx.insert(clientOnboarding).values({ portalId, dealId, clientId }).onConflictDoNothing({ target: clientOnboarding.dealId }).returning();
+  if (created) return created;
+  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq46(clientOnboarding.dealId, dealId)).limit(1);
+  if (!row) throw Errors.internal("No se pudo crear el onboarding");
+  return row;
+}
+function assertNotCompleted(row) {
+  if (row.status === ONBOARDING_STATUS.COMPLETED) throw Errors.conflict("El onboarding ya est\xE1 completo");
+}
+async function getOnboardingState(clientId) {
+  const activeDeal = await resolveActiveDeal(clientId);
+  const [onboarding, assets] = await Promise.all([
+    getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId),
+    db.select().from(clientAsset).where(and37(eq46(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
+  ]);
+  return { onboarding, assets };
+}
+async function markStepProgress(clientId, step) {
+  const activeDeal = await resolveActiveDeal(clientId);
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
+  assertNotCompleted(row);
+  const stepsCompleted = { ...row.stepsCompleted, [String(step)]: (/* @__PURE__ */ new Date()).toISOString() };
+  const [updated] = await db.update(clientOnboarding).set({
+    stepsCompleted,
+    currentStep: Math.max(row.currentStep, Math.min(step + 1, 8)),
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(eq46(clientOnboarding.id, row.id)).returning();
+  if (!updated) throw Errors.internal("No se pudo actualizar el progreso");
+  return updated;
+}
+async function submitSignature(clientId, fullName, ip) {
+  const activeDeal = await resolveActiveDeal(clientId);
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
+  assertNotCompleted(row);
+  if (row.signatureAcceptedAt) throw Errors.conflict("El onboarding ya fue firmado");
+  const stepsCompleted = { ...row.stepsCompleted, "5": (/* @__PURE__ */ new Date()).toISOString() };
+  const [updated] = await db.update(clientOnboarding).set({
+    signatureName: fullName,
+    signatureAcceptedAt: /* @__PURE__ */ new Date(),
+    signatureIp: ip,
+    stepsCompleted,
+    currentStep: Math.max(row.currentStep, 6),
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(eq46(clientOnboarding.id, row.id)).returning();
+  if (!updated) throw Errors.internal("No se pudo guardar la firma");
+  return updated;
+}
+async function submitBrief(clientId, answers) {
+  const activeDeal = await resolveActiveDeal(clientId);
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
+  assertNotCompleted(row);
+  const stepsCompleted = { ...row.stepsCompleted, "6": (/* @__PURE__ */ new Date()).toISOString() };
+  const [updated] = await db.update(clientOnboarding).set({
+    briefAnswers: answers,
+    stepsCompleted,
+    currentStep: Math.max(row.currentStep, 7),
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(eq46(clientOnboarding.id, row.id)).returning();
+  if (!updated) throw Errors.internal("No se pudo guardar el brief");
+  return updated;
+}
+async function uploadMaterialAsset(clientId, category, saved) {
+  const activeDeal = await resolveActiveDeal(clientId);
+  const [row] = await db.insert(clientAsset).values({
+    portalId: activeDeal.portalId,
+    dealId: activeDeal.id,
+    clientId,
+    intakeId: null,
+    fieldName: category,
+    name: saved.name,
+    type: CATEGORY_TO_ASSET_TYPE[category],
+    mimeType: saved.mimeType,
+    storageKey: saved.storageKey,
+    sizeBytes: saved.sizeBytes
+  }).returning();
+  if (!row) throw Errors.internal("No se pudo guardar el archivo");
+  return row;
+}
+async function submitMaterials(clientId, materials) {
+  const activeDeal = await resolveActiveDeal(clientId);
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
+  assertNotCompleted(row);
+  const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? []);
+  if (allAssetIds.length > 0) {
+    const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and37(eq46(clientAsset.dealId, activeDeal.id), inArray16(clientAsset.id, allAssetIds)));
+    const ownedSet = new Set(owned.map((o) => o.id));
+    const invalid = allAssetIds.filter((id) => !ownedSet.has(id));
+    if (invalid.length > 0) {
+      throw Errors.badRequest("Uno o m\xE1s archivos no pertenecen a este proyecto", { invalid });
+    }
   }
-  const decision = decideRouting(input.budget, input.clarity);
-  const firstName = input.firstName;
-  const lastName = input.lastName;
-  const fullName = `${firstName} ${lastName}`.trim();
-  const enrich = {
-    mainGoal: input.mainGoal,
-    projectType: input.projectType,
-    channelPreference: input.preference
-  };
+  const stepsCompleted = { ...row.stepsCompleted, "7": (/* @__PURE__ */ new Date()).toISOString() };
+  const [updated] = await db.update(clientOnboarding).set({
+    materials,
+    stepsCompleted,
+    currentStep: Math.max(row.currentStep, 8),
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(eq46(clientOnboarding.id, row.id)).returning();
+  if (!updated) throw Errors.internal("No se pudo guardar los materiales");
+  return updated;
+}
+async function completeOnboarding(clientAccount2) {
+  const clientId = clientAccount2.sub;
+  const activeDeal = await resolveActiveDeal(clientId);
   const result = await db.transaction(async (tx) => {
-    let companyId = null;
-    if (input.company?.trim()) {
-      const [co] = await tx.insert(company).values({
-        portalId,
-        name: input.company.trim(),
-        website: input.website?.trim() || null,
-        custom: { source: "onboarding" }
-      }).returning({ id: company.id });
-      companyId = co?.id ?? null;
+    const row = await getOrCreateOnboarding(tx, activeDeal.portalId, activeDeal.id, clientId);
+    assertNotCompleted(row);
+    const missing = [];
+    if (!row.stepsCompleted["5"]) missing.push("firma");
+    if (!row.stepsCompleted["6"]) missing.push("brief");
+    if (!row.stepsCompleted["7"]) missing.push("materiales");
+    if (missing.length > 0) {
+      throw Errors.badRequest(`Faltan completar pasos previos: ${missing.join(", ")}`, { missing });
     }
-    let contactId;
-    if (tokenContactId) {
-      contactId = tokenContactId;
-      await tx.update(contact).set({
-        ...companyId ? { companyId } : {},
-        custom: sql30`COALESCE(${contact.custom}, '{}'::jsonb) || ${JSON.stringify(enrich)}::jsonb`,
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(and36(eq45(contact.id, contactId), eq45(contact.portalId, portalId)));
-    } else {
-      const [existing] = await tx.select({ id: contact.id }).from(contact).where(and36(eq45(contact.portalId, portalId), eq45(contact.email, input.email))).limit(1);
-      if (existing) {
-        contactId = existing.id;
-        if (companyId) {
-          await tx.update(contact).set({ companyId }).where(eq45(contact.id, contactId));
-        }
-      } else {
-        const [newContact] = await tx.insert(contact).values({
-          portalId,
-          companyId,
-          firstName,
-          lastName,
-          email: input.email,
-          lifecycleStage: "lead",
-          custom: { source: "onboarding", ...enrich }
-        }).returning({ id: contact.id });
-        if (!newContact) throw Errors.internal("No se pudo crear el contacto");
-        contactId = newContact.id;
-      }
+    const stepsCompleted = { ...row.stepsCompleted, "8": (/* @__PURE__ */ new Date()).toISOString() };
+    const [updatedOnboarding] = await tx.update(clientOnboarding).set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: /* @__PURE__ */ new Date(), stepsCompleted, currentStep: 8, updatedAt: /* @__PURE__ */ new Date() }).where(and37(eq46(clientOnboarding.id, row.id), eq46(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
+    if (!updatedOnboarding) {
+      throw Errors.conflict("El onboarding ya est\xE1 completo");
     }
-    let dealId = null;
-    const [existingDeal] = await tx.select({ id: deal.id }).from(deal).where(and36(eq45(deal.primaryContactId, contactId), eq45(deal.archived, false))).orderBy(desc21(deal.createdAt)).limit(1);
-    if (existingDeal) {
-      dealId = existingDeal.id;
-    } else {
-      const [pl] = await tx.select({ id: pipeline.id }).from(pipeline).where(eq45(pipeline.portalId, portalId)).orderBy(asc15(pipeline.createdAt)).limit(1);
-      if (pl) {
-        const [stage] = await tx.select({ id: pipelineStage.id }).from(pipelineStage).where(eq45(pipelineStage.pipelineId, pl.id)).orderBy(asc15(pipelineStage.displayOrder)).limit(1);
-        if (stage) {
-          const dealName = `${input.company?.trim() || fullName} \u2014 ${PROJECT_TYPE_LABEL2[input.projectType] ?? "Proyecto"}`;
-          const [newDeal] = await tx.insert(deal).values({
-            portalId,
-            name: dealName,
-            amount: BUDGET_AMOUNT[input.budget] ?? "0.00",
-            pipelineId: pl.id,
-            stageId: stage.id,
-            primaryContactId: contactId
-          }).returning({ id: deal.id });
-          dealId = newDeal?.id ?? null;
-        }
-      }
-    }
-    const { token: _token, ...answers } = input;
-    const [sub] = await tx.insert(onboardingSubmission).values({
-      portalId,
-      fullName,
-      email: input.email,
-      company: input.company?.trim() || null,
-      answers,
-      decision,
-      contactId,
-      dealId
-    }).returning({ id: onboardingSubmission.id });
-    if (!sub) throw Errors.internal("No se pudo guardar la submission");
-    return { decision, submissionId: sub.id, contactId };
+    const move = await moveDealToProduction(tx, activeDeal.portalId, activeDeal.id, { clientId });
+    return { onboarding: updatedOnboarding, ...move };
   });
-  await notifyAdmins(portalId, {
-    entityType: "contact",
-    entityId: result.contactId,
+  const notifyPayload = {
+    entityType: "deal",
+    entityId: activeDeal.id,
     type: "onboarding_completed",
-    title: `\u{1F4CB} ${fullName} complet\xF3 el onboarding`,
-    body: result.decision === "call" ? "Sugerido: agendar una llamada." : "Sugerido: enviar una propuesta.",
-    actionUrl: `/admin/leads/${result.contactId}`
-  });
-  return { decision: result.decision, submissionId: result.submissionId };
-}
-async function resolveOnboardingInvite(token) {
-  const { contactId, portalId } = verifyOnboardingToken(token);
-  const [c] = await db.select({
-    firstName: contact.firstName,
-    lastName: contact.lastName,
-    email: contact.email,
-    companyId: contact.companyId
-  }).from(contact).where(and36(eq45(contact.id, contactId), eq45(contact.portalId, portalId))).limit(1);
-  if (!c) throw Errors.notFound("Contacto no encontrado");
-  let companyName = null;
-  if (c.companyId) {
-    const [co] = await db.select({ name: company.name }).from(company).where(eq45(company.id, c.companyId)).limit(1);
-    companyName = co?.name ?? null;
+    title: `Onboarding completado: "${result.dealName}" pas\xF3 a ${result.stageLabel}`
+  };
+  if (result.ownerId) {
+    await createNotification({ portalId: activeDeal.portalId, userId: result.ownerId, ...notifyPayload });
+  } else {
+    await notifyAdmins(activeDeal.portalId, notifyPayload);
   }
-  return {
-    firstName: c.firstName ?? "",
-    lastName: c.lastName ?? "",
-    email: c.email ?? "",
-    company: companyName
-  };
+  return result;
 }
-async function createOnboardingInvite(portalId, contactId) {
-  const [c] = await db.select({ id: contact.id }).from(contact).where(and36(eq45(contact.id, contactId), eq45(contact.portalId, portalId))).limit(1);
-  if (!c) throw Errors.notFound("Contacto no encontrado");
-  const token = signOnboardingToken({ contactId, portalId });
-  const base = env.ADMIN_URL ?? "http://localhost:3000";
-  const url = `${base}/onboarding?t=${encodeURIComponent(token)}`;
-  return { token, url };
-}
-function toListItem(row, dealName) {
+function toAdminListItem(onboarding, dealName, clientEmail) {
   return {
-    id: row.id,
-    fullName: row.fullName,
-    email: row.email,
-    company: row.company,
-    decision: row.decision,
-    answers: row.answers ?? {},
-    contactId: row.contactId,
-    dealId: row.dealId,
+    dealId: onboarding.dealId,
     dealName,
-    createdAt: row.createdAt.toISOString()
+    clientEmail,
+    status: onboarding.status,
+    currentStep: onboarding.currentStep,
+    stepsCompleted: onboarding.stepsCompleted,
+    completedAt: onboarding.completedAt?.toISOString() ?? null,
+    updatedAt: onboarding.updatedAt.toISOString()
   };
 }
-async function listSubmissions(portalId) {
-  const rows = await db.select({ sub: onboardingSubmission, dealName: deal.name }).from(onboardingSubmission).leftJoin(deal, eq45(deal.id, onboardingSubmission.dealId)).where(eq45(onboardingSubmission.portalId, portalId)).orderBy(desc21(onboardingSubmission.createdAt)).limit(500);
-  return rows.map(({ sub, dealName }) => toListItem(sub, dealName));
+async function listOnboardings(portalId) {
+  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and37(eq46(deal.id, clientOnboarding.dealId), eq46(deal.archived, false))).innerJoin(clientAccount, eq46(clientAccount.id, clientOnboarding.clientId)).where(eq46(clientOnboarding.portalId, portalId)).orderBy(sql31`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc21(clientOnboarding.updatedAt));
+  return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail));
 }
-async function getSubmission(portalId, id) {
-  const [row] = await db.select({ sub: onboardingSubmission, dealName: deal.name }).from(onboardingSubmission).leftJoin(deal, eq45(deal.id, onboardingSubmission.dealId)).where(and36(eq45(onboardingSubmission.id, id), eq45(onboardingSubmission.portalId, portalId))).limit(1);
-  if (!row) throw Errors.notFound("Submission no encontrada");
-  return toListItem(row.sub, row.dealName);
+async function getOnboardingByDeal(portalId, dealId) {
+  const [[row], assets] = await Promise.all([
+    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq46(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq46(clientAccount.id, clientOnboarding.clientId)).where(and37(eq46(clientOnboarding.portalId, portalId), eq46(clientOnboarding.dealId, dealId))).limit(1),
+    db.select().from(clientAsset).where(and37(eq46(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
+  ]);
+  if (!row) throw Errors.notFound("Onboarding no encontrado para este deal");
+  return { onboarding: row.onboarding, assets, dealName: row.dealName, clientEmail: row.clientEmail };
 }
 
 // src/modules/onboarding/onboarding.router.ts
 var TAG33 = "Onboarding";
-async function onboardingPublicRoutes(app2) {
-  const r = app2.withTypeProvider();
-  r.post(
-    "/",
-    {
-      schema: {
-        tags: [TAG33],
-        summary: "Enviar el wizard de onboarding (p\xFAblico)",
-        description: "Recibe las respuestas del wizard pre-venta, calcula el routing (llamada/propuesta) y crea autom\xE1ticamente lead + deal en el CRM.",
-        body: OnboardingSubmitSchema
-      },
-      // Anti-spam: cada envío crea contacto+deal+submission+notificación.
-      config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
-    },
-    async (request, reply) => {
-      const result = await submitOnboarding(request.body);
-      return reply.status(201).send(ok(result));
-    }
-  );
-  r.get(
-    "/resolve",
-    {
-      schema: {
-        tags: [TAG33],
-        summary: "Resolver un link de onboarding (p\xFAblico)",
-        description: "Verifica el token de invitaci\xF3n y devuelve nombre/email/empresa del lead para pre-cargar el wizard.",
-        querystring: OnboardingResolveQuerySchema
-      }
-    },
-    async (request) => ok(await resolveOnboardingInvite(request.query.t))
-  );
-}
 async function onboardingAdminRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
   r.get(
-    "/submissions",
-    { schema: { tags: [TAG33], summary: "Listar submissions de onboarding", security: ADMIN_SECURITY } },
-    async (request) => ok(await listSubmissions(request.hubUser.portalId))
-  );
-  r.get(
-    "/submissions/:id",
+    "/",
     {
       schema: {
         tags: [TAG33],
-        summary: "Detalle de una submission",
+        summary: "Listar onboardings del portal",
+        description: "Progreso del onboarding post-venta de cada deal. Orden: in_progress primero, luego por actualizaci\xF3n m\xE1s reciente.",
+        security: ADMIN_SECURITY
+      }
+    },
+    async (request) => ok(await listOnboardings(request.hubUser.portalId))
+  );
+  r.get(
+    "/deals/:id",
+    {
+      schema: {
+        tags: [TAG33],
+        summary: "Onboarding completo de un deal",
         security: ADMIN_SECURITY,
         params: IdParamSchema
       }
     },
-    async (request) => ok(await getSubmission(request.hubUser.portalId, request.params.id))
+    async (request) => ok(await getOnboardingByDeal(request.hubUser.portalId, request.params.id))
   );
-  r.post(
-    "/invite",
+}
+
+// src/modules/onboarding/client-onboarding.router.ts
+var TAG34 = "Client Portal";
+async function clientOnboardingRoutes(app2) {
+  const r = app2.withTypeProvider();
+  r.addHook("preHandler", authenticateClient);
+  r.get(
+    "/",
     {
       schema: {
-        tags: [TAG33],
-        summary: "Generar link de invitaci\xF3n al onboarding para un lead",
-        security: ADMIN_SECURITY,
-        body: OnboardingInviteSchema
+        tags: [TAG34],
+        summary: "Estado del onboarding post-venta",
+        description: "Lazy-create: si el cliente no tiene onboarding para su deal activo, se crea. Incluye los client_asset subidos en el paso de materiales.",
+        security: CLIENT_SECURITY
       }
     },
-    async (request) => ok(await createOnboardingInvite(request.hubUser.portalId, request.body.contactId))
+    async (request) => ok(await getOnboardingState(request.clientAccount.sub))
+  );
+  r.patch(
+    "/progress",
+    {
+      schema: {
+        tags: [TAG34],
+        summary: "Marcar un paso de orientaci\xF3n como completado (pasos 1-4)",
+        security: CLIENT_SECURITY,
+        body: OnboardingProgressSchema
+      }
+    },
+    async (request) => ok(await markStepProgress(request.clientAccount.sub, request.body.step))
+  );
+  r.post(
+    "/signature",
+    {
+      schema: {
+        tags: [TAG34],
+        summary: "Firmar el onboarding (paso 5)",
+        description: "Checkbox de aceptaci\xF3n + nombre completo tipeado. Guarda timestamp + IP. No re-firmable (409 si ya est\xE1 firmado).",
+        security: CLIENT_SECURITY,
+        body: OnboardingSignatureSchema
+      }
+    },
+    async (request) => ok(await submitSignature(request.clientAccount.sub, request.body.fullName, request.ip))
+  );
+  r.post(
+    "/brief",
+    {
+      schema: {
+        tags: [TAG34],
+        summary: "Enviar el brief del proyecto (paso 6, 16 preguntas)",
+        description: "Re-submit permitido mientras el onboarding no est\xE9 completo (sobreescribe).",
+        security: CLIENT_SECURITY,
+        body: OnboardingBriefSchema
+      }
+    },
+    async (request) => ok(await submitBrief(request.clientAccount.sub, request.body))
+  );
+  r.post(
+    "/materials",
+    {
+      schema: {
+        tags: [TAG34],
+        summary: "Registrar estado de materiales (paso 7)",
+        description: "Los archivos se suben antes con POST /materials/upload; ac\xE1 solo se persisten los assetIds y el estado por categor\xEDa.",
+        security: CLIENT_SECURITY,
+        body: OnboardingMaterialsSchema
+      }
+    },
+    async (request) => ok(await submitMaterials(request.clientAccount.sub, request.body.materials))
+  );
+  app2.post(
+    "/materials/upload",
+    {
+      schema: {
+        tags: [TAG34],
+        summary: "Subir un archivo de materiales (paso 7)",
+        security: CLIENT_SECURITY
+      }
+    },
+    async (request, reply) => {
+      const query = OnboardingMaterialUploadQuerySchema.safeParse(request.query);
+      if (!query.success) throw Errors.badRequest("Categor\xEDa de material inv\xE1lida", query.error.flatten());
+      const file = await request.file();
+      if (!file) throw Errors.badRequest("No se envi\xF3 ning\xFAn archivo");
+      const saved = await saveUpload(await file.toBuffer(), file.filename, file.mimetype);
+      const asset = await uploadMaterialAsset(request.clientAccount.sub, query.data.category, saved);
+      return reply.status(201).send(ok(asset));
+    }
+  );
+  r.post(
+    "/complete",
+    {
+      schema: {
+        tags: [TAG34],
+        summary: "Completar el onboarding (paso 8)",
+        description: 'Gate: exige firma + brief + checklist de materiales enviado (400 con detalle si falta alguno). El checklist de materiales puede tener \xEDtems en `done: false` \u2014 el cliente puede no tener, p. ej., manual de marca a\xFAn; lo que exige el gate es haber ENVIADO el paso, no que todo est\xE9 "listo". Mueve el deal al pipeline Producci\xF3n / etapa Diagn\xF3stico y notifica al responsable asignado.',
+        security: CLIENT_SECURITY
+      }
+    },
+    async (request) => ok(await completeOnboarding(request.clientAccount))
   );
 }
 
 // src/modules/calendar/calendar.public.router.ts
 import { z as z35 } from "zod";
-var TAG34 = "Calendario P\xFAblico";
+var TAG35 = "Calendario P\xFAblico";
 var ianaTimezone2 = z35.string().refine(
   (tz) => {
     try {
@@ -11817,7 +12006,7 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG35],
         summary: "Metadata p\xFAblica de un event type (sin auth)",
         description: "Devuelve nombre, duraci\xF3n, locaciones, preguntas custom y configuraci\xF3n de un event type activo. Disponible sin autenticaci\xF3n para que el invitado pueda cargar la p\xE1gina de booking.",
         params: EventTypeParamsSchema
@@ -11834,7 +12023,7 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug/slots",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG35],
         summary: "Slots disponibles de un event type (sin auth)",
         description: "Calcula los slots libres del event type en el rango de fechas dado. Devuelve startUtc (UTC), endUtc (UTC) y startLocal (en la TZ del invitado).",
         params: EventTypeParamsSchema,
@@ -11868,7 +12057,7 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug/book",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG35],
         summary: "Crear un booking (sin auth)",
         description: "Reserva un slot para el event type dado. Devuelve el booking creado con las URLs de cancelaci\xF3n y reprogramaci\xF3n para autoservicio. Si el slot ya fue tomado por concurrencia \u2192 409.",
         params: EventTypeParamsSchema,
@@ -11889,7 +12078,7 @@ async function calendarPublicRoutes(app2) {
     "/booking/cancel",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG35],
         summary: "Cancelar un booking por token (sin auth)",
         description: "Cancela el booking asociado al token firmado de cancelaci\xF3n. El token va en el body (no en la URL). El slot queda libre autom\xE1ticamente (el constraint EXCLUDE solo aplica a status=confirmed).",
         body: CancelBookingSchema
@@ -11906,7 +12095,7 @@ async function calendarPublicRoutes(app2) {
     "/booking/reschedule",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG35],
         summary: "Reprogramar un booking por token (sin auth)",
         description: "Cancela el booking original y crea uno nuevo en el slot indicado. El token va en el body (no en la URL). Devuelve el nuevo booking con nuevas URLs de autoservicio.",
         body: RescheduleByTokenSchema
@@ -11925,7 +12114,7 @@ async function calendarPublicRoutes(app2) {
 }
 
 // src/modules/calendar/calendar.admin.router.ts
-var TAG35 = "Calendario Admin V2";
+var TAG36 = "Calendario Admin V2";
 var security30 = ADMIN_SECURITY;
 async function calendarAdminRoutes(app2) {
   const r = app2.withTypeProvider();
@@ -11934,7 +12123,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Listar schedules de disponibilidad del portal",
         security: security30
       }
@@ -11945,7 +12134,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Obtener un schedule por ID",
         security: security30,
         params: IdParamSchema
@@ -11957,7 +12146,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Crear schedule de disponibilidad",
         security: security30,
         body: CreateScheduleSchema
@@ -11977,7 +12166,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Actualizar schedule",
         security: security30,
         params: IdParamSchema,
@@ -11991,7 +12180,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Eliminar schedule",
         security: security30,
         params: IdParamSchema
@@ -12007,7 +12196,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Agregar intervalo a un schedule",
         security: security30,
         params: ScheduleParamSchema,
@@ -12028,7 +12217,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Reemplazar todos los intervalos de un schedule (at\xF3mico)",
         security: security30,
         params: ScheduleParamSchema,
@@ -12048,7 +12237,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals/:intervalId",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Eliminar un intervalo de un schedule",
         security: security30,
         params: ScheduleIntervalParamSchema
@@ -12068,7 +12257,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/overrides",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Upsert de date override en un schedule",
         security: security30,
         params: ScheduleParamSchema,
@@ -12088,7 +12277,7 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/overrides/:overrideId",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Eliminar un date override de un schedule",
         security: security30,
         params: ScheduleOverrideParamSchema
@@ -12108,7 +12297,7 @@ async function calendarAdminRoutes(app2) {
     "/event-types",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Listar event types V2 del portal",
         security: security30
       }
@@ -12119,7 +12308,7 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Obtener event type V2 por ID",
         security: security30,
         params: IdParamSchema
@@ -12131,7 +12320,7 @@ async function calendarAdminRoutes(app2) {
     "/event-types",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Crear event type V2",
         security: security30,
         body: CreateEventTypeV2Schema
@@ -12151,7 +12340,7 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Actualizar event type V2",
         security: security30,
         params: IdParamSchema,
@@ -12165,7 +12354,7 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Eliminar event type V2",
         security: security30,
         params: IdParamSchema
@@ -12181,7 +12370,7 @@ async function calendarAdminRoutes(app2) {
     "/bookings/week",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Bookings del portal en rango de fechas (vista semanal admin)",
         security: security30,
         querystring: WeekBookingsQuerySchema
@@ -12196,7 +12385,7 @@ async function calendarAdminRoutes(app2) {
     "/bookings/:id/cancel",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG36],
         summary: "Cancelar booking desde el admin",
         security: security30,
         params: IdParamSchema
@@ -12210,7 +12399,12 @@ async function calendarAdminRoutes(app2) {
 // src/app.ts
 function buildApp() {
   const app2 = Fastify({
-    logger: env.NODE_ENV === "development" ? { transport: { target: "pino-pretty" } } : env.NODE_ENV === "test" ? false : true
+    logger: env.NODE_ENV === "development" ? { transport: { target: "pino-pretty" } } : env.NODE_ENV === "test" ? false : true,
+    // Detrás de un proxy (Vercel): sin esto, request.ip devuelve la IP del
+    // proxy para TODOS los requests, no la del cliente real. Crítico para
+    // onboarding.submitSignature, que persiste request.ip como parte del
+    // rastro legal de la firma.
+    trustProxy: true
   });
   app2.setValidatorCompiler(validatorCompiler);
   app2.setSerializerCompiler(serializerCompiler);
@@ -12341,7 +12535,7 @@ function buildApp() {
   app2.register(brandingClientRoutes, { prefix: "/api/client/branding" });
   app2.register(brandingPublicRoutes, { prefix: "/api/public/branding" });
   app2.register(onboardingAdminRoutes, { prefix: "/api/onboarding" });
-  app2.register(onboardingPublicRoutes, { prefix: "/api/public/onboarding" });
+  app2.register(clientOnboardingRoutes, { prefix: "/api/client/onboarding" });
   app2.register(calendarPublicRoutes, { prefix: "/api/public/calendar" });
   return app2;
 }
