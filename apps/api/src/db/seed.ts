@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db, closeDb } from './index'
 import { portal, hubUser, pipeline, pipelineStage, contact, deal, clientAccount, clientDealAccess, deliverable } from './schema'
 
@@ -125,6 +125,50 @@ async function seed(): Promise<void> {
       console.log(`✓ hub_user creado: ${u.email} (auth: Clerk)`)
     } else {
       console.log(`· hub_user ya existe: ${u.email}`)
+    }
+  }
+
+  // 3d. Descripciones cliente-facing de las 9 fases de Producción (idempotente
+  // por label: solo pisa `description` si está NULL, para no sobreescribir
+  // ediciones manuales hechas desde el admin).
+  const [productionPipeline] = await db
+    .select()
+    .from(pipeline)
+    .where(and(eq(pipeline.portalId, portalId), eq(pipeline.label, 'Producción')))
+    .limit(1)
+  if (productionPipeline) {
+    const stageDescriptions: Record<string, string> = {
+      'Diagnóstico':
+        'Estamos estudiando a fondo tu negocio: tu brief, tus materiales y tu operación. De acá sale el mapa de lo que vamos a construir.',
+      'Blueprint': 'Diseñamos la arquitectura de tu plataforma: pantallas, flujos y estructura. Es el plano antes de construir.',
+      'Primera Versión (MVP)':
+        'Estamos construyendo la primera versión navegable de tu plataforma. Pronto la vas a ver y tocar en una llamada en vivo.',
+      'Ajustes': 'Estamos afinando la plataforma con tu feedback de la primera versión.',
+      'Construcción': 'Construimos todo lo que va por detrás: funcionalidades completas, integraciones y contenido.',
+      'Verificación': 'Estamos probando todo a fondo para que el lanzamiento salga sin sorpresas.',
+      'Lanzamiento': 'Tu plataforma está saliendo en vivo. Lo mostramos juntos en una llamada.',
+      'Estabilización': 'Tu plataforma ya está en vivo. Te acompañamos de cerca estas primeras semanas.',
+      'Evolución': 'Seguimos mejorando tu plataforma con nuevas iteraciones.',
+    }
+    let updatedCount = 0
+    for (const [label, description] of Object.entries(stageDescriptions)) {
+      const result = await db
+        .update(pipelineStage)
+        .set({ description })
+        .where(
+          and(
+            eq(pipelineStage.pipelineId, productionPipeline.id),
+            eq(pipelineStage.label, label),
+            isNull(pipelineStage.description),
+          ),
+        )
+        .returning({ id: pipelineStage.id })
+      updatedCount += result.length
+    }
+    if (updatedCount > 0) {
+      console.log(`✓ description seteada en ${updatedCount} fase(s) de "Producción"`)
+    } else {
+      console.log('· descripciones de "Producción" ya estaban seteadas')
     }
   }
 

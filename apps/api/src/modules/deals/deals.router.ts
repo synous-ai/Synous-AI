@@ -6,6 +6,7 @@ import { authorize } from '../../middleware/authorize'
 import { ListQuerySchema, IdParamSchema } from '../../lib/crm-schemas'
 import { SearchBodySchema } from '../../lib/filter'
 import { CreateDealSchema, UpdateDealSchema, ChangeStageSchema, AddDealContactSchema, DealContactParamSchema } from './deals.schema'
+import { CreateProjectUpdateSchema, ProjectUpdateIdParamSchema } from './project-updates.schema'
 import {
   listDeals,
   getDeal,
@@ -18,6 +19,7 @@ import {
   addDealContact,
   removeDealContact,
 } from './deals.service'
+import { listDealUpdates, createDealUpdate, archiveDealUpdate } from './project-updates.service'
 import { ADMIN_SECURITY } from '../../lib/http'
 
 const TAG = 'Deals'
@@ -56,6 +58,57 @@ export async function dealsRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => ok(await getDealDetail(request.hubUser!.portalId, request.params.id)),
+  )
+
+  r.get(
+    '/:id/updates',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Novedades del proyecto (deal)',
+        description: 'Listado completo de novedades del deal, incluidas las archivadas (con flag `archived`). Alimenta la vista admin del estado de proyecto.',
+        security,
+        params: IdParamSchema,
+      },
+    },
+    async (request) => ok(await listDealUpdates(request.hubUser!.portalId, request.params.id)),
+  )
+
+  r.post(
+    '/:id/updates',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Crear novedad de proyecto',
+        description: 'Novedad curada por el equipo, visible al cliente en el Client Portal. Si no se indica `stageId` y el deal está en el pipeline "Producción", se usa la fase actual del deal.',
+        security,
+        params: IdParamSchema,
+        body: CreateProjectUpdateSchema,
+      },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
+    },
+    async (request, reply) => {
+      const created = await createDealUpdate(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body)
+      return reply.status(201).send(ok(created))
+    },
+  )
+
+  r.patch(
+    '/updates/:id/archive',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Archivar novedad de proyecto',
+        description: 'Soft delete (archived = true). La novedad deja de verse en el Client Portal pero sigue visible para el admin.',
+        security,
+        params: ProjectUpdateIdParamSchema,
+      },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
+    },
+    async (request) => {
+      await archiveDealUpdate(request.hubUser!.portalId, request.hubUser!.sub, request.params.id)
+      return ok({ success: true })
+    },
   )
 
   r.post(

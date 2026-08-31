@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { ok } from '../../lib/response'
 import { authenticateClient } from '../../middleware/authenticate-client'
 import { IdParamSchema } from '../../lib/crm-schemas'
-import { clientDeals, clientDeliverables, approveDeliverable, requestChanges, listClientInvoices } from './client.service'
+import { clientDeals, clientDeliverables, approveDeliverable, requestChanges, listClientInvoices, getClientProject } from './client.service'
 import { listClientDocuments } from '../documents/documents.service'
 import { clientDealIds } from '../../lib/portal-access'
 import { CLIENT_SECURITY } from '../../lib/http'
@@ -22,6 +22,20 @@ export async function clientRoutes(app: FastifyInstance): Promise<void> {
     '/deals',
     { schema: { tags: [TAG], summary: 'Deals del cliente', description: 'Deals a los que el cliente tiene acceso.', security } },
     async (request) => ok(await clientDeals(request.clientAccount!.sub)),
+  )
+
+  r.get(
+    '/project',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Estado de proyecto visible al cliente',
+        description:
+          'Fase actual del deal activo dentro del pipeline "Producción" (si ya está ahí), roadmap completo de las 9 fases y novedades curadas por el equipo. No expone tareas internas.',
+        security,
+      },
+    },
+    async (request) => ok(await getClientProject(request.clientAccount!.sub)),
   )
 
   r.get(
