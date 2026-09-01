@@ -73,10 +73,7 @@ function Divider() {
  */
 function PageSkeleton() {
   return (
-    <SkeletonGroup label="Cargando factura…" className="p-6">
-      {/* Breadcrumb */}
-      <Skeleton className="mb-6 h-4 w-28 rounded" />
-
+    <SkeletonGroup label="Cargando factura…">
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* ── Aside izquierdo: header + montos + fechas + acciones ── */}
         <div className="w-full space-y-4 lg:w-72 lg:flex-shrink-0">
@@ -201,25 +198,38 @@ export default function InvoiceDetailPage() {
     }
   }
 
-  if (isLoading) return <PageSkeleton />
-
-  if (isError || !data) {
-    return (
-      <div className="p-6">
+  // Shell común: el breadcrumb y su link no dependen de la request, así que se
+  // renderizan desde el primer frame en los tres estados (cargando, error, ok).
+  // Solo el número de factura se reserva con un skeleton del MISMO alto de línea
+  // (h-5 = 20px de text-sm) para que al llegar el dato no se corra nada.
+  const shell = (children: React.ReactNode, numberSlot: React.ReactNode) => (
+    <div className="p-6">
+      <nav className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
         <Link
           href="/admin/finance/invoices"
-          className="mb-4 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1 hover:text-foreground transition-colors"
         >
           <ChevronLeft className="h-4 w-4" />
           Facturas
         </Link>
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed py-20 text-center">
-          <p className="text-sm font-medium text-muted-foreground">No se pudo cargar la factura</p>
-          <p className="mt-1 text-xs text-muted-foreground/60">
-            Verificá que el ID sea correcto o intentá de nuevo.
-          </p>
-        </div>
-      </div>
+        <span>/</span>
+        {numberSlot}
+      </nav>
+      {children}
+    </div>
+  )
+
+  if (isLoading) return shell(<PageSkeleton />, <Skeleton className="h-5 w-12 rounded" />)
+
+  if (isError || !data) {
+    return shell(
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed py-20 text-center">
+        <p className="text-sm font-medium text-muted-foreground">No se pudo cargar la factura</p>
+        <p className="mt-1 text-xs text-muted-foreground/60">
+          Verificá que el ID sea correcto o intentá de nuevo.
+        </p>
+      </div>,
+      <span className="font-mono font-medium text-foreground">—</span>,
     )
   }
 
@@ -237,23 +247,8 @@ export default function InvoiceDetailPage() {
   const balance = Number(data.balance)
   const { kind: statusKind, label: statusLabel } = invoiceStatus(data.invoice.status)
 
-  return (
-    <div className="p-6">
-      {/* ─── breadcrumb ──────────────────────────────────────────────────── */}
-      <nav className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
-        <Link
-          href="/admin/finance/invoices"
-          className="flex items-center gap-1 hover:text-foreground transition-colors"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Facturas
-        </Link>
-        <span>/</span>
-        <span className="font-mono font-medium text-foreground">
-          #{data.invoice.number}
-        </span>
-      </nav>
-
+  return shell(
+    <>
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* ── Left panel: header + amounts + actions ──────────────────── */}
         <div className="w-full space-y-4 lg:w-72 lg:flex-shrink-0">
@@ -546,6 +541,7 @@ export default function InvoiceDetailPage() {
         preselectedInvoiceId={data.invoice.id}
         invoices={allInvoices ?? []}
       />
-    </div>
+    </>,
+    <span className="font-mono font-medium text-foreground">#{data.invoice.number}</span>,
   )
 }

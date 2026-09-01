@@ -192,12 +192,7 @@ function CalendarWidget({ deals, tasks }: CalendarWidgetProps): React.ReactEleme
  */
 function DashboardSkeleton(): React.ReactElement {
   return (
-    <div className="space-y-6 p-6">
-      {/* Título */}
-      <div className="space-y-2">
-        <Skeleton className="h-3 w-32" />
-        <Skeleton className="h-8 w-40" />
-      </div>
+    <div className="space-y-6">
 
       {/* 4 KPI cards — mismo grid que el real */}
       <SkeletonGroup label="Cargando métricas…" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -291,8 +286,23 @@ function DashboardSkeleton(): React.ReactElement {
 export default function DashboardPage(): React.ReactElement {
   const { data, isLoading } = useDashboard()
 
+  // El título es estático: se renderiza desde el primer frame, en carga y con
+  // datos. Antes vivía adentro del skeleton, así que en cada visita aparecía
+  // como dos barras grises que saltaban a texto sin que nada lo justificara.
+  const header = (
+    <div>
+      <p className="eyebrow">Resumen del negocio</p>
+      <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+    </div>
+  )
+
   if (isLoading || !data) {
-    return <DashboardSkeleton />
+    return (
+      <div className="space-y-6 p-6">
+        {header}
+        <DashboardSkeleton />
+      </div>
+    )
   }
 
   const stageMap = new Map(data.dealsByStage.map((s) => [s.stageId, s.label]))
@@ -300,12 +310,7 @@ export default function DashboardPage(): React.ReactElement {
 
   return (
     <div className="space-y-6 p-6">
-
-      {/* ── Page title ───────────────────────────────── */}
-      <div>
-        <p className="eyebrow">Resumen del negocio</p>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-      </div>
+      {header}
 
       {/* ── SectionCards — 4 KPI cards ───────────────── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
