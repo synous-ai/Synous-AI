@@ -10487,8 +10487,8 @@ function buildApp() {
   app2.register(fastifySwagger, {
     openapi: {
       info: {
-        title: "API CRM DevD\xFAo",
-        description: "Documentaci\xF3n de la API del CRM interno de DevD\xFAo. Todos los endpoints (salvo autenticaci\xF3n y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.",
+        title: "API CRM Synous AI",
+        description: "Documentaci\xF3n de la API del CRM interno de Synous AI. Todos los endpoints (salvo autenticaci\xF3n y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.",
         version: "1.0.0"
       },
       servers: [{ url: "http://localhost:3001", description: "Desarrollo local" }],

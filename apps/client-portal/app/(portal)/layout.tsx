@@ -49,8 +49,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <header className="sticky top-0 z-10 border-b bg-card/80 backdrop-blur-sm">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <BrandMark letter="D" />
-            <span className="font-display text-sm font-semibold">DevDúo · Portal</span>
+            <BrandMark letter="S" />
+            <span className="font-display text-sm font-semibold">Synous AI · Portal</span>
           </div>
 
           <div className="flex items-center gap-2">

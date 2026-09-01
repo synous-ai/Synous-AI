@@ -12,7 +12,7 @@ async function seed(): Promise<void> {
   // 1. Portal
   let [p] = await db.select().from(portal).limit(1)
   if (!p) {
-    ;[p] = await db.insert(portal).values({ name: 'DevDúo' }).returning()
+    ;[p] = await db.insert(portal).values({ name: 'Synous AI' }).returning()
     console.log(`✓ portal creado (id ${p!.id})`)
   } else {
     console.log(`· portal ya existe (id ${p.id})`)

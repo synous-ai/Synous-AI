@@ -1,7 +1,7 @@
-# CLAUDE.md — DevDúo CRM
+# CLAUDE.md — Synous AI CRM
 
 Este archivo es leído automáticamente por Claude Code al abrir el proyecto.
-La documentación completa está en `CRM_DEVDUO_DOCS.md`.
+La documentación completa está en `CRM_SYNOUS_DOCS.md`.
 
 ---
 
@@ -334,9 +334,9 @@ Para trabajar módulo por módulo de forma eficiente:
 
 ```
 "Implementa el módulo de [nombre] siguiendo las convenciones
-del CLAUDE.md. Lee también CRM_DEVDUO_DOCS.md sección [X]
+del CLAUDE.md. Lee también CRM_SYNOUS_DOCS.md sección [X]
 para el contexto completo."
 ```
 
 Si algo no está claro en este archivo, la fuente de verdad es
-`CRM_DEVDUO_DOCS.md`.
+`CRM_SYNOUS_DOCS.md`.

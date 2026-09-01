@@ -198,7 +198,7 @@ export default function LoginPage() {
           <span className="flex h-9 w-9 items-center justify-center rounded-md bg-signal font-display text-lg font-bold text-signal-foreground">
             D
           </span>
-          <span className="eyebrow text-background/70">DevDúo · Portal de clientes</span>
+          <span className="eyebrow text-background/70">Synous AI · Portal de clientes</span>
         </div>
 
         <div className="relative">
@@ -214,7 +214,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <p className="relative font-mono text-xs text-background/40">portal.devduo.com</p>
+        <p className="relative font-mono text-xs text-background/40">portal.synous.ai</p>
       </div>
 
       {/* Formulario */}

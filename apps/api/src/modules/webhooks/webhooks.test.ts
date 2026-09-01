@@ -158,7 +158,7 @@ describe('GET /track/open/:trackingId — pixel de apertura', () => {
       .insert(emailSend)
       .values({
         portalId,
-        fromEmail: 'test@devduo.com',
+        fromEmail: 'test@synous.ai',
         toEmail: 'cliente@test.com',
         subject: 'Test tracking open',
       })
@@ -217,7 +217,7 @@ describe('GET /track/click/:trackingId — redirect de click', () => {
       .insert(emailSend)
       .values({
         portalId,
-        fromEmail: 'test@devduo.com',
+        fromEmail: 'test@synous.ai',
         toEmail: 'cliente@test.com',
         subject: 'Test tracking click',
       })
@@ -226,7 +226,7 @@ describe('GET /track/click/:trackingId — redirect de click', () => {
   })
 
   it('redirige 302 a la URL destino', async () => {
-    const destination = 'https://devduo.com/propuesta'
+    const destination = 'https://synous.ai/propuesta'
     const res = await request(app.server)
       .get(`/track/click/${trackingId}`)
       .query({ url: destination })
@@ -237,7 +237,7 @@ describe('GET /track/click/:trackingId — redirect de click', () => {
   })
 
   it('crea un emailEvent "clicked" en la DB', async () => {
-    const destination = 'https://devduo.com/propuesta-click-test'
+    const destination = 'https://synous.ai/propuesta-click-test'
     await request(app.server)
       .get(`/track/click/${trackingId}`)
       .query({ url: destination })

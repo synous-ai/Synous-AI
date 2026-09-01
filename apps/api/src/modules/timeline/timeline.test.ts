@@ -113,7 +113,7 @@ describe('timeline — logEmail', () => {
       .post('/api/timeline/emails')
       .set(auth())
       .send({
-        fromEmail: 'carlos@devduo.com',
+        fromEmail: 'carlos@synous.ai',
         toEmail: 'cliente@empresa.com',
         subject: 'Propuesta actualizada',
         dealId,
@@ -132,7 +132,7 @@ describe('timeline — logEmail', () => {
     expect(emails.length).toBeGreaterThanOrEqual(1)
     const found = emails.find((e: { title: string }) => e.title === 'Propuesta actualizada')
     expect(found).toBeDefined()
-    expect(found.meta?.fromEmail).toBe('carlos@devduo.com')
+    expect(found.meta?.fromEmail).toBe('carlos@synous.ai')
   })
 })
 

@@ -46,7 +46,7 @@ El producto cubre el ciclo completo de la agencia, de lead frío a cliente factu
 - **Email tracking** — pixel de apertura + redirect de clicks.
 - **Integraciones de reuniones** — webhook de Fathom (summary, transcript, action items).
 
-> El detalle funcional completo está en [`CRM_DEVDUO_DOCS.md`](./CRM_DEVDUO_DOCS.md).
+> El detalle funcional completo está en [`CRM_SYNOUS_DOCS.md`](./CRM_SYNOUS_DOCS.md).
 > Las convenciones de código y reglas de negocio críticas están en [`CLAUDE.md`](./CLAUDE.md).
 
 ---
@@ -455,7 +455,7 @@ Resumen — el detalle completo está en [`CLAUDE.md`](./CLAUDE.md):
 ## Documentación adicional
 
 - [`CLAUDE.md`](./CLAUDE.md) — convenciones de código, reglas de negocio críticas y arquitectura.
-- [`CRM_DEVDUO_DOCS.md`](./CRM_DEVDUO_DOCS.md) — documentación funcional completa del producto.
+- [`CRM_SYNOUS_DOCS.md`](./CRM_SYNOUS_DOCS.md) — documentación funcional completa del producto.
 - [`docs/schema.sql`](./docs/schema.sql) — referencia del esquema de base de datos.
 - [`services/whatsapp-gateway/README.md`](./services/whatsapp-gateway/README.md) — gateway de WhatsApp.
 </content>

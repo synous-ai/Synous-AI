@@ -1,4 +1,4 @@
-# DevDúo CRM — Documentación Técnica Completa
+# Synous AI CRM — Documentación Técnica Completa
 > Prompt maestro para construir el CRM con Claude Code
 
 ---
@@ -8,8 +8,8 @@
 Somos dos desarrolladores web socios (Carlos y Andrés). Queremos construir nuestro **propio CRM interno** para gestionar el negocio de la agencia, reemplazando herramientas externas como HubSpot, Calendly, PandaDoc, Notion, etc.
 
 El sistema tiene **dos portales**:
-- **Admin Portal** (`app.devduo.com`) — solo para nosotros dos. Gestión completa del negocio.
-- **Client Portal** (`cliente.devduo.com`) — para nuestros clientes. Siguen su proyecto, suben assets, aprueban entregables, firman contratos.
+- **Admin Portal** (`app.synous.ai`) — solo para nosotros dos. Gestión completa del negocio.
+- **Client Portal** (`cliente.synous.ai`) — para nuestros clientes. Siguen su proyecto, suben assets, aprueban entregables, firman contratos.
 
 ---
 
@@ -54,7 +54,7 @@ El sistema tiene **dos portales**:
 ## Estructura de Carpetas
 
 ```
-devduo-crm/
+synous-crm/
 ├── apps/
 │   ├── api/                        # Fastify backend
 │   │   ├── src/
@@ -325,7 +325,7 @@ async function activateClientPortal(dealId: number, triggeredBy: string) {
   
   // 4. Email de bienvenida con el link del portal
   await resend.emails.send({
-    from: 'DevDúo <hola@devduo.com>',
+    from: 'Synous AI <hola@synous.ai>',
     to: clientEmail,
     subject: '¡Tu proyecto está iniciando! Accede a tu portal',
     html: welcomeEmailTemplate(deal.name, inviteToken),
@@ -471,12 +471,12 @@ async function getAvailableSlots(ownerId, date, durationMin) {
 1. Insertar en `email_send` con `contact_id` y/o `deal_id` (columnas tipadas; ya no existe `object_id` genérico) → obtener `tracking_id`
 2. Inyectar pixel al final del `body_html`:
    ```html
-   <img src="https://api.devduo.com/track/open/{tracking_id}" width="1" height="1" />
+   <img src="https://api.synous.ai/track/open/{tracking_id}" width="1" height="1" />
    ```
 3. Reemplazar links con links de tracking:
    ```
-   https://propuesta.devduo.com/... 
-   → https://api.devduo.com/track/click/{link_id}
+   https://propuesta.synous.ai/... 
+   → https://api.synous.ai/track/click/{link_id}
    ```
 
 **Endpoints públicos (sin auth):**
@@ -497,8 +497,8 @@ res.header('Content-Type', 'image/gif').send(PIXEL);
 
 **Canal WebSocket:**
 ```typescript
-// Admin: ws://api.devduo.com/ws/admin?token=JWT
-// Client: ws://api.devduo.com/ws/client?token=JWT
+// Admin: ws://api.synous.ai/ws/admin?token=JWT
+// Client: ws://api.synous.ai/ws/client?token=JWT
 ```
 
 **Al crear una `notification`, el job de BullMQ:**
@@ -562,20 +562,20 @@ REFRESH_TOKEN_SECRET=otro_secret_muy_largo
 
 # Resend (emails)
 RESEND_API_KEY=re_xxxxxxxxxxxx
-FROM_EMAIL=hola@devduo.com
+FROM_EMAIL=hola@synous.ai
 
 # Cloudflare R2 (archivos)
 R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
 R2_SECRET_ACCESS_KEY=
-R2_BUCKET_NAME=devduo-crm-files
-R2_PUBLIC_URL=https://files.devduo.com
+R2_BUCKET_NAME=synous-crm-files
+R2_PUBLIC_URL=https://files.synous.ai
 
 # Redis (queues)
 REDIS_URL=redis://localhost:6379
 
 # DocuSeal (self-hosted)
-DOCUSEAL_URL=https://sign.devduo.com
+DOCUSEAL_URL=https://sign.synous.ai
 DOCUSEAL_API_KEY=
 DOCUSEAL_WEBHOOK_SECRET=
 
@@ -583,9 +583,9 @@ DOCUSEAL_WEBHOOK_SECRET=
 FATHOM_WEBHOOK_SECRET=
 
 # URLs
-ADMIN_URL=https://app.devduo.com
-CLIENT_PORTAL_URL=https://cliente.devduo.com
-API_URL=https://api.devduo.com
+ADMIN_URL=https://app.synous.ai
+CLIENT_PORTAL_URL=https://cliente.synous.ai
+API_URL=https://api.synous.ai
 ```
 
 ---

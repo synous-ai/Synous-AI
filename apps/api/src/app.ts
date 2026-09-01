@@ -93,9 +93,9 @@ export function buildApp(): FastifyInstance {
   app.register(fastifySwagger, {
     openapi: {
       info: {
-        title: 'API CRM DevDúo',
+        title: 'API CRM Synous AI',
         description:
-          'Documentación de la API del CRM interno de DevDúo. Todos los endpoints (salvo autenticación y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.',
+          'Documentación de la API del CRM interno de Synous AI. Todos los endpoints (salvo autenticación y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.',
         version: '1.0.0',
       },
       servers: [{ url: 'http://localhost:3001', description: 'Desarrollo local' }],

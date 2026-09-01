@@ -8,8 +8,8 @@ const jakarta = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-sans',
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'DevDúo — Portal de Clientes',
-  description: 'Tu portal de seguimiento de proyectos con DevDúo',
+  title: 'Synous AI — Portal de Clientes',
+  description: 'Tu portal de seguimiento de proyectos con Synous AI',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -73,7 +73,9 @@ async function main(): Promise<void> {
   const clientId = client.id
 
   // Autor de los registros "de la agencia": cualquier hub_user activo del portal.
-  // No hardcodeamos el email (el seed base usa @devduo.com y esta DB puede tener @nous.com).
+  // No hardcodeamos el email: el seed base sigue usando carlos@devduo.com (ese
+  // valor está linkeado al usuario de Clerk en producción, ver seed.ts) y esta
+  // DB puede tener @nous.com.
   // Si no hay ninguno, cortamos: un autor null viola change_request_comment_author_check.
   const [author] = await db
     .select({ id: hubUser.id })
@@ -95,7 +97,7 @@ async function main(): Promise<void> {
         title: 'Diseño UI — Home y catálogo (Figma)',
         description: 'Propuesta visual de la home y las páginas de catálogo de productos.',
         type: 'design',
-        url: 'https://www.figma.com/file/devduo-demo/home-catalogo',
+        url: 'https://www.figma.com/file/synous-demo/home-catalogo',
         version: 2,
         status: 'approved' as const,
         feedback: null,
@@ -106,7 +108,7 @@ async function main(): Promise<void> {
         title: 'Prototipo interactivo — Checkout',
         description: 'Flujo de compra navegable: carrito, datos de envío y confirmación.',
         type: 'prototype',
-        url: 'https://www.figma.com/proto/devduo-demo/checkout',
+        url: 'https://www.figma.com/proto/synous-demo/checkout',
         version: 1,
         status: 'approved' as const,
         feedback: null,
@@ -117,7 +119,7 @@ async function main(): Promise<void> {
         title: 'Home — Ajustes de branding v2',
         description: 'Segunda vuelta de diseño de la home aplicando el manual de marca.',
         type: 'design',
-        url: 'https://www.figma.com/file/devduo-demo/home-branding-v2',
+        url: 'https://www.figma.com/file/synous-demo/home-branding-v2',
         version: 2,
         status: 'changes_requested' as const,
         feedback:
@@ -129,7 +131,7 @@ async function main(): Promise<void> {
         title: 'Staging — Tienda online (ambiente de pruebas)',
         description: 'Ambiente de staging con el catálogo, carrito y checkout integrados.',
         type: 'staging',
-        url: 'https://staging.clienteweb.devduo.app',
+        url: 'https://staging.clienteweb.synous.app',
         version: 1,
         status: 'pending_review' as const,
         feedback: null,

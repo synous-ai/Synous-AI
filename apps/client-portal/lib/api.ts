@@ -1,8 +1,8 @@
-// All HTTP logic has been moved to @devduo/api-client.
+// All HTTP logic has been moved to @nous/api-client.
 // This module instantiates the client for the client portal (client_account) context
 // and re-exports the individual functions so that existing @/lib/api imports work unchanged.
 
-import { createApiClient, ApiError as _ApiError } from '@devduo/api-client'
+import { createApiClient, ApiError as _ApiError } from '@nous/api-client'
 import { clientAuthToken } from './store/auth'
 
 const client = createApiClient({
