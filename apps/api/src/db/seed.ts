@@ -12,10 +12,17 @@ async function seed(): Promise<void> {
   // 1. Portal
   let [p] = await db.select().from(portal).limit(1)
   if (!p) {
-    ;[p] = await db.insert(portal).values({ name: 'Synous AI' }).returning()
+    ;[p] = await db.insert(portal).values({ name: 'Synous AI', slug: 'synous' }).returning()
     console.log(`✓ portal creado (id ${p!.id})`)
   } else {
-    console.log(`· portal ya existe (id ${p.id})`)
+    // Backfill del slug para portales creados antes de que existiera la columna:
+    // sin él, la URL pública de reservas sigue cayendo al cuid.
+    if (!p.slug) {
+      ;[p] = await db.update(portal).set({ slug: 'synous' }).where(eq(portal.id, p.id)).returning()
+      console.log(`· portal ya existía — slug seteado a 'synous'`)
+    } else {
+      console.log(`· portal ya existe (id ${p.id}, slug ${p.slug})`)
+    }
   }
   const portalId = p!.id
 

@@ -43,7 +43,9 @@ export default function CalendarPage() {
    * Mientras carga, se usa 'portal' como fallback (solo afecta el texto del link).
    */
   const { data: hubUser } = useHubUser()
-  const displayPortalId = hubUser?.portalId ?? 'portal'
+  // Para la URL pública se prefiere el slug del portal: el portalId es un cuid
+  // interno y este link es el que se le manda a un lead.
+  const publicPortalRef = hubUser?.portalSlug ?? hubUser?.portalId ?? 'portal'
 
   return (
     <div className="p-6">
@@ -67,7 +69,7 @@ export default function CalendarPage() {
 
         {/* Tipos de evento — F4a */}
         <TabsContent value="tipos">
-          <EventTypeList portalId={displayPortalId} />
+          <EventTypeList portalId={publicPortalRef} />
         </TabsContent>
 
         {/* Horarios de disponibilidad — F4a */}

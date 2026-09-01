@@ -190,7 +190,7 @@ var inet = customType({
 });
 
 // src/db/schema/portal.ts
-import { pgTable, text, char, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, char, timestamp, unique } from "drizzle-orm/pg-core";
 
 // src/lib/id.ts
 import { createId } from "@paralleldrive/cuid2";
@@ -199,6 +199,19 @@ import { createId } from "@paralleldrive/cuid2";
 var portal = pgTable("portal", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   name: text("name").notNull(),
+  /**
+   * Identificador legible del portal, para URLs públicas.
+   *
+   * Existe por la página pública de reservas: la ruta es
+   * `/book/:portal/:eventSlug` y necesita desambiguar el portal porque el slug
+   * del meeting type solo es único DENTRO de un portal (unique portal_id+slug).
+   * Antes ese segmento era el `id` — un cuid interno expuesto en un link que se
+   * le manda a un lead. Con el slug queda `/book/synous/consulta-inicial`.
+   *
+   * Nullable: los portales viejos no lo tienen y la ruta pública sigue
+   * aceptando el id como fallback.
+   */
+  slug: text("slug"),
   domain: text("domain"),
   // Default actualizado en migración 0017: la agencia opera en Argentina.
   timeZone: text("time_zone").notNull().default("America/Argentina/Buenos_Aires"),
@@ -211,10 +224,12 @@ var portal = pgTable("portal", {
   prospectingServices: text("prospecting_services"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
-});
+}, (table) => [
+  unique("portal_slug_unique").on(table.slug)
+]);
 
 // src/db/schema/users.ts
-import { pgTable as pgTable2, text as text2, boolean, timestamp as timestamp2, unique, check } from "drizzle-orm/pg-core";
+import { pgTable as pgTable2, text as text2, boolean, timestamp as timestamp2, unique as unique2, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 var hubUser = pgTable2("hub_user", {
   id: text2("id").primaryKey().$defaultFn(() => createId()),
@@ -231,7 +246,7 @@ var hubUser = pgTable2("hub_user", {
   createdAt: timestamp2("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp2("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique("hub_user_portal_id_email_unique").on(table.portalId, table.email),
+  unique2("hub_user_portal_id_email_unique").on(table.portalId, table.email),
   // Roles del sistema:
   //   owner       → acceso total
   //   member      → opera CRM + finanzas, no puede borrar ni gestionar usuarios
@@ -294,7 +309,7 @@ var company = pgTable4("company", {
 ]);
 
 // src/db/schema/contacts.ts
-import { pgTable as pgTable5, text as text5, boolean as boolean4, jsonb as jsonb2, timestamp as timestamp5, index as index3, unique as unique2, check as check3 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable5, text as text5, boolean as boolean4, jsonb as jsonb2, timestamp as timestamp5, index as index3, unique as unique3, check as check3 } from "drizzle-orm/pg-core";
 import { sql as sql4 } from "drizzle-orm";
 var contact = pgTable5("contact", {
   id: text5("id").primaryKey().$defaultFn(() => createId()),
@@ -313,7 +328,7 @@ var contact = pgTable5("contact", {
   createdAt: timestamp5("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp5("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique2("contact_portal_id_email_unique").on(table.portalId, table.email),
+  unique3("contact_portal_id_email_unique").on(table.portalId, table.email),
   check3("contact_lifecycle_stage_check", sql4`${table.lifecycleStage} IN ('lead','mql','sql','opportunity','customer','other')`),
   // Compuesto para el listado paginado por cursor (created_at DESC, id DESC).
   index3("idx_contact_portal_created").on(table.portalId, table.createdAt, table.id).where(sql4`archived = false`),
@@ -362,7 +377,7 @@ var dealContact = pgTable6("deal_contact", {
 ]);
 
 // src/db/schema/calendar.ts
-import { pgTable as pgTable7, text as text7, integer as integer2, boolean as boolean6, jsonb as jsonb4, time, timestamp as timestamp7, date as date2, index as index5, unique as unique3, check as check4 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable7, text as text7, integer as integer2, boolean as boolean6, jsonb as jsonb4, time, timestamp as timestamp7, date as date2, index as index5, unique as unique4, check as check4 } from "drizzle-orm/pg-core";
 import { sql as sql6 } from "drizzle-orm";
 var availabilitySchedule = pgTable7("availability_schedule", {
   id: text7("id").primaryKey().$defaultFn(() => createId()),
@@ -394,7 +409,7 @@ var dateOverride = pgTable7("date_override", {
   intervals: jsonb4("intervals").notNull().default([])
 }, (table) => [
   // Un solo override por fecha por schedule.
-  unique3("date_override_schedule_date_unique").on(table.scheduleId, table.date)
+  unique4("date_override_schedule_date_unique").on(table.scheduleId, table.date)
 ]);
 var availabilityRule = pgTable7("availability_rule", {
   id: text7("id").primaryKey().$defaultFn(() => createId()),
@@ -453,7 +468,7 @@ var meetingType = pgTable7("meeting_type", {
   /** Schedule de disponibilidad vinculado. Null = usa availability_rule del owner. */
   availabilityScheduleId: text7("availability_schedule_id").references(() => availabilitySchedule.id, { onDelete: "set null" })
 }, (table) => [
-  unique3("meeting_type_portal_id_slug_unique").on(table.portalId, table.slug),
+  unique4("meeting_type_portal_id_slug_unique").on(table.portalId, table.slug),
   check4("meeting_type_duration_min_check", sql6`${table.durationMin} > 0`),
   check4("meeting_type_kind_check", sql6`${table.kind} IN ('solo', 'group')`),
   check4("meeting_type_pooling_check", sql6`${table.poolingType} IS NULL OR ${table.poolingType} = 'collective'`),
@@ -464,7 +479,7 @@ var eventMembership = pgTable7("event_membership", {
   meetingTypeId: text7("meeting_type_id").notNull().references(() => meetingType.id, { onDelete: "cascade" }),
   hostId: text7("host_id").notNull().references(() => hubUser.id, { onDelete: "cascade" })
 }, (table) => [
-  unique3("event_membership_meeting_host_unique").on(table.meetingTypeId, table.hostId)
+  unique4("event_membership_meeting_host_unique").on(table.meetingTypeId, table.hostId)
 ]);
 var booking = pgTable7("booking", {
   id: text7("id").primaryKey().$defaultFn(() => createId()),
@@ -507,7 +522,7 @@ var bookingReminder = pgTable7("booking_reminder", {
   kind: text7("kind").notNull(),
   sentAt: timestamp7("sent_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique3("booking_reminder_booking_kind_unique").on(table.bookingId, table.kind),
+  unique4("booking_reminder_booking_kind_unique").on(table.bookingId, table.kind),
   check4("booking_reminder_kind_check", sql6`${table.kind} IN ('24h','1h')`)
 ]);
 
@@ -859,7 +874,7 @@ var listMembership = pgTable12("list_membership", {
 ]);
 
 // src/db/schema/client-portal.ts
-import { pgTable as pgTable13, text as text13, boolean as boolean9, timestamp as timestamp13, unique as unique4, primaryKey as primaryKey3 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable13, text as text13, boolean as boolean9, timestamp as timestamp13, unique as unique5, primaryKey as primaryKey3 } from "drizzle-orm/pg-core";
 var clientAccount = pgTable13("client_account", {
   id: text13("id").primaryKey().$defaultFn(() => createId()),
   portalId: text13("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
@@ -884,7 +899,7 @@ var clientAccount = pgTable13("client_account", {
   brandSecondary: text13("brand_secondary"),
   createdAt: timestamp13("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique4("client_account_portal_id_email_unique").on(table.portalId, table.email)
+  unique5("client_account_portal_id_email_unique").on(table.portalId, table.email)
 ]);
 var clientDealAccess = pgTable13("client_deal_access", {
   clientId: text13("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
@@ -894,7 +909,7 @@ var clientDealAccess = pgTable13("client_deal_access", {
 ]);
 
 // src/db/schema/intake.ts
-import { pgTable as pgTable14, text as text14, jsonb as jsonb9, timestamp as timestamp14, unique as unique5, index as index10, check as check9, bigint } from "drizzle-orm/pg-core";
+import { pgTable as pgTable14, text as text14, jsonb as jsonb9, timestamp as timestamp14, unique as unique6, index as index10, check as check9, bigint } from "drizzle-orm/pg-core";
 import { sql as sql11 } from "drizzle-orm";
 var intakeForm = pgTable14("intake_form", {
   id: text14("id").primaryKey().$defaultFn(() => createId()),
@@ -905,7 +920,7 @@ var intakeForm = pgTable14("intake_form", {
   fields: jsonb9("fields").notNull().default([]),
   createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique5("intake_form_portal_id_slug_unique").on(table.portalId, table.slug)
+  unique6("intake_form_portal_id_slug_unique").on(table.portalId, table.slug)
 ]);
 var dealIntake = pgTable14("deal_intake", {
   id: text14("id").primaryKey().$defaultFn(() => createId()),
@@ -927,7 +942,7 @@ var dealIntakeResponse = pgTable14("deal_intake_response", {
   answers: jsonb9("answers").notNull().default({}),
   submittedAt: timestamp14("submitted_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique5("deal_intake_response_intake_id_unique").on(table.intakeId)
+  unique6("deal_intake_response_intake_id_unique").on(table.intakeId)
 ]);
 var clientAsset = pgTable14("client_asset", {
   id: text14("id").primaryKey().$defaultFn(() => createId()),
@@ -972,7 +987,7 @@ var deliverable = pgTable15("deliverable", {
 ]);
 
 // src/db/schema/change-requests.ts
-import { pgTable as pgTable16, text as text16, integer as integer7, numeric as numeric4, date as date3, timestamp as timestamp16, index as index12, unique as unique6, check as check11 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable16, text as text16, integer as integer7, numeric as numeric4, date as date3, timestamp as timestamp16, index as index12, unique as unique7, check as check11 } from "drizzle-orm/pg-core";
 import { sql as sql13 } from "drizzle-orm";
 var changeRequest = pgTable16("change_request", {
   id: text16("id").primaryKey().$defaultFn(() => createId()),
@@ -995,7 +1010,7 @@ var changeRequest = pgTable16("change_request", {
   createdAt: timestamp16("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp16("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique6("change_request_deal_id_number_unique").on(table.dealId, table.number),
+  unique7("change_request_deal_id_number_unique").on(table.dealId, table.number),
   check11("change_request_origin_check", sql13`${table.origin} IN ('client','agency')`),
   check11("change_request_status_check", sql13`${table.status} IN ('draft','sent','approved','rejected','negotiating','approved_verbally','disputed','completed')`),
   index12("idx_cr_deal").on(table.dealId, table.status)
@@ -1359,7 +1374,7 @@ var expense = pgTable23("expense", {
 ]);
 
 // src/db/schema/notification-prefs.ts
-import { pgTable as pgTable24, text as text24, boolean as boolean13, timestamp as timestamp24, unique as unique8, index as index20 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable24, text as text24, boolean as boolean13, timestamp as timestamp24, unique as unique9, index as index20 } from "drizzle-orm/pg-core";
 var notificationPref = pgTable24(
   "notification_pref",
   {
@@ -1373,13 +1388,13 @@ var notificationPref = pgTable24(
     updatedAt: timestamp24("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    unique8("notification_pref_user_id_event_type_unique").on(table.userId, table.eventType),
+    unique9("notification_pref_user_id_event_type_unique").on(table.userId, table.eventType),
     index20("idx_notification_pref_portal_user").on(table.portalId, table.userId)
   ]
 );
 
 // src/db/schema/custom-fields.ts
-import { pgTable as pgTable25, text as text25, integer as integer10, boolean as boolean14, timestamp as timestamp25, jsonb as jsonb12, unique as unique9, index as index21, check as check17 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable25, text as text25, integer as integer10, boolean as boolean14, timestamp as timestamp25, jsonb as jsonb12, unique as unique10, index as index21, check as check17 } from "drizzle-orm/pg-core";
 import { sql as sql19 } from "drizzle-orm";
 var customField = pgTable25(
   "custom_field",
@@ -1406,7 +1421,7 @@ var customField = pgTable25(
       "custom_field_field_type_check",
       sql19`${table.fieldType} IN ('text','number','date','select','boolean')`
     ),
-    unique9("custom_field_portal_entity_key_unique").on(table.portalId, table.entityType, table.key),
+    unique10("custom_field_portal_entity_key_unique").on(table.portalId, table.entityType, table.key),
     index21("idx_custom_field_portal_entity").on(table.portalId, table.entityType)
   ]
 );
@@ -1435,7 +1450,7 @@ var onboardingSubmission = pgTable26("onboarding_submission", {
 ]);
 
 // src/db/schema/client-onboarding.ts
-import { pgTable as pgTable27, text as text27, integer as integer11, jsonb as jsonb14, timestamp as timestamp27, unique as unique10, check as check19, index as index23 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable27, text as text27, integer as integer11, jsonb as jsonb14, timestamp as timestamp27, unique as unique11, check as check19, index as index23 } from "drizzle-orm/pg-core";
 import { sql as sql21 } from "drizzle-orm";
 var clientOnboarding = pgTable27("client_onboarding", {
   id: text27("id").primaryKey().$defaultFn(() => createId()),
@@ -1460,7 +1475,7 @@ var clientOnboarding = pgTable27("client_onboarding", {
   createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique10("client_onboarding_deal_id_unique").on(table.dealId),
+  unique11("client_onboarding_deal_id_unique").on(table.dealId),
   check19("client_onboarding_status_check", sql21`${table.status} IN ('in_progress','completed')`),
   // listOnboardings (admin) filtra por portal_id y ordena por status/updated_at.
   index23("idx_client_onboarding_portal_status").on(table.portalId, table.status)
@@ -1638,20 +1653,22 @@ async function authenticate(request, _reply) {
 
 // src/modules/auth/auth.service.ts
 import { eq as eq2 } from "drizzle-orm";
-function publicUser(u) {
+function publicUser(u, portalSlug) {
   return {
     id: u.id,
     email: u.email,
     firstName: u.firstName,
     lastName: u.lastName,
     role: u.role,
-    portalId: u.portalId
+    portalId: u.portalId,
+    portalSlug
   };
 }
 async function getCurrentUser(id) {
   const [user] = await db.select().from(hubUser).where(eq2(hubUser.id, id)).limit(1);
   if (!user) throw Errors.notFound("Usuario no encontrado");
-  return publicUser(user);
+  const [p] = await db.select({ slug: portal.slug }).from(portal).where(eq2(portal.id, user.portalId)).limit(1);
+  return publicUser(user, p?.slug ?? null);
 }
 
 // src/modules/auth/auth.router.ts
@@ -4293,7 +4310,15 @@ function verifyBookingToken(token, expectedType) {
     throw Errors.unauthorized("Token inv\xE1lido o expirado");
   }
 }
-async function getPublicEventType(portalId, eventSlug) {
+async function resolvePortalRef(ref) {
+  const [bySlug] = await db.select({ id: portal.id }).from(portal).where(eq17(portal.slug, ref)).limit(1);
+  if (bySlug) return bySlug.id;
+  const [byId] = await db.select({ id: portal.id }).from(portal).where(eq17(portal.id, ref)).limit(1);
+  if (byId) return byId.id;
+  throw Errors.notFound("Portal no encontrado");
+}
+async function getPublicEventType(portalRef, eventSlug) {
+  const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
     and15(
       eq17(meetingType.portalId, portalId),
@@ -4374,7 +4399,8 @@ async function assertSlotAvailable(mt, startsAtIso, excludeBookingId) {
     throw Errors.badRequest("El horario seleccionado no est\xE1 disponible");
   }
 }
-async function getPublicSlots(portalId, eventSlug, from, to, tz) {
+async function getPublicSlots(portalRef, eventSlug, from, to, tz) {
+  const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
     and15(
       eq17(meetingType.portalId, portalId),
@@ -4403,7 +4429,8 @@ async function getPublicSlots(portalId, eventSlug, from, to, tz) {
     startLocal: toInviteeDisplay(s.startUtc, tz, "yyyy-MM-dd HH:mm")
   }));
 }
-async function createPublicBooking(portalId, eventSlug, input, baseUrl2) {
+async function createPublicBooking(portalRef, eventSlug, input, baseUrl2) {
+  const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
     and15(
       eq17(meetingType.portalId, portalId),
@@ -8744,7 +8771,7 @@ import { z as z28 } from "zod";
 
 // src/modules/webhooks/webhooks.service.ts
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq as eq35, and as and30 } from "drizzle-orm";
+import { eq as eq35, and as and30, asc as asc12 } from "drizzle-orm";
 function verifyFathomSignature(rawBody, signature) {
   if (!env.FATHOM_WEBHOOK_SECRET || !signature) return false;
   const bodyStr = typeof rawBody === "string" ? rawBody : rawBody.toString("utf8");
@@ -8760,7 +8787,7 @@ function verifyFathomSignature(rawBody, signature) {
   }
 }
 async function resolvePortalId() {
-  const [row] = await db.select({ id: portal.id }).from(portal).limit(1);
+  const [row] = await db.select({ id: portal.id }).from(portal).orderBy(asc12(portal.createdAt)).limit(1);
   return row?.id ?? null;
 }
 async function findContactByEmail(portalId, email) {
@@ -9728,7 +9755,7 @@ var SlugParamSchema = z32.object({
 });
 
 // src/modules/branding/branding.service.ts
-import { and as and32, asc as asc12, eq as eq37 } from "drizzle-orm";
+import { and as and32, asc as asc13, eq as eq37 } from "drizzle-orm";
 function logoUrl(key) {
   return key ? `${env.PUBLIC_API_URL}/api/files/${key}` : null;
 }
@@ -9757,7 +9784,7 @@ async function getBrandingBySlug(slug) {
   };
 }
 async function listClientBranding(portalId) {
-  const rows = await db.select(brandingCols).from(clientAccount).where(eq37(clientAccount.portalId, portalId)).orderBy(asc12(clientAccount.email));
+  const rows = await db.select(brandingCols).from(clientAccount).where(eq37(clientAccount.portalId, portalId)).orderBy(asc13(clientAccount.email));
   return rows.map((r) => ({
     id: r.id,
     email: r.email,

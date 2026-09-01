@@ -10,11 +10,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import request from 'supertest'
 import { createHmac } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
-import { meeting, emailSend, emailEvent } from '../../db/schema'
+import { meeting, emailSend, emailEvent, portal } from '../../db/schema'
 import { ensurePortalAndUser } from '../../test/helpers'
+import { createId } from '../../lib/id'
 
 // ── Setup del secret de test ──────────────────────────────────────────────────
 // El secret se inyecta en process.env antes de buildApp()
@@ -75,12 +76,13 @@ describe('POST /webhooks/fathom — seguridad HMAC', () => {
   })
 
   it('firma válida → 200 y crea una meeting en la DB', async () => {
+    const transcriptUrl = `https://app.fathom.video/share/${createId()}`
     const payload = {
       title: 'Demo del producto',
       starts_at: '2026-06-01T14:00:00.000Z',
       ends_at: '2026-06-01T15:00:00.000Z',
       summary: 'El cliente está interesado en el plan Pro.',
-      transcript_url: 'https://app.fathom.video/share/test-unique-url-001',
+      transcript_url: transcriptUrl,
       action_items: ['Enviar propuesta', 'Agendar follow-up'],
       participants: [{ email: 'cliente@test.com', name: 'Cliente Test' }],
     }
@@ -107,13 +109,21 @@ describe('POST /webhooks/fathom — seguridad HMAC', () => {
     expect(row?.title).toBe('Demo del producto')
     expect(row?.fathomSummary).toBe('El cliente está interesado en el plan Pro.')
     expect(Array.isArray(row?.fathomActionItems)).toBe(true)
-    expect(row?.portalId).toBe(portalId)
+    // El webhook de Fathom no recibe tenant: resuelve el portal más antiguo
+    // (single-tenant). No se asume que sea el portal de tests — esta DB acumula
+    // portales de corridas anteriores, así que se compara contra la misma regla.
+    const [oldest] = await db.select({ id: portal.id }).from(portal).orderBy(asc(portal.createdAt)).limit(1)
+    expect(row?.portalId).toBe(oldest!.id)
   })
 
   it('idempotencia: misma transcript_url no crea duplicado, actualiza', async () => {
+    // URL única por corrida: antes era una constante llamada "unique-url" que no
+    // lo era, así que las filas de corridas anteriores (y de otros portales) se
+    // sumaban al conteo y el test de idempotencia fallaba con datos viejos.
+    const transcriptUrl = `https://app.fathom.video/share/${createId()}`
     const payload = {
       title: 'Demo actualizada',
-      transcript_url: 'https://app.fathom.video/share/test-unique-url-002',
+      transcript_url: transcriptUrl,
       summary: 'Resumen v1',
     }
     const bodyStr1 = JSON.stringify(payload)
@@ -138,7 +148,7 @@ describe('POST /webhooks/fathom — seguridad HMAC', () => {
     const rows = await db
       .select()
       .from(meeting)
-      .where(eq(meeting.fathomTranscriptUrl, 'https://app.fathom.video/share/test-unique-url-002'))
+      .where(and(eq(meeting.fathomTranscriptUrl, transcriptUrl), eq(meeting.portalId, portalId)))
 
     // Exactamente una fila (idempotente)
     expect(rows.length).toBe(1)

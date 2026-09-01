@@ -25,6 +25,8 @@ export interface User {
   lastName: string | null
   role: HubUserRole
   portalId: string
+  /** Slug legible del portal, para la URL pública de reservas. Null si no se seteó. */
+  portalSlug: string | null
 }
 
 export interface ClientAccountSummary {

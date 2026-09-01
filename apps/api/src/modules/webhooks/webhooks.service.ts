@@ -5,14 +5,14 @@
  *
  * Decisión de portal (MVP):
  *   Fathom no envía ningún identificador de portal en su payload.
- *   En esta instalación single-tenant se resuelve el portal tomando el primero
- *   disponible en la base de datos (1 portal = 1 agencia).
- *   Para multi-tenant futuro: rotatar un secret por portal y derivar portalId
+ *   En esta instalación single-tenant se resuelve tomando el portal MÁS ANTIGUO
+ *   (1 portal = 1 agencia). Ver `resolvePortalId` para por qué el orden importa.
+ *   Para multi-tenant futuro: rotar un secret por portal y derivar portalId
  *   del header o del path de la ruta.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, asc } from 'drizzle-orm'
 import { db } from '../../db'
 import { meeting, contact, deal, portal } from '../../db/schema'
 import { env } from '../../config/env'
@@ -77,8 +77,24 @@ export interface FathomMeetingPayload {
 
 // ── Portal resolver ───────────────────────────────────────────────────────────
 
+/**
+ * Resuelve a qué portal pertenece un evento de Fathom.
+ *
+ * Fathom no manda ningún identificador de tenant, así que no hay forma de
+ * derivarlo del payload: se asume despliegue de un solo portal y se toma el
+ * ORIGINAL, es decir el más antiguo.
+ *
+ * El `ORDER BY created_at` no es decorativo. Antes era `limit(1)` a secas y
+ * Postgres no garantiza orden sin ORDER BY: con más de una fila en `portal`, la
+ * elegida podía cambiar sola (basta un ALTER TABLE que reescriba el heap) y las
+ * reuniones se cargaban en un portal distinto de un día para el otro.
+ */
 async function resolvePortalId(): Promise<string | null> {
-  const [row] = await db.select({ id: portal.id }).from(portal).limit(1)
+  const [row] = await db
+    .select({ id: portal.id })
+    .from(portal)
+    .orderBy(asc(portal.createdAt))
+    .limit(1)
   return row?.id ?? null
 }
 
