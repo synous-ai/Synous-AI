@@ -1,10 +1,9 @@
 import { GoogleGenAI, ThinkingLevel } from '@google/genai'
-import { env } from '../../../../config/env'
-import { TOOL_DECLARATIONS } from '../tools'
-import type { GenerateFn } from './types'
+import { env } from '../../config/env'
+import type { GenerateTextFn } from './types'
 
 /**
- * Provider Gemini (Vertex AI) del Model Switcher.
+ * Provider Gemini (Vertex AI).
  * Auth: service account JSON en GOOGLE_SERVICE_ACCOUNT_JSON.
  */
 
@@ -26,25 +25,19 @@ function getClient(): GoogleGenAI {
   return client
 }
 
-export const geminiGenerate: GenerateFn = async (req) => {
+export const geminiGenerate: GenerateTextFn = async (req) => {
   const ai = getClient()
   const res = await ai.models.generateContent({
     model: env.VERTEX_MODEL,
-    contents: req.contents,
+    contents: [{ role: 'user', parts: [{ text: req.prompt }] }],
     config: {
       systemInstruction: req.systemInstruction,
       temperature: req.temperature,
       maxOutputTokens: req.maxOutputTokens,
-      // Un setter ejecuta un framework, no razona profundo: thinking bajo =
-      // más rápido, más barato y deja tokens para el mensaje.
+      // Generar una propuesta o una próxima acción es redacción con formato
+      // fijo, no razonamiento profundo: thinking bajo = más rápido y barato.
       thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
     },
   })
-  const functionCalls = (res.functionCalls ?? []).map((f) => ({
-    id: f.id,
-    name: f.name ?? '',
-    args: (f.args ?? {}) as Record<string, unknown>,
-  }))
-  return { functionCalls, text: res.text ?? '', modelContent: res.candidates?.[0]?.content }
+  return { text: res.text ?? '' }
 }

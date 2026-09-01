@@ -38,21 +38,18 @@ const envSchema = z.object({
   // default '' para no romper boot/tests cuando no está configurado (auth devuelve 401).
   CLERK_SECRET_KEY: z.string().default(''),
 
-  // ── IA: Anthropic (setter) y Vertex/Gemini ────────────────
+  // ── IA: Anthropic y Vertex/Gemini ────────────────
+  // Qué modelo usan las funciones con IA (propuestas, próxima acción).
+  // Antes lo decidía `setter_tenant.model_provider`, que se fue con el setter;
+  // el default sigue siendo gemini, que era el fallback histórico.
+  MODEL_PROVIDER: z.enum(['gemini', 'claude']).default('gemini'),
   ANTHROPIC_API_KEY: z.string().default(''),
   ANTHROPIC_MODEL: z.string().default(''),
   VERTEX_LOCATION: z.string().default(''),
   VERTEX_MODEL: z.string().default(''),
 
-  // ── Google (Places/Maps + service account) ────────────────
-  GOOGLE_MAPS_API_KEY: z.string().default(''),
+  // ── Google service account (auth de Vertex/Gemini) ────────
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().default(''),
-
-  // ── Evolution API (WhatsApp del setter) ───────────────────
-  EVOLUTION_API_URL: z.string().default(''),
-  EVOLUTION_API_KEY: z.string().default(''),
-  EVOLUTION_INSTANCE: z.string().default(''),
-  EVOLUTION_WEBHOOK_SECRET: z.string().default(''),
 
   // ── Onboarding post-venta: asignación automática de responsable por fase del
   // pipeline "Producción" (ver modules/onboarding/assignees.ts). Opcionales con

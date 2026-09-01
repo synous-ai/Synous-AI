@@ -27,7 +27,7 @@ export function usePortal() {
 export function useUpdatePortal() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: Partial<Pick<PortalSettings, 'name' | 'timeZone' | 'currency' | 'prospectingServices'>>) =>
+    mutationFn: (input: Partial<Pick<PortalSettings, 'name' | 'timeZone' | 'currency'>>) =>
       apiPatch<PortalSettings>('/api/settings/portal', input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
   })

@@ -7,7 +7,6 @@ import { useTheme } from 'next-themes'
 import {
   LayoutDashboard,
   BarChart3,
-  Inbox,
   Briefcase,
   FolderKanban,
   Wrench,
@@ -53,10 +52,9 @@ const STORAGE_KEY = 'nous-sidebar-collapsed'
 
 // Ítems sueltos (sin grupo) — cada uno = un destino real
 const DASHBOARD = { label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' }
-const SETTER = { label: 'Setter', icon: Inbox, href: '/admin/setter' }
 const REPORTS = { label: 'Reportes', icon: BarChart3, href: '/admin/reports' }
 const CALENDAR = { label: 'Calendario', icon: Calendar, href: '/admin/calendar' }
-const STANDALONE = [DASHBOARD, SETTER, REPORTS, CALENDAR]
+const STANDALONE = [DASHBOARD, REPORTS, CALENDAR]
 
 // IA: un ítem = un destino real. Las sub-features (Entregables, Formularios, Change
 // Requests, Disponibilidad, Tipos de reunión) viven como TABS dentro de su entidad,
@@ -131,7 +129,6 @@ const GROUPS: Group[] = [
     icon: Settings,
     items: [
       { label: 'General', href: '/admin/settings' },
-      { label: 'Prospección', href: '/admin/settings/prospecting' },
       { label: 'White-Label', href: '/admin/settings/white-label' },
       { label: 'Roles y permisos', href: '/admin/settings/roles' },
       { label: 'Formularios', href: '/admin/settings/forms' },

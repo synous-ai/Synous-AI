@@ -47,19 +47,17 @@ var envSchema = z.object({
   // Requerido en prod: sin esto el verifyToken de Clerk falla y nadie autentica.
   // default '' para no romper boot/tests cuando no está configurado (auth devuelve 401).
   CLERK_SECRET_KEY: z.string().default(""),
-  // ── IA: Anthropic (setter) y Vertex/Gemini ────────────────
+  // ── IA: Anthropic y Vertex/Gemini ────────────────
+  // Qué modelo usan las funciones con IA (propuestas, próxima acción).
+  // Antes lo decidía `setter_tenant.model_provider`, que se fue con el setter;
+  // el default sigue siendo gemini, que era el fallback histórico.
+  MODEL_PROVIDER: z.enum(["gemini", "claude"]).default("gemini"),
   ANTHROPIC_API_KEY: z.string().default(""),
   ANTHROPIC_MODEL: z.string().default(""),
   VERTEX_LOCATION: z.string().default(""),
   VERTEX_MODEL: z.string().default(""),
-  // ── Google (Places/Maps + service account) ────────────────
-  GOOGLE_MAPS_API_KEY: z.string().default(""),
+  // ── Google service account (auth de Vertex/Gemini) ────────
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().default(""),
-  // ── Evolution API (WhatsApp del setter) ───────────────────
-  EVOLUTION_API_URL: z.string().default(""),
-  EVOLUTION_API_KEY: z.string().default(""),
-  EVOLUTION_INSTANCE: z.string().default(""),
-  EVOLUTION_WEBHOOK_SECRET: z.string().default(""),
   // ── Onboarding post-venta: asignación automática de responsable por fase del
   // pipeline "Producción" (ver modules/onboarding/assignees.ts). Opcionales con
   // default — si el hub_user no existe (email no seedeado), el helper devuelve
@@ -98,7 +96,7 @@ var Errors = {
 };
 
 // src/modules/health/health.router.ts
-import { sql as sql23 } from "drizzle-orm";
+import { sql as sql21 } from "drizzle-orm";
 
 // src/db/index.ts
 import { drizzle as drizzleNodePostgres } from "drizzle-orm/node-postgres";
@@ -161,18 +159,8 @@ __export(schema_exports, {
   portal: () => portal,
   projectUpdate: () => projectUpdate,
   proposal: () => proposal,
-  prospect: () => prospect,
-  prospectSearch: () => prospectSearch,
   recordHistory: () => recordHistory,
   retainer: () => retainer,
-  setterAppointment: () => setterAppointment,
-  setterConversation: () => setterConversation,
-  setterDraft: () => setterDraft,
-  setterEvent: () => setterEvent,
-  setterLead: () => setterLead,
-  setterMessage: () => setterMessage,
-  setterPerson: () => setterPerson,
-  setterTenant: () => setterTenant,
   task: () => task,
   workItem: () => workItem
 });
@@ -204,7 +192,11 @@ var portal = pgTable("portal", {
   // Default actualizado en migración 0017: la agencia opera en Argentina.
   timeZone: text("time_zone").notNull().default("America/Argentina/Buenos_Aires"),
   currency: char("currency", { length: 3 }).notNull().default("USD"),
-  /** Servicios de prospección habilitados para el módulo setter (null = no configurado). */
+  /**
+   * LEGACY — pertenecía al módulo de prospecting, que se eliminó. La columna se
+   * mantiene declarada a propósito: si se borra de acá, el próximo `db:generate`
+   * emite un DROP COLUMN sobre datos que decidimos conservar. Nadie la lee.
+   */
   prospectingServices: text("prospecting_services"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -1231,287 +1223,65 @@ var clientOnboarding = pgTable25("client_onboarding", {
   index21("idx_client_onboarding_portal_status").on(table.portalId, table.status)
 ]);
 
-// src/db/schema/prospecting.ts
-import { pgTable as pgTable26, text as text26, integer as integer10, numeric as numeric5, jsonb as jsonb13, timestamp as timestamp26, index as index22, check as check18 } from "drizzle-orm/pg-core";
-import { sql as sql20 } from "drizzle-orm";
-var prospectSearch = pgTable26("prospect_search", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  query: text26("query").notNull(),
-  ourServices: text26("our_services"),
-  requestedLimit: integer10("requested_limit").notNull().default(5),
-  resultCount: integer10("result_count").notNull().default(0),
-  status: text26("status").notNull().default("running"),
-  error: text26("error"),
-  createdBy: text26("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check18("prospect_search_status_check", sql20`${table.status} IN ('running','completed','failed')`),
-  index22("idx_prospect_search_portal").on(table.portalId)
-]);
-var prospect = pgTable26("prospect", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  searchId: text26("search_id").notNull().references(() => prospectSearch.id, { onDelete: "cascade" }),
-  // ── Datos del negocio (Google Places + scraping) ──
-  name: text26("name").notNull(),
-  address: text26("address"),
-  phone: text26("phone"),
-  website: text26("website"),
-  email: text26("email"),
-  rating: numeric5("rating", { precision: 2, scale: 1 }),
-  userRatingsTotal: integer10("user_ratings_total"),
-  googlePlaceId: text26("google_place_id"),
-  types: jsonb13("types").$type().notNull().default([]),
-  // ── Análisis IA (Vertex / Gemini) ──
-  aiAnalysis: text26("ai_analysis"),
-  aiProposal: jsonb13("ai_proposal").$type(),
-  // ── Estado en el flujo de prospección ──
-  status: text26("status").notNull().default("new"),
-  importedContactId: text26("imported_contact_id").references(() => contact.id, { onDelete: "set null" }),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check18("prospect_status_check", sql20`${table.status} IN ('new','imported','discarded')`),
-  index22("idx_prospect_portal").on(table.portalId),
-  index22("idx_prospect_search").on(table.searchId)
-]);
-
-// src/db/schema/setter.ts
-import {
-  pgTable as pgTable27,
-  text as text27,
-  boolean as boolean14,
-  integer as integer11,
-  jsonb as jsonb14,
-  timestamp as timestamp27,
-  uniqueIndex as uniqueIndex2,
-  index as index23,
-  check as check19
-} from "drizzle-orm/pg-core";
-import { sql as sql21 } from "drizzle-orm";
-var setterTenant = pgTable27("setter_tenant", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  // El setter es interno del CRM: su config cuelga del portal (la org admin).
-  portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  name: text27("name").notNull(),
-  // Lo que el agente "conoce": qué vende, ICP, qué califica, oferta, FAQs, precios.
-  businessBrief: text27("business_brief").notNull(),
-  agentName: text27("agent_name").notNull(),
-  ownerName: text27("owner_name").notNull(),
-  timezone: text27("timezone").notNull().default("America/Argentina/Buenos_Aires"),
-  // shadow global en Sprint 0; el campo existe para el salto a híbrido/autopilot.
-  operationMode: text27("operation_mode").notNull().default("shadow"),
-  // Model Switcher: qué LLM genera los mensajes ('gemini' | 'claude').
-  modelProvider: text27("model_provider").notNull().default("gemini"),
-  // Prospección automática desde la oferta: qué ofrecemos (contexto para la IA)
-  // y los nichos/ICP sugeridos para buscar leads sin tipear nada.
-  prospectingServices: text27("prospecting_services"),
-  prospectingNiches: jsonb14("prospecting_niches").$type().notNull().default([]),
-  // Autopilot de prospección (loop nicho×ciudad cada 1h).
-  prospectingCities: jsonb14("prospecting_cities").$type().notNull().default([]),
-  prospectingAutopilot: boolean14("prospecting_autopilot").notNull().default(false),
-  prospectingAutopilotCursor: integer11("prospecting_autopilot_cursor").notNull().default(0),
-  // Nombre de la instancia de Evolution para este tenant (puede venir de env).
-  evolutionInstance: text27("evolution_instance"),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
-}, (table) => [
-  check19(
-    "setter_tenant_operation_mode_check",
-    sql21`${table.operationMode} IN ('shadow','hybrid','autopilot')`
-  ),
-  check19("setter_tenant_model_provider_check", sql21`${table.modelProvider} IN ('gemini','claude')`)
-]);
-var setterPerson = pgTable27("setter_person", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  name: text27("name"),
-  // E.164 (+549...). En Sprint 0 (solo WhatsApp) es la clave de identidad.
-  phone: text27("phone"),
-  // Guardrail no negociable: si opta por salir, nunca más se le genera ni envía.
-  optedOut: boolean14("opted_out").notNull().default(false),
-  optedOutAt: timestamp27("opted_out_at", { withTimezone: true }),
-  // Sync con el CRM: este Person es también un contact del CRM (lead/cliente).
-  crmContactId: text27("crm_contact_id").references(() => contact.id, { onDelete: "set null" }),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  uniqueIndex2("uq_setter_person_tenant_phone").on(table.tenantId, table.phone)
-]);
-var setterLead = pgTable27("setter_lead", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  personId: text27("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
-  status: text27("status").notNull().default("NEW"),
-  // { pain, fit, authority, timing, score, notes } — lo llena save_qualification.
-  qualification: jsonb14("qualification").$type(),
-  source: text27("source"),
-  // Cuándo cierra la ventana de servicio (último msg del lead + 24h).
-  windowExpiresAt: timestamp27("window_expires_at", { withTimezone: true }),
-  // Sync con el CRM: el deal generado para este lead (al calificar).
-  crmDealId: text27("crm_deal_id").references(() => deal.id, { onDelete: "set null" }),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
-}, (table) => [
-  check19(
-    "setter_lead_status_check",
-    sql21`${table.status} IN ('NEW','CONTACTED','ENGAGED','QUALIFYING','QUALIFIED','BOOKING','BOOKED','NOT_INTERESTED','HANDED_OFF','OPTED_OUT')`
-  ),
-  index23("idx_setter_lead_person").on(table.personId),
-  index23("idx_setter_lead_status").on(table.status),
-  index23("idx_setter_lead_window").on(table.windowExpiresAt)
-]);
-var setterConversation = pgTable27("setter_conversation", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  personId: text27("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
-  channel: text27("channel").notNull().default("whatsapp"),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  // Una conversación por persona en Sprint 0 (memoria única cross-canal).
-  uniqueIndex2("uq_setter_conversation_person").on(table.personId)
-]);
-var setterMessage = pgTable27("setter_message", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  conversationId: text27("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
-  role: text27("role").notNull(),
-  content: text27("content").notNull(),
-  // Idempotencia: id del mensaje en el canal (unique; admite múltiples NULL en PG).
-  messageId: text27("message_id"),
-  // Etiqueta de momento (apertura/calificación/objeción/booking…). Reusada por híbrido.
-  beat: text27("beat"),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check19(
-    "setter_message_role_check",
-    sql21`${table.role} IN ('user','assistant','system','tool')`
-  ),
-  uniqueIndex2("uq_setter_message_message_id").on(table.messageId),
-  index23("idx_setter_message_conversation").on(table.conversationId, table.createdAt)
-]);
-var setterAppointment = pgTable27("setter_appointment", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  leadId: text27("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
-  startsAt: timestamp27("starts_at", { withTimezone: true }).notNull(),
-  endsAt: timestamp27("ends_at", { withTimezone: true }).notNull(),
-  // Event id de Google Calendar (no guardamos URLs que expiran).
-  calendarRef: text27("calendar_ref"),
-  status: text27("status").notNull().default("confirmed"),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check19(
-    "setter_appointment_status_check",
-    sql21`${table.status} IN ('confirmed','cancelled','no_show','rescheduled')`
-  ),
-  uniqueIndex2("uq_setter_appointment_lead").on(table.leadId)
-]);
-var setterDraft = pgTable27("setter_draft", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  conversationId: text27("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
-  leadId: text27("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
-  // Texto propuesto por la IA (lo que se enviaría al aprobar).
-  content: text27("content").notNull(),
-  // Versión editada por el humano antes de enviar (si la hubo).
-  editedContent: text27("edited_content"),
-  beat: text27("beat"),
-  // beatPolicy: text en Sprint 0; voice llega en Sprint 2.
-  format: text27("format").notNull().default("text"),
-  status: text27("status").notNull().default("pending"),
-  // "Por qué dijo esto": tool calls + datos capturados (transparencia de la Bandeja).
-  toolCalls: jsonb14("tool_calls").$type(),
-  // Mensaje saliente generado al aprobar y enviar.
-  sentMessageId: text27("sent_message_id").references(() => setterMessage.id, {
-    onDelete: "set null"
-  }),
-  // Quién aprobó/editó (integra con los usuarios del CRM).
-  approvedBy: text27("approved_by").references(() => hubUser.id, { onDelete: "set null" }),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
-}, (table) => [
-  check19("setter_draft_format_check", sql21`${table.format} IN ('text','voice')`),
-  check19(
-    "setter_draft_status_check",
-    sql21`${table.status} IN ('pending','approved','edited','rejected','sent')`
-  ),
-  index23("idx_setter_draft_status").on(table.status),
-  index23("idx_setter_draft_conversation").on(table.conversationId),
-  index23("idx_setter_draft_tenant").on(table.tenantId)
-]);
-var setterEvent = pgTable27("setter_event", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  level: text27("level").notNull().default("info"),
-  // inbound | agent | draft | approval | sync | autopilot | optout | error
-  type: text27("type").notNull(),
-  message: text27("message").notNull(),
-  leadId: text27("lead_id"),
-  meta: jsonb14("meta").$type(),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check19("setter_event_level_check", sql21`${table.level} IN ('info','success','warn','error')`),
-  index23("idx_setter_event_tenant_time").on(table.tenantId, table.createdAt)
-]);
-
 // src/db/schema/proposals.ts
-import { pgTable as pgTable28, text as text28, jsonb as jsonb15, numeric as numeric6, char as char3, timestamp as timestamp28, index as index24, check as check20 } from "drizzle-orm/pg-core";
-import { sql as sql22 } from "drizzle-orm";
-var proposal = pgTable28(
+import { pgTable as pgTable26, text as text26, jsonb as jsonb13, numeric as numeric5, char as char3, timestamp as timestamp26, index as index22, check as check18 } from "drizzle-orm/pg-core";
+import { sql as sql20 } from "drizzle-orm";
+var proposal = pgTable26(
   "proposal",
   {
-    id: text28("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text28("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    id: text26("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
     // Deal/contacto que origina la propuesta (set null si se archivan).
-    dealId: text28("deal_id").references(() => deal.id, { onDelete: "set null" }),
-    contactId: text28("contact_id").references(() => contact.id, { onDelete: "set null" }),
+    dealId: text26("deal_id").references(() => deal.id, { onDelete: "set null" }),
+    contactId: text26("contact_id").references(() => contact.id, { onDelete: "set null" }),
     // Submission del onboarding que alimentó la generación (trazabilidad).
-    onboardingSubmissionId: text28("onboarding_submission_id").references(() => onboardingSubmission.id, {
+    onboardingSubmissionId: text26("onboarding_submission_id").references(() => onboardingSubmission.id, {
       onDelete: "set null"
     }),
     // Credencial pública del link `/p/<token>`. Inadivinable.
-    token: text28("token").notNull().$defaultFn(() => createId()),
-    title: text28("title").notNull(),
-    status: text28("status").notNull().default("draft"),
-    content: jsonb15("content").$type().notNull(),
+    token: text26("token").notNull().$defaultFn(() => createId()),
+    title: text26("title").notNull(),
+    status: text26("status").notNull().default("draft"),
+    content: jsonb13("content").$type().notNull(),
     // Provider de IA que la generó (gemini | claude | manual).
-    model: text28("model"),
+    model: text26("model"),
     // Total denormalizado para listados rápidos.
-    amount: numeric6("amount", { precision: 12, scale: 2 }),
+    amount: numeric5("amount", { precision: 12, scale: 2 }),
     currency: char3("currency", { length: 3 }).notNull().default("USD"),
-    acceptedAt: timestamp28("accepted_at", { withTimezone: true }),
-    sentAt: timestamp28("sent_at", { withTimezone: true }),
-    viewedAt: timestamp28("viewed_at", { withTimezone: true }),
+    acceptedAt: timestamp26("accepted_at", { withTimezone: true }),
+    sentAt: timestamp26("sent_at", { withTimezone: true }),
+    viewedAt: timestamp26("viewed_at", { withTimezone: true }),
     // Primera vez que el cliente llegó al ÚLTIMO paso de la presentación.
-    completedAt: timestamp28("completed_at", { withTimezone: true }),
-    createdAt: timestamp28("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp28("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+    completedAt: timestamp26("completed_at", { withTimezone: true }),
+    createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp26("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
   },
   (table) => [
-    check20("proposal_status_check", sql22`${table.status} IN ('draft','accepted','sent','viewed')`),
-    index24("idx_proposal_portal").on(table.portalId),
-    index24("idx_proposal_token").on(table.token),
-    index24("idx_proposal_deal").on(table.dealId)
+    check18("proposal_status_check", sql20`${table.status} IN ('draft','accepted','sent','viewed')`),
+    index22("idx_proposal_portal").on(table.portalId),
+    index22("idx_proposal_token").on(table.token),
+    index22("idx_proposal_deal").on(table.dealId)
   ]
 );
 
 // src/db/schema/project-updates.ts
-import { pgTable as pgTable29, text as text29, boolean as boolean15, timestamp as timestamp29, index as index25 } from "drizzle-orm/pg-core";
-var projectUpdate = pgTable29(
+import { pgTable as pgTable27, text as text27, boolean as boolean14, timestamp as timestamp27, index as index23 } from "drizzle-orm/pg-core";
+var projectUpdate = pgTable27(
   "project_update",
   {
-    id: text29("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text29("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-    dealId: text29("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
-    stageId: text29("stage_id").references(() => pipelineStage.id, { onDelete: "set null" }),
-    body: text29("body").notNull(),
-    createdBy: text29("created_by").notNull().references(() => hubUser.id),
-    archived: boolean15("archived").notNull().default(false),
-    archivedAt: timestamp29("archived_at", { withTimezone: true }),
-    createdAt: timestamp29("created_at", { withTimezone: true }).notNull().defaultNow()
+    id: text27("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    dealId: text27("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
+    stageId: text27("stage_id").references(() => pipelineStage.id, { onDelete: "set null" }),
+    body: text27("body").notNull(),
+    createdBy: text27("created_by").notNull().references(() => hubUser.id),
+    archived: boolean14("archived").notNull().default(false),
+    archivedAt: timestamp27("archived_at", { withTimezone: true }),
+    createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     // Listado del cliente/admin: WHERE deal_id [AND archived=false] ORDER BY created_at DESC.
-    index25("idx_project_update_deal").on(table.dealId, table.createdAt)
+    index23("idx_project_update_deal").on(table.dealId, table.createdAt)
   ]
 );
 
@@ -1556,7 +1326,7 @@ async function healthRoutes(app2) {
     },
     async (_request, reply) => {
       try {
-        await db.execute(sql23`select 1`);
+        await db.execute(sql21`select 1`);
         return ok({ status: "ready", db: "up" });
       } catch {
         return reply.status(503).send({
@@ -2355,8 +2125,8 @@ function getResend() {
   return resendClient;
 }
 async function sendEmail(params) {
-  const client4 = getResend();
-  if (!client4) {
+  const client3 = getResend();
+  if (!client3) {
     console.info("[mailer] RESEND_API_KEY no configurada \u2014 email omitido", {
       to: params.to,
       subject: params.subject
@@ -2364,7 +2134,7 @@ async function sendEmail(params) {
     return;
   }
   const from = params.from ?? env.FROM_EMAIL ?? "noreply@onboarding.resend.dev";
-  const { error } = await client4.emails.send({
+  const { error } = await client3.emails.send({
     from,
     to: Array.isArray(params.to) ? params.to : [params.to],
     subject: params.subject,
@@ -3640,7 +3410,7 @@ async function tasksRoutes(app2) {
 }
 
 // src/modules/dashboard/dashboard.service.ts
-import { and as and14, asc as asc2, count as count3, desc as desc9, eq as eq16, inArray as inArray5, notInArray, sql as sql24 } from "drizzle-orm";
+import { and as and14, asc as asc2, count as count3, desc as desc9, eq as eq16, inArray as inArray5, notInArray, sql as sql22 } from "drizzle-orm";
 var OPEN_TASK_STATUSES = ["completed", "cancelled"];
 async function getDashboard(portalId) {
   const [
@@ -3658,15 +3428,15 @@ async function getDashboard(portalId) {
     db.select({ n: count3() }).from(contact).where(and14(eq16(contact.portalId, portalId), eq16(contact.archived, false), eq16(contact.lifecycleStage, "customer"))),
     db.select({ n: count3() }).from(company).where(and14(eq16(company.portalId, portalId), eq16(company.archived, false))),
     db.select({ n: count3() }).from(task).where(and14(eq16(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
-    db.select({ openDeals: count3(), openValue: sql24`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
+    db.select({ openDeals: count3(), openValue: sql22`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
     db.select({
-      weighted: sql24`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
+      weighted: sql22`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
     }).from(deal).innerJoin(pipelineStage, eq16(deal.stageId, pipelineStage.id)).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
     db.select({
       stageId: pipelineStage.id,
       label: pipelineStage.label,
       deals: count3(deal.id),
-      value: sql24`coalesce(sum(${deal.amount}), 0)`
+      value: sql22`coalesce(sum(${deal.amount}), 0)`
     }).from(pipelineStage).innerJoin(
       pipeline,
       and14(eq16(pipelineStage.pipelineId, pipeline.id), eq16(pipeline.portalId, portalId), eq16(pipeline.archived, false))
@@ -5154,8 +4924,8 @@ async function clientAuthRoutes(app2) {
       preHandler: [authenticateClient]
     },
     async (request) => {
-      const client4 = await getClientAccount(request.clientAccount.sub);
-      return ok(client4);
+      const client3 = await getClientAccount(request.clientAccount.sub);
+      return ok(client3);
     }
   );
 }
@@ -5306,7 +5076,7 @@ async function deliverablesRoutes(app2) {
 import { z as z15 } from "zod";
 
 // src/modules/client/client.service.ts
-import { and as and18, asc as asc5, desc as desc11, eq as eq22, inArray as inArray7, sql as sql25 } from "drizzle-orm";
+import { and as and18, asc as asc5, desc as desc11, eq as eq22, inArray as inArray7, sql as sql23 } from "drizzle-orm";
 async function clientDeals(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
@@ -5339,7 +5109,7 @@ async function listClientInvoices(clientId) {
   const invoiceIds = invoices.map((inv) => inv.id);
   const paymentTotals = await db.select({
     invoiceId: payment.invoiceId,
-    paid: sql25`COALESCE(SUM(${payment.amount}), '0')`
+    paid: sql23`COALESCE(SUM(${payment.amount}), '0')`
   }).from(payment).where(inArray7(payment.invoiceId, invoiceIds)).groupBy(payment.invoiceId);
   const paidByInvoice = new Map(
     paymentTotals.map((r) => [r.invoiceId, Number(r.paid)])
@@ -5847,7 +5617,7 @@ var CommentSchema = z17.object({ body: z17.string().min(1) });
 var ClientDecisionSchema = z17.object({ comment: z17.string().optional() });
 
 // src/modules/change-requests/cr.service.ts
-import { and as and21, asc as asc7, desc as desc14, eq as eq25, inArray as inArray10, ne as ne2, sql as sql26 } from "drizzle-orm";
+import { and as and21, asc as asc7, desc as desc14, eq as eq25, inArray as inArray10, ne as ne2, sql as sql24 } from "drizzle-orm";
 
 // src/lib/money.ts
 function toDecimal(n) {
@@ -5873,7 +5643,7 @@ async function getCRDetail(portalId, id) {
 async function createCR(portalId, userId, input) {
   await assertDealInPortal(portalId, input.dealId);
   return db.transaction(async (tx) => {
-    const numRows = await tx.select({ next: sql26`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq25(changeRequest.dealId, input.dealId));
+    const numRows = await tx.select({ next: sql24`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq25(changeRequest.dealId, input.dealId));
     const next = numRows[0]?.next ?? 1;
     const [cr] = await tx.insert(changeRequest).values({
       portalId,
@@ -6576,7 +6346,7 @@ var DebtorsQuerySchema = z21.object({
 });
 
 // src/modules/finance/finance.service.ts
-import { and as and24, asc as asc8, between, desc as desc17, eq as eq28, gte as gte3, inArray as inArray11, lte as lte3, sql as sql27, sum as sum2 } from "drizzle-orm";
+import { and as and24, asc as asc8, between, desc as desc17, eq as eq28, gte as gte3, inArray as inArray11, lte as lte3, sql as sql25, sum as sum2 } from "drizzle-orm";
 
 // src/lib/fx.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
@@ -6702,7 +6472,7 @@ async function getInvoiceDetail(portalId, id) {
 }
 async function createInvoice(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql25`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const subtotal = input.items.reduce((acc, it) => acc + (it.quantity ?? 1) * it.unitPrice, 0);
     const tax = input.tax ?? 0;
@@ -7051,11 +6821,11 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
         eq28(invoice.retainerId, retainerId),
         eq28(invoice.archived, false),
         // issueDate LIKE 'YYYY-MM-%'
-        sql27`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
+        sql25`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
       )
     ).limit(1);
     if (existing) return { invoice: existing, created: false };
-    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql25`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const [row] = await tx.insert(invoice).values({
@@ -7163,11 +6933,11 @@ async function monthlySummary(portalId, months = 6) {
   const from = points[0].month + "-01";
   const to = now.toISOString().slice(0, 10);
   const incomeRows = await db.select({
-    month: sql27`to_char(${payment.paidAt}, 'YYYY-MM')`,
+    month: sql25`to_char(${payment.paidAt}, 'YYYY-MM')`,
     total: sum2(payment.amountBase)
-  }).from(payment).where(and24(eq28(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql27`to_char(${payment.paidAt}, 'YYYY-MM')`);
+  }).from(payment).where(and24(eq28(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql25`to_char(${payment.paidAt}, 'YYYY-MM')`);
   const expenseRows = await db.select({
-    month: sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
+    month: sql25`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
     total: sum2(expense.amountBase)
   }).from(expense).where(
     and24(
@@ -7175,7 +6945,7 @@ async function monthlySummary(portalId, months = 6) {
       eq28(expense.archived, false),
       between(expense.expenseDate, from, to)
     )
-  ).groupBy(sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
+  ).groupBy(sql25`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
   const incomeMap = new Map(incomeRows.map((r) => [r.month, Number(r.total ?? 0)]));
   const expenseMap = new Map(expenseRows.map((r) => [r.month, Number(r.total ?? 0)]));
   return points.map((p) => {
@@ -8316,7 +8086,7 @@ var FocusQuerySchema = z26.object({
 });
 
 // src/modules/focus/focus.service.ts
-import { and as and28, asc as asc10, eq as eq33, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql28 } from "drizzle-orm";
+import { and as and28, asc as asc10, eq as eq33, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql26 } from "drizzle-orm";
 
 // src/lib/dates.ts
 function startOfDay2(d) {
@@ -8425,20 +8195,20 @@ async function getDealsNeedingAttention(portalId) {
   const dealsWithTask = new Set(openTaskRows.map((t) => t.dealId).filter((id) => id != null));
   const [callAgg, meetingAgg, emailAgg, noteAgg, taskAgg] = await Promise.all([
     // calls: max(occurredAt)
-    db.select({ dealId: call.dealId, maxDate: sql28`max(${call.occurredAt})` }).from(call).where(and28(eq33(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
+    db.select({ dealId: call.dealId, maxDate: sql26`max(${call.occurredAt})` }).from(call).where(and28(eq33(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
     // meetings: max(coalesce(starts_at, created_at))
     db.select({
       dealId: meeting.dealId,
-      maxDate: sql28`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
+      maxDate: sql26`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
     }).from(meeting).where(and28(eq33(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
     // emails: max(sentAt)
-    db.select({ dealId: emailSend.dealId, maxDate: sql28`max(${emailSend.sentAt})` }).from(emailSend).where(and28(eq33(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
+    db.select({ dealId: emailSend.dealId, maxDate: sql26`max(${emailSend.sentAt})` }).from(emailSend).where(and28(eq33(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
     // notes: max(createdAt)
-    db.select({ dealId: note.dealId, maxDate: sql28`max(${note.createdAt})` }).from(note).where(and28(eq33(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
+    db.select({ dealId: note.dealId, maxDate: sql26`max(${note.createdAt})` }).from(note).where(and28(eq33(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
     // tasks (any task, completed too): max(completedAt ?? createdAt)
     db.select({
       dealId: task.dealId,
-      maxDate: sql28`max(coalesce(${task.completedAt}, ${task.createdAt}))`
+      maxDate: sql26`max(coalesce(${task.completedAt}, ${task.createdAt}))`
     }).from(task).where(and28(eq33(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
   ]);
   const lastActivityMap = /* @__PURE__ */ new Map();
@@ -8517,7 +8287,7 @@ var ReportsQuerySchema = z27.object({
 });
 
 // src/modules/reports/reports.service.ts
-import { and as and29, asc as asc11, count as count4, eq as eq34, gte as gte5, inArray as inArray14, lte as lte5, sql as sql29 } from "drizzle-orm";
+import { and as and29, asc as asc11, count as count4, eq as eq34, gte as gte5, inArray as inArray14, lte as lte5, sql as sql27 } from "drizzle-orm";
 async function getReports(portalId, params) {
   const now = /* @__PURE__ */ new Date();
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -8551,7 +8321,7 @@ async function fetchPipelineFunnel(portalId) {
     isClosed: pipelineStage.isClosed,
     isWon: pipelineStage.isWon,
     currentDeals: count4(deal.id),
-    currentValue: sql29`coalesce(sum(${deal.amount}), 0)`
+    currentValue: sql27`coalesce(sum(${deal.amount}), 0)`
   }).from(pipelineStage).innerJoin(
     pipeline,
     and29(
@@ -8567,8 +8337,8 @@ async function fetchPipelineFunnel(portalId) {
     pipelineStage.isWon
   ).orderBy(asc11(pipelineStage.displayOrder));
   const [winRateRow] = await db.select({
-    won: sql29`count(*) filter (where ${pipelineStage.isWon} = true)`,
-    closed: sql29`count(*) filter (where ${pipelineStage.isClosed} = true)`
+    won: sql27`count(*) filter (where ${pipelineStage.isWon} = true)`,
+    closed: sql27`count(*) filter (where ${pipelineStage.isClosed} = true)`
   }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).innerJoin(
     pipeline,
     and29(eq34(pipelineStage.pipelineId, pipeline.id), eq34(pipeline.portalId, portalId))
@@ -8590,10 +8360,10 @@ async function fetchPipelineFunnel(portalId) {
 }
 async function fetchConversionBySource(portalId) {
   const rows = await db.select({
-    source: sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
+    source: sql27`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
     total: count4(),
-    customers: sql29`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
-  }).from(contact).where(and29(eq34(contact.portalId, portalId), eq34(contact.archived, false))).groupBy(sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql29`count(*) desc`);
+    customers: sql27`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
+  }).from(contact).where(and29(eq34(contact.portalId, portalId), eq34(contact.archived, false))).groupBy(sql27`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql27`count(*) desc`);
   return rows.map((r) => {
     const leads = Number(r.total);
     const customers = Number(r.customers);
@@ -8681,7 +8451,7 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
   async function fetchPeriod(start, end) {
     const [row] = await db.select({
       n: count4(),
-      value: sql29`coalesce(sum(${deal.amount}), 0)`
+      value: sql27`coalesce(sum(${deal.amount}), 0)`
     }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).innerJoin(
       pipeline,
       and29(eq34(pipelineStage.pipelineId, pipeline.id), eq34(pipeline.portalId, portalId))
@@ -8689,8 +8459,8 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
       and29(
         eq34(deal.portalId, portalId),
         eq34(pipelineStage.isWon, true),
-        gte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
-        lte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
+        gte5(sql27`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
+        lte5(sql27`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
       )
     );
     return { count: Number(row?.n ?? 0), value: String(row?.value ?? "0") };
@@ -9005,432 +8775,59 @@ async function documentsRoutes(app2) {
   );
 }
 
-// src/modules/setter/setter.router.ts
-import { sql as sql30 } from "drizzle-orm";
+// src/modules/proposals/proposals.schema.ts
+import { z as z31 } from "zod";
+var ProposalScopeItemSchema = z31.object({
+  title: z31.string().max(160),
+  description: z31.string().max(1e3)
+});
+var ProposalPhaseSchema = z31.object({
+  phase: z31.string().max(160),
+  duration: z31.string().max(80),
+  detail: z31.string().max(1e3)
+});
+var ProposalPricingItemSchema = z31.object({
+  label: z31.string().max(200),
+  amount: z31.number().nonnegative()
+});
+var ProposalPricingSchema = z31.object({
+  items: z31.array(ProposalPricingItemSchema).max(30),
+  total: z31.number().nonnegative(),
+  currency: z31.string().min(1).max(3),
+  note: z31.string().max(400).optional()
+});
+var ProposalContentSchema = z31.object({
+  title: z31.string().max(200),
+  clientName: z31.string().max(160),
+  companyName: z31.string().max(160).optional(),
+  logoUrl: z31.string().max(500).optional(),
+  tagline: z31.string().max(200).optional(),
+  summary: z31.string().max(2e3),
+  understanding: z31.string().max(2e3),
+  objectives: z31.array(z31.string().max(400)).max(12),
+  solution: z31.string().max(3e3),
+  scope: z31.array(ProposalScopeItemSchema).max(20),
+  timeline: z31.array(ProposalPhaseSchema).max(12),
+  pricing: ProposalPricingSchema,
+  whyUs: z31.array(z31.string().max(400)).max(10),
+  nextSteps: z31.string().max(2e3),
+  terms: z31.string().max(3e3).optional()
+});
+var GenerateProposalSchema = z31.object({
+  dealId: z31.string().min(1, "dealId requerido").max(60)
+});
+var UpdateProposalSchema = z31.object({
+  title: z31.string().min(1).max(200).optional(),
+  content: ProposalContentSchema.optional()
+});
+var ProposalTokenParamSchema = z31.object({
+  token: z31.string().min(1).max(60)
+});
 
-// src/modules/setter/channels/evolution.client.ts
-import axios from "axios";
-var OPT_OUT_KEYWORDS = [
-  "no me escribas mas",
-  "no me escriban mas",
-  "dejame de escribir",
-  "dejenme de escribir",
-  "no me contactes",
-  "no quiero que me escriban",
-  "bajame de la lista",
-  "bajame",
-  "desuscribir",
-  "darme de baja",
-  "stop",
-  "unsubscribe"
-];
-function normalize(text30) {
-  return text30.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
-}
-var EvolutionProvider = class {
-  http;
-  constructor() {
-    this.http = env.EVOLUTION_API_URL && env.EVOLUTION_API_KEY ? axios.create({
-      baseURL: env.EVOLUTION_API_URL,
-      headers: { apikey: env.EVOLUTION_API_KEY },
-      timeout: 8e3
-    }) : null;
-  }
-  /** ¿Están las tres env (URL + key + instance) presentes? */
-  isConfigured() {
-    return Boolean(env.EVOLUTION_API_URL && env.EVOLUTION_API_KEY && env.EVOLUTION_INSTANCE);
-  }
-  /**
-   * Estado de la instancia de Evolution. Sin config → `not_configured`.
-   * Con config pero inalcanzable → `unreachable` (no tira excepción: lo reporta).
-   */
-  async ping() {
-    if (!this.http || !env.EVOLUTION_INSTANCE) {
-      return { configured: false, status: "not_configured" };
-    }
-    try {
-      const res = await this.http.get(`/instance/connectionState/${env.EVOLUTION_INSTANCE}`);
-      const state = res.data?.instance?.state ?? res.data?.state ?? "unknown";
-      return { configured: true, status: String(state), reachable: true };
-    } catch {
-      return { configured: true, status: "unreachable", reachable: false };
-    }
-  }
-  /** Opt-out por keywords. El opt-out es no negociable (guardrail Sprint 0). */
-  detectOptOut(text30) {
-    const normalized = normalize(text30);
-    return OPT_OUT_KEYWORDS.some((k) => normalized.includes(k));
-  }
-  // ── Envío (Fase 2) ───────────────────────────────────────────────────────
-  /** Garantiza que el cliente está configurado o lanza con un mensaje claro. */
-  requireHttp() {
-    if (!this.http || !env.EVOLUTION_INSTANCE) {
-      throw new Error("Evolution no configurado (EVOLUTION_API_URL/KEY/INSTANCE)");
-    }
-    return this.http;
-  }
-  /** Envía un único texto. `number` para Evolution = dígitos sin `+`. */
-  async sendText(to, text30) {
-    const http = this.requireHttp();
-    const res = await http.post(`/message/sendText/${env.EVOLUTION_INSTANCE}`, {
-      number: toNumber(to),
-      text: text30
-    });
-    const channelMessageId = res.data?.key?.id ?? null;
-    return { channelMessageId, ok: true };
-  }
-  /**
-   * Envía una respuesta partida en burbujas con "escribiendo…" y delays
-   * variables (~1.5–4s) entre cada una. Autenticidad humana + anti-ban.
-   */
-  async sendSplitMessages(to, parts) {
-    const http = this.requireHttp();
-    const number = toNumber(to);
-    const results = [];
-    for (const part of parts) {
-      const delayMs = randomDelayMs();
-      try {
-        await http.post(`/chat/sendPresence/${env.EVOLUTION_INSTANCE}`, {
-          number,
-          presence: "composing",
-          delay: delayMs
-        });
-      } catch {
-      }
-      await sleep(delayMs);
-      results.push(await this.sendText(to, part));
-    }
-    return results;
-  }
-  /**
-   * Estado de la ventana de servicio. En Baileys no existe la ventana paga de
-   * Meta (no se cobra por mensaje), así que para el canal siempre está "abierta".
-   * El control económico/temporal real vive en `setter_lead.windowExpiresAt`.
-   */
-  async getWindowState(_to) {
-    return { open: true, expiresAt: null };
-  }
-  /** Marca como leído el último mensaje entrante (best-effort). */
-  async markRead(to, channelMessageId) {
-    const http = this.requireHttp();
-    await http.post(`/chat/markMessageAsRead/${env.EVOLUTION_INSTANCE}`, {
-      readMessages: [{ remoteJid: `${toNumber(to)}@s.whatsapp.net`, id: channelMessageId }]
-    });
-  }
-};
-function toNumber(to) {
-  return to.replace(/\D/g, "");
-}
-function randomDelayMs() {
-  return 1500 + Math.floor(Math.random() * 2500);
-}
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-function splitIntoBubbles(text30, maxBubbles = 3) {
-  const trimmed = text30.trim();
-  if (!trimmed) return [];
-  const byLines = trimmed.split(/\n+/).map((s) => s.trim()).filter(Boolean);
-  const units = byLines.length > 1 ? byLines : trimmed.split(/(?<=[.?!])\s+/).filter(Boolean);
-  if (units.length <= 1) return [trimmed];
-  if (units.length <= maxBubbles) return units;
-  const perBubble = Math.ceil(units.length / maxBubbles);
-  const bubbles = [];
-  for (let i = 0; i < units.length; i += perBubble) {
-    bubbles.push(units.slice(i, i + perBubble).join(" "));
-  }
-  return bubbles;
-}
-var evolutionProvider = new EvolutionProvider();
+// src/modules/proposals/proposals.service.ts
+import { and as and31, desc as desc19, eq as eq36 } from "drizzle-orm";
 
-// src/modules/setter/queue/setter.queue.ts
-import { Queue, Worker } from "bullmq";
-
-// src/jobs/connection.ts
-function isRedisConfigured() {
-  return !!env.REDIS_URL;
-}
-function getRedisConnectionOptions() {
-  if (!env.REDIS_URL) {
-    throw new Error("REDIS_URL is not configured \u2014 cannot build Redis connection options");
-  }
-  const url = new URL(env.REDIS_URL);
-  const options = {
-    host: url.hostname,
-    port: url.port ? Number(url.port) : 6379,
-    // maxRetriesPerRequest must be null for BullMQ (required by the library)
-    maxRetriesPerRequest: null
-  };
-  if (url.password) {
-    ;
-    options["password"] = decodeURIComponent(url.password);
-  }
-  if (url.username) {
-    ;
-    options["username"] = decodeURIComponent(url.username);
-  }
-  return options;
-}
-
-// src/modules/setter/agent/brain.ts
-import { asc as asc13, eq as eq39 } from "drizzle-orm";
-
-// src/modules/setter/agent/tools.ts
-import { Type } from "@google/genai";
-import { eq as eq36 } from "drizzle-orm";
-var TOOL_DECLARATIONS = [
-  {
-    name: "check_availability",
-    description: "Devuelve horarios libres reales para la call, en el timezone del lead. Usar SIEMPRE antes de proponer cualquier horario. \xDAnica fuente de slots.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        preferredRange: {
-          type: Type.STRING,
-          enum: ["morning", "afternoon", "this_week", "next_week"],
-          description: "Preferencia de franja si el lead la mencion\xF3."
-        }
-      }
-    }
-  },
-  {
-    name: "book_appointment",
-    description: "Agenda la call. \xDAnica tool que agenda. Llamar solo tras reconfirmar el horario exacto con el lead.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        startsAt: { type: Type.STRING, description: "Inicio en ISO 8601 (uno de los slots de check_availability)." },
-        durationMin: { type: Type.INTEGER, description: "Duraci\xF3n en minutos (default 30)." },
-        email: { type: Type.STRING, description: "Email del lead para la invitaci\xF3n, si lo dio." }
-      },
-      required: ["startsAt"]
-    }
-  },
-  {
-    name: "save_qualification",
-    description: "Guarda datos de calificaci\xF3n capturados en la charla. Llamar cada vez que descubr\xEDs dolor, fit, autoridad o timing.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        pain: { type: Type.STRING },
-        fit: { type: Type.STRING },
-        authority: { type: Type.STRING },
-        timing: { type: Type.STRING },
-        score: { type: Type.INTEGER, description: "Score de calificaci\xF3n 0-15 si lo pod\xE9s estimar." },
-        notes: { type: Type.STRING }
-      }
-    }
-  },
-  {
-    name: "handoff_to_human",
-    description: "Pasa la conversaci\xF3n a un humano (pedido expl\xEDcito, deal grande, fuera de scope, frustraci\xF3n).",
-    parameters: {
-      type: Type.OBJECT,
-      properties: { reason: { type: Type.STRING } },
-      required: ["reason"]
-    }
-  },
-  {
-    name: "mark_not_interested",
-    description: "Marca al lead como no interesado / no fit, con cierre cordial.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: { reason: { type: Type.STRING } },
-      required: ["reason"]
-    }
-  }
-];
-function formatSlot(d, tz) {
-  return new Intl.DateTimeFormat("es-AR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: tz,
-    hour12: false
-  }).format(d);
-}
-async function checkAvailability(_args, ctx) {
-  const tz = ctx.tenant.timezone;
-  const slot1 = /* @__PURE__ */ new Date();
-  slot1.setDate(slot1.getDate() + 1);
-  slot1.setHours(10, 0, 0, 0);
-  const slot2 = /* @__PURE__ */ new Date();
-  slot2.setDate(slot2.getDate() + 2);
-  slot2.setHours(15, 0, 0, 0);
-  return {
-    mock: true,
-    slots: [
-      { label: formatSlot(slot1, tz), startsAt: slot1.toISOString() },
-      { label: formatSlot(slot2, tz), startsAt: slot2.toISOString() }
-    ]
-  };
-}
-async function bookAppointment(args, ctx) {
-  const startsAtRaw = args["startsAt"];
-  const startsAt = typeof startsAtRaw === "string" ? new Date(startsAtRaw) : /* @__PURE__ */ new Date(NaN);
-  if (Number.isNaN(startsAt.getTime())) {
-    return { ok: false, error: "startsAt inv\xE1lido (se esperaba ISO 8601)" };
-  }
-  const durationMin = typeof args["durationMin"] === "number" ? args["durationMin"] : 30;
-  const endsAt = new Date(startsAt.getTime() + durationMin * 6e4);
-  const calendarRef = `mock-${createId()}`;
-  await db.insert(setterAppointment).values({
-    tenantId: ctx.tenant.id,
-    leadId: ctx.leadId,
-    startsAt,
-    endsAt,
-    calendarRef,
-    status: "confirmed"
-  }).onConflictDoUpdate({
-    target: setterAppointment.leadId,
-    set: { startsAt, endsAt, calendarRef, status: "confirmed" }
-  });
-  await db.update(setterLead).set({ status: "BOOKED" }).where(eq36(setterLead.id, ctx.leadId));
-  return { ok: true, calendarRef, startsAt: startsAt.toISOString(), mock: true };
-}
-async function saveQualification(args, ctx) {
-  const fields = {};
-  for (const key of ["pain", "fit", "authority", "timing", "score", "notes"]) {
-    if (args[key] !== void 0 && args[key] !== null) fields[key] = args[key];
-  }
-  const [lead] = await db.select({ qualification: setterLead.qualification, status: setterLead.status }).from(setterLead).where(eq36(setterLead.id, ctx.leadId)).limit(1);
-  const merged = { ...lead?.qualification ?? {}, ...fields };
-  const score = typeof fields["score"] === "number" ? fields["score"] : void 0;
-  const terminal = ["BOOKED", "NOT_INTERESTED", "HANDED_OFF", "OPTED_OUT", "BOOKING"];
-  let nextStatus = lead?.status;
-  if (lead && !terminal.includes(lead.status)) {
-    nextStatus = score !== void 0 && score >= 10 ? "QUALIFIED" : "QUALIFYING";
-  }
-  await db.update(setterLead).set({ qualification: merged, status: nextStatus }).where(eq36(setterLead.id, ctx.leadId));
-  return { ok: true, status: nextStatus };
-}
-async function handoffToHuman(args, ctx) {
-  await db.update(setterLead).set({ status: "HANDED_OFF" }).where(eq36(setterLead.id, ctx.leadId));
-  return { ok: true, reason: args["reason"] ?? null };
-}
-async function markNotInterested(args, ctx) {
-  await db.update(setterLead).set({ status: "NOT_INTERESTED" }).where(eq36(setterLead.id, ctx.leadId));
-  return { ok: true, reason: args["reason"] ?? null };
-}
-var TOOLS = {
-  check_availability: checkAvailability,
-  book_appointment: bookAppointment,
-  save_qualification: saveQualification,
-  handoff_to_human: handoffToHuman,
-  mark_not_interested: markNotInterested
-};
-async function executeTool(name, args, ctx) {
-  const tool = TOOLS[name];
-  if (!tool) throw new Error(`Tool desconocida: ${name}`);
-  return tool(args, ctx);
-}
-
-// src/modules/setter/agent/prompts.ts
-function buildMasterPrompt(tenant) {
-  return `Sos ${tenant.agentName}, del equipo de ${tenant.name}. Tu \xFAnico trabajo es: calificar al
-lead y, si es buen fit, agendar una llamada con ${tenant.ownerName}. No sos un asistente
-general; no respondas temas fuera de ${tenant.name}.
-
-CONTEXTO DEL NEGOCIO:
-${tenant.businessBrief}
-
-QUI\xC9N SOS Y C\xD3MO HABL\xC1S:
-- Espa\xF1ol rioplatense. Vos, nunca t\xFA. Profesional pero cercano, como un humano del
-  equipo comercial argentino. Natural, directo, sin solemnidad corporativa.
-- Mensajes CORTOS: 1 a 3 l\xEDneas. Una idea por mensaje. UNA sola pregunta por mensaje.
-- M\xE1ximo 1 emoji por mensaje, y no siempre. Nada de signos de exclamaci\xF3n m\xFAltiples.
-- PUNTUACI\xD3N: NO uses los signos de apertura "\xBF" ni "\xA1". Escrib\xED "Te queda mejor ma\xF1ana?"
-  y "Buen\xEDsimo!". S\xCD manten\xE9 los de cierre "?" y "!". Esto vale para TODOS tus mensajes.
-- Reflej\xE1 el lenguaje del lead. Si dice "facturaci\xF3n", no digas "revenue".
-
-REGLAS DURAS:
-- Si te preguntan si sos una IA/bot, dec\xED la verdad con naturalidad. Nunca lo niegues.
-- Nunca inventes precios, horarios ni detalles que no est\xE9n en el contexto.
-- Para proponer horarios us\xE1 SIEMPRE la tool check_availability. Para agendar,
-  book_appointment. Nunca "confirmes" un turno por texto sin que la tool lo haya hecho.
-- No prometas nada que ${tenant.name} no ofrezca. El setter NO cotiza: deriva el precio a la call.
-- Si el lead se pone t\xE9cnico/dif\xEDcil, pide humano, o es un deal grande fuera de tu
-  alcance -> us\xE1 handoff_to_human.
-- Si claramente no es fit o es un curioso sin intenci\xF3n -> mark_not_interested, con un
-  cierre cordial. No fuerces.
-- Si el lead muestra se\xF1al clara de compra (quiere avanzar/agendar ya), DEJ\xC1 de calificar
-  y pas\xE1 directo a proponer la call.
-
-OBJETIVO DE CADA ETAPA (no es un script r\xEDgido, es una meta):
-1. Apertura: referenci\xE1 lo concreto por lo que lleg\xF3. Baj\xE1 fricci\xF3n. UNA pregunta f\xE1cil.
-2. Calificaci\xF3n: descubr\xED dolor, fit, autoridad y timing SIN parecer formulario. Guard\xE1
-   lo que aprendas con save_qualification.
-3. Cierre: si califica, propon\xE9 la call asumiendo el s\xED (doble opci\xF3n de horario), no
-   preguntes "quer\xE9s agendar?". Reconfirm\xE1 el horario exacto antes de book_appointment.
-
-NUNCA: mandes links sin contexto, suenes a vendedor desesperado, repitas "segu\xEDs ah\xED?",
-escribas p\xE1rrafos largos, ni hagas m\xE1s de una pregunta por mensaje.`;
-}
-function guideForStatus(status) {
-  switch (status) {
-    case "NEW":
-    case "CONTACTED":
-      return `MOMENTO: APERTURA. Es de los primeros mensajes. Provoc\xE1 una respuesta, NO vendas.
-Referenci\xE1 lo concreto por lo que lleg\xF3, presentate en pocas palabras y hac\xE9 UNA pregunta
-abierta y f\xE1cil sobre su situaci\xF3n. C\xE1lido pero al toque.`;
-    case "ENGAGED":
-    case "QUALIFYING":
-      return `MOMENTO: CALIFICACI\xD3N. Descubr\xED (una cosa por mensaje, construyendo sobre lo que
-responde): el DOLOR concreto, el FIT con la oferta, si DECIDE, y el TIMING. No interrogues:
-que parezca charla. Cuando captures un dato, llam\xE1 save_qualification. Si ya ten\xE9s dolor +
-fit + timing claros y decide -> pas\xE1 a cierre (check_availability).`;
-    case "QUALIFIED":
-    case "BOOKING":
-      return `MOMENTO: CIERRE. El lead califica. Propon\xE9 la call ASUMIENDO el s\xED: us\xE1
-check_availability y ofrec\xE9 DOS horarios concretos (no "cu\xE1ndo pod\xE9s?"). Cuando elija,
-RECONFIRM\xC1 el horario exacto en sus palabras y reci\xE9n ah\xED llam\xE1 book_appointment.`;
-    case "BOOKED":
-      return `MOMENTO: POST-BOOKING. Ya agendaste. Confirm\xE1 en una l\xEDnea, dej\xE1 claro qu\xE9/cu\xE1ndo,
-y baj\xE1 la ansiedad. No vuelvas a vender.`;
-    default:
-      return `MOMENTO: CONVERSACI\xD3N. Segu\xED el framework del maestro. Una pregunta por mensaje.`;
-  }
-}
-var FEW_SHOTS = `EJEMPLOS DE TONO (imit\xE1 los \u2705, evit\xE1 los \u274C):
-\u2705 "Hola Mati, soy Tom de la agencia \u{1F44B} Vi que dejaste tus datos. Qu\xE9 es lo que m\xE1s te urge resolver hoy con eso?"
-\u274C "\xA1Hola!! \u{1F600} Muchas gracias por tu inter\xE9s. Estamos encantados de ayudarte a alcanzar tus objetivos. \xBFEn qu\xE9 podemos asistirte?"
-\u2705 "Te lo muestro sobre tu caso en 15 min, rinde m\xE1s que un PDF. Ma\xF1ana 10 o a la tarde?"
-\u274C "Claro, te env\xEDo toda la informaci\xF3n a tu correo as\xED la revis\xE1s con calma."
-\u2705 "Tengo jueves 10 o viernes 15, cu\xE1l te queda mejor?"
-\u274C "\xBFTe gustar\xEDa agendar una llamada en alg\xFAn momento que te sea conveniente?"
-\u2705 "S\xED, soy un asistente con IA del equipo. Igual lo que charlemos lo ve el due\xF1o y la call es con \xE9l. Te muestro horarios?"
-\u274C "No, soy Tom, parte del equipo comercial \u{1F60A}"`;
-function buildSystemInstruction(tenant, status) {
-  return `${buildMasterPrompt(tenant)}
-
-${guideForStatus(status)}
-
-${FEW_SHOTS}`;
-}
-function deriveBeat(statusBefore, toolsCalled) {
-  if (toolsCalled.includes("mark_not_interested")) return "cierre_no_fit";
-  if (toolsCalled.includes("handoff_to_human")) return "handoff";
-  if (toolsCalled.includes("book_appointment")) return "booking";
-  if (toolsCalled.includes("check_availability")) return "cierre";
-  if (toolsCalled.includes("save_qualification")) return "calificacion";
-  if (statusBefore === "NEW" || statusBefore === "CONTACTED") return "apertura";
-  return "conversacion";
-}
-function validateOutput(text30, checkAvailabilityCalled) {
-  const mentionsTime = /\b\d{1,2}([:.]\d{2})?\s?(hs?|am|pm)\b/i.test(text30);
-  if (mentionsTime && !checkAvailabilityCalled) {
-    return { ok: false, reason: "menciona un horario sin haber llamado check_availability" };
-  }
-  const mentionsPrice = /(usd|u\$s|us\$|\$)\s?\d{2,}/i.test(text30);
-  if (mentionsPrice) {
-    return { ok: false, reason: "menciona un precio concreto (el setter no cotiza)" };
-  }
-  return { ok: true };
-}
-
-// src/modules/setter/agent/providers/gemini.provider.ts
+// src/lib/ai/gemini.ts
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 var client = null;
 function getClient() {
@@ -9452,110 +8849,24 @@ var geminiGenerate = async (req) => {
   const ai = getClient();
   const res = await ai.models.generateContent({
     model: env.VERTEX_MODEL,
-    contents: req.contents,
+    contents: [{ role: "user", parts: [{ text: req.prompt }] }],
     config: {
       systemInstruction: req.systemInstruction,
       temperature: req.temperature,
       maxOutputTokens: req.maxOutputTokens,
-      // Un setter ejecuta un framework, no razona profundo: thinking bajo =
-      // más rápido, más barato y deja tokens para el mensaje.
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      tools: [{ functionDeclarations: TOOL_DECLARATIONS }]
+      // Generar una propuesta o una próxima acción es redacción con formato
+      // fijo, no razonamiento profundo: thinking bajo = más rápido y barato.
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
     }
   });
-  const functionCalls = (res.functionCalls ?? []).map((f) => ({
-    id: f.id,
-    name: f.name ?? "",
-    args: f.args ?? {}
-  }));
-  return { functionCalls, text: res.text ?? "", modelContent: res.candidates?.[0]?.content };
+  return { text: res.text ?? "" };
 };
 
-// src/modules/setter/agent/providers/claude.provider.ts
+// src/lib/ai/claude.ts
 import Anthropic from "@anthropic-ai/sdk";
-var TYPE_MAP = {
-  OBJECT: "object",
-  STRING: "string",
-  INTEGER: "integer",
-  NUMBER: "number",
-  BOOLEAN: "boolean",
-  ARRAY: "array"
-};
-function convertSchema(s) {
-  const out = {};
-  if (s["type"]) out["type"] = TYPE_MAP[String(s["type"])] ?? "string";
-  if (s["description"]) out["description"] = s["description"];
-  if (s["enum"]) out["enum"] = s["enum"];
-  if (s["properties"]) {
-    const props = {};
-    for (const [k, v] of Object.entries(s["properties"])) {
-      props[k] = convertSchema(v);
-    }
-    out["properties"] = props;
-  }
-  if (s["required"]) out["required"] = s["required"];
-  if (s["items"]) out["items"] = convertSchema(s["items"]);
-  return out;
-}
-function toAnthropicTools() {
-  return TOOL_DECLARATIONS.map((d) => ({
-    name: d.name ?? "",
-    description: d.description ?? "",
-    input_schema: d.parameters ? convertSchema(d.parameters) : { type: "object", properties: {} }
-  }));
-}
-function assistantParts(parts) {
-  const blocks = [];
-  for (const p of parts) {
-    if (p.text) blocks.push({ type: "text", text: p.text });
-    else if (p.functionCall) {
-      blocks.push({
-        type: "tool_use",
-        id: p.functionCall.id ?? createId(),
-        name: p.functionCall.name ?? "",
-        input: p.functionCall.args ?? {}
-      });
-    }
-  }
-  return blocks;
-}
-function userContent(parts) {
-  const toolResults = parts.filter((p) => p.functionResponse);
-  if (toolResults.length > 0) {
-    return toolResults.map((p) => ({
-      type: "tool_result",
-      tool_use_id: p.functionResponse.id ?? "",
-      content: JSON.stringify(p.functionResponse.response ?? {})
-    }));
-  }
-  return parts.map((p) => p.text ?? "").filter(Boolean).join("\n");
-}
-function translateToAnthropic(contents) {
-  const msgs = [];
-  for (const c of contents) {
-    if (c.role === "model") {
-      msgs.push({ role: "assistant", content: assistantParts(c.parts ?? []) });
-    } else {
-      msgs.push({ role: "user", content: userContent(c.parts ?? []) });
-    }
-  }
-  const merged = [];
-  for (const m of msgs) {
-    const last = merged[merged.length - 1];
-    if (last && last.role === m.role && typeof last.content === "string" && typeof m.content === "string") {
-      last.content = `${last.content}
-${m.content}`;
-    } else {
-      merged.push(m);
-    }
-  }
-  return merged;
-}
 var client2 = null;
 function getClient2() {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new Error("Claude no configurado (ANTHROPIC_API_KEY)");
-  }
+  if (!env.ANTHROPIC_API_KEY) throw new Error("Claude no configurado (ANTHROPIC_API_KEY)");
   if (!client2) client2 = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   return client2;
 }
@@ -9566,1697 +8877,16 @@ var claudeGenerate = async (req) => {
     max_tokens: req.maxOutputTokens,
     temperature: req.temperature,
     system: req.systemInstruction,
-    messages: translateToAnthropic(req.contents),
-    tools: toAnthropicTools()
+    messages: [{ role: "user", content: req.prompt }]
   });
-  const functionCalls = [];
-  const parts = [];
-  let text30 = "";
-  for (const block of res.content) {
-    if (block.type === "text") {
-      text30 += block.text;
-      parts.push({ text: block.text });
-    } else if (block.type === "tool_use") {
-      functionCalls.push({ id: block.id, name: block.name, args: block.input });
-      parts.push({ functionCall: { id: block.id, name: block.name, args: block.input } });
-    }
-  }
-  return { functionCalls, text: text30, modelContent: { role: "model", parts } };
+  const text28 = res.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  return { text: text28 };
 };
 
-// src/modules/setter/agent/providers/index.ts
+// src/lib/ai/index.ts
 function getProvider(provider) {
   return provider === "claude" ? claudeGenerate : geminiGenerate;
 }
-
-// src/modules/setter/setter.crm-sync.service.ts
-import { and as and32, asc as asc12, eq as eq38 } from "drizzle-orm";
-
-// src/modules/setter/setter.events.service.ts
-import { and as and31, desc as desc19, eq as eq37, gt as gt2 } from "drizzle-orm";
-
-// src/modules/setter/setter.event-bus.ts
-import { EventEmitter as EventEmitter2 } from "events";
-var SetterEventBus = class extends EventEmitter2 {
-};
-var setterEventBus = new SetterEventBus();
-setterEventBus.setMaxListeners(0);
-function emitSetterEvent(event) {
-  setterEventBus.emit("event", event);
-}
-
-// src/modules/setter/setter.events.service.ts
-async function logSetterEvent(input) {
-  if (env.NODE_ENV === "test") return;
-  try {
-    const [row] = await db.insert(setterEvent).values({
-      tenantId: input.tenantId,
-      level: input.level ?? "info",
-      type: input.type,
-      message: input.message,
-      leadId: input.leadId ?? null,
-      meta: input.meta
-    }).returning({ id: setterEvent.id, createdAt: setterEvent.createdAt });
-    if (row) {
-      emitSetterEvent({
-        id: row.id,
-        tenantId: input.tenantId,
-        level: input.level ?? "info",
-        type: input.type,
-        message: input.message,
-        leadId: input.leadId ?? null,
-        meta: input.meta ?? null,
-        createdAt: row.createdAt.toISOString()
-      });
-    }
-  } catch (err) {
-    console.error("[setter] no se pudo registrar el evento:", err);
-  }
-}
-async function listSetterEvents(portalId, opts) {
-  const conds = [eq37(setterTenant.portalId, portalId)];
-  if (opts?.since) conds.push(gt2(setterEvent.createdAt, opts.since));
-  return db.select({
-    id: setterEvent.id,
-    level: setterEvent.level,
-    type: setterEvent.type,
-    message: setterEvent.message,
-    leadId: setterEvent.leadId,
-    meta: setterEvent.meta,
-    createdAt: setterEvent.createdAt
-  }).from(setterEvent).innerJoin(setterTenant, eq37(setterEvent.tenantId, setterTenant.id)).where(and31(...conds)).orderBy(desc19(setterEvent.createdAt)).limit(opts?.limit ?? 150);
-}
-
-// src/modules/setter/setter.crm-sync.service.ts
-var STATUS_TO_LIFECYCLE = {
-  ENGAGED: "lead",
-  QUALIFYING: "mql",
-  QUALIFIED: "sql",
-  BOOKING: "opportunity",
-  BOOKED: "opportunity",
-  NOT_INTERESTED: "other",
-  OPTED_OUT: "other"
-};
-var CREATE_CONTACT_STATUSES = /* @__PURE__ */ new Set([
-  "ENGAGED",
-  "QUALIFYING",
-  "QUALIFIED",
-  "BOOKING",
-  "BOOKED",
-  "HANDED_OFF"
-]);
-var CREATE_DEAL_STATUSES = /* @__PURE__ */ new Set(["QUALIFIED", "BOOKING", "BOOKED"]);
-var LIFECYCLE_RANK = {
-  lead: 1,
-  mql: 2,
-  sql: 3,
-  opportunity: 4,
-  customer: 5
-};
-function isDowngrade(current, next) {
-  if (next === "other") return false;
-  if (current === "customer") return true;
-  return (LIFECYCLE_RANK[next] ?? 0) < (LIFECYCLE_RANK[current] ?? 0);
-}
-async function findOrCreateContact(tx, portalId, person, lifecycle, actorId) {
-  if (person.phone) {
-    const [existing] = await tx.select({ id: contact.id }).from(contact).where(
-      and32(eq38(contact.portalId, portalId), eq38(contact.phone, person.phone), eq38(contact.archived, false))
-    ).limit(1);
-    if (existing) return existing.id;
-  }
-  const [created] = await tx.insert(contact).values({
-    portalId,
-    ownerId: actorId,
-    firstName: person.name,
-    phone: person.phone,
-    lifecycleStage: lifecycle,
-    custom: { source: "setter", setterPersonId: person.id }
-  }).returning({ id: contact.id });
-  if (actorId) {
-    await writeAudit({
-      tx,
-      portalId,
-      userId: actorId,
-      entityType: "contact",
-      entityId: created.id,
-      action: "CREATE",
-      payload: { source: "setter" }
-    });
-  }
-  return created.id;
-}
-async function createSetterDeal(tx, portalId, contactId, person, tenantName, actorId) {
-  let [pl] = await tx.select({ id: pipeline.id }).from(pipeline).where(and32(eq38(pipeline.portalId, portalId), eq38(pipeline.archived, false), eq38(pipeline.label, "Ventas"))).limit(1);
-  if (!pl) {
-    ;
-    [pl] = await tx.select({ id: pipeline.id }).from(pipeline).where(and32(eq38(pipeline.portalId, portalId), eq38(pipeline.archived, false))).orderBy(asc12(pipeline.createdAt)).limit(1);
-  }
-  if (!pl) return null;
-  const [stage] = await tx.select({ id: pipelineStage.id }).from(pipelineStage).where(and32(eq38(pipelineStage.pipelineId, pl.id), eq38(pipelineStage.archived, false))).orderBy(asc12(pipelineStage.displayOrder)).limit(1);
-  if (!stage) return null;
-  const [created] = await tx.insert(deal).values({
-    portalId,
-    ownerId: actorId,
-    pipelineId: pl.id,
-    stageId: stage.id,
-    primaryContactId: contactId,
-    name: `${person.name ?? "Lead"} \u2014 ${tenantName}`,
-    currency: "USD",
-    custom: { source: "setter" }
-  }).returning({ id: deal.id });
-  if (actorId) {
-    await writeAudit({
-      tx,
-      portalId,
-      userId: actorId,
-      entityType: "deal",
-      entityId: created.id,
-      action: "CREATE",
-      payload: { source: "setter" }
-    });
-  }
-  return created.id;
-}
-async function advanceDealOnBooked(portalId, actorId, dealId) {
-  const [d] = await db.select({ pipelineId: deal.pipelineId, stageId: deal.stageId }).from(deal).where(eq38(deal.id, dealId)).limit(1);
-  if (!d) return;
-  const stages = await db.select({ id: pipelineStage.id, isWon: pipelineStage.isWon, isClosed: pipelineStage.isClosed }).from(pipelineStage).where(eq38(pipelineStage.pipelineId, d.pipelineId)).orderBy(asc12(pipelineStage.displayOrder));
-  const idx = stages.findIndex((s) => s.id === d.stageId);
-  const next = idx >= 0 ? stages[idx + 1] : void 0;
-  if (next && !next.isWon && !next.isClosed) {
-    await changeStage(portalId, actorId, dealId, next.id);
-  }
-}
-async function syncLeadToCrm(leadId) {
-  const [lead] = await db.select().from(setterLead).where(eq38(setterLead.id, leadId)).limit(1);
-  if (!lead) return;
-  const [person] = await db.select().from(setterPerson).where(eq38(setterPerson.id, lead.personId)).limit(1);
-  if (!person) return;
-  const [tenant] = await db.select({ portalId: setterTenant.portalId, name: setterTenant.name }).from(setterTenant).where(eq38(setterTenant.id, lead.tenantId)).limit(1);
-  if (!tenant) return;
-  const portalId = tenant.portalId;
-  const status = lead.status;
-  const lifecycle = STATUS_TO_LIFECYCLE[status];
-  const [owner] = await db.select({ id: hubUser.id }).from(hubUser).where(and32(eq38(hubUser.portalId, portalId), eq38(hubUser.role, "owner"))).limit(1) ?? [];
-  const [anyUser] = owner ? [owner] : await db.select({ id: hubUser.id }).from(hubUser).where(eq38(hubUser.portalId, portalId)).limit(1);
-  const actorId = anyUser?.id ?? null;
-  let advanceDealId = null;
-  let linkedContactId = null;
-  let newDealId = null;
-  await db.transaction(async (tx) => {
-    let contactId = person.crmContactId;
-    if (!contactId) {
-      if (!CREATE_CONTACT_STATUSES.has(status)) return;
-      contactId = await findOrCreateContact(tx, portalId, person, lifecycle ?? "lead", actorId);
-      await tx.update(setterPerson).set({ crmContactId: contactId }).where(eq38(setterPerson.id, person.id));
-      linkedContactId = contactId;
-    }
-    if (lifecycle) {
-      const [c] = await tx.select({ lifecycleStage: contact.lifecycleStage }).from(contact).where(eq38(contact.id, contactId)).limit(1);
-      if (c && c.lifecycleStage !== lifecycle && !isDowngrade(c.lifecycleStage, lifecycle)) {
-        await tx.update(contact).set({ lifecycleStage: lifecycle, updatedAt: /* @__PURE__ */ new Date() }).where(eq38(contact.id, contactId));
-        if (actorId) {
-          await recordFieldChanges({
-            tx,
-            portalId,
-            entityType: "contact",
-            entityId: contactId,
-            before: { lifecycleStage: c.lifecycleStage },
-            after: { lifecycleStage: lifecycle },
-            changedBy: actorId,
-            sourceType: "setter"
-          });
-        }
-      }
-    }
-    if (CREATE_DEAL_STATUSES.has(status) && !lead.crmDealId) {
-      const dealId = await createSetterDeal(tx, portalId, contactId, person, tenant.name, actorId);
-      if (dealId) {
-        await tx.update(setterLead).set({ crmDealId: dealId }).where(eq38(setterLead.id, lead.id));
-        newDealId = dealId;
-        if (status === "BOOKED") advanceDealId = dealId;
-      }
-    } else if (status === "BOOKED" && lead.crmDealId) {
-      advanceDealId = lead.crmDealId;
-    }
-  });
-  if (advanceDealId && actorId) {
-    await advanceDealOnBooked(portalId, actorId, advanceDealId);
-  }
-  if (linkedContactId) {
-    void logSetterEvent({
-      tenantId: lead.tenantId,
-      level: "success",
-      type: "sync",
-      message: `Lead sincronizado al CRM como contacto (${lifecycle ?? "lead"})`,
-      leadId
-    });
-  }
-  if (newDealId) {
-    void logSetterEvent({
-      tenantId: lead.tenantId,
-      level: "success",
-      type: "sync",
-      message: "Deal creado en el CRM",
-      leadId
-    });
-  }
-}
-
-// src/modules/setter/agent/brain.ts
-var MAX_HOPS = 3;
-var MAX_OUTPUT_TOKENS = 2048;
-function toContents(messages) {
-  return messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }]
-  }));
-}
-async function runAgentTurn(leadId, opts) {
-  const [lead] = await db.select().from(setterLead).where(eq39(setterLead.id, leadId)).limit(1);
-  if (!lead) throw new Error(`Lead no encontrado: ${leadId}`);
-  const [person] = await db.select().from(setterPerson).where(eq39(setterPerson.id, lead.personId)).limit(1);
-  if (person?.optedOut) return { draftId: null, beat: null, status: lead.status, skipped: "opted_out" };
-  const [tenant] = await db.select().from(setterTenant).where(eq39(setterTenant.id, lead.tenantId)).limit(1);
-  if (!tenant) throw new Error(`Tenant no encontrado: ${lead.tenantId}`);
-  const generate = opts?.generate ?? getProvider(tenant.modelProvider);
-  const [conversation] = await db.select().from(setterConversation).where(eq39(setterConversation.personId, lead.personId)).limit(1);
-  if (!conversation) throw new Error(`Conversaci\xF3n no encontrada para person ${lead.personId}`);
-  const messages = await db.select({ role: setterMessage.role, content: setterMessage.content }).from(setterMessage).where(eq39(setterMessage.conversationId, conversation.id)).orderBy(asc13(setterMessage.createdAt)).limit(40);
-  const statusBefore = lead.status;
-  if (statusBefore === "NEW" || statusBefore === "CONTACTED") {
-    await db.update(setterLead).set({ status: "ENGAGED" }).where(eq39(setterLead.id, leadId));
-  }
-  const statusForGuide = statusBefore === "NEW" || statusBefore === "CONTACTED" ? "ENGAGED" : statusBefore;
-  const systemInstruction = buildSystemInstruction(tenant, statusForGuide);
-  const contents = toContents(messages);
-  const ctx = { tenant, leadId };
-  const toolsCalled = [];
-  let checkAvailabilityCalled = false;
-  let finalText = "";
-  for (let hop = 0; hop < MAX_HOPS; hop++) {
-    const res = await generate({
-      systemInstruction,
-      contents,
-      temperature: 0.4,
-      maxOutputTokens: MAX_OUTPUT_TOKENS
-    });
-    if (res.functionCalls.length > 0) {
-      contents.push(
-        res.modelContent ?? {
-          role: "model",
-          parts: res.functionCalls.map((fc) => ({
-            functionCall: { id: fc.id, name: fc.name, args: fc.args }
-          }))
-        }
-      );
-      const responseParts = [];
-      for (const fc of res.functionCalls) {
-        toolsCalled.push(fc.name);
-        if (fc.name === "check_availability") checkAvailabilityCalled = true;
-        const result = await executeTool(fc.name, fc.args, ctx);
-        responseParts.push({ functionResponse: { id: fc.id, name: fc.name, response: result } });
-      }
-      contents.push({ role: "user", parts: responseParts });
-      if (res.text) finalText = res.text;
-      continue;
-    }
-    finalText = res.text;
-    break;
-  }
-  finalText = finalText.trim();
-  let beat = deriveBeat(statusBefore, toolsCalled);
-  const validation = validateOutput(finalText, checkAvailabilityCalled);
-  const recordedTools = [...toolsCalled];
-  if (!validation.ok || !finalText) {
-    await executeTool(
-      "handoff_to_human",
-      { reason: `Validaci\xF3n de salida: ${validation.reason ?? "respuesta vac\xEDa"}` },
-      ctx
-    );
-    recordedTools.push("handoff_to_human");
-    beat = "handoff";
-    finalText = finalText && validation.ok ? finalText : "Dejame que el due\xF1o te responda esto directamente, te escribe en un rato por ac\xE1 \u{1F44D}";
-  }
-  const [after] = await db.select({ status: setterLead.status }).from(setterLead).where(eq39(setterLead.id, leadId)).limit(1);
-  const [draft] = await db.insert(setterDraft).values({
-    tenantId: tenant.id,
-    conversationId: conversation.id,
-    leadId,
-    content: finalText,
-    beat,
-    format: "text",
-    status: "pending",
-    toolCalls: { tools: recordedTools, checkAvailabilityCalled }
-  }).returning({ id: setterDraft.id });
-  if (tenant.portalId && beat !== "handoff" && draft?.id) {
-    void notifyAdmins(tenant.portalId, {
-      entityType: "setter_draft",
-      entityId: draft.id,
-      type: "setter_draft_pending",
-      title: "El setter tiene un borrador esperando tu aprobaci\xF3n",
-      body: person?.name ? `Para \xAB${person.name}\xBB` : null,
-      actionUrl: "/admin/setter"
-    });
-  }
-  void logSetterEvent({
-    tenantId: tenant.id,
-    level: beat === "handoff" ? "warn" : "success",
-    type: beat === "handoff" ? "agent" : "draft",
-    message: beat === "handoff" ? `Failsafe \u2192 handoff a humano (lead ${after.status})` : `Draft generado \xB7 ${beat} \xB7 lead ${after.status}`,
-    leadId,
-    meta: { beat, status: after.status, tools: recordedTools }
-  });
-  if (env.NODE_ENV !== "test") {
-    try {
-      await syncLeadToCrm(leadId);
-    } catch (err) {
-      console.error(`[setter] sync CRM fall\xF3 para lead ${leadId}:`, err);
-    }
-  }
-  return { draftId: draft.id, beat, status: after.status };
-}
-
-// src/modules/setter/queue/setter.queue.ts
-var SETTER_INBOUND_QUEUE = "setter-inbound";
-var inboundQueue = null;
-function getSetterInboundQueue() {
-  if (!isRedisConfigured()) {
-    throw new Error("REDIS_URL no configurado \u2014 la cola del setter no est\xE1 disponible");
-  }
-  if (!inboundQueue) {
-    inboundQueue = new Queue(SETTER_INBOUND_QUEUE, { connection: getRedisConnectionOptions() });
-  }
-  return inboundQueue;
-}
-async function pingSetterQueue() {
-  if (!isRedisConfigured()) {
-    return "not_configured";
-  }
-  try {
-    const queue = getSetterInboundQueue();
-    await queue.waitUntilReady();
-    return "ok";
-  } catch {
-    return "unreachable";
-  }
-}
-
-// src/modules/setter/setter.router.ts
-async function setterRoutes(app2) {
-  app2.addHook("preHandler", authenticate);
-  app2.get(
-    "/health",
-    {
-      schema: {
-        tags: ["Setter"],
-        summary: "Estado del setter",
-        security: [{ bearerAuth: [] }],
-        description: "Reporta el estado de cada dependencia del setter: base de datos, cola BullMQ, Vertex (Gemini) y el canal Evolution. En Sprint 0 solo Vertex est\xE1 vivo; Evolution y el calendario quedan diferidos hasta cargar sus credenciales."
-      }
-    },
-    async () => {
-      const [dbStatus, bullmq, evolution] = await Promise.all([
-        db.execute(sql30`select 1`).then(() => "ok").catch(() => "down"),
-        pingSetterQueue(),
-        evolutionProvider.ping()
-      ]);
-      const vertex = env.GOOGLE_SERVICE_ACCOUNT_JSON ? "configured" : "not_configured";
-      return ok({
-        db: dbStatus,
-        bullmq,
-        vertex,
-        evolution,
-        time: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-  );
-}
-
-// src/modules/setter/setter.schema.ts
-import { z as z31 } from "zod";
-var DraftStatusSchema = z31.enum(["pending", "approved", "edited", "rejected", "sent"]);
-var ListDraftsQuerySchema = z31.object({
-  status: DraftStatusSchema.default("pending")
-});
-var EditDraftSchema = z31.object({
-  content: z31.string().min(1, "El contenido no puede estar vac\xEDo").max(4096)
-});
-var ModelProviderSchema = z31.object({
-  modelProvider: z31.enum(["gemini", "claude"])
-});
-var AutopilotSchema = z31.object({
-  enabled: z31.boolean()
-});
-var ListEventsQuerySchema = z31.object({
-  limit: z31.coerce.number().int().min(1).max(500).default(150),
-  since: z31.string().datetime().optional()
-});
-
-// src/modules/setter/setter.approval.service.ts
-import { and as and33, asc as asc14, eq as eq40 } from "drizzle-orm";
-var DRAFT_COLUMNS = {
-  id: setterDraft.id,
-  tenantId: setterDraft.tenantId,
-  content: setterDraft.content,
-  editedContent: setterDraft.editedContent,
-  beat: setterDraft.beat,
-  format: setterDraft.format,
-  status: setterDraft.status,
-  toolCalls: setterDraft.toolCalls,
-  createdAt: setterDraft.createdAt,
-  leadId: setterDraft.leadId,
-  leadStatus: setterLead.status,
-  qualification: setterLead.qualification,
-  conversationId: setterDraft.conversationId,
-  channel: setterConversation.channel,
-  personName: setterPerson.name,
-  personPhone: setterPerson.phone,
-  crmContactId: setterPerson.crmContactId,
-  crmDealId: setterLead.crmDealId
-};
-function baseQuery() {
-  return db.select(DRAFT_COLUMNS).from(setterDraft).innerJoin(setterTenant, eq40(setterDraft.tenantId, setterTenant.id)).innerJoin(setterLead, eq40(setterDraft.leadId, setterLead.id)).innerJoin(setterConversation, eq40(setterDraft.conversationId, setterConversation.id)).innerJoin(setterPerson, eq40(setterLead.personId, setterPerson.id)).$dynamic();
-}
-async function listDrafts(portalId, status) {
-  return baseQuery().where(and33(eq40(setterTenant.portalId, portalId), eq40(setterDraft.status, status))).orderBy(asc14(setterDraft.createdAt));
-}
-async function getDraftDetail(portalId, id) {
-  const [draft] = await baseQuery().where(
-    and33(eq40(setterTenant.portalId, portalId), eq40(setterDraft.id, id))
-  );
-  if (!draft) throw Errors.notFound("Draft no encontrado");
-  const messages = await db.select({
-    role: setterMessage.role,
-    content: setterMessage.content,
-    beat: setterMessage.beat,
-    createdAt: setterMessage.createdAt
-  }).from(setterMessage).where(eq40(setterMessage.conversationId, draft.conversationId)).orderBy(asc14(setterMessage.createdAt));
-  return { ...draft, messages };
-}
-async function loadDraft(portalId, id) {
-  const [draft] = await baseQuery().where(
-    and33(eq40(setterTenant.portalId, portalId), eq40(setterDraft.id, id))
-  );
-  if (!draft) throw Errors.notFound("Draft no encontrado");
-  return draft;
-}
-async function sendAndFinalize(draft, finalContent, userId, edited) {
-  if (draft.status !== "pending") {
-    throw Errors.conflict(`El draft ya est\xE1 en estado "${draft.status}"`);
-  }
-  if (!draft.personPhone) {
-    throw Errors.badRequest("La persona no tiene tel\xE9fono \u2014 no se puede enviar");
-  }
-  const [msg] = await db.insert(setterMessage).values({
-    conversationId: draft.conversationId,
-    role: "assistant",
-    content: finalContent,
-    beat: draft.beat
-  }).returning({ id: setterMessage.id });
-  let sent = false;
-  if (evolutionProvider.isConfigured()) {
-    try {
-      await evolutionProvider.sendSplitMessages(draft.personPhone, splitIntoBubbles(finalContent));
-      sent = true;
-    } catch {
-      sent = false;
-    }
-  }
-  const status = sent ? edited ? "edited" : "sent" : "approved";
-  await db.update(setterDraft).set({
-    status,
-    editedContent: edited ? finalContent : null,
-    sentMessageId: msg.id,
-    approvedBy: userId
-  }).where(eq40(setterDraft.id, draft.id));
-  void logSetterEvent({
-    tenantId: draft.tenantId,
-    level: "success",
-    type: "approval",
-    message: sent ? `${edited ? "Editado y enviado" : "Aprobado y enviado"} a ${draft.personPhone ?? "lead"}` : `${edited ? "Editado" : "Aprobado"} (env\xEDo pendiente: Evolution sin credenciales)`,
-    leadId: draft.leadId
-  });
-  return { id: draft.id, status, sent, messageId: msg.id };
-}
-async function approveDraft(portalId, userId, id) {
-  const draft = await loadDraft(portalId, id);
-  const result = await sendAndFinalize(draft, draft.content, userId, false);
-  const who = await actorName(portalId, userId);
-  await notifyAdmins(
-    portalId,
-    {
-      entityType: "setter_draft",
-      entityId: id,
-      type: "setter_draft_approved",
-      title: `${who} aprob\xF3 un mensaje del setter`,
-      body: draft.personName ? `Para \xAB${draft.personName}\xBB` : null,
-      actionUrl: "/admin/setter"
-    },
-    { exceptUserId: userId }
-  );
-  return result;
-}
-async function editAndSendDraft(portalId, userId, id, content) {
-  const draft = await loadDraft(portalId, id);
-  const result = await sendAndFinalize(draft, content, userId, true);
-  const who = await actorName(portalId, userId);
-  await notifyAdmins(
-    portalId,
-    {
-      entityType: "setter_draft",
-      entityId: id,
-      type: "setter_draft_edited",
-      title: `${who} edit\xF3 y envi\xF3 un mensaje del setter`,
-      body: draft.personName ? `Para \xAB${draft.personName}\xBB` : null,
-      actionUrl: "/admin/setter"
-    },
-    { exceptUserId: userId }
-  );
-  return result;
-}
-async function rejectDraft(portalId, userId, id) {
-  const draft = await loadDraft(portalId, id);
-  if (draft.status !== "pending") {
-    throw Errors.conflict(`El draft ya est\xE1 en estado "${draft.status}"`);
-  }
-  await db.update(setterDraft).set({ status: "rejected" }).where(eq40(setterDraft.id, id));
-  void logSetterEvent({
-    tenantId: draft.tenantId,
-    type: "approval",
-    message: "Draft rechazado",
-    leadId: draft.leadId
-  });
-  const who = await actorName(portalId, userId);
-  await notifyAdmins(
-    portalId,
-    {
-      entityType: "setter_draft",
-      entityId: id,
-      type: "setter_draft_rejected",
-      title: `${who} rechaz\xF3 un mensaje del setter`,
-      body: draft.personName ? `Para \xAB${draft.personName}\xBB` : null,
-      actionUrl: "/admin/setter"
-    },
-    { exceptUserId: userId }
-  );
-  return { id, status: "rejected" };
-}
-async function regenerateDraft(portalId, id) {
-  const draft = await loadDraft(portalId, id);
-  await db.update(setterDraft).set({ status: "rejected" }).where(eq40(setterDraft.id, id));
-  const result = await runAgentTurn(draft.leadId);
-  if (!result.draftId) {
-    throw Errors.conflict("No se gener\xF3 un nuevo draft (lead en opt-out o sin texto)");
-  }
-  return getDraftDetail(portalId, result.draftId);
-}
-
-// src/modules/setter/setter.config.service.ts
-import { eq as eq41 } from "drizzle-orm";
-var setterConfigCols = {
-  id: setterTenant.id,
-  portalId: setterTenant.portalId,
-  modelProvider: setterTenant.modelProvider,
-  operationMode: setterTenant.operationMode,
-  agentName: setterTenant.agentName,
-  ownerName: setterTenant.ownerName,
-  timezone: setterTenant.timezone,
-  prospectingServices: setterTenant.prospectingServices,
-  prospectingNiches: setterTenant.prospectingNiches,
-  prospectingCities: setterTenant.prospectingCities,
-  prospectingAutopilot: setterTenant.prospectingAutopilot
-};
-async function loadTenant(portalId) {
-  const [tenant] = await db.select(setterConfigCols).from(setterTenant).where(eq41(setterTenant.portalId, portalId)).limit(1);
-  if (!tenant) throw Errors.notFound("No hay setter configurado para este portal");
-  return tenant;
-}
-function toConfig(tenant) {
-  return {
-    modelProvider: tenant.modelProvider,
-    operationMode: tenant.operationMode,
-    agentName: tenant.agentName,
-    ownerName: tenant.ownerName,
-    timezone: tenant.timezone,
-    providers: {
-      gemini: Boolean(env.GOOGLE_SERVICE_ACCOUNT_JSON),
-      claude: Boolean(env.ANTHROPIC_API_KEY)
-    },
-    prospectingServices: tenant.prospectingServices,
-    prospectingNiches: tenant.prospectingNiches,
-    prospectingCities: tenant.prospectingCities,
-    prospectingAutopilot: tenant.prospectingAutopilot
-  };
-}
-async function getSetterConfig(portalId) {
-  return toConfig(await loadTenant(portalId));
-}
-async function setModelProvider(portalId, provider) {
-  const tenant = await loadTenant(portalId);
-  await db.update(setterTenant).set({ modelProvider: provider }).where(eq41(setterTenant.id, tenant.id));
-  return getSetterConfig(portalId);
-}
-async function setProspectingAutopilot(portalId, enabled) {
-  const tenant = await loadTenant(portalId);
-  await db.update(setterTenant).set({ prospectingAutopilot: enabled }).where(eq41(setterTenant.id, tenant.id));
-  return getSetterConfig(portalId);
-}
-
-// src/modules/setter/setter.approval.router.ts
-var TAG29 = "Setter";
-var security28 = ADMIN_SECURITY;
-async function setterApprovalRoutes(app2) {
-  const r = app2.withTypeProvider();
-  r.addHook("preHandler", authenticate);
-  r.get(
-    "/config",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Config del setter (Model Switcher, etc.)",
-        security: security28
-      }
-    },
-    async (request) => ok(await getSetterConfig(request.hubUser.portalId))
-  );
-  r.patch(
-    "/config/model-provider",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Cambiar el LLM que genera los mensajes (Gemini \u21C4 Claude)",
-        security: security28,
-        body: ModelProviderSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const config = await setModelProvider(request.hubUser.portalId, request.body.modelProvider);
-      return ok(config);
-    }
-  );
-  r.patch(
-    "/config/autopilot",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Encender/apagar el autopilot de prospecci\xF3n",
-        security: security28,
-        body: AutopilotSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const config = await setProspectingAutopilot(request.hubUser.portalId, request.body.enabled);
-      return ok(config);
-    }
-  );
-  r.get(
-    "/events",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Consola: log de actividad del setter",
-        security: security28,
-        querystring: ListEventsQuerySchema
-      }
-    },
-    async (request) => {
-      const { limit, since } = request.query;
-      const events = await listSetterEvents(request.hubUser.portalId, {
-        limit,
-        since: since ? new Date(since) : void 0
-      });
-      return ok(events);
-    }
-  );
-  r.get(
-    "/drafts",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Listar drafts de la cola de aprobaci\xF3n",
-        description: "Drafts del setter por estado (default pending), con contexto del lead.",
-        security: security28,
-        querystring: ListDraftsQuerySchema
-      }
-    },
-    async (request) => {
-      const items = await listDrafts(request.hubUser.portalId, request.query.status);
-      return ok(items);
-    }
-  );
-  r.get(
-    "/drafts/:id",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Detalle de un draft + conversaci\xF3n",
-        security: security28,
-        params: IdParamSchema
-      }
-    },
-    async (request) => {
-      const detail = await getDraftDetail(request.hubUser.portalId, request.params.id);
-      return ok(detail);
-    }
-  );
-  r.post(
-    "/drafts/:id/approve",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Aprobar y enviar el draft",
-        description: "Persiste el mensaje saliente y lo env\xEDa por WhatsApp (si Evolution est\xE1 configurado).",
-        security: security28,
-        params: IdParamSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const result = await approveDraft(request.hubUser.portalId, request.hubUser.sub, request.params.id);
-      return ok(result);
-    }
-  );
-  r.post(
-    "/drafts/:id/edit",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Editar y enviar el draft",
-        security: security28,
-        params: IdParamSchema,
-        body: EditDraftSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const result = await editAndSendDraft(
-        request.hubUser.portalId,
-        request.hubUser.sub,
-        request.params.id,
-        request.body.content
-      );
-      return ok(result);
-    }
-  );
-  r.post(
-    "/drafts/:id/reject",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Rechazar el draft",
-        security: security28,
-        params: IdParamSchema
-      }
-    },
-    async (request) => {
-      const result = await rejectDraft(request.hubUser.portalId, request.hubUser.sub, request.params.id);
-      return ok(result);
-    }
-  );
-  r.post(
-    "/drafts/:id/regenerate",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Regenerar el draft (re-corre el cerebro)",
-        security: security28,
-        params: IdParamSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const detail = await regenerateDraft(request.hubUser.portalId, request.params.id);
-      return ok(detail);
-    }
-  );
-}
-
-// src/modules/setter/setter.ws.ts
-import { eq as eq42 } from "drizzle-orm";
-async function setterWsRoutes(app2) {
-  app2.get("/ws/setter/events", { websocket: true }, async (socket, request) => {
-    const token = request.query.token;
-    let user;
-    try {
-      if (!token) throw new Error("no token");
-      const clerkUserId = await verifyClerkToken(token);
-      user = await resolveHubUser(clerkUserId);
-    } catch {
-      socket.close(1008, "unauthorized");
-      return;
-    }
-    const tenants = await db.select({ id: setterTenant.id }).from(setterTenant).where(eq42(setterTenant.portalId, user.portalId));
-    const tenantIds = new Set(tenants.map((t) => t.id));
-    const handler2 = (event) => {
-      if (!tenantIds.has(event.tenantId)) return;
-      try {
-        socket.send(JSON.stringify(event));
-      } catch {
-      }
-    };
-    setterEventBus.on("event", handler2);
-    socket.send(JSON.stringify({ type: "connected" }));
-    socket.on("close", () => setterEventBus.off("event", handler2));
-  });
-}
-
-// src/modules/setter/webhooks/whatsapp.webhook.ts
-import { timingSafeEqual as timingSafeEqual2 } from "crypto";
-
-// src/modules/setter/setter.service.ts
-import { and as and34, eq as eq43 } from "drizzle-orm";
-var SERVICE_WINDOW_MS = 24 * 60 * 60 * 1e3;
-async function getSetterTenantId() {
-  const [tenant] = await db.select({ id: setterTenant.id }).from(setterTenant).limit(1);
-  return tenant?.id ?? null;
-}
-async function handleInboundMessage(input) {
-  const tenantId = await getSetterTenantId();
-  if (!tenantId) {
-    throw new Error("No hay setter_tenant. Corr\xE9: pnpm --filter api db:seed:setter");
-  }
-  const optedOutByKeyword = evolutionProvider.detectOptOut(input.text);
-  const result = await db.transaction(async (tx) => {
-    await tx.insert(setterPerson).values({ tenantId, name: input.name ?? null, phone: input.from }).onConflictDoNothing({ target: [setterPerson.tenantId, setterPerson.phone] });
-    const [person] = await tx.select().from(setterPerson).where(and34(eq43(setterPerson.tenantId, tenantId), eq43(setterPerson.phone, input.from))).limit(1);
-    if (person.optedOut) {
-      return { status: "skipped_opted_out" };
-    }
-    await tx.insert(setterConversation).values({ tenantId, personId: person.id, channel: input.channel ?? "whatsapp" }).onConflictDoNothing({ target: setterConversation.personId });
-    const [conversation] = await tx.select().from(setterConversation).where(eq43(setterConversation.personId, person.id)).limit(1);
-    let [lead] = await tx.select().from(setterLead).where(eq43(setterLead.personId, person.id)).limit(1);
-    if (!lead) {
-      ;
-      [lead] = await tx.insert(setterLead).values({ tenantId, personId: person.id, status: "NEW", source: input.channel ?? "whatsapp" }).returning();
-    }
-    const inserted = await tx.insert(setterMessage).values({
-      conversationId: conversation.id,
-      role: "user",
-      content: input.text,
-      messageId: input.messageId
-    }).onConflictDoNothing({ target: setterMessage.messageId }).returning({ id: setterMessage.id });
-    if (inserted.length === 0) {
-      return { status: "duplicate" };
-    }
-    await tx.update(setterLead).set({ windowExpiresAt: new Date(Date.now() + SERVICE_WINDOW_MS) }).where(eq43(setterLead.id, lead.id));
-    if (optedOutByKeyword) {
-      await tx.update(setterPerson).set({ optedOut: true, optedOutAt: /* @__PURE__ */ new Date() }).where(eq43(setterPerson.id, person.id));
-      await tx.update(setterLead).set({ status: "OPTED_OUT" }).where(eq43(setterLead.id, lead.id));
-      return { status: "opted_out", leadId: lead.id };
-    }
-    return { status: "processed", leadId: lead.id, conversationId: conversation.id };
-  });
-  if (result.status === "processed") {
-    void logSetterEvent({
-      tenantId,
-      type: "inbound",
-      message: `Entr\xF3 mensaje de ${input.from}`,
-      leadId: result.leadId,
-      meta: { messageId: input.messageId }
-    });
-  } else if (result.status === "opted_out") {
-    void logSetterEvent({
-      tenantId,
-      level: "warn",
-      type: "optout",
-      message: `Opt-out de ${input.from} \u2014 no se le genera ni env\xEDa nada m\xE1s`,
-      leadId: result.leadId
-    });
-  }
-  if (result.status === "processed" && isRedisConfigured() && env.NODE_ENV !== "test") {
-    await getSetterInboundQueue().add(
-      "handle-message",
-      { leadId: result.leadId, conversationId: result.conversationId, messageId: input.messageId },
-      { jobId: input.messageId, removeOnComplete: true, removeOnFail: 100 }
-    );
-  }
-  if (result.status === "opted_out" && env.NODE_ENV !== "test") {
-    try {
-      await syncLeadToCrm(result.leadId);
-    } catch (err) {
-      console.error("[setter] sync CRM opt-out fall\xF3:", err);
-    }
-  }
-  return result;
-}
-
-// src/modules/setter/webhooks/whatsapp.webhook.ts
-function safeEqual(a, b) {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual2(ab, bb);
-}
-function extractText(message) {
-  if (!message) return null;
-  const conv = message["conversation"];
-  if (typeof conv === "string" && conv.trim()) return conv;
-  const ext = message["extendedTextMessage"];
-  if (ext?.text && ext.text.trim()) return ext.text;
-  const ephemeral = message["ephemeralMessage"];
-  const ephText = ephemeral?.message?.extendedTextMessage?.text ?? ephemeral?.message?.conversation;
-  if (typeof ephText === "string" && ephText.trim()) return ephText;
-  return null;
-}
-function parseEvolutionInbound(body) {
-  const key = body.data?.key;
-  if (!key?.remoteJid || !key.id) return null;
-  if (key.fromMe) return null;
-  if (key.remoteJid.endsWith("@g.us")) return null;
-  const text30 = extractText(body.data?.message);
-  if (!text30) return null;
-  const digits = key.remoteJid.split("@")[0]?.replace(/\D/g, "");
-  if (!digits) return null;
-  return {
-    from: `+${digits}`,
-    name: body.data?.pushName ?? null,
-    messageId: key.id,
-    text: text30,
-    channel: "whatsapp"
-  };
-}
-async function setterWhatsappWebhookRoutes(app2) {
-  app2.post(
-    "/whatsapp",
-    {
-      schema: {
-        tags: ["Setter"],
-        summary: "Webhook de WhatsApp (Evolution)",
-        description: "Recibe eventos de Evolution API. Responde 200 siempre y procesa de forma as\xEDncrona (dedup por message_id, ventana de 24h, opt-out, encola el turno del agente)."
-      }
-    },
-    async (request, reply) => {
-      const secret = env.EVOLUTION_WEBHOOK_SECRET;
-      if (secret) {
-        const headers = request.headers;
-        const provided = request.query?.token ?? headers["apikey"] ?? headers["x-webhook-secret"];
-        if (!provided || !safeEqual(provided, secret)) {
-          return reply.code(401).send();
-        }
-      }
-      reply.code(200).send({ ok: true });
-      const inbound = parseEvolutionInbound(request.body);
-      if (!inbound) return;
-      handleInboundMessage(inbound).then((outcome) => {
-        request.log.info(
-          { personPhone: inbound.from, messageId: inbound.messageId, outcome: outcome.status },
-          "[setter] mensaje entrante procesado"
-        );
-      }).catch((err) => {
-        request.log.error(
-          { err, messageId: inbound.messageId },
-          "[setter] error procesando mensaje entrante"
-        );
-      });
-    }
-  );
-}
-
-// src/modules/prospecting/prospecting.schema.ts
-import { z as z32 } from "zod";
-var RunSearchSchema = z32.object({
-  query: z32.string().min(3, "La b\xFAsqueda debe tener al menos 3 caracteres").max(200),
-  limit: z32.coerce.number().int().min(1).max(20).default(5),
-  ourServices: z32.string().max(500).optional()
-});
-var ListSearchesQuerySchema = z32.object({
-  limit: z32.coerce.number().int().min(1).max(100).default(20),
-  cursor: z32.string().optional()
-});
-var SuggestServicesSchema = z32.object({
-  hint: z32.string().max(500).optional().default("")
-});
-var ListProspectsQuerySchema = z32.object({
-  searchId: z32.string().min(1).optional(),
-  status: z32.enum(["new", "imported", "discarded"]).optional()
-});
-
-// src/modules/prospecting/prospecting.service.ts
-import { and as and35, desc as desc20, eq as eq44, inArray as inArray15 } from "drizzle-orm";
-
-// src/modules/prospecting/places.client.ts
-import axios2 from "axios";
-var PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
-var FIELD_MASK = [
-  "places.id",
-  "places.displayName",
-  "places.formattedAddress",
-  "places.nationalPhoneNumber",
-  "places.internationalPhoneNumber",
-  "places.websiteUri",
-  "places.rating",
-  "places.userRatingCount",
-  "places.types"
-].join(",");
-function isPlacesConfigured() {
-  return Boolean(env.GOOGLE_MAPS_API_KEY);
-}
-async function searchBusinesses(query, limit) {
-  if (!env.GOOGLE_MAPS_API_KEY) {
-    throw Errors.badRequest("GOOGLE_MAPS_API_KEY no est\xE1 configurada en la API");
-  }
-  const maxResultCount = Math.min(Math.max(limit, 1), 20);
-  try {
-    const { data } = await axios2.post(
-      PLACES_TEXT_SEARCH_URL,
-      { textQuery: query, maxResultCount, languageCode: "es" },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": env.GOOGLE_MAPS_API_KEY,
-          "X-Goog-FieldMask": FIELD_MASK
-        },
-        timeout: 15e3
-      }
-    );
-    const places = data.places ?? [];
-    return places.slice(0, maxResultCount).map((p) => ({
-      googlePlaceId: p.id ?? "",
-      name: p.displayName?.text ?? "Sin nombre",
-      address: p.formattedAddress ?? null,
-      phone: p.nationalPhoneNumber ?? p.internationalPhoneNumber ?? null,
-      website: p.websiteUri ?? null,
-      rating: typeof p.rating === "number" ? p.rating : null,
-      userRatingsTotal: typeof p.userRatingCount === "number" ? p.userRatingCount : null,
-      types: Array.isArray(p.types) ? p.types : []
-    }));
-  } catch (err) {
-    if (axios2.isAxiosError(err)) {
-      const status = err.response?.status;
-      const apiMsg = err.response?.data?.error?.message ?? err.message;
-      if (status === 403 || status === 401) {
-        throw Errors.badRequest(`Google Places rechaz\xF3 la key (${status}): ${apiMsg}`);
-      }
-      throw new AppError("PLACES_ERROR", `Error consultando Google Places: ${apiMsg}`, 502);
-    }
-    throw err;
-  }
-}
-
-// src/modules/prospecting/email-scraper.ts
-import axios3 from "axios";
-var EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-var JUNK_PATTERNS = [
-  /\.(png|jpe?g|gif|svg|webp|css|js)$/i,
-  /@(2x|3x)\b/i,
-  /(example|sentry|wixpress|godaddy|sentry\.io|domain)\./i,
-  /^[0-9a-f]{16,}@/i
-  // hashes
-];
-function isPlausible(email) {
-  if (email.length > 60) return false;
-  return !JUNK_PATTERNS.some((re) => re.test(email));
-}
-async function scrapeEmail(website) {
-  try {
-    const url = website.startsWith("http") ? website : `https://${website}`;
-    const { data } = await axios3.get(url, {
-      timeout: 8e3,
-      maxContentLength: 2e6,
-      responseType: "text",
-      // Algunos sitios bloquean clients sin UA "de navegador".
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; NOUSCRM/1.0; +https://nous.dev) prospecting-bot",
-        Accept: "text/html"
-      },
-      // No queremos que un redirect a un esquema raro rompa todo.
-      maxRedirects: 3
-    });
-    if (typeof data !== "string") return null;
-    const matches = data.match(EMAIL_REGEX);
-    if (!matches) return null;
-    const candidate = matches.map((m) => m.toLowerCase()).find(isPlausible);
-    return candidate ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// src/modules/prospecting/vertex.client.ts
-import { GoogleGenAI as GoogleGenAI2, Type as Type2 } from "@google/genai";
-var client3 = null;
-function isVertexConfigured() {
-  return Boolean(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-}
-function getClient3() {
-  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) return null;
-  if (client3) return client3;
-  let credentials;
-  try {
-    credentials = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  } catch {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON no es un JSON v\xE1lido");
-  }
-  if (!credentials.project_id) {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON no contiene project_id");
-  }
-  client3 = new GoogleGenAI2({
-    vertexai: true,
-    project: credentials.project_id,
-    location: env.VERTEX_LOCATION,
-    googleAuthOptions: { credentials }
-  });
-  return client3;
-}
-var RESPONSE_SCHEMA = {
-  type: Type2.OBJECT,
-  properties: {
-    analysis: { type: Type2.STRING },
-    opportunityScore: { type: Type2.INTEGER },
-    proposalType: { type: Type2.STRING, enum: ["automation", "web_app", "both"] },
-    painPoints: { type: Type2.ARRAY, items: { type: Type2.STRING } },
-    solution: { type: Type2.STRING },
-    mvpScope: { type: Type2.ARRAY, items: { type: Type2.STRING } },
-    estimatedValueUsd: { type: Type2.INTEGER },
-    sequence: {
-      type: Type2.OBJECT,
-      properties: {
-        opener: { type: Type2.STRING },
-        problemQuestions: { type: Type2.ARRAY, items: { type: Type2.STRING } },
-        bookingMessage: { type: Type2.STRING },
-        confirmationMessage: { type: Type2.STRING }
-      },
-      required: ["opener", "problemQuestions", "bookingMessage", "confirmationMessage"]
-    },
-    objections: {
-      type: Type2.ARRAY,
-      items: {
-        type: Type2.OBJECT,
-        properties: {
-          objection: { type: Type2.STRING },
-          response: { type: Type2.STRING }
-        },
-        required: ["objection", "response"]
-      }
-    }
-  },
-  required: [
-    "analysis",
-    "opportunityScore",
-    "proposalType",
-    "painPoints",
-    "solution",
-    "mvpScope",
-    "estimatedValueUsd",
-    "sequence",
-    "objections"
-  ]
-};
-var SYSTEM_INSTRUCTION = `Sos un consultor senior de una agencia de desarrollo web y automatizaci\xF3n Y un appointment setter experto que prospecta a negocios argentinos.
-Tu trabajo es analizar un negocio y armar la secuencia de mensajes para iniciar una conversaci\xF3n que termine en una llamada agendada.
-
-PRINCIPIOS DE SETTING (obligatorios, son la base de todo):
-1. OPENER GENUINO: el primer mensaje arranca con algo espec\xEDfico y verdadero de ESE negocio (rubro, ubicaci\xF3n, reputaci\xF3n, que no tiene web). PROHIBIDO el halago gen\xE9rico tipo "felicitaciones por tu perfil".
-2. RAZ\xD3N PARA RESPONDER: dale a la persona un motivo real para contestar. Lo m\xE1s natural es una pregunta genuina y relevante a su rubro (algo que de verdad querr\xEDas saber de su negocio), no "para conocerte mejor". Si encaja sin forzar, pod\xE9s mencionar algo \xFAtil que le podr\xEDas pasar, dicho casual, NUNCA como oferta de marketing. Si no encaja natural, no lo metas: la pregunta sola alcanza.
-3. PRIMERO EL PROBLEMA, DESPU\xC9S EL LINK: el opener NO vende la soluci\xF3n ni pide la reuni\xF3n. Primero se saca a la luz el problema con preguntas; reci\xE9n despu\xE9s se invita a agendar.
-4. NUNCA MOSTRAR NECESIDAD: no persigas ni sobreexpliques. Siempre dej\xE1 claro POR QU\xC9 pregunt\xE1s o propon\xE9s algo, desde el lugar de querer ayudar, no de querer venderle.
-5. LENGUAJE SIMPLE Y CONCRETO (clave en Argentina): habl\xE1 derecho, sin inflar. Nada de "transformar tu negocio", "programa", "soluci\xF3n integral" ni promesas grandilocuentes: eso genera desconfianza, no deseo. En vez de "agilizar la recepci\xF3n de facturas" dec\xED "que no tengas que andar persiguiendo a los clientes por los comprobantes". Si una frase suena m\xE1s grande de lo que es, achicala.
-6. OBJECIONES: valid\xE1 en una frase corta (sin frases hechas) y segu\xED con UNA pregunta o un reencuadre que abra la conversaci\xF3n, no con un argumento de venta ni con presi\xF3n. Si la persona dice que no en serio, se la deja ir sin insistir.
-7. La invitaci\xF3n a agendar se enmarca en EL PROBLEMA y EL OBJETIVO puntual de la persona, y da la raz\xF3n concreta por la que vale la pena esa charla.
-
-SON\xC1 HUMANO (lo m\xE1s importante de todo): los mensajes los lee una persona real. NO pueden parecer escritos por una IA ni por una plantilla. Si suenan a folleto o a vendedor, fallaste.
-- Escrib\xED como le escribir\xEDas a un conocido por WhatsApp: frases CORTAS, directas, naturales. Nada de p\xE1rrafos largos ni perfectos.
-- CERCANO PERO CON RESPETO, NO ZALAMERO: la calidez se gana, no se finge en el primer mensaje. Nada de apodos ("crack", "campe\xF3n", "genio") ni efusividad fingida. Un "Hola [Nombre], \xBFc\xF3mo va?" funciona mejor que cualquier apodo o emoji.
-- PROHIBIDAS las muletillas de IA/vendedor: "Entiendo,", "Comprendo que", "L\xF3gico,", "Excelente,", "Por supuesto", "Es importante destacar", "En este sentido", "Espero que est\xE9s muy bien".
-- PROHIBIDO el vocabulario corporativo/buzzword: "cuello de botella", "agilizar", "optimizar", "carga operativa", "soluci\xF3n integral", "plan de acci\xF3n", "diagn\xF3stico gratuito", "impecable", "potenciar", "maximizar", "de forma definitiva", "sinergia", "implementar una soluci\xF3n", "transformar tu negocio", "programa" (como eufemismo de servicio), "sesi\xF3n" (como eufemismo de llamada).
-- Us\xE1 palabras simples y cotidianas.
-- Natural NO es matero: no sobrecargues de lunfardo ("chusmear", "una charlita", "los re bancan"). Profesional relajado, no amigo del barrio.
-- Est\xE1 bien transparentar que es prospecci\xF3n ("te escribo porque laburamos con [rubro] y se me ocurri\xF3 que..."). No disimules que es un mensaje de laburo.
-- Est\xE1 bien sonar un poco informal e imperfecto. Mejor que suene a persona apurada que a copy de agencia.
-- Menos es m\xE1s: no metas todos los beneficios en el primer mensaje. Si dud\xE1s, cort\xE1 la frase.
-- No uses guiones largos (\u2014). Us\xE1 puntos o par\xE9ntesis. Nada de vi\xF1etas dentro de los mensajes.
-- M\xE1ximo un emoji por mensaje, y solo si suma. Cero urgencia falsa ("\xFAltimos cupos", "solo por hoy").
-- Vari\xE1 los arranques: NO empieces siempre con "Hola, estuve viendo...". Si todos arrancan igual, suena a plantilla.
-
-Reglas de estilo: espa\xF1ol rioplatense (vos, ten\xE9s, quer\xE9s), sin erratas, sin jerga t\xE9cnica, sin promesas exageradas.`;
-function buildPrompt(input) {
-  const services = input.ourServices?.trim() ? input.ourServices.trim() : "desarrollo de web apps a medida y automatizaciones (chatbots, integraciones, dashboards, flujos internos)";
-  return `Analiz\xE1 este negocio y arm\xE1 su secuencia de setting.
-
-NEGOCIO:
-- Nombre: ${input.name}
-- Rubro/categor\xEDas: ${input.types.join(", ") || "desconocido"}
-- Web: ${input.website ?? "no tiene sitio web detectado"}
-- Rating Google: ${input.rating ?? "sin datos"}
-- Direcci\xF3n: ${input.address ?? "sin datos"}
-
-LO QUE OFRECEMOS NOSOTROS:
-${services}
-
-DEVOLV\xC9 (an\xE1lisis interno, NO se env\xEDa a nadie):
-1. analysis: 2-3 frases sobre el negocio y por qu\xE9 podr\xEDa (o no) necesitarnos.
-2. opportunityScore: del 1 al 10, qu\xE9 tan buena oportunidad es.
-3. proposalType: "automation", "web_app" o "both".
-4. painPoints: 2-4 problemas que probablemente tenga (hip\xF3tesis a confirmar en la charla).
-5. solution: qu\xE9 le proponemos, 1-2 frases.
-6. mvpScope: 3-5 features m\xEDnimas del MVP, acotado y entregable r\xE1pido.
-7. estimatedValueUsd: precio estimado del MVP en USD (entero realista).
-
-Y LA SECUENCIA DE SETTING (esto S\xCD se env\xEDa, aplic\xE1 los principios):
-8. sequence.opener: PRIMER mensaje, CORTO (2-3 frases m\xE1ximo, como un WhatsApp real). Gancho genuino y espec\xEDfico de ESTE negocio + una pregunta real y relevante a su rubro que invite a contestar. PROHIBIDO: pitchear la soluci\xF3n, pedir la reuni\xF3n, halago gen\xE9rico, prometer cosas grandes, o sonar a plantilla.
-9. sequence.problemQuestions: EXACTAMENTE 3 preguntas para sacar el problema a la luz, adaptadas a este negocio. Pensadas para enviarse de a una (conversacional, no interrogatorio). Estilo: "\xBFc\xF3mo te est\xE1 pegando [X]?", "\xBFa qu\xE9 te refer\xEDs cuando dec\xEDs [Y]?", "\xBFte acord\xE1s de alguna situaci\xF3n de la \xFAltima semana donde esto te complic\xF3?".
-10. sequence.bookingMessage: la invitaci\xF3n a agendar, enmarcada en SU problema y SU objetivo, dando la raz\xF3n. Estilo: "Por lo que me cont\xE1s de [problema], creo que te puedo mostrar c\xF3mo lo resolver\xEDamos en tu caso. \xBFTe parece si lo charlamos 15 min con [nuestro especialista] y te tiramos un par de ideas concretas para [objetivo]?". Que suene a propuesta tranquila, no a cierre de venta.
-11. sequence.confirmationMessage: mensaje breve para confirmar la asistencia. Ped\xEDs confirmaci\xF3n de forma natural, sin sonar desesperado pero tampoco arrogante. Dale una salida f\xE1cil por si tiene que reprogramar.
-12. objections: 3-5 objeciones probables de ESTE negocio (ej: dinero, "lo tengo que consultar", "ya prob\xE9 algo similar", "lo tengo que pensar", "no tengo tiempo"). Para cada una, en "response" pon\xE9: una validaci\xF3n corta (sin frase hecha) + LA PREGUNTA o el reencuadre que abre la conversaci\xF3n. Nada de presi\xF3n ni de insistir.`;
-}
-async function suggestServices(hint) {
-  const ai = getClient3();
-  if (!ai) return null;
-  const notes = hint.trim() ? `Basate en estas notas del usuario: "${hint.trim()}".` : "Asum\xED servicios t\xEDpicos de una agencia chica: web apps a medida, automatizaciones con IA, chatbots, integraciones y dashboards.";
-  const prompt = `Sos parte de una agencia de desarrollo web y automatizaci\xF3n.
-Escrib\xED en 1 o 2 frases, en espa\xF1ol rioplatense simple y concreto (sin jerga ni palabras infladas), qu\xE9 ofrece la agencia. Sirve como contexto para una IA que prospecta clientes.
-${notes}
-Devolv\xE9 SOLO el texto, sin comillas, sin encabezados, sin vi\xF1etas.`;
-  const res = await ai.models.generateContent({
-    model: env.VERTEX_MODEL,
-    contents: prompt,
-    config: { temperature: 0.7 }
-  });
-  return res.text?.trim() ?? null;
-}
-async function analyzeBusiness(input) {
-  const ai = getClient3();
-  if (!ai) return null;
-  const res = await ai.models.generateContent({
-    model: env.VERTEX_MODEL,
-    contents: buildPrompt(input),
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-      // Bajado de 0.95: a 0.95 hay más deriva y se incumplen reglas de estilo.
-      // 0.85 mantiene variedad en los arranques sin desmadrarse.
-      temperature: 0.85
-    }
-  });
-  const text30 = res.text;
-  if (!text30) return null;
-  try {
-    return JSON.parse(text30);
-  } catch {
-    return null;
-  }
-}
-
-// src/modules/prospecting/prospecting.service.ts
-function toProspectDTO(row) {
-  return {
-    id: row.id,
-    searchId: row.searchId,
-    name: row.name,
-    address: row.address,
-    phone: row.phone,
-    website: row.website,
-    email: row.email,
-    rating: row.rating != null ? Number(row.rating) : null,
-    userRatingsTotal: row.userRatingsTotal,
-    types: row.types ?? [],
-    aiAnalysis: row.aiAnalysis,
-    aiProposal: row.aiProposal ?? null,
-    status: row.status,
-    importedContactId: row.importedContactId,
-    createdAt: row.createdAt.toISOString()
-  };
-}
-function toSearchDTO(row) {
-  return {
-    id: row.id,
-    query: row.query,
-    ourServices: row.ourServices,
-    requestedLimit: row.requestedLimit,
-    resultCount: row.resultCount,
-    status: row.status,
-    error: row.error,
-    createdAt: row.createdAt.toISOString()
-  };
-}
-function getProspectingCapabilities() {
-  return { places: isPlacesConfigured(), ai: isVertexConfigured() };
-}
-async function suggestProspectingServices(hint) {
-  if (!isVertexConfigured()) {
-    throw new AppError("AI_NOT_CONFIGURED", "La sugerencia con IA requiere Vertex configurado.", 503);
-  }
-  const text30 = await suggestServices(hint);
-  if (!text30) throw Errors.internal("La IA no devolvi\xF3 una sugerencia");
-  return text30;
-}
-async function runProspectSearch(portalId, userId, input) {
-  if (!isPlacesConfigured()) {
-    throw new AppError(
-      "PLACES_NOT_CONFIGURED",
-      "La prospecci\xF3n requiere GOOGLE_MAPS_API_KEY configurada en la API.",
-      503
-    );
-  }
-  const [search] = await db.insert(prospectSearch).values({
-    portalId,
-    query: input.query,
-    ourServices: input.ourServices ?? null,
-    requestedLimit: input.limit,
-    status: "running",
-    createdBy: userId
-  }).returning();
-  if (!search) throw Errors.internal("No se pudo crear la b\xFAsqueda");
-  try {
-    const places = await searchBusinesses(input.query, input.limit);
-    const placeIds = places.map((p) => p.googlePlaceId).filter((id) => Boolean(id));
-    const alreadySeen = placeIds.length ? await db.select({ googlePlaceId: prospect.googlePlaceId }).from(prospect).where(and35(eq44(prospect.portalId, portalId), inArray15(prospect.googlePlaceId, placeIds))) : [];
-    const seen = new Set(alreadySeen.map((r) => r.googlePlaceId));
-    const batchSeen = /* @__PURE__ */ new Set();
-    const fresh = places.filter((p) => {
-      if (!p.googlePlaceId) return true;
-      if (seen.has(p.googlePlaceId) || batchSeen.has(p.googlePlaceId)) return false;
-      batchSeen.add(p.googlePlaceId);
-      return true;
-    });
-    const enriched = await Promise.all(
-      fresh.map(async (place) => {
-        const [email, ai] = await Promise.all([
-          place.website ? scrapeEmail(place.website) : Promise.resolve(null),
-          analyzeBusiness({
-            name: place.name,
-            types: place.types,
-            website: place.website,
-            rating: place.rating,
-            address: place.address,
-            ourServices: input.ourServices ?? null
-          }).catch(() => null)
-        ]);
-        return { place, email, ai };
-      })
-    );
-    let prospects = [];
-    if (enriched.length > 0) {
-      const rows = await db.insert(prospect).values(
-        enriched.map(({ place, email, ai }) => ({
-          portalId,
-          searchId: search.id,
-          name: place.name,
-          address: place.address,
-          phone: place.phone,
-          website: place.website,
-          email,
-          rating: place.rating != null ? String(place.rating) : null,
-          userRatingsTotal: place.userRatingsTotal,
-          googlePlaceId: place.googlePlaceId || null,
-          types: place.types,
-          aiAnalysis: ai?.analysis ?? null,
-          aiProposal: ai ? ai : null
-        }))
-      ).returning();
-      prospects = rows.map(toProspectDTO);
-    }
-    const [updated] = await db.update(prospectSearch).set({ status: "completed", resultCount: prospects.length }).where(eq44(prospectSearch.id, search.id)).returning();
-    return { search: toSearchDTO(updated ?? search), prospects };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Error desconocido";
-    await db.update(prospectSearch).set({ status: "failed", error: message }).where(eq44(prospectSearch.id, search.id));
-    if (err instanceof AppError) throw err;
-    throw new AppError("PROSPECTING_FAILED", `La prospecci\xF3n fall\xF3: ${message}`, 502);
-  }
-}
-async function listSearches(portalId, query) {
-  const cursor = decodeCursor(query.cursor);
-  const rows = await db.select().from(prospectSearch).where(
-    and35(
-      eq44(prospectSearch.portalId, portalId),
-      cursor ? cursorWhere(prospectSearch.createdAt, prospectSearch.id, cursor) : void 0
-    )
-  ).orderBy(desc20(prospectSearch.createdAt), desc20(prospectSearch.id)).limit(query.limit + 1);
-  const page = paginateRows(rows, query.limit);
-  return { items: page.items.map(toSearchDTO), nextCursor: page.nextCursor };
-}
-async function getSearchWithProspects(portalId, searchId) {
-  const [row] = await db.select().from(prospectSearch).where(and35(eq44(prospectSearch.id, searchId), eq44(prospectSearch.portalId, portalId))).limit(1);
-  if (!row) throw Errors.notFound("B\xFAsqueda no encontrada");
-  const prospects = await db.select().from(prospect).where(and35(eq44(prospect.searchId, searchId), eq44(prospect.portalId, portalId))).orderBy(desc20(prospect.createdAt));
-  return { search: toSearchDTO(row), prospects: prospects.map(toProspectDTO) };
-}
-async function listProspects(portalId, query) {
-  const conditions = [eq44(prospect.portalId, portalId)];
-  if (query.searchId) conditions.push(eq44(prospect.searchId, query.searchId));
-  if (query.status) conditions.push(eq44(prospect.status, query.status));
-  const rows = await db.select().from(prospect).where(and35(...conditions)).orderBy(desc20(prospect.createdAt)).limit(500);
-  return rows.map(toProspectDTO);
-}
-async function findProspect(portalId, id) {
-  const [row] = await db.select().from(prospect).where(and35(eq44(prospect.id, id), eq44(prospect.portalId, portalId))).limit(1);
-  if (!row) throw Errors.notFound("Prospecto no encontrado");
-  return row;
-}
-async function importProspect(portalId, userId, id) {
-  const row = await findProspect(portalId, id);
-  if (row.status === "imported" && row.importedContactId) {
-    throw Errors.conflict("Este prospecto ya fue importado al CRM");
-  }
-  const result = await db.transaction(async (tx) => {
-    const [newCompany] = await tx.insert(company).values({
-      portalId,
-      ownerId: userId,
-      name: row.name,
-      website: row.website,
-      phone: row.phone,
-      custom: { source: "prospecting", prospectId: row.id }
-    }).returning({ id: company.id });
-    if (!newCompany) throw Errors.internal("No se pudo crear la empresa");
-    let newContact;
-    try {
-      ;
-      [newContact] = await tx.insert(contact).values({
-        portalId,
-        ownerId: userId,
-        companyId: newCompany.id,
-        firstName: row.name,
-        email: row.email,
-        phone: row.phone,
-        lifecycleStage: "lead",
-        custom: { source: "prospecting", prospectId: row.id }
-      }).returning({ id: contact.id });
-    } catch {
-      throw Errors.conflict("Ya existe un contacto con ese email en el CRM");
-    }
-    if (!newContact) throw Errors.internal("No se pudo crear el contacto");
-    await tx.update(prospect).set({ status: "imported", importedContactId: newContact.id }).where(eq44(prospect.id, row.id));
-    return { contactId: newContact.id, companyId: newCompany.id };
-  });
-  const who = await actorName(portalId, userId);
-  await notifyAdmins(
-    portalId,
-    {
-      entityType: "contact",
-      entityId: result.contactId,
-      type: "prospect_converted",
-      title: `${who} convirti\xF3 \xAB${row.name}\xBB en lead`,
-      actionUrl: `/admin/leads/${result.contactId}`
-    },
-    { exceptUserId: userId }
-  );
-  return result;
-}
-async function discardProspect(portalId, id) {
-  await findProspect(portalId, id);
-  const [updated] = await db.update(prospect).set({ status: "discarded" }).where(and35(eq44(prospect.id, id), eq44(prospect.portalId, portalId))).returning();
-  if (!updated) throw Errors.internal("No se pudo descartar el prospecto");
-  return toProspectDTO(updated);
-}
-
-// src/modules/prospecting/prospecting.router.ts
-var TAG30 = "Prospecci\xF3n";
-var security29 = ADMIN_SECURITY;
-async function prospectingRoutes(app2) {
-  const r = app2.withTypeProvider();
-  r.addHook("preHandler", authenticate);
-  r.get(
-    "/capabilities",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Estado de configuraci\xF3n (Places / IA)",
-        description: "Indica si Google Places y Vertex AI est\xE1n configurados en la API.",
-        security: security29
-      }
-    },
-    async () => ok(getProspectingCapabilities())
-  );
-  r.post(
-    "/suggest-services",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Sugerir descripci\xF3n de servicios de la agencia",
-        description: 'Redacta con IA el perfil de "qu\xE9 ofrecemos" a partir de notas opcionales.',
-        security: security29,
-        body: SuggestServicesSchema
-      },
-      preHandler: [authorize("owner", "member")]
-    },
-    async (request) => {
-      const services = await suggestProspectingServices(request.body.hint);
-      return ok({ services });
-    }
-  );
-  r.post(
-    "/search",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Buscar y analizar prospectos",
-        description: "Busca negocios en Google Places, extrae emails y genera una propuesta con IA. No env\xEDa nada.",
-        security: security29,
-        body: RunSearchSchema
-      },
-      preHandler: [authorize("owner", "member")]
-    },
-    async (request, reply) => {
-      const result = await runProspectSearch(
-        request.hubUser.portalId,
-        request.hubUser.sub,
-        request.body
-      );
-      return reply.status(201).send(ok(result));
-    }
-  );
-  r.get(
-    "/searches",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Listar b\xFAsquedas de prospecci\xF3n",
-        security: security29,
-        querystring: ListSearchesQuerySchema
-      }
-    },
-    async (request) => {
-      const { items, nextCursor } = await listSearches(request.hubUser.portalId, request.query);
-      return ok(items, { nextCursor });
-    }
-  );
-  r.get(
-    "/searches/:id",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Detalle de una b\xFAsqueda + sus prospectos",
-        security: security29,
-        params: IdParamSchema
-      }
-    },
-    async (request) => {
-      const result = await getSearchWithProspects(request.hubUser.portalId, request.params.id);
-      return ok(result);
-    }
-  );
-  r.get(
-    "/prospects",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Listar prospectos",
-        description: "Filtrable por b\xFAsqueda (searchId) y estado (new/imported/discarded).",
-        security: security29,
-        querystring: ListProspectsQuerySchema
-      }
-    },
-    async (request) => {
-      const items = await listProspects(request.hubUser.portalId, request.query);
-      return ok(items);
-    }
-  );
-  r.post(
-    "/prospects/:id/import",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Importar prospecto al CRM como Lead",
-        description: "Crea una empresa + un contacto (lead) y marca el prospecto como importado.",
-        security: security29,
-        params: IdParamSchema
-      },
-      preHandler: [authorize("owner", "member")]
-    },
-    async (request, reply) => {
-      const result = await importProspect(
-        request.hubUser.portalId,
-        request.hubUser.sub,
-        request.params.id
-      );
-      return reply.status(201).send(ok(result));
-    }
-  );
-  r.post(
-    "/prospects/:id/discard",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Descartar prospecto",
-        security: security29,
-        params: IdParamSchema
-      },
-      preHandler: [authorize("owner", "member")]
-    },
-    async (request) => {
-      const result = await discardProspect(request.hubUser.portalId, request.params.id);
-      return ok(result);
-    }
-  );
-}
-
-// src/modules/proposals/proposals.schema.ts
-import { z as z33 } from "zod";
-var ProposalScopeItemSchema = z33.object({
-  title: z33.string().max(160),
-  description: z33.string().max(1e3)
-});
-var ProposalPhaseSchema = z33.object({
-  phase: z33.string().max(160),
-  duration: z33.string().max(80),
-  detail: z33.string().max(1e3)
-});
-var ProposalPricingItemSchema = z33.object({
-  label: z33.string().max(200),
-  amount: z33.number().nonnegative()
-});
-var ProposalPricingSchema = z33.object({
-  items: z33.array(ProposalPricingItemSchema).max(30),
-  total: z33.number().nonnegative(),
-  currency: z33.string().min(1).max(3),
-  note: z33.string().max(400).optional()
-});
-var ProposalContentSchema = z33.object({
-  title: z33.string().max(200),
-  clientName: z33.string().max(160),
-  companyName: z33.string().max(160).optional(),
-  logoUrl: z33.string().max(500).optional(),
-  tagline: z33.string().max(200).optional(),
-  summary: z33.string().max(2e3),
-  understanding: z33.string().max(2e3),
-  objectives: z33.array(z33.string().max(400)).max(12),
-  solution: z33.string().max(3e3),
-  scope: z33.array(ProposalScopeItemSchema).max(20),
-  timeline: z33.array(ProposalPhaseSchema).max(12),
-  pricing: ProposalPricingSchema,
-  whyUs: z33.array(z33.string().max(400)).max(10),
-  nextSteps: z33.string().max(2e3),
-  terms: z33.string().max(3e3).optional()
-});
-var GenerateProposalSchema = z33.object({
-  dealId: z33.string().min(1, "dealId requerido").max(60)
-});
-var UpdateProposalSchema = z33.object({
-  title: z33.string().min(1).max(200).optional(),
-  content: ProposalContentSchema.optional()
-});
-var ProposalTokenParamSchema = z33.object({
-  token: z33.string().min(1).max(60)
-});
-
-// src/modules/proposals/proposals.service.ts
-import { and as and36, desc as desc21, eq as eq45 } from "drizzle-orm";
 
 // src/modules/proposals/proposals.ai.ts
 var PROJECT_TYPE_LABEL = {
@@ -11284,7 +8914,7 @@ var PRIORITY_LABEL = {
   calidad: "la calidad",
   escalabilidad: "la escalabilidad"
 };
-var SYSTEM_INSTRUCTION2 = `Sos el redactor comercial de NOUS, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escrib\xEDs propuestas claras, concretas y profesionales, en espa\xF1ol rioplatense (voseo), sin relleno ni buzzwords vac\xEDos. Habl\xE1s de valor de negocio, no de tecnolog\xEDa por la tecnolog\xEDa. Sos honesto y espec\xEDfico: nada de promesas gen\xE9ricas.
+var SYSTEM_INSTRUCTION = `Sos el redactor comercial de NOUS, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escrib\xEDs propuestas claras, concretas y profesionales, en espa\xF1ol rioplatense (voseo), sin relleno ni buzzwords vac\xEDos. Habl\xE1s de valor de negocio, no de tecnolog\xEDa por la tecnolog\xEDa. Sos honesto y espec\xEDfico: nada de promesas gen\xE9ricas.
 
 Devolv\xE9s SIEMPRE y \xDANICAMENTE un objeto JSON v\xE1lido (sin markdown, sin texto fuera del JSON) con esta forma exacta:
 {
@@ -11308,7 +8938,7 @@ Devolv\xE9s SIEMPRE y \xDANICAMENTE un objeto JSON v\xE1lido (sin markdown, sin 
   "nextSteps": string,        // cierre / pr\xF3ximos pasos
   "terms": string             // t\xE9rminos breves (validez, revisiones, etc.)
 }`;
-function buildPrompt2(input) {
+function buildPrompt(input) {
   const lines = [];
   lines.push(`Cliente: ${input.contactName}${input.companyName ? ` (${input.companyName})` : ""}`);
   if (input.projectType) lines.push(`Tipo de proyecto: ${PROJECT_TYPE_LABEL[input.projectType] ?? input.projectType}`);
@@ -11326,8 +8956,8 @@ function buildPrompt2(input) {
 DATOS DEL LEAD:
 ${lines.join("\n")}`;
 }
-function safeJsonParse(text30) {
-  let t = text30.trim();
+function safeJsonParse(text28) {
+  let t = text28.trim();
   t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   try {
     return JSON.parse(t);
@@ -11343,8 +8973,8 @@ function safeJsonParse(text30) {
 async function generateProposalContent(input, provider = "gemini") {
   const generate = getProvider(provider);
   const result = await generate({
-    systemInstruction: SYSTEM_INSTRUCTION2,
-    contents: [{ role: "user", parts: [{ text: buildPrompt2(input) }] }],
+    systemInstruction: SYSTEM_INSTRUCTION,
+    prompt: buildPrompt(input),
     temperature: 0.8,
     maxOutputTokens: 8192
   });
@@ -11531,9 +9161,8 @@ function publicUrl(token) {
   const base = env.ADMIN_URL ?? "http://localhost:3000";
   return `${base}/p/${token}`;
 }
-async function getModelProvider(portalId) {
-  const [t] = await db.select({ p: setterTenant.modelProvider }).from(setterTenant).where(eq45(setterTenant.portalId, portalId)).limit(1);
-  return t?.p === "claude" ? "claude" : "gemini";
+function getModelProvider() {
+  return env.MODEL_PROVIDER;
 }
 function toDTO2(row) {
   return {
@@ -11561,19 +9190,19 @@ async function generateProposal(portalId, dealId, actorId) {
     id: deal.id,
     primaryContactId: deal.primaryContactId,
     companyId: deal.companyId
-  }).from(deal).where(and36(eq45(deal.id, dealId), eq45(deal.portalId, portalId), eq45(deal.archived, false))).limit(1);
+  }).from(deal).where(and31(eq36(deal.id, dealId), eq36(deal.portalId, portalId), eq36(deal.archived, false))).limit(1);
   if (!d) throw Errors.notFound("Deal no encontrado");
   let contactName = "Cliente";
   if (d.primaryContactId) {
-    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq45(contact.id, d.primaryContactId)).limit(1);
+    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq36(contact.id, d.primaryContactId)).limit(1);
     if (c) contactName = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || contactName;
   }
   let companyName;
   if (d.companyId) {
-    const [co] = await db.select({ name: company.name }).from(company).where(eq45(company.id, d.companyId)).limit(1);
+    const [co] = await db.select({ name: company.name }).from(company).where(eq36(company.id, d.companyId)).limit(1);
     companyName = co?.name;
   }
-  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and36(eq45(onboardingSubmission.portalId, portalId), eq45(onboardingSubmission.dealId, dealId))).orderBy(desc21(onboardingSubmission.createdAt)).limit(1);
+  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and31(eq36(onboardingSubmission.portalId, portalId), eq36(onboardingSubmission.dealId, dealId))).orderBy(desc19(onboardingSubmission.createdAt)).limit(1);
   const a = sub?.answers ?? {};
   const input = {
     contactName,
@@ -11589,7 +9218,7 @@ async function generateProposal(portalId, dealId, actorId) {
     toAutomate: str(a.toAutomate),
     priority: str(a.priority)
   };
-  const provider = await getModelProvider(portalId);
+  const provider = getModelProvider();
   let content;
   let model;
   try {
@@ -11629,11 +9258,11 @@ async function generateProposal(portalId, dealId, actorId) {
   return toDTO2(row);
 }
 async function listProposals(portalId) {
-  const rows = await db.select().from(proposal).where(eq45(proposal.portalId, portalId)).orderBy(desc21(proposal.createdAt)).limit(500);
+  const rows = await db.select().from(proposal).where(eq36(proposal.portalId, portalId)).orderBy(desc19(proposal.createdAt)).limit(500);
   return rows.map(toDTO2);
 }
 async function getProposal(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
@@ -11646,12 +9275,12 @@ async function updateProposal(portalId, id, input) {
     patch.currency = input.content.pricing.currency || "USD";
   }
   if (Object.keys(patch).length === 0) return getProposal(portalId, id);
-  const [row] = await db.update(proposal).set(patch).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set(patch).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
 async function acceptProposal(portalId, id, actorId) {
-  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   const who = await actorName(portalId, actorId);
   await notifyAdmins(
@@ -11669,26 +9298,26 @@ async function acceptProposal(portalId, id, actorId) {
   return toDTO2(row);
 }
 async function markProposalSent(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   if (!row.sentAt) {
-    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).returning();
+    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).returning();
     if (updated) return toDTO2(updated);
   }
   return toDTO2(row);
 }
 async function markProposalCompleted(token) {
-  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq45(proposal.token, token)).limit(1);
+  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq36(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") return;
   if (!row.completedAt) {
-    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq45(proposal.id, row.id));
+    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq36(proposal.id, row.id));
   }
 }
 async function getPublicProposal(token) {
-  const [row] = await db.select().from(proposal).where(eq45(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq36(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   if (!row.viewedAt) {
-    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq45(proposal.id, row.id));
+    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq36(proposal.id, row.id));
     const cliente = row.content.companyName || row.content.clientName;
     await notifyAdmins(row.portalId, {
       entityType: "proposal",
@@ -11710,21 +9339,21 @@ function slugify3(s) {
   return s.normalize("NFD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "propuesta";
 }
 async function getPublicProposalPdf(token) {
-  const [row] = await db.select().from(proposal).where(eq45(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq36(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   const buffer = await buildProposalPdf(row.content);
   return { filename: `${slugify3(row.title)}.pdf`, buffer };
 }
 
 // src/modules/proposals/proposals.router.ts
-var TAG31 = "Proposals";
+var TAG29 = "Proposals";
 async function proposalPublicRoutes(app2) {
   const r = app2.withTypeProvider();
   r.get(
     "/:token",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Ver una propuesta por su token (p\xFAblico)",
         params: ProposalTokenParamSchema
       }
@@ -11735,7 +9364,7 @@ async function proposalPublicRoutes(app2) {
     "/:token/pdf",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Descargar el PDF de una propuesta (p\xFAblico)",
         params: ProposalTokenParamSchema
       }
@@ -11749,7 +9378,7 @@ async function proposalPublicRoutes(app2) {
     "/:token/completed",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Marcar que el cliente termin\xF3 la presentaci\xF3n (p\xFAblico)",
         params: ProposalTokenParamSchema
       }
@@ -11767,7 +9396,7 @@ async function proposalAdminRoutes(app2) {
     "/generate",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Generar una propuesta con IA desde un deal",
         security: ADMIN_SECURITY,
         body: GenerateProposalSchema
@@ -11785,19 +9414,19 @@ async function proposalAdminRoutes(app2) {
   );
   r.get(
     "/",
-    { schema: { tags: [TAG31], summary: "Listar propuestas", security: ADMIN_SECURITY } },
+    { schema: { tags: [TAG29], summary: "Listar propuestas", security: ADMIN_SECURITY } },
     async (request) => ok(await listProposals(request.hubUser.portalId))
   );
   r.get(
     "/:id",
-    { schema: { tags: [TAG31], summary: "Detalle de una propuesta", security: ADMIN_SECURITY, params: IdParamSchema } },
+    { schema: { tags: [TAG29], summary: "Detalle de una propuesta", security: ADMIN_SECURITY, params: IdParamSchema } },
     async (request) => ok(await getProposal(request.hubUser.portalId, request.params.id))
   );
   r.patch(
     "/:id",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Editar una propuesta",
         security: ADMIN_SECURITY,
         params: IdParamSchema,
@@ -11810,7 +9439,7 @@ async function proposalAdminRoutes(app2) {
     "/:id/accept",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Aprobar una propuesta",
         security: ADMIN_SECURITY,
         params: IdParamSchema
@@ -11823,7 +9452,7 @@ async function proposalAdminRoutes(app2) {
     "/:id/sent",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Marcar una propuesta como enviada",
         security: ADMIN_SECURITY,
         params: IdParamSchema
@@ -11835,28 +9464,28 @@ async function proposalAdminRoutes(app2) {
 }
 
 // src/modules/branding/branding.schema.ts
-import { z as z34 } from "zod";
+import { z as z32 } from "zod";
 var SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var HEX_RE = /^#[0-9a-fA-F]{6}$/;
-var UpdateBrandingSchema = z34.object({
-  brandSlug: z34.string().regex(SLUG_RE, "Slug inv\xE1lido (solo min\xFAsculas, n\xFAmeros y guiones)").max(40).nullable().optional(),
-  brandName: z34.string().max(60).nullable().optional(),
-  brandLogoKey: z34.string().max(200).nullable().optional(),
-  brandPrimary: z34.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
-  brandSecondary: z34.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
+var UpdateBrandingSchema = z32.object({
+  brandSlug: z32.string().regex(SLUG_RE, "Slug inv\xE1lido (solo min\xFAsculas, n\xFAmeros y guiones)").max(40).nullable().optional(),
+  brandName: z32.string().max(60).nullable().optional(),
+  brandLogoKey: z32.string().max(200).nullable().optional(),
+  brandPrimary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
+  brandSecondary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
 });
-var ClientUpdateBrandingSchema = z34.object({
-  brandName: z34.string().max(60).nullable().optional(),
-  brandLogoKey: z34.string().max(200).nullable().optional(),
-  brandPrimary: z34.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
-  brandSecondary: z34.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
+var ClientUpdateBrandingSchema = z32.object({
+  brandName: z32.string().max(60).nullable().optional(),
+  brandLogoKey: z32.string().max(200).nullable().optional(),
+  brandPrimary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
+  brandSecondary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
 });
-var SlugParamSchema = z34.object({
-  slug: z34.string().min(1).max(40)
+var SlugParamSchema = z32.object({
+  slug: z32.string().min(1).max(40)
 });
 
 // src/modules/branding/branding.service.ts
-import { and as and37, asc as asc15, eq as eq46 } from "drizzle-orm";
+import { and as and32, asc as asc12, eq as eq37 } from "drizzle-orm";
 function logoUrl(key) {
   return key ? `${env.PUBLIC_API_URL}/api/files/${key}` : null;
 }
@@ -11875,7 +9504,7 @@ async function getBrandingBySlug(slug) {
     brandLogoKey: clientAccount.brandLogoKey,
     brandPrimary: clientAccount.brandPrimary,
     brandSecondary: clientAccount.brandSecondary
-  }).from(clientAccount).where(eq46(clientAccount.brandSlug, slug)).limit(1);
+  }).from(clientAccount).where(eq37(clientAccount.brandSlug, slug)).limit(1);
   if (!row) return null;
   return {
     brandName: row.brandName,
@@ -11885,7 +9514,7 @@ async function getBrandingBySlug(slug) {
   };
 }
 async function listClientBranding(portalId) {
-  const rows = await db.select(brandingCols).from(clientAccount).where(eq46(clientAccount.portalId, portalId)).orderBy(asc15(clientAccount.email));
+  const rows = await db.select(brandingCols).from(clientAccount).where(eq37(clientAccount.portalId, portalId)).orderBy(asc12(clientAccount.email));
   return rows.map((r) => ({
     id: r.id,
     email: r.email,
@@ -11898,7 +9527,7 @@ async function listClientBranding(portalId) {
   }));
 }
 async function updateClientBranding(portalId, accountId, input) {
-  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and37(eq46(clientAccount.id, accountId), eq46(clientAccount.portalId, portalId))).limit(1);
+  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and32(eq37(clientAccount.id, accountId), eq37(clientAccount.portalId, portalId))).limit(1);
   if (!exists) throw Errors.notFound("Cuenta de cliente no encontrada");
   let row;
   try {
@@ -11909,7 +9538,7 @@ async function updateClientBranding(portalId, accountId, input) {
       brandLogoKey: input.brandLogoKey ?? null,
       brandPrimary: input.brandPrimary ?? null,
       brandSecondary: input.brandSecondary ?? null
-    }).where(eq46(clientAccount.id, accountId)).returning(brandingCols);
+    }).where(eq37(clientAccount.id, accountId)).returning(brandingCols);
   } catch {
     throw new AppError("SLUG_TAKEN", "Ese slug ya est\xE1 en uso por otro cliente", 409);
   }
@@ -11926,7 +9555,7 @@ async function updateClientBranding(portalId, accountId, input) {
   };
 }
 async function getOwnBranding(clientId) {
-  const [row] = await db.select(brandingCols).from(clientAccount).where(eq46(clientAccount.id, clientId)).limit(1);
+  const [row] = await db.select(brandingCols).from(clientAccount).where(eq37(clientAccount.id, clientId)).limit(1);
   if (!row) throw Errors.notFound("Cuenta no encontrada");
   return {
     id: row.id,
@@ -11945,7 +9574,7 @@ async function updateOwnBranding(clientId, input) {
     brandLogoKey: input.brandLogoKey ?? null,
     brandPrimary: input.brandPrimary ?? null,
     brandSecondary: input.brandSecondary ?? null
-  }).where(eq46(clientAccount.id, clientId)).returning(brandingCols);
+  }).where(eq37(clientAccount.id, clientId)).returning(brandingCols);
   if (!row) throw Errors.notFound("Cuenta no encontrada");
   return {
     id: row.id,
@@ -11960,14 +9589,14 @@ async function updateOwnBranding(clientId, input) {
 }
 
 // src/modules/branding/branding.router.ts
-var TAG32 = "White-Label";
+var TAG30 = "White-Label";
 async function brandingPublicRoutes(app2) {
   const r = app2.withTypeProvider();
   r.get(
     "/:slug",
     {
       schema: {
-        tags: [TAG32],
+        tags: [TAG30],
         summary: "Branding por slug (p\xFAblico)",
         description: "Devuelve nombre, logo y colores de la marca asociada al slug. Para tematizar el portal antes de autenticar.",
         params: SlugParamSchema
@@ -11981,14 +9610,14 @@ async function brandingAdminRoutes(app2) {
   r.addHook("preHandler", authenticate);
   r.get(
     "/clients",
-    { schema: { tags: [TAG32], summary: "Listar branding por cliente", security: ADMIN_SECURITY } },
+    { schema: { tags: [TAG30], summary: "Listar branding por cliente", security: ADMIN_SECURITY } },
     async (request) => ok(await listClientBranding(request.hubUser.portalId))
   );
   r.patch(
     "/clients/:id",
     {
       schema: {
-        tags: [TAG32],
+        tags: [TAG30],
         summary: "Actualizar branding de un cliente",
         security: ADMIN_SECURITY,
         params: IdParamSchema,
@@ -12021,20 +9650,20 @@ async function brandingClientRoutes(app2) {
 }
 
 // src/modules/onboarding/onboarding.service.ts
-import { and as and38, desc as desc22, eq as eq47, inArray as inArray16, isNull as isNull4, sql as sql31 } from "drizzle-orm";
+import { and as and33, desc as desc20, eq as eq38, inArray as inArray15, isNull as isNull4, sql as sql28 } from "drizzle-orm";
 
 // src/modules/onboarding/onboarding.schema.ts
-import { z as z35 } from "zod";
+import { z as z33 } from "zod";
 var ONBOARDING_STATUS = {
   IN_PROGRESS: "in_progress",
   COMPLETED: "completed"
 };
-var OnboardingProgressSchema = z35.object({
-  step: z35.number().int().min(1, "Paso inv\xE1lido").max(4, "Paso inv\xE1lido")
+var OnboardingProgressSchema = z33.object({
+  step: z33.number().int().min(1, "Paso inv\xE1lido").max(4, "Paso inv\xE1lido")
 });
-var OnboardingSignatureSchema = z35.object({
-  fullName: z35.string({ required_error: "El nombre completo es requerido." }).min(3, "El nombre completo es requerido.").max(200, "Nombre demasiado largo."),
-  accepted: z35.literal(true, { errorMap: () => ({ message: "Deb\xE9s aceptar los t\xE9rminos para firmar." }) })
+var OnboardingSignatureSchema = z33.object({
+  fullName: z33.string({ required_error: "El nombre completo es requerido." }).min(3, "El nombre completo es requerido.").max(200, "Nombre demasiado largo."),
+  accepted: z33.literal(true, { errorMap: () => ({ message: "Deb\xE9s aceptar los t\xE9rminos para firmar." }) })
 });
 var DELIVERY_CHANNELS = [
   "whatsapp",
@@ -12050,14 +9679,14 @@ var stripControl = (s) => s.split("").filter((c) => {
   const code = c.charCodeAt(0);
   return code > 31 && code !== 127;
 }).join("");
-var freeText = (max) => z35.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).pipe(z35.string().min(1, "Requerido"));
-var freeTextOptional = (max) => z35.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).optional();
-var OnboardingBriefSchema = z35.object({
+var freeText = (max) => z33.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).pipe(z33.string().min(1, "Requerido"));
+var freeTextOptional = (max) => z33.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).optional();
+var OnboardingBriefSchema = z33.object({
   businessProgram: freeText(2e3),
   // q1
   activeClients: freeText(500),
   // q2
-  deliveryChannels: z35.array(z35.enum(DELIVERY_CHANNELS)).min(1, "Eleg\xED al menos un canal"),
+  deliveryChannels: z33.array(z33.enum(DELIVERY_CHANNELS)).min(1, "Eleg\xED al menos un canal"),
   // q3
   deliveryChannelsOther: freeTextOptional(200),
   worstChannel: freeText(2e3),
@@ -12087,10 +9716,10 @@ var OnboardingBriefSchema = z35.object({
   doubtsBeforeBuying: freeText(2e3)
   // q16
 });
-var MaterialItemSchema = z35.object({
-  done: z35.boolean(),
-  assetIds: z35.array(z35.string().min(1)).max(50, "M\xE1ximo 50 archivos por categor\xEDa.").optional(),
-  note: z35.string().max(500).optional()
+var MaterialItemSchema = z33.object({
+  done: z33.boolean(),
+  assetIds: z33.array(z33.string().min(1)).max(50, "M\xE1ximo 50 archivos por categor\xEDa.").optional(),
+  note: z33.string().max(500).optional()
 });
 var ONBOARDING_MATERIAL_CATEGORIES = [
   "logoBrand",
@@ -12098,16 +9727,16 @@ var ONBOARDING_MATERIAL_CATEGORIES = [
   "clientBase",
   "toolAccess"
 ];
-var OnboardingMaterialsSchema = z35.object({
-  materials: z35.object({
+var OnboardingMaterialsSchema = z33.object({
+  materials: z33.object({
     logoBrand: MaterialItemSchema,
     programContent: MaterialItemSchema,
     clientBase: MaterialItemSchema,
     toolAccess: MaterialItemSchema
   })
 });
-var OnboardingMaterialUploadQuerySchema = z35.object({
-  category: z35.enum(ONBOARDING_MATERIAL_CATEGORIES, {
+var OnboardingMaterialUploadQuerySchema = z33.object({
+  category: z33.enum(ONBOARDING_MATERIAL_CATEGORIES, {
     errorMap: () => ({ message: "Categor\xEDa de material inv\xE1lida" })
   })
 });
@@ -12120,16 +9749,16 @@ var CATEGORY_TO_ASSET_TYPE = {
   toolAccess: "acceso"
 };
 async function resolveActiveDeal(clientId) {
-  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq47(deal.id, clientDealAccess.dealId)).where(and38(eq47(clientDealAccess.clientId, clientId), eq47(deal.archived, false))).orderBy(desc22(deal.createdAt)).limit(1);
+  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq38(deal.id, clientDealAccess.dealId)).where(and33(eq38(clientDealAccess.clientId, clientId), eq38(deal.archived, false))).orderBy(desc20(deal.createdAt)).limit(1);
   if (!row) throw Errors.notFound("No hay un proyecto activo asociado a esta cuenta");
   return row;
 }
 async function getOrCreateOnboarding(dbOrTx, portalId, dealId, clientId) {
-  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq47(clientOnboarding.dealId, dealId)).limit(1);
+  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq38(clientOnboarding.dealId, dealId)).limit(1);
   if (existing) return existing;
   const [created] = await dbOrTx.insert(clientOnboarding).values({ portalId, dealId, clientId }).onConflictDoNothing({ target: clientOnboarding.dealId }).returning();
   if (created) return created;
-  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq47(clientOnboarding.dealId, dealId)).limit(1);
+  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq38(clientOnboarding.dealId, dealId)).limit(1);
   if (!row) throw Errors.internal("No se pudo crear el onboarding");
   return row;
 }
@@ -12140,7 +9769,7 @@ async function getOnboardingState(clientId) {
   const activeDeal = await resolveActiveDeal(clientId);
   const [onboarding, assets] = await Promise.all([
     getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId),
-    db.select().from(clientAsset).where(and38(eq47(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc22(clientAsset.uploadedAt))
+    db.select().from(clientAsset).where(and33(eq38(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc20(clientAsset.uploadedAt))
   ]);
   return { onboarding, assets };
 }
@@ -12153,7 +9782,7 @@ async function markStepProgress(clientId, step) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, Math.min(step + 1, 8)),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq47(clientOnboarding.id, row.id)).returning();
+  }).where(eq38(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo actualizar el progreso");
   return updated;
 }
@@ -12170,7 +9799,7 @@ async function submitSignature(clientId, fullName, ip) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 6),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq47(clientOnboarding.id, row.id)).returning();
+  }).where(eq38(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar la firma");
   return updated;
 }
@@ -12184,7 +9813,7 @@ async function submitBrief(clientId, answers) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 7),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq47(clientOnboarding.id, row.id)).returning();
+  }).where(eq38(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar el brief");
   return updated;
 }
@@ -12211,7 +9840,7 @@ async function submitMaterials(clientId, materials) {
   assertNotCompleted(row);
   const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? []);
   if (allAssetIds.length > 0) {
-    const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and38(eq47(clientAsset.dealId, activeDeal.id), inArray16(clientAsset.id, allAssetIds)));
+    const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and33(eq38(clientAsset.dealId, activeDeal.id), inArray15(clientAsset.id, allAssetIds)));
     const ownedSet = new Set(owned.map((o) => o.id));
     const invalid = allAssetIds.filter((id) => !ownedSet.has(id));
     if (invalid.length > 0) {
@@ -12224,7 +9853,7 @@ async function submitMaterials(clientId, materials) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 8),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq47(clientOnboarding.id, row.id)).returning();
+  }).where(eq38(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar los materiales");
   return updated;
 }
@@ -12242,7 +9871,7 @@ async function completeOnboarding(clientAccount2) {
       throw Errors.badRequest(`Faltan completar pasos previos: ${missing.join(", ")}`, { missing });
     }
     const stepsCompleted = { ...row.stepsCompleted, "8": (/* @__PURE__ */ new Date()).toISOString() };
-    const [updatedOnboarding] = await tx.update(clientOnboarding).set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: /* @__PURE__ */ new Date(), stepsCompleted, currentStep: 8, updatedAt: /* @__PURE__ */ new Date() }).where(and38(eq47(clientOnboarding.id, row.id), eq47(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
+    const [updatedOnboarding] = await tx.update(clientOnboarding).set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: /* @__PURE__ */ new Date(), stepsCompleted, currentStep: 8, updatedAt: /* @__PURE__ */ new Date() }).where(and33(eq38(clientOnboarding.id, row.id), eq38(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
     if (!updatedOnboarding) {
       throw Errors.conflict("El onboarding ya est\xE1 completo");
     }
@@ -12275,20 +9904,20 @@ function toAdminListItem(onboarding, dealName, clientEmail) {
   };
 }
 async function listOnboardings(portalId) {
-  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and38(eq47(deal.id, clientOnboarding.dealId), eq47(deal.archived, false))).innerJoin(clientAccount, eq47(clientAccount.id, clientOnboarding.clientId)).where(eq47(clientOnboarding.portalId, portalId)).orderBy(sql31`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc22(clientOnboarding.updatedAt));
+  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and33(eq38(deal.id, clientOnboarding.dealId), eq38(deal.archived, false))).innerJoin(clientAccount, eq38(clientAccount.id, clientOnboarding.clientId)).where(eq38(clientOnboarding.portalId, portalId)).orderBy(sql28`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc20(clientOnboarding.updatedAt));
   return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail));
 }
 async function getOnboardingByDeal(portalId, dealId) {
   const [[row], assets] = await Promise.all([
-    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq47(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq47(clientAccount.id, clientOnboarding.clientId)).where(and38(eq47(clientOnboarding.portalId, portalId), eq47(clientOnboarding.dealId, dealId))).limit(1),
-    db.select().from(clientAsset).where(and38(eq47(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc22(clientAsset.uploadedAt))
+    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq38(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq38(clientAccount.id, clientOnboarding.clientId)).where(and33(eq38(clientOnboarding.portalId, portalId), eq38(clientOnboarding.dealId, dealId))).limit(1),
+    db.select().from(clientAsset).where(and33(eq38(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc20(clientAsset.uploadedAt))
   ]);
   if (!row) throw Errors.notFound("Onboarding no encontrado para este deal");
   return { onboarding: row.onboarding, assets, dealName: row.dealName, clientEmail: row.clientEmail };
 }
 
 // src/modules/onboarding/onboarding.router.ts
-var TAG33 = "Onboarding";
+var TAG31 = "Onboarding";
 async function onboardingAdminRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -12296,7 +9925,7 @@ async function onboardingAdminRoutes(app2) {
     "/",
     {
       schema: {
-        tags: [TAG33],
+        tags: [TAG31],
         summary: "Listar onboardings del portal",
         description: "Progreso del onboarding post-venta de cada deal. Orden: in_progress primero, luego por actualizaci\xF3n m\xE1s reciente.",
         security: ADMIN_SECURITY
@@ -12308,7 +9937,7 @@ async function onboardingAdminRoutes(app2) {
     "/deals/:id",
     {
       schema: {
-        tags: [TAG33],
+        tags: [TAG31],
         summary: "Onboarding completo de un deal",
         security: ADMIN_SECURITY,
         params: IdParamSchema
@@ -12319,7 +9948,7 @@ async function onboardingAdminRoutes(app2) {
 }
 
 // src/modules/onboarding/client-onboarding.router.ts
-var TAG34 = "Client Portal";
+var TAG32 = "Client Portal";
 async function clientOnboardingRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticateClient);
@@ -12327,7 +9956,7 @@ async function clientOnboardingRoutes(app2) {
     "/",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Estado del onboarding post-venta",
         description: "Lazy-create: si el cliente no tiene onboarding para su deal activo, se crea. Incluye los client_asset subidos en el paso de materiales.",
         security: CLIENT_SECURITY
@@ -12339,7 +9968,7 @@ async function clientOnboardingRoutes(app2) {
     "/progress",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Marcar un paso de orientaci\xF3n como completado (pasos 1-4)",
         security: CLIENT_SECURITY,
         body: OnboardingProgressSchema
@@ -12351,7 +9980,7 @@ async function clientOnboardingRoutes(app2) {
     "/signature",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Firmar el onboarding (paso 5)",
         description: "Checkbox de aceptaci\xF3n + nombre completo tipeado. Guarda timestamp + IP. No re-firmable (409 si ya est\xE1 firmado).",
         security: CLIENT_SECURITY,
@@ -12364,7 +9993,7 @@ async function clientOnboardingRoutes(app2) {
     "/brief",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Enviar el brief del proyecto (paso 6, 16 preguntas)",
         description: "Re-submit permitido mientras el onboarding no est\xE9 completo (sobreescribe).",
         security: CLIENT_SECURITY,
@@ -12377,7 +10006,7 @@ async function clientOnboardingRoutes(app2) {
     "/materials",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Registrar estado de materiales (paso 7)",
         description: "Los archivos se suben antes con POST /materials/upload; ac\xE1 solo se persisten los assetIds y el estado por categor\xEDa.",
         security: CLIENT_SECURITY,
@@ -12390,7 +10019,7 @@ async function clientOnboardingRoutes(app2) {
     "/materials/upload",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Subir un archivo de materiales (paso 7)",
         security: CLIENT_SECURITY
       }
@@ -12409,7 +10038,7 @@ async function clientOnboardingRoutes(app2) {
     "/complete",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Completar el onboarding (paso 8)",
         description: 'Gate: exige firma + brief + checklist de materiales enviado (400 con detalle si falta alguno). El checklist de materiales puede tener \xEDtems en `done: false` \u2014 el cliente puede no tener, p. ej., manual de marca a\xFAn; lo que exige el gate es haber ENVIADO el paso, no que todo est\xE9 "listo". Mueve el deal al pipeline Producci\xF3n / etapa Diagn\xF3stico y notifica al responsable asignado.',
         security: CLIENT_SECURITY
@@ -12420,9 +10049,9 @@ async function clientOnboardingRoutes(app2) {
 }
 
 // src/modules/calendar/calendar.public.router.ts
-import { z as z36 } from "zod";
-var TAG35 = "Calendario P\xFAblico";
-var ianaTimezone2 = z36.string().refine(
+import { z as z34 } from "zod";
+var TAG33 = "Calendario P\xFAblico";
+var ianaTimezone2 = z34.string().refine(
   (tz) => {
     try {
       Intl.DateTimeFormat(void 0, { timeZone: tz });
@@ -12433,9 +10062,9 @@ var ianaTimezone2 = z36.string().refine(
   },
   { message: "Zona horaria IANA inv\xE1lida (ej. America/Bogota, Europe/Madrid)" }
 );
-var EventTypeParamsSchema = z36.object({
-  portalId: z36.string().min(1, "portalId requerido"),
-  eventSlug: z36.string().min(1, "eventSlug requerido")
+var EventTypeParamsSchema = z34.object({
+  portalId: z34.string().min(1, "portalId requerido"),
+  eventSlug: z34.string().min(1, "eventSlug requerido")
 });
 async function calendarPublicRoutes(app2) {
   const r = app2.withTypeProvider();
@@ -12443,7 +10072,7 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Metadata p\xFAblica de un event type (sin auth)",
         description: "Devuelve nombre, duraci\xF3n, locaciones, preguntas custom y configuraci\xF3n de un event type activo. Disponible sin autenticaci\xF3n para que el invitado pueda cargar la p\xE1gina de booking.",
         params: EventTypeParamsSchema
@@ -12460,13 +10089,13 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug/slots",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Slots disponibles de un event type (sin auth)",
         description: "Calcula los slots libres del event type en el rango de fechas dado. Devuelve startUtc (UTC), endUtc (UTC) y startLocal (en la TZ del invitado).",
         params: EventTypeParamsSchema,
-        querystring: z36.object({
-          from: z36.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from debe ser YYYY-MM-DD"),
-          to: z36.string().regex(/^\d{4}-\d{2}-\d{2}$/, "to debe ser YYYY-MM-DD"),
+        querystring: z34.object({
+          from: z34.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from debe ser YYYY-MM-DD"),
+          to: z34.string().regex(/^\d{4}-\d{2}-\d{2}$/, "to debe ser YYYY-MM-DD"),
           tz: ianaTimezone2
         })
       },
@@ -12494,7 +10123,7 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug/book",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Crear un booking (sin auth)",
         description: "Reserva un slot para el event type dado. Devuelve el booking creado con las URLs de cancelaci\xF3n y reprogramaci\xF3n para autoservicio. Si el slot ya fue tomado por concurrencia \u2192 409.",
         params: EventTypeParamsSchema,
@@ -12515,7 +10144,7 @@ async function calendarPublicRoutes(app2) {
     "/booking/cancel",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Cancelar un booking por token (sin auth)",
         description: "Cancela el booking asociado al token firmado de cancelaci\xF3n. El token va en el body (no en la URL). El slot queda libre autom\xE1ticamente (el constraint EXCLUDE solo aplica a status=confirmed).",
         body: CancelBookingSchema
@@ -12532,7 +10161,7 @@ async function calendarPublicRoutes(app2) {
     "/booking/reschedule",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Reprogramar un booking por token (sin auth)",
         description: "Cancela el booking original y crea uno nuevo en el slot indicado. El token va en el body (no en la URL). Devuelve el nuevo booking con nuevas URLs de autoservicio.",
         body: RescheduleByTokenSchema
@@ -12551,8 +10180,8 @@ async function calendarPublicRoutes(app2) {
 }
 
 // src/modules/calendar/calendar.admin.router.ts
-var TAG36 = "Calendario Admin V2";
-var security30 = ADMIN_SECURITY;
+var TAG34 = "Calendario Admin V2";
+var security28 = ADMIN_SECURITY;
 async function calendarAdminRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -12560,9 +10189,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Listar schedules de disponibilidad del portal",
-        security: security30
+        security: security28
       }
     },
     async (request) => ok(await listSchedules(request.hubUser.portalId))
@@ -12571,9 +10200,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Obtener un schedule por ID",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       }
     },
@@ -12583,9 +10212,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Crear schedule de disponibilidad",
-        security: security30,
+        security: security28,
         body: CreateScheduleSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12603,9 +10232,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Actualizar schedule",
-        security: security30,
+        security: security28,
         params: IdParamSchema,
         body: UpdateScheduleSchema
       },
@@ -12617,9 +10246,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Eliminar schedule",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12633,9 +10262,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Agregar intervalo a un schedule",
-        security: security30,
+        security: security28,
         params: ScheduleParamSchema,
         body: CreateIntervalSchema
       },
@@ -12654,9 +10283,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Reemplazar todos los intervalos de un schedule (at\xF3mico)",
-        security: security30,
+        security: security28,
         params: ScheduleParamSchema,
         body: ReplaceIntervalsSchema
       },
@@ -12674,9 +10303,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals/:intervalId",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Eliminar un intervalo de un schedule",
-        security: security30,
+        security: security28,
         params: ScheduleIntervalParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12694,9 +10323,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/overrides",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Upsert de date override en un schedule",
-        security: security30,
+        security: security28,
         params: ScheduleParamSchema,
         body: DateOverrideInputSchema
       },
@@ -12714,9 +10343,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/overrides/:overrideId",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Eliminar un date override de un schedule",
-        security: security30,
+        security: security28,
         params: ScheduleOverrideParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12734,9 +10363,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Listar event types V2 del portal",
-        security: security30
+        security: security28
       }
     },
     async (request) => ok(await listEventTypesV2(request.hubUser.portalId))
@@ -12745,9 +10374,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Obtener event type V2 por ID",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       }
     },
@@ -12757,9 +10386,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Crear event type V2",
-        security: security30,
+        security: security28,
         body: CreateEventTypeV2Schema
       },
       preHandler: [authorize("owner", "member")]
@@ -12777,9 +10406,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Actualizar event type V2",
-        security: security30,
+        security: security28,
         params: IdParamSchema,
         body: UpdateEventTypeV2Schema
       },
@@ -12791,9 +10420,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Eliminar event type V2",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12807,9 +10436,9 @@ async function calendarAdminRoutes(app2) {
     "/bookings/week",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Bookings del portal en rango de fechas (vista semanal admin)",
-        security: security30,
+        security: security28,
         querystring: WeekBookingsQuerySchema
       }
     },
@@ -12822,9 +10451,9 @@ async function calendarAdminRoutes(app2) {
     "/bookings/:id/cancel",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Cancelar booking desde el admin",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12961,11 +10590,6 @@ function buildApp() {
   app2.register(webhooksRoutes, { prefix: "/webhooks" });
   app2.register(emailTrackingRoutes, { prefix: "/track" });
   app2.register(documentsRoutes, { prefix: "/api/documents" });
-  app2.register(setterRoutes, { prefix: "/api/setter" });
-  app2.register(setterApprovalRoutes, { prefix: "/api/setter" });
-  app2.register(setterWsRoutes);
-  app2.register(setterWhatsappWebhookRoutes, { prefix: "/webhooks" });
-  app2.register(prospectingRoutes, { prefix: "/api/prospecting" });
   app2.register(proposalPublicRoutes, { prefix: "/api/public/proposals" });
   app2.register(proposalAdminRoutes, { prefix: "/api/proposals" });
   app2.register(brandingAdminRoutes, { prefix: "/api/branding" });

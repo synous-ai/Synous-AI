@@ -1,4 +1,4 @@
-import { getProvider, type ModelProvider } from '../setter/agent/providers'
+import { getProvider, type ModelProvider } from '../../lib/ai'
 
 /**
  * "Próxima acción" sugerida por IA para avanzar un lead.
@@ -80,7 +80,7 @@ export async function suggestNextActionAI(
   const generate = getProvider(provider)
   const result = await generate({
     systemInstruction: SYSTEM_INSTRUCTION,
-    contents: [{ role: 'user', parts: [{ text: buildPrompt(ctx) }] }],
+    prompt: buildPrompt(ctx),
     temperature: 0.6,
     maxOutputTokens: 256,
   })

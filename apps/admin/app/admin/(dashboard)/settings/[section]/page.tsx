@@ -7,7 +7,6 @@ import { FormulariosSection } from './sections/FormulariosSection'
 import { PortalClientesSection } from './sections/PortalClientesSection'
 import { IntegracionesSection } from './sections/IntegracionesSection'
 import { CamposSection } from './sections/CamposSection'
-import { ProspeccionSection } from './sections/ProspeccionSection'
 import { WhiteLabelSection } from './sections/WhiteLabelSection'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,12 +46,6 @@ const SECTION_META: Record<
     subtitle: 'Estado de las integraciones externas. La configuración va en variables de entorno.',
     icon: Puzzle,
     component: IntegracionesSection,
-  },
-  prospecting: {
-    title: 'Prospección',
-    subtitle: 'Definí qué ofrece la agencia. Se usa como contexto por defecto para la IA al prospectar.',
-    icon: Sparkles,
-    component: ProspeccionSection,
   },
   'white-label': {
     title: 'White-Label',

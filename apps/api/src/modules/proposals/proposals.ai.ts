@@ -1,10 +1,10 @@
-import { getProvider, type ModelProvider } from '../setter/agent/providers'
+import { getProvider, type ModelProvider } from '../../lib/ai'
 import type { ProposalContent } from './proposals.types'
 
 /**
  * Generación de propuestas con IA.
  *
- * Reusa el abstraction de providers del Setter (Model Switcher Gemini/Claude):
+ * Usa el abstractor de providers de LLM (lib/ai, Gemini/Claude):
  * arma un prompt con la data del onboarding + deal y pide al LLM una propuesta
  * estructurada en JSON, que parseamos a `ProposalContent`. Si el LLM falla o
  * devuelve algo no parseable, se cae a una propuesta base (fallback) para que el
@@ -131,7 +131,7 @@ export async function generateProposalContent(
   const generate = getProvider(provider)
   const result = await generate({
     systemInstruction: SYSTEM_INSTRUCTION,
-    contents: [{ role: 'user', parts: [{ text: buildPrompt(input) }] }],
+    prompt: buildPrompt(input),
     temperature: 0.8,
     maxOutputTokens: 8192,
   })
