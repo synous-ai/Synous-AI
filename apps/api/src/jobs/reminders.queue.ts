@@ -35,7 +35,9 @@ export async function setupReminders(): Promise<void> {
     async () => {
       console.log('[reminders] scan iniciado')
       const result = await runReminderScan()
-      console.log(`[reminders] scan completado — notificaciones creadas: ${result.created}`)
+      console.log(
+        `[reminders] scan completado — notificaciones: ${result.created}, recordatorios de reunión: ${result.bookingRemindersSent}`,
+      )
     },
     { connection },
   )

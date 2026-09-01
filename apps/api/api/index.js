@@ -96,7 +96,7 @@ var Errors = {
 };
 
 // src/modules/health/health.router.ts
-import { sql as sql21 } from "drizzle-orm";
+import { sql as sql23 } from "drizzle-orm";
 
 // src/db/index.ts
 import { drizzle as drizzleNodePostgres } from "drizzle-orm/node-postgres";
@@ -114,6 +114,7 @@ __export(schema_exports, {
   availabilityRule: () => availabilityRule,
   availabilitySchedule: () => availabilitySchedule,
   booking: () => booking,
+  bookingReminder: () => bookingReminder,
   call: () => call,
   changeRequest: () => changeRequest,
   changeRequestAttachment: () => changeRequestAttachment,
@@ -159,8 +160,18 @@ __export(schema_exports, {
   portal: () => portal,
   projectUpdate: () => projectUpdate,
   proposal: () => proposal,
+  prospect: () => prospect,
+  prospectSearch: () => prospectSearch,
   recordHistory: () => recordHistory,
   retainer: () => retainer,
+  setterAppointment: () => setterAppointment,
+  setterConversation: () => setterConversation,
+  setterDraft: () => setterDraft,
+  setterEvent: () => setterEvent,
+  setterLead: () => setterLead,
+  setterMessage: () => setterMessage,
+  setterPerson: () => setterPerson,
+  setterTenant: () => setterTenant,
   task: () => task,
   workItem: () => workItem
 });
@@ -489,799 +500,1031 @@ var booking = pgTable7("booking", {
   index5("idx_booking_deal").on(table.dealId)
   // NOTE: EXCLUDE USING gist (booking_no_overlap) omitted — ver migraciones manuales
 ]);
+var bookingReminder = pgTable7("booking_reminder", {
+  id: text7("id").primaryKey().$defaultFn(() => createId()),
+  bookingId: text7("booking_id").notNull().references(() => booking.id, { onDelete: "cascade" }),
+  /** Antelación del recordatorio: '24h' o '1h'. */
+  kind: text7("kind").notNull(),
+  sentAt: timestamp7("sent_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  unique3("booking_reminder_booking_kind_unique").on(table.bookingId, table.kind),
+  check4("booking_reminder_kind_check", sql6`${table.kind} IN ('24h','1h')`)
+]);
+
+// src/db/schema/prospecting.ts
+import { pgTable as pgTable8, text as text8, integer as integer3, numeric as numeric3, jsonb as jsonb5, timestamp as timestamp8, index as index6, check as check5 } from "drizzle-orm/pg-core";
+import { sql as sql7 } from "drizzle-orm";
+var prospectSearch = pgTable8("prospect_search", {
+  id: text8("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  query: text8("query").notNull(),
+  ourServices: text8("our_services"),
+  requestedLimit: integer3("requested_limit").notNull().default(5),
+  resultCount: integer3("result_count").notNull().default(0),
+  status: text8("status").notNull().default("running"),
+  error: text8("error"),
+  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check5("prospect_search_status_check", sql7`${table.status} IN ('running','completed','failed')`),
+  index6("idx_prospect_search_portal").on(table.portalId)
+]);
+var prospect = pgTable8("prospect", {
+  id: text8("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  searchId: text8("search_id").notNull().references(() => prospectSearch.id, { onDelete: "cascade" }),
+  // ── Datos del negocio (Google Places + scraping) ──
+  name: text8("name").notNull(),
+  address: text8("address"),
+  phone: text8("phone"),
+  website: text8("website"),
+  email: text8("email"),
+  rating: numeric3("rating", { precision: 2, scale: 1 }),
+  userRatingsTotal: integer3("user_ratings_total"),
+  googlePlaceId: text8("google_place_id"),
+  types: jsonb5("types").$type().notNull().default([]),
+  // ── Análisis IA (Vertex / Gemini) ──
+  aiAnalysis: text8("ai_analysis"),
+  aiProposal: jsonb5("ai_proposal").$type(),
+  // ── Estado en el flujo de prospección ──
+  status: text8("status").notNull().default("new"),
+  importedContactId: text8("imported_contact_id").references(() => contact.id, { onDelete: "set null" }),
+  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check5("prospect_status_check", sql7`${table.status} IN ('new','imported','discarded')`),
+  index6("idx_prospect_portal").on(table.portalId),
+  index6("idx_prospect_search").on(table.searchId)
+]);
+
+// src/db/schema/setter.ts
+import {
+  pgTable as pgTable9,
+  text as text9,
+  boolean as boolean7,
+  integer as integer4,
+  jsonb as jsonb6,
+  timestamp as timestamp9,
+  uniqueIndex as uniqueIndex2,
+  index as index7,
+  check as check6
+} from "drizzle-orm/pg-core";
+import { sql as sql8 } from "drizzle-orm";
+var setterTenant = pgTable9("setter_tenant", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  // El setter es interno del CRM: su config cuelga del portal (la org admin).
+  portalId: text9("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  name: text9("name").notNull(),
+  // Lo que el agente "conoce": qué vende, ICP, qué califica, oferta, FAQs, precios.
+  businessBrief: text9("business_brief").notNull(),
+  agentName: text9("agent_name").notNull(),
+  ownerName: text9("owner_name").notNull(),
+  timezone: text9("timezone").notNull().default("America/Argentina/Buenos_Aires"),
+  // shadow global en Sprint 0; el campo existe para el salto a híbrido/autopilot.
+  operationMode: text9("operation_mode").notNull().default("shadow"),
+  // Model Switcher: qué LLM genera los mensajes ('gemini' | 'claude').
+  modelProvider: text9("model_provider").notNull().default("gemini"),
+  // Prospección automática desde la oferta: qué ofrecemos (contexto para la IA)
+  // y los nichos/ICP sugeridos para buscar leads sin tipear nada.
+  prospectingServices: text9("prospecting_services"),
+  prospectingNiches: jsonb6("prospecting_niches").$type().notNull().default([]),
+  // Autopilot de prospección (loop nicho×ciudad cada 1h).
+  prospectingCities: jsonb6("prospecting_cities").$type().notNull().default([]),
+  prospectingAutopilot: boolean7("prospecting_autopilot").notNull().default(false),
+  prospectingAutopilotCursor: integer4("prospecting_autopilot_cursor").notNull().default(0),
+  // Nombre de la instancia de Evolution para este tenant (puede venir de env).
+  evolutionInstance: text9("evolution_instance"),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp9("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+}, (table) => [
+  check6(
+    "setter_tenant_operation_mode_check",
+    sql8`${table.operationMode} IN ('shadow','hybrid','autopilot')`
+  ),
+  check6("setter_tenant_model_provider_check", sql8`${table.modelProvider} IN ('gemini','claude')`)
+]);
+var setterPerson = pgTable9("setter_person", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  name: text9("name"),
+  // E.164 (+549...). En Sprint 0 (solo WhatsApp) es la clave de identidad.
+  phone: text9("phone"),
+  // Guardrail no negociable: si opta por salir, nunca más se le genera ni envía.
+  optedOut: boolean7("opted_out").notNull().default(false),
+  optedOutAt: timestamp9("opted_out_at", { withTimezone: true }),
+  // Sync con el CRM: este Person es también un contact del CRM (lead/cliente).
+  crmContactId: text9("crm_contact_id").references(() => contact.id, { onDelete: "set null" }),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  uniqueIndex2("uq_setter_person_tenant_phone").on(table.tenantId, table.phone)
+]);
+var setterLead = pgTable9("setter_lead", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  personId: text9("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
+  status: text9("status").notNull().default("NEW"),
+  // { pain, fit, authority, timing, score, notes } — lo llena save_qualification.
+  qualification: jsonb6("qualification").$type(),
+  source: text9("source"),
+  // Cuándo cierra la ventana de servicio (último msg del lead + 24h).
+  windowExpiresAt: timestamp9("window_expires_at", { withTimezone: true }),
+  // Sync con el CRM: el deal generado para este lead (al calificar).
+  crmDealId: text9("crm_deal_id").references(() => deal.id, { onDelete: "set null" }),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp9("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+}, (table) => [
+  check6(
+    "setter_lead_status_check",
+    sql8`${table.status} IN ('NEW','CONTACTED','ENGAGED','QUALIFYING','QUALIFIED','BOOKING','BOOKED','NOT_INTERESTED','HANDED_OFF','OPTED_OUT')`
+  ),
+  index7("idx_setter_lead_person").on(table.personId),
+  index7("idx_setter_lead_status").on(table.status),
+  index7("idx_setter_lead_window").on(table.windowExpiresAt)
+]);
+var setterConversation = pgTable9("setter_conversation", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  personId: text9("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
+  channel: text9("channel").notNull().default("whatsapp"),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  // Una conversación por persona en Sprint 0 (memoria única cross-canal).
+  uniqueIndex2("uq_setter_conversation_person").on(table.personId)
+]);
+var setterMessage = pgTable9("setter_message", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  conversationId: text9("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
+  role: text9("role").notNull(),
+  content: text9("content").notNull(),
+  // Idempotencia: id del mensaje en el canal (unique; admite múltiples NULL en PG).
+  messageId: text9("message_id"),
+  // Etiqueta de momento (apertura/calificación/objeción/booking…). Reusada por híbrido.
+  beat: text9("beat"),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check6(
+    "setter_message_role_check",
+    sql8`${table.role} IN ('user','assistant','system','tool')`
+  ),
+  uniqueIndex2("uq_setter_message_message_id").on(table.messageId),
+  index7("idx_setter_message_conversation").on(table.conversationId, table.createdAt)
+]);
+var setterAppointment = pgTable9("setter_appointment", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  leadId: text9("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
+  startsAt: timestamp9("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp9("ends_at", { withTimezone: true }).notNull(),
+  // Event id de Google Calendar (no guardamos URLs que expiran).
+  calendarRef: text9("calendar_ref"),
+  status: text9("status").notNull().default("confirmed"),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check6(
+    "setter_appointment_status_check",
+    sql8`${table.status} IN ('confirmed','cancelled','no_show','rescheduled')`
+  ),
+  uniqueIndex2("uq_setter_appointment_lead").on(table.leadId)
+]);
+var setterDraft = pgTable9("setter_draft", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  conversationId: text9("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
+  leadId: text9("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
+  // Texto propuesto por la IA (lo que se enviaría al aprobar).
+  content: text9("content").notNull(),
+  // Versión editada por el humano antes de enviar (si la hubo).
+  editedContent: text9("edited_content"),
+  beat: text9("beat"),
+  // beatPolicy: text en Sprint 0; voice llega en Sprint 2.
+  format: text9("format").notNull().default("text"),
+  status: text9("status").notNull().default("pending"),
+  // "Por qué dijo esto": tool calls + datos capturados (transparencia de la Bandeja).
+  toolCalls: jsonb6("tool_calls").$type(),
+  // Mensaje saliente generado al aprobar y enviar.
+  sentMessageId: text9("sent_message_id").references(() => setterMessage.id, {
+    onDelete: "set null"
+  }),
+  // Quién aprobó/editó (integra con los usuarios del CRM).
+  approvedBy: text9("approved_by").references(() => hubUser.id, { onDelete: "set null" }),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp9("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+}, (table) => [
+  check6("setter_draft_format_check", sql8`${table.format} IN ('text','voice')`),
+  check6(
+    "setter_draft_status_check",
+    sql8`${table.status} IN ('pending','approved','edited','rejected','sent')`
+  ),
+  index7("idx_setter_draft_status").on(table.status),
+  index7("idx_setter_draft_conversation").on(table.conversationId),
+  index7("idx_setter_draft_tenant").on(table.tenantId)
+]);
+var setterEvent = pgTable9("setter_event", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  level: text9("level").notNull().default("info"),
+  // inbound | agent | draft | approval | sync | autopilot | optout | error
+  type: text9("type").notNull(),
+  message: text9("message").notNull(),
+  leadId: text9("lead_id"),
+  meta: jsonb6("meta").$type(),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check6("setter_event_level_check", sql8`${table.level} IN ('info','success','warn','error')`),
+  index7("idx_setter_event_tenant_time").on(table.tenantId, table.createdAt)
+]);
 
 // src/db/schema/activities.ts
-import { pgTable as pgTable8, text as text8, integer as integer3, jsonb as jsonb5, timestamp as timestamp8, index as index6, check as check5 } from "drizzle-orm/pg-core";
-import { sql as sql7 } from "drizzle-orm";
-var note = pgTable8("note", {
-  id: text8("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  body: text8("body").notNull(),
-  dealId: text8("deal_id").references(() => deal.id, { onDelete: "cascade" }),
-  contactId: text8("contact_id").references(() => contact.id, { onDelete: "cascade" }),
-  companyId: text8("company_id").references(() => company.id, { onDelete: "cascade" }),
-  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable10, text as text10, integer as integer5, jsonb as jsonb7, timestamp as timestamp10, index as index8, check as check7 } from "drizzle-orm/pg-core";
+import { sql as sql9 } from "drizzle-orm";
+var note = pgTable10("note", {
+  id: text10("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  createdBy: text10("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  body: text10("body").notNull(),
+  dealId: text10("deal_id").references(() => deal.id, { onDelete: "cascade" }),
+  contactId: text10("contact_id").references(() => contact.id, { onDelete: "cascade" }),
+  companyId: text10("company_id").references(() => company.id, { onDelete: "cascade" }),
+  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index6("idx_note_deal").on(table.dealId),
-  index6("idx_note_contact").on(table.contactId),
-  index6("idx_note_company").on(table.companyId)
+  index8("idx_note_deal").on(table.dealId),
+  index8("idx_note_contact").on(table.contactId),
+  index8("idx_note_company").on(table.companyId)
 ]);
-var task = pgTable8("task", {
-  id: text8("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  assignedTo: text8("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
-  title: text8("title").notNull(),
-  body: text8("body"),
-  status: text8("status").notNull().default("pending"),
-  priority: text8("priority").notNull().default("medium"),
-  dueDate: timestamp8("due_date", { withTimezone: true }),
-  completedAt: timestamp8("completed_at", { withTimezone: true }),
-  dealId: text8("deal_id").references(() => deal.id, { onDelete: "cascade" }),
-  contactId: text8("contact_id").references(() => contact.id, { onDelete: "cascade" }),
-  companyId: text8("company_id").references(() => company.id, { onDelete: "cascade" }),
-  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+var task = pgTable10("task", {
+  id: text10("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  createdBy: text10("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  assignedTo: text10("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
+  title: text10("title").notNull(),
+  body: text10("body"),
+  status: text10("status").notNull().default("pending"),
+  priority: text10("priority").notNull().default("medium"),
+  dueDate: timestamp10("due_date", { withTimezone: true }),
+  completedAt: timestamp10("completed_at", { withTimezone: true }),
+  dealId: text10("deal_id").references(() => deal.id, { onDelete: "cascade" }),
+  contactId: text10("contact_id").references(() => contact.id, { onDelete: "cascade" }),
+  companyId: text10("company_id").references(() => company.id, { onDelete: "cascade" }),
+  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   // 'blocked' agregado en migración 0020: tarea bloqueada por dependencia externa.
-  check5("task_status_check", sql7`${table.status} IN ('pending','in_progress','completed','cancelled','blocked')`),
-  check5("task_priority_check", sql7`${table.priority} IN ('low','medium','high')`),
-  index6("idx_task_assignee").on(table.assignedTo, table.status),
-  index6("idx_task_due").on(table.dueDate).where(sql7`status <> 'completed'`),
-  index6("idx_task_deal").on(table.dealId),
-  index6("idx_task_contact").on(table.contactId),
-  index6("idx_task_company").on(table.companyId),
+  check7("task_status_check", sql9`${table.status} IN ('pending','in_progress','completed','cancelled','blocked')`),
+  check7("task_priority_check", sql9`${table.priority} IN ('low','medium','high')`),
+  index8("idx_task_assignee").on(table.assignedTo, table.status),
+  index8("idx_task_due").on(table.dueDate).where(sql9`status <> 'completed'`),
+  index8("idx_task_deal").on(table.dealId),
+  index8("idx_task_contact").on(table.contactId),
+  index8("idx_task_company").on(table.companyId),
   // Compuesto para el listado (WHERE portal ORDER BY created_at DESC); portal_id sigue de columna líder.
-  index6("idx_task_portal_created").on(table.portalId, table.createdAt, table.id)
+  index8("idx_task_portal_created").on(table.portalId, table.createdAt, table.id)
 ]);
-var call = pgTable8("call", {
-  id: text8("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  title: text8("title"),
-  body: text8("body"),
-  direction: text8("direction"),
-  durationSec: integer3("duration_sec"),
-  occurredAt: timestamp8("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-  dealId: text8("deal_id").references(() => deal.id, { onDelete: "cascade" }),
-  contactId: text8("contact_id").references(() => contact.id, { onDelete: "cascade" }),
-  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+var call = pgTable10("call", {
+  id: text10("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  createdBy: text10("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  title: text10("title"),
+  body: text10("body"),
+  direction: text10("direction"),
+  durationSec: integer5("duration_sec"),
+  occurredAt: timestamp10("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  dealId: text10("deal_id").references(() => deal.id, { onDelete: "cascade" }),
+  contactId: text10("contact_id").references(() => contact.id, { onDelete: "cascade" }),
+  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check5("call_direction_check", sql7`${table.direction} IN ('inbound','outbound')`),
-  index6("idx_call_deal").on(table.dealId),
-  index6("idx_call_contact").on(table.contactId)
+  check7("call_direction_check", sql9`${table.direction} IN ('inbound','outbound')`),
+  index8("idx_call_deal").on(table.dealId),
+  index8("idx_call_contact").on(table.contactId)
 ]);
-var meeting = pgTable8("meeting", {
-  id: text8("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  bookingId: text8("booking_id").references(() => booking.id, { onDelete: "set null" }),
-  title: text8("title").notNull(),
-  startsAt: timestamp8("starts_at", { withTimezone: true }),
-  endsAt: timestamp8("ends_at", { withTimezone: true }),
-  location: text8("location"),
-  dealId: text8("deal_id").references(() => deal.id, { onDelete: "cascade" }),
-  contactId: text8("contact_id").references(() => contact.id, { onDelete: "cascade" }),
-  fathomSummary: text8("fathom_summary"),
-  fathomTranscriptUrl: text8("fathom_transcript_url"),
-  fathomActionItems: jsonb5("fathom_action_items"),
-  fathomParticipants: jsonb5("fathom_participants"),
-  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+var meeting = pgTable10("meeting", {
+  id: text10("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  createdBy: text10("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  bookingId: text10("booking_id").references(() => booking.id, { onDelete: "set null" }),
+  title: text10("title").notNull(),
+  startsAt: timestamp10("starts_at", { withTimezone: true }),
+  endsAt: timestamp10("ends_at", { withTimezone: true }),
+  location: text10("location"),
+  dealId: text10("deal_id").references(() => deal.id, { onDelete: "cascade" }),
+  contactId: text10("contact_id").references(() => contact.id, { onDelete: "cascade" }),
+  fathomSummary: text10("fathom_summary"),
+  fathomTranscriptUrl: text10("fathom_transcript_url"),
+  fathomActionItems: jsonb7("fathom_action_items"),
+  fathomParticipants: jsonb7("fathom_participants"),
+  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index6("idx_meeting_deal").on(table.dealId),
-  index6("idx_meeting_booking").on(table.bookingId)
+  index8("idx_meeting_deal").on(table.dealId),
+  index8("idx_meeting_booking").on(table.bookingId)
 ]);
 
 // src/db/schema/history.ts
-import { pgTable as pgTable9, text as text9, timestamp as timestamp9, index as index7 } from "drizzle-orm/pg-core";
-var recordHistory = pgTable9("record_history", {
-  id: text9("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text9("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  entityType: text9("entity_type").notNull(),
-  entityId: text9("entity_id").notNull(),
-  fieldName: text9("field_name").notNull(),
-  oldValue: text9("old_value"),
-  newValue: text9("new_value"),
-  sourceType: text9("source_type"),
-  sourceId: text9("source_id"),
-  changedBy: text9("changed_by").references(() => hubUser.id, { onDelete: "set null" }),
-  changedAt: timestamp9("changed_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable11, text as text11, timestamp as timestamp11, index as index9 } from "drizzle-orm/pg-core";
+var recordHistory = pgTable11("record_history", {
+  id: text11("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text11("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  entityType: text11("entity_type").notNull(),
+  entityId: text11("entity_id").notNull(),
+  fieldName: text11("field_name").notNull(),
+  oldValue: text11("old_value"),
+  newValue: text11("new_value"),
+  sourceType: text11("source_type"),
+  sourceId: text11("source_id"),
+  changedBy: text11("changed_by").references(() => hubUser.id, { onDelete: "set null" }),
+  changedAt: timestamp11("changed_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index7("idx_record_history_entity").on(table.entityType, table.entityId, table.fieldName, table.changedAt)
+  index9("idx_record_history_entity").on(table.entityType, table.entityId, table.fieldName, table.changedAt)
 ]);
 
 // src/db/schema/lists.ts
-import { pgTable as pgTable10, text as text10, jsonb as jsonb6, timestamp as timestamp10, primaryKey as primaryKey2, check as check6 } from "drizzle-orm/pg-core";
-import { sql as sql8 } from "drizzle-orm";
-var crmList = pgTable10("crm_list", {
-  id: text10("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  entityType: text10("entity_type").notNull(),
-  name: text10("name").notNull(),
-  processingType: text10("processing_type").notNull().default("MANUAL"),
-  filterBranch: jsonb6("filter_branch"),
-  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp10("updated_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable12, text as text12, jsonb as jsonb8, timestamp as timestamp12, primaryKey as primaryKey2, check as check8 } from "drizzle-orm/pg-core";
+import { sql as sql10 } from "drizzle-orm";
+var crmList = pgTable12("crm_list", {
+  id: text12("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text12("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  entityType: text12("entity_type").notNull(),
+  name: text12("name").notNull(),
+  processingType: text12("processing_type").notNull().default("MANUAL"),
+  filterBranch: jsonb8("filter_branch"),
+  createdAt: timestamp12("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp12("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check6("crm_list_entity_type_check", sql8`${table.entityType} IN ('contact','company','deal')`),
-  check6("crm_list_processing_type_check", sql8`${table.processingType} IN ('MANUAL','DYNAMIC')`)
+  check8("crm_list_entity_type_check", sql10`${table.entityType} IN ('contact','company','deal')`),
+  check8("crm_list_processing_type_check", sql10`${table.processingType} IN ('MANUAL','DYNAMIC')`)
 ]);
-var listMembership = pgTable10("list_membership", {
-  listId: text10("list_id").notNull().references(() => crmList.id, { onDelete: "cascade" }),
+var listMembership = pgTable12("list_membership", {
+  listId: text12("list_id").notNull().references(() => crmList.id, { onDelete: "cascade" }),
   // entityId is a polymorphic reference (not a declared FK) — kept as text (CUID2)
-  entityId: text10("entity_id").notNull(),
-  addedAt: timestamp10("added_at", { withTimezone: true }).notNull().defaultNow()
+  entityId: text12("entity_id").notNull(),
+  addedAt: timestamp12("added_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   primaryKey2({ columns: [table.listId, table.entityId] })
 ]);
 
 // src/db/schema/client-portal.ts
-import { pgTable as pgTable11, text as text11, boolean as boolean8, timestamp as timestamp11, unique as unique4, primaryKey as primaryKey3 } from "drizzle-orm/pg-core";
-var clientAccount = pgTable11("client_account", {
-  id: text11("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text11("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  contactId: text11("contact_id").notNull().references(() => contact.id),
+import { pgTable as pgTable13, text as text13, boolean as boolean9, timestamp as timestamp13, unique as unique4, primaryKey as primaryKey3 } from "drizzle-orm/pg-core";
+var clientAccount = pgTable13("client_account", {
+  id: text13("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text13("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  contactId: text13("contact_id").notNull().references(() => contact.id),
   email: citext("email").notNull(),
-  inviteToken: text11("invite_token").unique(),
-  inviteSentAt: timestamp11("invite_sent_at", { withTimezone: true }),
-  inviteAccepted: boolean8("invite_accepted").notNull().default(false),
-  lastLoginAt: timestamp11("last_login_at", { withTimezone: true }),
-  isActive: boolean8("is_active").notNull().default(true),
+  inviteToken: text13("invite_token").unique(),
+  inviteSentAt: timestamp13("invite_sent_at", { withTimezone: true }),
+  inviteAccepted: boolean9("invite_accepted").notNull().default(false),
+  lastLoginAt: timestamp13("last_login_at", { withTimezone: true }),
+  isActive: boolean9("is_active").notNull().default(true),
   /** ID del usuario en Clerk (auth externo). Null si aún no se vinculó con Clerk. */
-  clerkUserId: text11("clerk_user_id").unique(),
+  clerkUserId: text13("clerk_user_id").unique(),
   /** Slug único del portal del cliente (usado en URLs personalizadas). */
-  brandSlug: text11("brand_slug").unique(),
+  brandSlug: text13("brand_slug").unique(),
   /** Nombre de marca visible en el portal del cliente. */
-  brandName: text11("brand_name"),
+  brandName: text13("brand_name"),
   /** Clave del logo de marca en R2 (sin URL; se genera on-demand). */
-  brandLogoKey: text11("brand_logo_key"),
+  brandLogoKey: text13("brand_logo_key"),
   /** Color primario de la marca en formato hex (#rrggbb). */
-  brandPrimary: text11("brand_primary"),
+  brandPrimary: text13("brand_primary"),
   /** Color secundario de la marca en formato hex (#rrggbb). */
-  brandSecondary: text11("brand_secondary"),
-  createdAt: timestamp11("created_at", { withTimezone: true }).notNull().defaultNow()
+  brandSecondary: text13("brand_secondary"),
+  createdAt: timestamp13("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   unique4("client_account_portal_id_email_unique").on(table.portalId, table.email)
 ]);
-var clientDealAccess = pgTable11("client_deal_access", {
-  clientId: text11("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
-  dealId: text11("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" })
+var clientDealAccess = pgTable13("client_deal_access", {
+  clientId: text13("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
+  dealId: text13("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" })
 }, (table) => [
   primaryKey3({ columns: [table.clientId, table.dealId] })
 ]);
 
 // src/db/schema/intake.ts
-import { pgTable as pgTable12, text as text12, jsonb as jsonb7, timestamp as timestamp12, unique as unique5, index as index8, check as check7, bigint } from "drizzle-orm/pg-core";
-import { sql as sql9 } from "drizzle-orm";
-var intakeForm = pgTable12("intake_form", {
-  id: text12("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text12("portal_id").notNull().references(() => portal.id),
-  name: text12("name").notNull(),
-  description: text12("description"),
-  slug: text12("slug").notNull(),
-  fields: jsonb7("fields").notNull().default([]),
-  createdAt: timestamp12("created_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable14, text as text14, jsonb as jsonb9, timestamp as timestamp14, unique as unique5, index as index10, check as check9, bigint } from "drizzle-orm/pg-core";
+import { sql as sql11 } from "drizzle-orm";
+var intakeForm = pgTable14("intake_form", {
+  id: text14("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text14("portal_id").notNull().references(() => portal.id),
+  name: text14("name").notNull(),
+  description: text14("description"),
+  slug: text14("slug").notNull(),
+  fields: jsonb9("fields").notNull().default([]),
+  createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   unique5("intake_form_portal_id_slug_unique").on(table.portalId, table.slug)
 ]);
-var dealIntake = pgTable12("deal_intake", {
-  id: text12("id").primaryKey().$defaultFn(() => createId()),
-  dealId: text12("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
-  formId: text12("form_id").notNull().references(() => intakeForm.id),
-  title: text12("title").notNull(),
-  status: text12("status").notNull().default("pending"),
-  dueDate: timestamp12("due_date", { withTimezone: true }),
-  completedAt: timestamp12("completed_at", { withTimezone: true }),
-  createdAt: timestamp12("created_at", { withTimezone: true }).notNull().defaultNow()
+var dealIntake = pgTable14("deal_intake", {
+  id: text14("id").primaryKey().$defaultFn(() => createId()),
+  dealId: text14("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
+  formId: text14("form_id").notNull().references(() => intakeForm.id),
+  title: text14("title").notNull(),
+  status: text14("status").notNull().default("pending"),
+  dueDate: timestamp14("due_date", { withTimezone: true }),
+  completedAt: timestamp14("completed_at", { withTimezone: true }),
+  createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check7("deal_intake_status_check", sql9`${table.status} IN ('pending','in_progress','completed')`),
-  index8("idx_deal_intake_deal").on(table.dealId)
+  check9("deal_intake_status_check", sql11`${table.status} IN ('pending','in_progress','completed')`),
+  index10("idx_deal_intake_deal").on(table.dealId)
 ]);
-var dealIntakeResponse = pgTable12("deal_intake_response", {
-  id: text12("id").primaryKey().$defaultFn(() => createId()),
-  intakeId: text12("intake_id").notNull().references(() => dealIntake.id, { onDelete: "cascade" }),
-  clientId: text12("client_id").notNull().references(() => clientAccount.id),
-  answers: jsonb7("answers").notNull().default({}),
-  submittedAt: timestamp12("submitted_at", { withTimezone: true }).notNull().defaultNow()
+var dealIntakeResponse = pgTable14("deal_intake_response", {
+  id: text14("id").primaryKey().$defaultFn(() => createId()),
+  intakeId: text14("intake_id").notNull().references(() => dealIntake.id, { onDelete: "cascade" }),
+  clientId: text14("client_id").notNull().references(() => clientAccount.id),
+  answers: jsonb9("answers").notNull().default({}),
+  submittedAt: timestamp14("submitted_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   unique5("deal_intake_response_intake_id_unique").on(table.intakeId)
 ]);
-var clientAsset = pgTable12("client_asset", {
-  id: text12("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text12("portal_id").notNull().references(() => portal.id),
-  dealId: text12("deal_id").notNull().references(() => deal.id),
-  clientId: text12("client_id").notNull().references(() => clientAccount.id),
-  intakeId: text12("intake_id").references(() => dealIntake.id),
-  fieldName: text12("field_name"),
-  name: text12("name").notNull(),
-  type: text12("type").notNull(),
-  mimeType: text12("mime_type"),
-  storageKey: text12("storage_key").notNull(),
-  // sizeBytes is a real size in bytes — kept as bigint (not an ID)
-  sizeBytes: bigint("size_bytes", { mode: "number" }),
-  uploadedAt: timestamp12("uploaded_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check7("client_asset_type_check", sql9`${table.type} IN ('logo','foto','documento','acceso','otro')`),
-  index8("idx_client_asset_deal").on(table.dealId)
-]);
-
-// src/db/schema/deliverables.ts
-import { pgTable as pgTable13, text as text13, integer as integer4, timestamp as timestamp13, index as index9, check as check8 } from "drizzle-orm/pg-core";
-import { sql as sql10 } from "drizzle-orm";
-var deliverable = pgTable13("deliverable", {
-  id: text13("id").primaryKey().$defaultFn(() => createId()),
-  dealId: text13("deal_id").notNull().references(() => deal.id),
-  title: text13("title").notNull(),
-  description: text13("description"),
-  type: text13("type").notNull(),
-  url: text13("url"),
-  version: integer4("version").notNull().default(1),
-  status: text13("status").notNull().default("pending_review"),
-  feedback: text13("feedback"),
-  reviewedBy: text13("reviewed_by").references(() => clientAccount.id),
-  reviewedAt: timestamp13("reviewed_at", { withTimezone: true }),
-  createdBy: text13("created_by").references(() => hubUser.id),
-  createdAt: timestamp13("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check8("deliverable_type_check", sql10`${table.type} IN ('design','prototype','staging','final')`),
-  check8("deliverable_status_check", sql10`${table.status} IN ('pending_review','approved','changes_requested')`),
-  index9("idx_deliverable_deal").on(table.dealId)
-]);
-
-// src/db/schema/change-requests.ts
-import { pgTable as pgTable14, text as text14, integer as integer5, numeric as numeric3, date as date3, timestamp as timestamp14, index as index10, unique as unique6, check as check9 } from "drizzle-orm/pg-core";
-import { sql as sql11 } from "drizzle-orm";
-var changeRequest = pgTable14("change_request", {
+var clientAsset = pgTable14("client_asset", {
   id: text14("id").primaryKey().$defaultFn(() => createId()),
   portalId: text14("portal_id").notNull().references(() => portal.id),
   dealId: text14("deal_id").notNull().references(() => deal.id),
-  number: integer5("number").notNull(),
-  title: text14("title").notNull(),
-  description: text14("description").notNull(),
-  originalScopeRef: text14("original_scope_ref"),
-  origin: text14("origin").notNull().default("client"),
-  status: text14("status").notNull().default("draft"),
-  version: integer5("version").notNull().default(1),
-  totalAmount: numeric3("total_amount", { precision: 12, scale: 2 }),
-  timelineImpactDays: integer5("timeline_impact_days").notNull().default(0),
-  newDeliveryDate: date3("new_delivery_date"),
-  approvedAt: timestamp14("approved_at", { withTimezone: true }),
-  approvedBy: text14("approved_by").references(() => clientAccount.id),
-  completedAt: timestamp14("completed_at", { withTimezone: true }),
-  createdBy: text14("created_by").references(() => hubUser.id),
-  createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp14("updated_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  unique6("change_request_deal_id_number_unique").on(table.dealId, table.number),
-  check9("change_request_origin_check", sql11`${table.origin} IN ('client','agency')`),
-  check9("change_request_status_check", sql11`${table.status} IN ('draft','sent','approved','rejected','negotiating','approved_verbally','disputed','completed')`),
-  index10("idx_cr_deal").on(table.dealId, table.status)
-]);
-var changeRequestItem = pgTable14("change_request_item", {
-  id: text14("id").primaryKey().$defaultFn(() => createId()),
-  changeRequestId: text14("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
-  description: text14("description").notNull(),
-  hours: numeric3("hours", { precision: 6, scale: 2 }),
-  unitPrice: numeric3("unit_price", { precision: 12, scale: 2 }).notNull(),
-  quantity: numeric3("quantity", { precision: 8, scale: 2 }).notNull().default("1"),
-  subtotal: numeric3("subtotal", { precision: 12, scale: 2 }).generatedAlwaysAs(sql11`unit_price * quantity`)
-}, (table) => [
-  index10("idx_cr_item_cr").on(table.changeRequestId)
-]);
-var changeRequestAttachment = pgTable14("change_request_attachment", {
-  id: text14("id").primaryKey().$defaultFn(() => createId()),
-  changeRequestId: text14("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  clientId: text14("client_id").notNull().references(() => clientAccount.id),
+  intakeId: text14("intake_id").references(() => dealIntake.id),
+  fieldName: text14("field_name"),
   name: text14("name").notNull(),
-  storageKey: text14("storage_key").notNull(),
+  type: text14("type").notNull(),
   mimeType: text14("mime_type"),
-  uploadedBy: text14("uploaded_by").references(() => hubUser.id),
+  storageKey: text14("storage_key").notNull(),
+  // sizeBytes is a real size in bytes — kept as bigint (not an ID)
+  sizeBytes: bigint("size_bytes", { mode: "number" }),
   uploadedAt: timestamp14("uploaded_at", { withTimezone: true }).notNull().defaultNow()
-});
-var changeRequestHistory = pgTable14("change_request_history", {
-  id: text14("id").primaryKey().$defaultFn(() => createId()),
-  changeRequestId: text14("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
-  fromStatus: text14("from_status"),
-  toStatus: text14("to_status").notNull(),
-  comment: text14("comment"),
-  changedByUser: text14("changed_by_user").references(() => hubUser.id),
-  changedByClient: text14("changed_by_client").references(() => clientAccount.id),
-  changedAt: timestamp14("changed_at", { withTimezone: true }).notNull().defaultNow()
-});
-var changeRequestComment = pgTable14("change_request_comment", {
-  id: text14("id").primaryKey().$defaultFn(() => createId()),
-  changeRequestId: text14("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
-  body: text14("body").notNull(),
-  authorUser: text14("author_user").references(() => hubUser.id),
-  authorClient: text14("author_client").references(() => clientAccount.id),
-  createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check9("change_request_comment_author_check", sql11`(${table.authorUser} IS NOT NULL AND ${table.authorClient} IS NULL) OR (${table.authorUser} IS NULL AND ${table.authorClient} IS NOT NULL)`),
-  index10("idx_cr_comment_cr").on(table.changeRequestId, table.createdAt)
+  check9("client_asset_type_check", sql11`${table.type} IN ('logo','foto','documento','acceso','otro')`),
+  index10("idx_client_asset_deal").on(table.dealId)
 ]);
 
-// src/db/schema/documents.ts
+// src/db/schema/deliverables.ts
 import { pgTable as pgTable15, text as text15, integer as integer6, timestamp as timestamp15, index as index11, check as check10 } from "drizzle-orm/pg-core";
 import { sql as sql12 } from "drizzle-orm";
-var document = pgTable15("document", {
+var deliverable = pgTable15("deliverable", {
   id: text15("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text15("portal_id").notNull().references(() => portal.id),
-  dealId: text15("deal_id").references(() => deal.id),
-  crId: text15("cr_id").references(() => changeRequest.id),
-  name: text15("name").notNull(),
+  dealId: text15("deal_id").notNull().references(() => deal.id),
+  title: text15("title").notNull(),
+  description: text15("description"),
   type: text15("type").notNull(),
-  source: text15("source"),
-  // docuseal IDs are external numeric IDs — kept as integer (not FKs)
-  docusealSubmissionId: integer6("docuseal_submission_id"),
-  docusealTemplateId: integer6("docuseal_template_id"),
-  docusealStatus: text15("docuseal_status"),
-  docusealExternalId: text15("docuseal_external_id").unique(),
-  storageKey: text15("storage_key"),
-  signedAt: timestamp15("signed_at", { withTimezone: true }),
-  signedBy: text15("signed_by").references(() => clientAccount.id),
+  url: text15("url"),
+  version: integer6("version").notNull().default(1),
+  status: text15("status").notNull().default("pending_review"),
+  feedback: text15("feedback"),
+  reviewedBy: text15("reviewed_by").references(() => clientAccount.id),
+  reviewedAt: timestamp15("reviewed_at", { withTimezone: true }),
   createdBy: text15("created_by").references(() => hubUser.id),
   createdAt: timestamp15("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check10("document_type_check", sql12`${table.type} IN ('contract','proposal','invoice','other')`),
-  check10("document_source_check", sql12`${table.source} IN ('docuseal','manual','generated')`),
-  check10("document_docuseal_status_check", sql12`${table.docusealStatus} IN ('pending','completed','declined','expired')`),
-  index11("idx_document_deal").on(table.dealId)
+  check10("deliverable_type_check", sql12`${table.type} IN ('design','prototype','staging','final')`),
+  check10("deliverable_status_check", sql12`${table.status} IN ('pending_review','approved','changes_requested')`),
+  index11("idx_deliverable_deal").on(table.dealId)
+]);
+
+// src/db/schema/change-requests.ts
+import { pgTable as pgTable16, text as text16, integer as integer7, numeric as numeric4, date as date3, timestamp as timestamp16, index as index12, unique as unique6, check as check11 } from "drizzle-orm/pg-core";
+import { sql as sql13 } from "drizzle-orm";
+var changeRequest = pgTable16("change_request", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text16("portal_id").notNull().references(() => portal.id),
+  dealId: text16("deal_id").notNull().references(() => deal.id),
+  number: integer7("number").notNull(),
+  title: text16("title").notNull(),
+  description: text16("description").notNull(),
+  originalScopeRef: text16("original_scope_ref"),
+  origin: text16("origin").notNull().default("client"),
+  status: text16("status").notNull().default("draft"),
+  version: integer7("version").notNull().default(1),
+  totalAmount: numeric4("total_amount", { precision: 12, scale: 2 }),
+  timelineImpactDays: integer7("timeline_impact_days").notNull().default(0),
+  newDeliveryDate: date3("new_delivery_date"),
+  approvedAt: timestamp16("approved_at", { withTimezone: true }),
+  approvedBy: text16("approved_by").references(() => clientAccount.id),
+  completedAt: timestamp16("completed_at", { withTimezone: true }),
+  createdBy: text16("created_by").references(() => hubUser.id),
+  createdAt: timestamp16("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp16("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  unique6("change_request_deal_id_number_unique").on(table.dealId, table.number),
+  check11("change_request_origin_check", sql13`${table.origin} IN ('client','agency')`),
+  check11("change_request_status_check", sql13`${table.status} IN ('draft','sent','approved','rejected','negotiating','approved_verbally','disputed','completed')`),
+  index12("idx_cr_deal").on(table.dealId, table.status)
+]);
+var changeRequestItem = pgTable16("change_request_item", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  changeRequestId: text16("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  description: text16("description").notNull(),
+  hours: numeric4("hours", { precision: 6, scale: 2 }),
+  unitPrice: numeric4("unit_price", { precision: 12, scale: 2 }).notNull(),
+  quantity: numeric4("quantity", { precision: 8, scale: 2 }).notNull().default("1"),
+  subtotal: numeric4("subtotal", { precision: 12, scale: 2 }).generatedAlwaysAs(sql13`unit_price * quantity`)
+}, (table) => [
+  index12("idx_cr_item_cr").on(table.changeRequestId)
+]);
+var changeRequestAttachment = pgTable16("change_request_attachment", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  changeRequestId: text16("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  name: text16("name").notNull(),
+  storageKey: text16("storage_key").notNull(),
+  mimeType: text16("mime_type"),
+  uploadedBy: text16("uploaded_by").references(() => hubUser.id),
+  uploadedAt: timestamp16("uploaded_at", { withTimezone: true }).notNull().defaultNow()
+});
+var changeRequestHistory = pgTable16("change_request_history", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  changeRequestId: text16("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  fromStatus: text16("from_status"),
+  toStatus: text16("to_status").notNull(),
+  comment: text16("comment"),
+  changedByUser: text16("changed_by_user").references(() => hubUser.id),
+  changedByClient: text16("changed_by_client").references(() => clientAccount.id),
+  changedAt: timestamp16("changed_at", { withTimezone: true }).notNull().defaultNow()
+});
+var changeRequestComment = pgTable16("change_request_comment", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  changeRequestId: text16("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  body: text16("body").notNull(),
+  authorUser: text16("author_user").references(() => hubUser.id),
+  authorClient: text16("author_client").references(() => clientAccount.id),
+  createdAt: timestamp16("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check11("change_request_comment_author_check", sql13`(${table.authorUser} IS NOT NULL AND ${table.authorClient} IS NULL) OR (${table.authorUser} IS NULL AND ${table.authorClient} IS NOT NULL)`),
+  index12("idx_cr_comment_cr").on(table.changeRequestId, table.createdAt)
+]);
+
+// src/db/schema/documents.ts
+import { pgTable as pgTable17, text as text17, integer as integer8, timestamp as timestamp17, index as index13, check as check12 } from "drizzle-orm/pg-core";
+import { sql as sql14 } from "drizzle-orm";
+var document = pgTable17("document", {
+  id: text17("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text17("portal_id").notNull().references(() => portal.id),
+  dealId: text17("deal_id").references(() => deal.id),
+  crId: text17("cr_id").references(() => changeRequest.id),
+  name: text17("name").notNull(),
+  type: text17("type").notNull(),
+  source: text17("source"),
+  // docuseal IDs are external numeric IDs — kept as integer (not FKs)
+  docusealSubmissionId: integer8("docuseal_submission_id"),
+  docusealTemplateId: integer8("docuseal_template_id"),
+  docusealStatus: text17("docuseal_status"),
+  docusealExternalId: text17("docuseal_external_id").unique(),
+  storageKey: text17("storage_key"),
+  signedAt: timestamp17("signed_at", { withTimezone: true }),
+  signedBy: text17("signed_by").references(() => clientAccount.id),
+  createdBy: text17("created_by").references(() => hubUser.id),
+  createdAt: timestamp17("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check12("document_type_check", sql14`${table.type} IN ('contract','proposal','invoice','other')`),
+  check12("document_source_check", sql14`${table.source} IN ('docuseal','manual','generated')`),
+  check12("document_docuseal_status_check", sql14`${table.docusealStatus} IN ('pending','completed','declined','expired')`),
+  index13("idx_document_deal").on(table.dealId)
 ]);
 
 // src/db/schema/email.ts
-import { pgTable as pgTable16, text as text16, uuid, timestamp as timestamp16, index as index12, check as check11 } from "drizzle-orm/pg-core";
-import { sql as sql13 } from "drizzle-orm";
-var emailSend = pgTable16("email_send", {
-  id: text16("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text16("portal_id").notNull().references(() => portal.id),
-  contactId: text16("contact_id").references(() => contact.id, { onDelete: "set null" }),
-  dealId: text16("deal_id").references(() => deal.id, { onDelete: "set null" }),
+import { pgTable as pgTable18, text as text18, uuid, timestamp as timestamp18, index as index14, check as check13 } from "drizzle-orm/pg-core";
+import { sql as sql15 } from "drizzle-orm";
+var emailSend = pgTable18("email_send", {
+  id: text18("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text18("portal_id").notNull().references(() => portal.id),
+  contactId: text18("contact_id").references(() => contact.id, { onDelete: "set null" }),
+  dealId: text18("deal_id").references(() => deal.id, { onDelete: "set null" }),
   fromEmail: citext("from_email").notNull(),
   toEmail: citext("to_email").notNull(),
-  subject: text16("subject").notNull(),
-  bodyHtml: text16("body_html"),
+  subject: text18("subject").notNull(),
+  bodyHtml: text18("body_html"),
   trackingId: uuid("tracking_id").notNull().defaultRandom(),
-  sentAt: timestamp16("sent_at", { withTimezone: true }).notNull().defaultNow()
+  sentAt: timestamp18("sent_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index12("idx_email_send_contact").on(table.contactId),
-  index12("idx_email_send_tracking").on(table.trackingId),
+  index14("idx_email_send_contact").on(table.contactId),
+  index14("idx_email_send_tracking").on(table.trackingId),
   // Timeline filtra por deal_id y ordena por sent_at DESC → compuesto evita el Seq Scan.
-  index12("idx_email_send_deal").on(table.dealId, table.sentAt)
+  index14("idx_email_send_deal").on(table.dealId, table.sentAt)
 ]);
-var emailEvent = pgTable16("email_event", {
-  id: text16("id").primaryKey().$defaultFn(() => createId()),
-  emailId: text16("email_id").notNull().references(() => emailSend.id, { onDelete: "cascade" }),
-  type: text16("type").notNull(),
-  linkUrl: text16("link_url"),
-  userAgent: text16("user_agent"),
+var emailEvent = pgTable18("email_event", {
+  id: text18("id").primaryKey().$defaultFn(() => createId()),
+  emailId: text18("email_id").notNull().references(() => emailSend.id, { onDelete: "cascade" }),
+  type: text18("type").notNull(),
+  linkUrl: text18("link_url"),
+  userAgent: text18("user_agent"),
   ipAddress: inet("ip_address"),
-  occurredAt: timestamp16("occurred_at", { withTimezone: true }).notNull().defaultNow()
+  occurredAt: timestamp18("occurred_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check11("email_event_type_check", sql13`${table.type} IN ('opened','clicked','bounced','unsubscribed')`),
-  index12("idx_email_event_email").on(table.emailId, table.type)
+  check13("email_event_type_check", sql15`${table.type} IN ('opened','clicked','bounced','unsubscribed')`),
+  index14("idx_email_event_email").on(table.emailId, table.type)
 ]);
 
 // src/db/schema/notifications.ts
-import { pgTable as pgTable17, text as text17, timestamp as timestamp17, index as index13 } from "drizzle-orm/pg-core";
-var notification = pgTable17("notification", {
-  id: text17("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text17("portal_id").notNull().references(() => portal.id),
-  userId: text17("user_id").references(() => hubUser.id),
-  clientId: text17("client_id").references(() => clientAccount.id),
-  entityType: text17("entity_type"),
-  entityId: text17("entity_id"),
-  type: text17("type").notNull(),
-  title: text17("title").notNull(),
-  body: text17("body"),
-  actionUrl: text17("action_url"),
-  readAt: timestamp17("read_at", { withTimezone: true }),
-  createdAt: timestamp17("created_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable19, text as text19, timestamp as timestamp19, index as index15 } from "drizzle-orm/pg-core";
+var notification = pgTable19("notification", {
+  id: text19("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text19("portal_id").notNull().references(() => portal.id),
+  userId: text19("user_id").references(() => hubUser.id),
+  clientId: text19("client_id").references(() => clientAccount.id),
+  entityType: text19("entity_type"),
+  entityId: text19("entity_id"),
+  type: text19("type").notNull(),
+  title: text19("title").notNull(),
+  body: text19("body"),
+  actionUrl: text19("action_url"),
+  readAt: timestamp19("read_at", { withTimezone: true }),
+  createdAt: timestamp19("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index13("idx_notification_user").on(table.userId, table.readAt),
-  index13("idx_notification_client").on(table.clientId, table.readAt),
-  index13("idx_notification_portal_user").on(table.portalId, table.userId, table.readAt)
+  index15("idx_notification_user").on(table.userId, table.readAt),
+  index15("idx_notification_client").on(table.clientId, table.readAt),
+  index15("idx_notification_portal_user").on(table.portalId, table.userId, table.readAt)
 ]);
 
 // src/db/schema/audit.ts
-import { pgTable as pgTable18, text as text18, jsonb as jsonb8, timestamp as timestamp18, index as index14 } from "drizzle-orm/pg-core";
-var auditLog = pgTable18("audit_log", {
-  id: text18("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text18("portal_id").notNull().references(() => portal.id),
-  userId: text18("user_id").references(() => hubUser.id),
-  clientId: text18("client_id").references(() => clientAccount.id),
-  entityType: text18("entity_type"),
-  entityId: text18("entity_id"),
-  action: text18("action").notNull(),
-  payload: jsonb8("payload"),
+import { pgTable as pgTable20, text as text20, jsonb as jsonb10, timestamp as timestamp20, index as index16 } from "drizzle-orm/pg-core";
+var auditLog = pgTable20("audit_log", {
+  id: text20("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text20("portal_id").notNull().references(() => portal.id),
+  userId: text20("user_id").references(() => hubUser.id),
+  clientId: text20("client_id").references(() => clientAccount.id),
+  entityType: text20("entity_type"),
+  entityId: text20("entity_id"),
+  action: text20("action").notNull(),
+  payload: jsonb10("payload"),
   ipAddress: inet("ip_address"),
-  createdAt: timestamp18("created_at", { withTimezone: true }).notNull().defaultNow()
+  createdAt: timestamp20("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index14("idx_audit_entity").on(table.entityType, table.entityId, table.createdAt)
+  index16("idx_audit_entity").on(table.entityType, table.entityId, table.createdAt)
 ]);
 
 // src/db/schema/library.ts
-import { pgTable as pgTable19, text as text19, boolean as boolean9, jsonb as jsonb9, timestamp as timestamp19, index as index15, check as check12 } from "drizzle-orm/pg-core";
-import { sql as sql14 } from "drizzle-orm";
-var libraryItem = pgTable19("library_item", {
-  id: text19("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text19("portal_id").notNull().references(() => portal.id),
-  type: text19("type").notNull(),
-  category: text19("category"),
-  name: text19("name").notNull(),
-  description: text19("description"),
-  storageKey: text19("storage_key"),
-  url: text19("url"),
+import { pgTable as pgTable21, text as text21, boolean as boolean10, jsonb as jsonb11, timestamp as timestamp21, index as index17, check as check14 } from "drizzle-orm/pg-core";
+import { sql as sql16 } from "drizzle-orm";
+var libraryItem = pgTable21("library_item", {
+  id: text21("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text21("portal_id").notNull().references(() => portal.id),
+  type: text21("type").notNull(),
+  category: text21("category"),
+  name: text21("name").notNull(),
+  description: text21("description"),
+  storageKey: text21("storage_key"),
+  url: text21("url"),
   /**
    * Pasos/contenido de la entidad operativa sin estado.
    * Para 'procedure': lista ordenada de pasos. Para 'checklist': lista de ítems.
    * Se almacena como JSONB para permitir estructura flexible por variante.
    */
-  steps: jsonb9("steps").default([]),
+  steps: jsonb11("steps").default([]),
   /** Variante operativa: 'procedure' (SOP ordenado) o 'checklist' (lista de verificación). */
-  kind: text19("kind"),
-  createdBy: text19("created_by").references(() => hubUser.id),
+  kind: text21("kind"),
+  createdBy: text21("created_by").references(() => hubUser.id),
   /** Responsable del contenido. null = sin dueño asignado. */
-  ownerId: text19("owner_id").references(() => hubUser.id, { onDelete: "set null" }),
-  archived: boolean9("archived").notNull().default(false),
-  archivedAt: timestamp19("archived_at", { withTimezone: true }),
-  createdAt: timestamp19("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp19("updated_at", { withTimezone: true }).notNull().defaultNow()
+  ownerId: text21("owner_id").references(() => hubUser.id, { onDelete: "set null" }),
+  archived: boolean10("archived").notNull().default(false),
+  archivedAt: timestamp21("archived_at", { withTimezone: true }),
+  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check12(
+  check14(
     "library_item_type_check",
-    sql14`${table.type} IN ('document','sop','template','contract_base','proposal_base','checklist','tech_doc')`
+    sql16`${table.type} IN ('document','sop','template','contract_base','proposal_base','checklist','tech_doc')`
   ),
   // kind aplica solo a entidades operativas (type='sop' tras la migración 0023).
-  check12(
+  check14(
     "library_item_kind_check",
-    sql14`${table.kind} IS NULL OR ${table.kind} IN ('procedure','checklist')`
+    sql16`${table.kind} IS NULL OR ${table.kind} IN ('procedure','checklist')`
   ),
-  index15("idx_library_item_portal_type").on(table.portalId, table.type)
+  index17("idx_library_item_portal_type").on(table.portalId, table.type)
 ]);
 
 // src/db/schema/work-items.ts
-import { pgTable as pgTable20, text as text20, boolean as boolean10, timestamp as timestamp20, index as index16, check as check13 } from "drizzle-orm/pg-core";
-import { sql as sql15 } from "drizzle-orm";
-var workItem = pgTable20("work_item", {
-  id: text20("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text20("portal_id").notNull().references(() => portal.id),
-  type: text20("type").notNull(),
-  title: text20("title").notNull(),
-  description: text20("description"),
-  status: text20("status").notNull().default("open"),
-  priority: text20("priority").notNull().default("medium"),
+import { pgTable as pgTable22, text as text22, boolean as boolean11, timestamp as timestamp22, index as index18, check as check15 } from "drizzle-orm/pg-core";
+import { sql as sql17 } from "drizzle-orm";
+var workItem = pgTable22("work_item", {
+  id: text22("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text22("portal_id").notNull().references(() => portal.id),
+  type: text22("type").notNull(),
+  title: text22("title").notNull(),
+  description: text22("description"),
+  status: text22("status").notNull().default("open"),
+  priority: text22("priority").notNull().default("medium"),
   /** Horizonte de planificación: now = esta semana, next = próxima iteración, later = backlog. */
-  timeframe: text20("timeframe"),
-  dealId: text20("deal_id").references(() => deal.id, { onDelete: "set null" }),
-  assignedTo: text20("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
-  createdBy: text20("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  archived: boolean10("archived").notNull().default(false),
-  archivedAt: timestamp20("archived_at", { withTimezone: true }),
-  createdAt: timestamp20("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp20("updated_at", { withTimezone: true }).notNull().defaultNow()
+  timeframe: text22("timeframe"),
+  dealId: text22("deal_id").references(() => deal.id, { onDelete: "set null" }),
+  assignedTo: text22("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
+  createdBy: text22("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  archived: boolean11("archived").notNull().default(false),
+  archivedAt: timestamp22("archived_at", { withTimezone: true }),
+  createdAt: timestamp22("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp22("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check13(
+  check15(
     "work_item_type_check",
-    sql15`${table.type} IN ('bug','improvement','roadmap','process')`
+    sql17`${table.type} IN ('bug','improvement','roadmap','process')`
   ),
-  check13(
+  check15(
     "work_item_status_check",
-    sql15`${table.status} IN ('open','in_progress','done','cancelled')`
+    sql17`${table.status} IN ('open','in_progress','done','cancelled')`
   ),
-  check13(
+  check15(
     "work_item_priority_check",
-    sql15`${table.priority} IN ('low','medium','high')`
+    sql17`${table.priority} IN ('low','medium','high')`
   ),
   // timeframe es opcional; si se setea, debe ser uno de los tres horizontes conocidos.
-  check13(
+  check15(
     "work_item_timeframe_check",
-    sql15`${table.timeframe} IS NULL OR ${table.timeframe} IN ('now','next','later')`
+    sql17`${table.timeframe} IS NULL OR ${table.timeframe} IN ('now','next','later')`
   ),
-  index16("idx_work_item_portal_type").on(table.portalId, table.type),
-  index16("idx_work_item_portal").on(table.portalId)
+  index18("idx_work_item_portal_type").on(table.portalId, table.type),
+  index18("idx_work_item_portal").on(table.portalId)
 ]);
 
 // src/db/schema/finance.ts
-import { pgTable as pgTable21, text as text21, integer as integer7, numeric as numeric4, date as date4, timestamp as timestamp21, boolean as boolean11, index as index17, check as check14 } from "drizzle-orm/pg-core";
-import { sql as sql16 } from "drizzle-orm";
-var retainer = pgTable21("retainer", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text21("portal_id").notNull().references(() => portal.id),
-  companyId: text21("company_id").notNull().references(() => company.id),
-  amount: numeric4("amount", { precision: 14, scale: 2 }).notNull(),
-  currency: text21("currency").notNull(),
+import { pgTable as pgTable23, text as text23, integer as integer9, numeric as numeric5, date as date4, timestamp as timestamp23, boolean as boolean12, index as index19, check as check16 } from "drizzle-orm/pg-core";
+import { sql as sql18 } from "drizzle-orm";
+var retainer = pgTable23("retainer", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text23("portal_id").notNull().references(() => portal.id),
+  companyId: text23("company_id").notNull().references(() => company.id),
+  amount: numeric5("amount", { precision: 14, scale: 2 }).notNull(),
+  currency: text23("currency").notNull(),
   /** Tipo de cambio al momento de emitir (1 si la moneda base == currency). */
-  exchangeRate: numeric4("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
+  exchangeRate: numeric5("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
   /** Monto en moneda base del portal (siempre USD, calculado en el service). */
-  amountBase: numeric4("amount_base", { precision: 14, scale: 2 }).notNull(),
+  amountBase: numeric5("amount_base", { precision: 14, scale: 2 }).notNull(),
   /** Día del mes en que se genera la factura automáticamente (1–28). */
-  billingDay: integer7("billing_day").notNull(),
-  status: text21("status").notNull().default("active"),
+  billingDay: integer9("billing_day").notNull(),
+  status: text23("status").notNull().default("active"),
   startDate: date4("start_date").notNull(),
   endDate: date4("end_date"),
-  notes: text21("notes"),
-  createdBy: text21("created_by").references(() => hubUser.id),
-  archived: boolean11("archived").notNull().default(false),
-  archivedAt: timestamp21("archived_at", { withTimezone: true }),
-  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
+  notes: text23("notes"),
+  createdBy: text23("created_by").references(() => hubUser.id),
+  archived: boolean12("archived").notNull().default(false),
+  archivedAt: timestamp23("archived_at", { withTimezone: true }),
+  createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14("retainer_currency_check", sql16`${table.currency} IN ('USD','ARS')`),
-  check14("retainer_status_check", sql16`${table.status} IN ('active','paused','cancelled')`),
+  check16("retainer_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  check16("retainer_status_check", sql18`${table.status} IN ('active','paused','cancelled')`),
   // El día de corte se limita al 28 para evitar ambigüedades en meses cortos.
-  check14("retainer_billing_day_check", sql16`${table.billingDay} BETWEEN 1 AND 28`),
-  index17("idx_retainer_portal_status").on(table.portalId, table.status)
+  check16("retainer_billing_day_check", sql18`${table.billingDay} BETWEEN 1 AND 28`),
+  index19("idx_retainer_portal_status").on(table.portalId, table.status)
 ]);
-var invoice = pgTable21("invoice", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text21("portal_id").notNull().references(() => portal.id),
-  number: integer7("number").notNull(),
-  dealId: text21("deal_id").references(() => deal.id),
-  companyId: text21("company_id").references(() => company.id),
-  status: text21("status").notNull().default("draft"),
+var invoice = pgTable23("invoice", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text23("portal_id").notNull().references(() => portal.id),
+  number: integer9("number").notNull(),
+  dealId: text23("deal_id").references(() => deal.id),
+  companyId: text23("company_id").references(() => company.id),
+  status: text23("status").notNull().default("draft"),
   issueDate: date4("issue_date"),
   dueDate: date4("due_date"),
-  subtotal: numeric4("subtotal", { precision: 14, scale: 2 }).notNull().default("0"),
-  tax: numeric4("tax", { precision: 14, scale: 2 }).notNull().default("0"),
-  total: numeric4("total", { precision: 14, scale: 2 }).notNull().default("0"),
-  currency: text21("currency").notNull().default("USD"),
+  subtotal: numeric5("subtotal", { precision: 14, scale: 2 }).notNull().default("0"),
+  tax: numeric5("tax", { precision: 14, scale: 2 }).notNull().default("0"),
+  total: numeric5("total", { precision: 14, scale: 2 }).notNull().default("0"),
+  currency: text23("currency").notNull().default("USD"),
   /** Tipo de cambio USD/ARS al momento de emitir (1 si currency == 'USD'). */
-  exchangeRate: numeric4("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
+  exchangeRate: numeric5("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
   /** total × exchange_rate → monto en USD para comparaciones y reportes. */
-  amountBase: numeric4("amount_base", { precision: 14, scale: 2 }).notNull().default("0"),
-  notes: text21("notes"),
+  amountBase: numeric5("amount_base", { precision: 14, scale: 2 }).notNull().default("0"),
+  notes: text23("notes"),
   /** Retainer que generó esta factura (null si es una factura puntual). */
-  retainerId: text21("retainer_id").references(() => retainer.id),
-  createdBy: text21("created_by").references(() => hubUser.id),
-  archived: boolean11("archived").notNull().default(false),
-  archivedAt: timestamp21("archived_at", { withTimezone: true }),
-  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
+  retainerId: text23("retainer_id").references(() => retainer.id),
+  createdBy: text23("created_by").references(() => hubUser.id),
+  archived: boolean12("archived").notNull().default(false),
+  archivedAt: timestamp23("archived_at", { withTimezone: true }),
+  createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14("invoice_status_check", sql16`${table.status} IN ('draft','sent','paid','overdue','void')`),
-  check14("invoice_currency_check", sql16`${table.currency} IN ('USD','ARS')`),
-  index17("idx_invoice_portal_status").on(table.portalId, table.status),
-  index17("idx_invoice_retainer").on(table.retainerId),
-  index17("idx_invoice_deal").on(table.dealId),
-  index17("idx_invoice_company").on(table.companyId)
+  check16("invoice_status_check", sql18`${table.status} IN ('draft','sent','paid','overdue','void')`),
+  check16("invoice_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  index19("idx_invoice_portal_status").on(table.portalId, table.status),
+  index19("idx_invoice_retainer").on(table.retainerId),
+  index19("idx_invoice_deal").on(table.dealId),
+  index19("idx_invoice_company").on(table.companyId)
 ]);
-var invoiceItem = pgTable21("invoice_item", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  invoiceId: text21("invoice_id").notNull().references(() => invoice.id, { onDelete: "cascade" }),
-  description: text21("description").notNull(),
-  quantity: numeric4("quantity", { precision: 12, scale: 2 }).notNull().default("1"),
-  unitPrice: numeric4("unit_price", { precision: 14, scale: 2 }).notNull().default("0")
+var invoiceItem = pgTable23("invoice_item", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  invoiceId: text23("invoice_id").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  description: text23("description").notNull(),
+  quantity: numeric5("quantity", { precision: 12, scale: 2 }).notNull().default("1"),
+  unitPrice: numeric5("unit_price", { precision: 14, scale: 2 }).notNull().default("0")
 }, (table) => [
-  index17("idx_invoice_item_invoice").on(table.invoiceId)
+  index19("idx_invoice_item_invoice").on(table.invoiceId)
 ]);
-var payment = pgTable21("payment", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text21("portal_id").notNull().references(() => portal.id),
-  invoiceId: text21("invoice_id").notNull().references(() => invoice.id),
-  amount: numeric4("amount", { precision: 14, scale: 2 }).notNull(),
-  currency: text21("currency").notNull().default("USD"),
+var payment = pgTable23("payment", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text23("portal_id").notNull().references(() => portal.id),
+  invoiceId: text23("invoice_id").notNull().references(() => invoice.id),
+  amount: numeric5("amount", { precision: 14, scale: 2 }).notNull(),
+  currency: text23("currency").notNull().default("USD"),
   /** Tipo de cambio al momento del pago (1 si currency == 'USD'). */
-  exchangeRate: numeric4("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
+  exchangeRate: numeric5("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
   /** amount × exchange_rate → monto en USD para conciliación. */
-  amountBase: numeric4("amount_base", { precision: 14, scale: 2 }).notNull().default("0"),
-  method: text21("method").notNull().default("transfer"),
-  paidAt: timestamp21("paid_at", { withTimezone: true }).notNull().defaultNow(),
-  reference: text21("reference"),
-  createdBy: text21("created_by").references(() => hubUser.id),
-  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow()
+  amountBase: numeric5("amount_base", { precision: 14, scale: 2 }).notNull().default("0"),
+  method: text23("method").notNull().default("transfer"),
+  paidAt: timestamp23("paid_at", { withTimezone: true }).notNull().defaultNow(),
+  reference: text23("reference"),
+  createdBy: text23("created_by").references(() => hubUser.id),
+  createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14("payment_method_check", sql16`${table.method} IN ('transfer','card','cash','other')`),
-  check14("payment_currency_check", sql16`${table.currency} IN ('USD','ARS')`),
-  index17("idx_payment_portal").on(table.portalId)
+  check16("payment_method_check", sql18`${table.method} IN ('transfer','card','cash','other')`),
+  check16("payment_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  index19("idx_payment_portal").on(table.portalId)
 ]);
-var expense = pgTable21("expense", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text21("portal_id").notNull().references(() => portal.id),
-  description: text21("description").notNull(),
-  amount: numeric4("amount", { precision: 14, scale: 2 }).notNull(),
-  currency: text21("currency").notNull(),
+var expense = pgTable23("expense", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text23("portal_id").notNull().references(() => portal.id),
+  description: text23("description").notNull(),
+  amount: numeric5("amount", { precision: 14, scale: 2 }).notNull(),
+  currency: text23("currency").notNull(),
   /** Tipo de cambio al momento del gasto (1 si currency == 'USD'). */
-  exchangeRate: numeric4("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
+  exchangeRate: numeric5("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
   /** amount × exchange_rate → monto en USD para dashboards y reportes. */
-  amountBase: numeric4("amount_base", { precision: 14, scale: 2 }).notNull(),
-  category: text21("category").notNull(),
+  amountBase: numeric5("amount_base", { precision: 14, scale: 2 }).notNull(),
+  category: text23("category").notNull(),
   expenseDate: date4("expense_date").notNull(),
-  vendor: text21("vendor"),
-  dealId: text21("deal_id").references(() => deal.id),
-  companyId: text21("company_id").references(() => company.id),
-  paymentMethod: text21("payment_method"),
+  vendor: text23("vendor"),
+  dealId: text23("deal_id").references(() => deal.id),
+  companyId: text23("company_id").references(() => company.id),
+  paymentMethod: text23("payment_method"),
   /** Si el gasto es recurrente (ej.: suscripción mensual), se marca para alertas. */
-  isRecurring: boolean11("is_recurring").notNull().default(false),
-  notes: text21("notes"),
+  isRecurring: boolean12("is_recurring").notNull().default(false),
+  notes: text23("notes"),
   /** Clave del comprobante subido a R2 (sin URL; la URL se genera on-demand). */
-  storageKey: text21("storage_key"),
-  createdBy: text21("created_by").references(() => hubUser.id),
-  archived: boolean11("archived").notNull().default(false),
-  archivedAt: timestamp21("archived_at", { withTimezone: true }),
-  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
+  storageKey: text23("storage_key"),
+  createdBy: text23("created_by").references(() => hubUser.id),
+  archived: boolean12("archived").notNull().default(false),
+  archivedAt: timestamp23("archived_at", { withTimezone: true }),
+  createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14("expense_currency_check", sql16`${table.currency} IN ('USD','ARS')`),
-  check14(
+  check16("expense_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  check16(
     "expense_category_check",
-    sql16`${table.category} IN ('software','infraestructura','equipo','impuestos','oficina','marketing','otros')`
+    sql18`${table.category} IN ('software','infraestructura','equipo','impuestos','oficina','marketing','otros')`
   ),
   // payment_method es opcional; si viene, solo acepta los valores conocidos.
-  check14(
+  check16(
     "expense_payment_method_check",
-    sql16`${table.paymentMethod} IS NULL OR ${table.paymentMethod} IN ('transfer','card','cash','other')`
+    sql18`${table.paymentMethod} IS NULL OR ${table.paymentMethod} IN ('transfer','card','cash','other')`
   ),
-  index17("idx_expense_portal_date").on(table.portalId, table.expenseDate),
-  index17("idx_expense_deal").on(table.dealId),
-  index17("idx_expense_category").on(table.category)
+  index19("idx_expense_portal_date").on(table.portalId, table.expenseDate),
+  index19("idx_expense_deal").on(table.dealId),
+  index19("idx_expense_category").on(table.category)
 ]);
 
 // src/db/schema/notification-prefs.ts
-import { pgTable as pgTable22, text as text22, boolean as boolean12, timestamp as timestamp22, unique as unique8, index as index18 } from "drizzle-orm/pg-core";
-var notificationPref = pgTable22(
+import { pgTable as pgTable24, text as text24, boolean as boolean13, timestamp as timestamp24, unique as unique8, index as index20 } from "drizzle-orm/pg-core";
+var notificationPref = pgTable24(
   "notification_pref",
   {
-    id: text22("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text22("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-    userId: text22("user_id").notNull().references(() => hubUser.id, { onDelete: "cascade" }),
-    eventType: text22("event_type").notNull(),
-    inApp: boolean12("in_app").notNull().default(true),
-    email: boolean12("email").notNull().default(false),
-    createdAt: timestamp22("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp22("updated_at", { withTimezone: true }).notNull().defaultNow()
+    id: text24("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text24("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    userId: text24("user_id").notNull().references(() => hubUser.id, { onDelete: "cascade" }),
+    eventType: text24("event_type").notNull(),
+    inApp: boolean13("in_app").notNull().default(true),
+    email: boolean13("email").notNull().default(false),
+    createdAt: timestamp24("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp24("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     unique8("notification_pref_user_id_event_type_unique").on(table.userId, table.eventType),
-    index18("idx_notification_pref_portal_user").on(table.portalId, table.userId)
+    index20("idx_notification_pref_portal_user").on(table.portalId, table.userId)
   ]
 );
 
 // src/db/schema/custom-fields.ts
-import { pgTable as pgTable23, text as text23, integer as integer8, boolean as boolean13, timestamp as timestamp23, jsonb as jsonb10, unique as unique9, index as index19, check as check15 } from "drizzle-orm/pg-core";
-import { sql as sql17 } from "drizzle-orm";
-var customField = pgTable23(
+import { pgTable as pgTable25, text as text25, integer as integer10, boolean as boolean14, timestamp as timestamp25, jsonb as jsonb12, unique as unique9, index as index21, check as check17 } from "drizzle-orm/pg-core";
+import { sql as sql19 } from "drizzle-orm";
+var customField = pgTable25(
   "custom_field",
   {
-    id: text23("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text23("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-    entityType: text23("entity_type").notNull(),
-    key: text23("key").notNull(),
-    label: text23("label").notNull(),
-    fieldType: text23("field_type").notNull(),
-    options: jsonb10("options").$type().default(null),
-    displayOrder: integer8("display_order").notNull().default(0),
-    archived: boolean13("archived").notNull().default(false),
-    archivedAt: timestamp23("archived_at", { withTimezone: true }),
-    createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
+    id: text25("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text25("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    entityType: text25("entity_type").notNull(),
+    key: text25("key").notNull(),
+    label: text25("label").notNull(),
+    fieldType: text25("field_type").notNull(),
+    options: jsonb12("options").$type().default(null),
+    displayOrder: integer10("display_order").notNull().default(0),
+    archived: boolean14("archived").notNull().default(false),
+    archivedAt: timestamp25("archived_at", { withTimezone: true }),
+    createdAt: timestamp25("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp25("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    check15(
+    check17(
       "custom_field_entity_type_check",
-      sql17`${table.entityType} IN ('contact','deal','company')`
+      sql19`${table.entityType} IN ('contact','deal','company')`
     ),
-    check15(
+    check17(
       "custom_field_field_type_check",
-      sql17`${table.fieldType} IN ('text','number','date','select','boolean')`
+      sql19`${table.fieldType} IN ('text','number','date','select','boolean')`
     ),
     unique9("custom_field_portal_entity_key_unique").on(table.portalId, table.entityType, table.key),
-    index19("idx_custom_field_portal_entity").on(table.portalId, table.entityType)
+    index21("idx_custom_field_portal_entity").on(table.portalId, table.entityType)
   ]
 );
 
 // src/db/schema/onboarding.ts
-import { pgTable as pgTable24, text as text24, jsonb as jsonb11, timestamp as timestamp24, index as index20, check as check16 } from "drizzle-orm/pg-core";
-import { sql as sql18 } from "drizzle-orm";
-var onboardingSubmission = pgTable24("onboarding_submission", {
-  id: text24("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text24("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+import { pgTable as pgTable26, text as text26, jsonb as jsonb13, timestamp as timestamp26, index as index22, check as check18 } from "drizzle-orm/pg-core";
+import { sql as sql20 } from "drizzle-orm";
+var onboardingSubmission = pgTable26("onboarding_submission", {
+  id: text26("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
   // ── Denormalizado para listado rápido en el admin ──
-  fullName: text24("full_name").notNull(),
-  email: text24("email").notNull(),
-  company: text24("company"),
+  fullName: text26("full_name").notNull(),
+  email: text26("email").notNull(),
+  company: text26("company"),
   // ── Respuestas completas del wizard ──
-  answers: jsonb11("answers").$type().notNull().default({}),
+  answers: jsonb13("answers").$type().notNull().default({}),
   // ── Routing de ventas: budget > 2000 || claridad baja → call ──
-  decision: text24("decision").notNull(),
+  decision: text26("decision").notNull(),
   // ── CRM creado automáticamente ──
-  contactId: text24("contact_id").references(() => contact.id, { onDelete: "set null" }),
-  dealId: text24("deal_id").references(() => deal.id, { onDelete: "set null" }),
-  createdAt: timestamp24("created_at", { withTimezone: true }).notNull().defaultNow()
+  contactId: text26("contact_id").references(() => contact.id, { onDelete: "set null" }),
+  dealId: text26("deal_id").references(() => deal.id, { onDelete: "set null" }),
+  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check16("onboarding_submission_decision_check", sql18`${table.decision} IN ('call','proposal')`),
-  index20("idx_onboarding_submission_portal").on(table.portalId)
+  check18("onboarding_submission_decision_check", sql20`${table.decision} IN ('call','proposal')`),
+  index22("idx_onboarding_submission_portal").on(table.portalId)
 ]);
 
 // src/db/schema/client-onboarding.ts
-import { pgTable as pgTable25, text as text25, integer as integer9, jsonb as jsonb12, timestamp as timestamp25, unique as unique10, check as check17, index as index21 } from "drizzle-orm/pg-core";
-import { sql as sql19 } from "drizzle-orm";
-var clientOnboarding = pgTable25("client_onboarding", {
-  id: text25("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text25("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  dealId: text25("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
-  clientId: text25("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
-  status: text25("status").notNull().default("in_progress"),
-  currentStep: integer9("current_step").notNull().default(1),
+import { pgTable as pgTable27, text as text27, integer as integer11, jsonb as jsonb14, timestamp as timestamp27, unique as unique10, check as check19, index as index23 } from "drizzle-orm/pg-core";
+import { sql as sql21 } from "drizzle-orm";
+var clientOnboarding = pgTable27("client_onboarding", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  dealId: text27("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
+  clientId: text27("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
+  status: text27("status").notNull().default("in_progress"),
+  currentStep: integer11("current_step").notNull().default(1),
   /** Mapa { "1": ISOtimestamp, ..., "8": ISOtimestamp } de pasos completados. */
-  stepsCompleted: jsonb12("steps_completed").$type().notNull().default({}),
+  stepsCompleted: jsonb14("steps_completed").$type().notNull().default({}),
   // ── Paso 5 — Firma. Checkbox de aceptación + nombre tipeado + timestamp + IP.
   // NO DocuSeal (decisión de negocio explícita).
-  signatureName: text25("signature_name"),
-  signatureAcceptedAt: timestamp25("signature_accepted_at", { withTimezone: true }),
-  signatureIp: text25("signature_ip"),
+  signatureName: text27("signature_name"),
+  signatureAcceptedAt: timestamp27("signature_accepted_at", { withTimezone: true }),
+  signatureIp: text27("signature_ip"),
   // ── Paso 6 — Brief del proyecto (16 preguntas, ver OnboardingBriefSchema).
-  briefAnswers: jsonb12("brief_answers").$type(),
+  briefAnswers: jsonb14("brief_answers").$type(),
   // ── Paso 7 — Materiales. Estado por categoría fija (logoBrand, programContent,
   // clientBase, toolAccess) + IDs de client_asset vinculados por cada una.
-  materials: jsonb12("materials").$type().notNull().default({}),
-  completedAt: timestamp25("completed_at", { withTimezone: true }),
-  createdAt: timestamp25("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp25("updated_at", { withTimezone: true }).notNull().defaultNow()
+  materials: jsonb14("materials").$type().notNull().default({}),
+  completedAt: timestamp27("completed_at", { withTimezone: true }),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   unique10("client_onboarding_deal_id_unique").on(table.dealId),
-  check17("client_onboarding_status_check", sql19`${table.status} IN ('in_progress','completed')`),
+  check19("client_onboarding_status_check", sql21`${table.status} IN ('in_progress','completed')`),
   // listOnboardings (admin) filtra por portal_id y ordena por status/updated_at.
-  index21("idx_client_onboarding_portal_status").on(table.portalId, table.status)
+  index23("idx_client_onboarding_portal_status").on(table.portalId, table.status)
 ]);
 
 // src/db/schema/proposals.ts
-import { pgTable as pgTable26, text as text26, jsonb as jsonb13, numeric as numeric5, char as char3, timestamp as timestamp26, index as index22, check as check18 } from "drizzle-orm/pg-core";
-import { sql as sql20 } from "drizzle-orm";
-var proposal = pgTable26(
+import { pgTable as pgTable28, text as text28, jsonb as jsonb15, numeric as numeric6, char as char3, timestamp as timestamp28, index as index24, check as check20 } from "drizzle-orm/pg-core";
+import { sql as sql22 } from "drizzle-orm";
+var proposal = pgTable28(
   "proposal",
   {
-    id: text26("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    id: text28("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text28("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
     // Deal/contacto que origina la propuesta (set null si se archivan).
-    dealId: text26("deal_id").references(() => deal.id, { onDelete: "set null" }),
-    contactId: text26("contact_id").references(() => contact.id, { onDelete: "set null" }),
+    dealId: text28("deal_id").references(() => deal.id, { onDelete: "set null" }),
+    contactId: text28("contact_id").references(() => contact.id, { onDelete: "set null" }),
     // Submission del onboarding que alimentó la generación (trazabilidad).
-    onboardingSubmissionId: text26("onboarding_submission_id").references(() => onboardingSubmission.id, {
+    onboardingSubmissionId: text28("onboarding_submission_id").references(() => onboardingSubmission.id, {
       onDelete: "set null"
     }),
     // Credencial pública del link `/p/<token>`. Inadivinable.
-    token: text26("token").notNull().$defaultFn(() => createId()),
-    title: text26("title").notNull(),
-    status: text26("status").notNull().default("draft"),
-    content: jsonb13("content").$type().notNull(),
+    token: text28("token").notNull().$defaultFn(() => createId()),
+    title: text28("title").notNull(),
+    status: text28("status").notNull().default("draft"),
+    content: jsonb15("content").$type().notNull(),
     // Provider de IA que la generó (gemini | claude | manual).
-    model: text26("model"),
+    model: text28("model"),
     // Total denormalizado para listados rápidos.
-    amount: numeric5("amount", { precision: 12, scale: 2 }),
+    amount: numeric6("amount", { precision: 12, scale: 2 }),
     currency: char3("currency", { length: 3 }).notNull().default("USD"),
-    acceptedAt: timestamp26("accepted_at", { withTimezone: true }),
-    sentAt: timestamp26("sent_at", { withTimezone: true }),
-    viewedAt: timestamp26("viewed_at", { withTimezone: true }),
+    acceptedAt: timestamp28("accepted_at", { withTimezone: true }),
+    sentAt: timestamp28("sent_at", { withTimezone: true }),
+    viewedAt: timestamp28("viewed_at", { withTimezone: true }),
     // Primera vez que el cliente llegó al ÚLTIMO paso de la presentación.
-    completedAt: timestamp26("completed_at", { withTimezone: true }),
-    createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp26("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+    completedAt: timestamp28("completed_at", { withTimezone: true }),
+    createdAt: timestamp28("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp28("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
   },
   (table) => [
-    check18("proposal_status_check", sql20`${table.status} IN ('draft','accepted','sent','viewed')`),
-    index22("idx_proposal_portal").on(table.portalId),
-    index22("idx_proposal_token").on(table.token),
-    index22("idx_proposal_deal").on(table.dealId)
+    check20("proposal_status_check", sql22`${table.status} IN ('draft','accepted','sent','viewed')`),
+    index24("idx_proposal_portal").on(table.portalId),
+    index24("idx_proposal_token").on(table.token),
+    index24("idx_proposal_deal").on(table.dealId)
   ]
 );
 
 // src/db/schema/project-updates.ts
-import { pgTable as pgTable27, text as text27, boolean as boolean14, timestamp as timestamp27, index as index23 } from "drizzle-orm/pg-core";
-var projectUpdate = pgTable27(
+import { pgTable as pgTable29, text as text29, boolean as boolean15, timestamp as timestamp29, index as index25 } from "drizzle-orm/pg-core";
+var projectUpdate = pgTable29(
   "project_update",
   {
-    id: text27("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-    dealId: text27("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
-    stageId: text27("stage_id").references(() => pipelineStage.id, { onDelete: "set null" }),
-    body: text27("body").notNull(),
-    createdBy: text27("created_by").notNull().references(() => hubUser.id),
-    archived: boolean14("archived").notNull().default(false),
-    archivedAt: timestamp27("archived_at", { withTimezone: true }),
-    createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
+    id: text29("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text29("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    dealId: text29("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
+    stageId: text29("stage_id").references(() => pipelineStage.id, { onDelete: "set null" }),
+    body: text29("body").notNull(),
+    createdBy: text29("created_by").notNull().references(() => hubUser.id),
+    archived: boolean15("archived").notNull().default(false),
+    archivedAt: timestamp29("archived_at", { withTimezone: true }),
+    createdAt: timestamp29("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     // Listado del cliente/admin: WHERE deal_id [AND archived=false] ORDER BY created_at DESC.
-    index23("idx_project_update_deal").on(table.dealId, table.createdAt)
+    index25("idx_project_update_deal").on(table.dealId, table.createdAt)
   ]
 );
 
@@ -1326,7 +1569,7 @@ async function healthRoutes(app2) {
     },
     async (_request, reply) => {
       try {
-        await db.execute(sql21`select 1`);
+        await db.execute(sql23`select 1`);
         return ok({ status: "ready", db: "up" });
       } catch {
         return reply.status(503).send({
@@ -3410,7 +3653,7 @@ async function tasksRoutes(app2) {
 }
 
 // src/modules/dashboard/dashboard.service.ts
-import { and as and14, asc as asc2, count as count3, desc as desc9, eq as eq16, inArray as inArray5, notInArray, sql as sql22 } from "drizzle-orm";
+import { and as and14, asc as asc2, count as count3, desc as desc9, eq as eq16, inArray as inArray5, notInArray, sql as sql24 } from "drizzle-orm";
 var OPEN_TASK_STATUSES = ["completed", "cancelled"];
 async function getDashboard(portalId) {
   const [
@@ -3428,15 +3671,15 @@ async function getDashboard(portalId) {
     db.select({ n: count3() }).from(contact).where(and14(eq16(contact.portalId, portalId), eq16(contact.archived, false), eq16(contact.lifecycleStage, "customer"))),
     db.select({ n: count3() }).from(company).where(and14(eq16(company.portalId, portalId), eq16(company.archived, false))),
     db.select({ n: count3() }).from(task).where(and14(eq16(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
-    db.select({ openDeals: count3(), openValue: sql22`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
+    db.select({ openDeals: count3(), openValue: sql24`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
     db.select({
-      weighted: sql22`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
+      weighted: sql24`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
     }).from(deal).innerJoin(pipelineStage, eq16(deal.stageId, pipelineStage.id)).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
     db.select({
       stageId: pipelineStage.id,
       label: pipelineStage.label,
       deals: count3(deal.id),
-      value: sql22`coalesce(sum(${deal.amount}), 0)`
+      value: sql24`coalesce(sum(${deal.amount}), 0)`
     }).from(pipelineStage).innerJoin(
       pipeline,
       and14(eq16(pipelineStage.pipelineId, pipeline.id), eq16(pipeline.portalId, portalId), eq16(pipeline.archived, false))
@@ -5076,7 +5319,7 @@ async function deliverablesRoutes(app2) {
 import { z as z15 } from "zod";
 
 // src/modules/client/client.service.ts
-import { and as and18, asc as asc5, desc as desc11, eq as eq22, inArray as inArray7, sql as sql23 } from "drizzle-orm";
+import { and as and18, asc as asc5, desc as desc11, eq as eq22, inArray as inArray7, sql as sql25 } from "drizzle-orm";
 async function clientDeals(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
@@ -5109,7 +5352,7 @@ async function listClientInvoices(clientId) {
   const invoiceIds = invoices.map((inv) => inv.id);
   const paymentTotals = await db.select({
     invoiceId: payment.invoiceId,
-    paid: sql23`COALESCE(SUM(${payment.amount}), '0')`
+    paid: sql25`COALESCE(SUM(${payment.amount}), '0')`
   }).from(payment).where(inArray7(payment.invoiceId, invoiceIds)).groupBy(payment.invoiceId);
   const paidByInvoice = new Map(
     paymentTotals.map((r) => [r.invoiceId, Number(r.paid)])
@@ -5617,7 +5860,7 @@ var CommentSchema = z17.object({ body: z17.string().min(1) });
 var ClientDecisionSchema = z17.object({ comment: z17.string().optional() });
 
 // src/modules/change-requests/cr.service.ts
-import { and as and21, asc as asc7, desc as desc14, eq as eq25, inArray as inArray10, ne as ne2, sql as sql24 } from "drizzle-orm";
+import { and as and21, asc as asc7, desc as desc14, eq as eq25, inArray as inArray10, ne as ne2, sql as sql26 } from "drizzle-orm";
 
 // src/lib/money.ts
 function toDecimal(n) {
@@ -5643,7 +5886,7 @@ async function getCRDetail(portalId, id) {
 async function createCR(portalId, userId, input) {
   await assertDealInPortal(portalId, input.dealId);
   return db.transaction(async (tx) => {
-    const numRows = await tx.select({ next: sql24`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq25(changeRequest.dealId, input.dealId));
+    const numRows = await tx.select({ next: sql26`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq25(changeRequest.dealId, input.dealId));
     const next = numRows[0]?.next ?? 1;
     const [cr] = await tx.insert(changeRequest).values({
       portalId,
@@ -6346,7 +6589,7 @@ var DebtorsQuerySchema = z21.object({
 });
 
 // src/modules/finance/finance.service.ts
-import { and as and24, asc as asc8, between, desc as desc17, eq as eq28, gte as gte3, inArray as inArray11, lte as lte3, sql as sql25, sum as sum2 } from "drizzle-orm";
+import { and as and24, asc as asc8, between, desc as desc17, eq as eq28, gte as gte3, inArray as inArray11, lte as lte3, sql as sql27, sum as sum2 } from "drizzle-orm";
 
 // src/lib/fx.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
@@ -6472,7 +6715,7 @@ async function getInvoiceDetail(portalId, id) {
 }
 async function createInvoice(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [numRow] = await tx.select({ next: sql25`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const subtotal = input.items.reduce((acc, it) => acc + (it.quantity ?? 1) * it.unitPrice, 0);
     const tax = input.tax ?? 0;
@@ -6821,11 +7064,11 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
         eq28(invoice.retainerId, retainerId),
         eq28(invoice.archived, false),
         // issueDate LIKE 'YYYY-MM-%'
-        sql25`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
+        sql27`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
       )
     ).limit(1);
     if (existing) return { invoice: existing, created: false };
-    const [numRow] = await tx.select({ next: sql25`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const [row] = await tx.insert(invoice).values({
@@ -6933,11 +7176,11 @@ async function monthlySummary(portalId, months = 6) {
   const from = points[0].month + "-01";
   const to = now.toISOString().slice(0, 10);
   const incomeRows = await db.select({
-    month: sql25`to_char(${payment.paidAt}, 'YYYY-MM')`,
+    month: sql27`to_char(${payment.paidAt}, 'YYYY-MM')`,
     total: sum2(payment.amountBase)
-  }).from(payment).where(and24(eq28(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql25`to_char(${payment.paidAt}, 'YYYY-MM')`);
+  }).from(payment).where(and24(eq28(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql27`to_char(${payment.paidAt}, 'YYYY-MM')`);
   const expenseRows = await db.select({
-    month: sql25`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
+    month: sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
     total: sum2(expense.amountBase)
   }).from(expense).where(
     and24(
@@ -6945,7 +7188,7 @@ async function monthlySummary(portalId, months = 6) {
       eq28(expense.archived, false),
       between(expense.expenseDate, from, to)
     )
-  ).groupBy(sql25`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
+  ).groupBy(sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
   const incomeMap = new Map(incomeRows.map((r) => [r.month, Number(r.total ?? 0)]));
   const expenseMap = new Map(expenseRows.map((r) => [r.month, Number(r.total ?? 0)]));
   return points.map((p) => {
@@ -8086,7 +8329,7 @@ var FocusQuerySchema = z26.object({
 });
 
 // src/modules/focus/focus.service.ts
-import { and as and28, asc as asc10, eq as eq33, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql26 } from "drizzle-orm";
+import { and as and28, asc as asc10, eq as eq33, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql28 } from "drizzle-orm";
 
 // src/lib/dates.ts
 function startOfDay2(d) {
@@ -8195,20 +8438,20 @@ async function getDealsNeedingAttention(portalId) {
   const dealsWithTask = new Set(openTaskRows.map((t) => t.dealId).filter((id) => id != null));
   const [callAgg, meetingAgg, emailAgg, noteAgg, taskAgg] = await Promise.all([
     // calls: max(occurredAt)
-    db.select({ dealId: call.dealId, maxDate: sql26`max(${call.occurredAt})` }).from(call).where(and28(eq33(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
+    db.select({ dealId: call.dealId, maxDate: sql28`max(${call.occurredAt})` }).from(call).where(and28(eq33(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
     // meetings: max(coalesce(starts_at, created_at))
     db.select({
       dealId: meeting.dealId,
-      maxDate: sql26`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
+      maxDate: sql28`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
     }).from(meeting).where(and28(eq33(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
     // emails: max(sentAt)
-    db.select({ dealId: emailSend.dealId, maxDate: sql26`max(${emailSend.sentAt})` }).from(emailSend).where(and28(eq33(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
+    db.select({ dealId: emailSend.dealId, maxDate: sql28`max(${emailSend.sentAt})` }).from(emailSend).where(and28(eq33(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
     // notes: max(createdAt)
-    db.select({ dealId: note.dealId, maxDate: sql26`max(${note.createdAt})` }).from(note).where(and28(eq33(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
+    db.select({ dealId: note.dealId, maxDate: sql28`max(${note.createdAt})` }).from(note).where(and28(eq33(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
     // tasks (any task, completed too): max(completedAt ?? createdAt)
     db.select({
       dealId: task.dealId,
-      maxDate: sql26`max(coalesce(${task.completedAt}, ${task.createdAt}))`
+      maxDate: sql28`max(coalesce(${task.completedAt}, ${task.createdAt}))`
     }).from(task).where(and28(eq33(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
   ]);
   const lastActivityMap = /* @__PURE__ */ new Map();
@@ -8287,7 +8530,7 @@ var ReportsQuerySchema = z27.object({
 });
 
 // src/modules/reports/reports.service.ts
-import { and as and29, asc as asc11, count as count4, eq as eq34, gte as gte5, inArray as inArray14, lte as lte5, sql as sql27 } from "drizzle-orm";
+import { and as and29, asc as asc11, count as count4, eq as eq34, gte as gte5, inArray as inArray14, lte as lte5, sql as sql29 } from "drizzle-orm";
 async function getReports(portalId, params) {
   const now = /* @__PURE__ */ new Date();
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -8321,7 +8564,7 @@ async function fetchPipelineFunnel(portalId) {
     isClosed: pipelineStage.isClosed,
     isWon: pipelineStage.isWon,
     currentDeals: count4(deal.id),
-    currentValue: sql27`coalesce(sum(${deal.amount}), 0)`
+    currentValue: sql29`coalesce(sum(${deal.amount}), 0)`
   }).from(pipelineStage).innerJoin(
     pipeline,
     and29(
@@ -8337,8 +8580,8 @@ async function fetchPipelineFunnel(portalId) {
     pipelineStage.isWon
   ).orderBy(asc11(pipelineStage.displayOrder));
   const [winRateRow] = await db.select({
-    won: sql27`count(*) filter (where ${pipelineStage.isWon} = true)`,
-    closed: sql27`count(*) filter (where ${pipelineStage.isClosed} = true)`
+    won: sql29`count(*) filter (where ${pipelineStage.isWon} = true)`,
+    closed: sql29`count(*) filter (where ${pipelineStage.isClosed} = true)`
   }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).innerJoin(
     pipeline,
     and29(eq34(pipelineStage.pipelineId, pipeline.id), eq34(pipeline.portalId, portalId))
@@ -8360,10 +8603,10 @@ async function fetchPipelineFunnel(portalId) {
 }
 async function fetchConversionBySource(portalId) {
   const rows = await db.select({
-    source: sql27`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
+    source: sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
     total: count4(),
-    customers: sql27`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
-  }).from(contact).where(and29(eq34(contact.portalId, portalId), eq34(contact.archived, false))).groupBy(sql27`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql27`count(*) desc`);
+    customers: sql29`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
+  }).from(contact).where(and29(eq34(contact.portalId, portalId), eq34(contact.archived, false))).groupBy(sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql29`count(*) desc`);
   return rows.map((r) => {
     const leads = Number(r.total);
     const customers = Number(r.customers);
@@ -8451,7 +8694,7 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
   async function fetchPeriod(start, end) {
     const [row] = await db.select({
       n: count4(),
-      value: sql27`coalesce(sum(${deal.amount}), 0)`
+      value: sql29`coalesce(sum(${deal.amount}), 0)`
     }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).innerJoin(
       pipeline,
       and29(eq34(pipelineStage.pipelineId, pipeline.id), eq34(pipeline.portalId, portalId))
@@ -8459,8 +8702,8 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
       and29(
         eq34(deal.portalId, portalId),
         eq34(pipelineStage.isWon, true),
-        gte5(sql27`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
-        lte5(sql27`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
+        gte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
+        lte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
       )
     );
     return { count: Number(row?.n ?? 0), value: String(row?.value ?? "0") };
@@ -8879,8 +9122,8 @@ var claudeGenerate = async (req) => {
     system: req.systemInstruction,
     messages: [{ role: "user", content: req.prompt }]
   });
-  const text28 = res.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  return { text: text28 };
+  const text30 = res.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  return { text: text30 };
 };
 
 // src/lib/ai/index.ts
@@ -8956,8 +9199,8 @@ function buildPrompt(input) {
 DATOS DEL LEAD:
 ${lines.join("\n")}`;
 }
-function safeJsonParse(text28) {
-  let t = text28.trim();
+function safeJsonParse(text30) {
+  let t = text30.trim();
   t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   try {
     return JSON.parse(t);
@@ -9650,7 +9893,7 @@ async function brandingClientRoutes(app2) {
 }
 
 // src/modules/onboarding/onboarding.service.ts
-import { and as and33, desc as desc20, eq as eq38, inArray as inArray15, isNull as isNull4, sql as sql28 } from "drizzle-orm";
+import { and as and33, desc as desc20, eq as eq38, inArray as inArray15, isNull as isNull4, sql as sql30 } from "drizzle-orm";
 
 // src/modules/onboarding/onboarding.schema.ts
 import { z as z33 } from "zod";
@@ -9904,7 +10147,7 @@ function toAdminListItem(onboarding, dealName, clientEmail) {
   };
 }
 async function listOnboardings(portalId) {
-  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and33(eq38(deal.id, clientOnboarding.dealId), eq38(deal.archived, false))).innerJoin(clientAccount, eq38(clientAccount.id, clientOnboarding.clientId)).where(eq38(clientOnboarding.portalId, portalId)).orderBy(sql28`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc20(clientOnboarding.updatedAt));
+  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and33(eq38(deal.id, clientOnboarding.dealId), eq38(deal.archived, false))).innerJoin(clientAccount, eq38(clientAccount.id, clientOnboarding.clientId)).where(eq38(clientOnboarding.portalId, portalId)).orderBy(sql30`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc20(clientOnboarding.updatedAt));
   return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail));
 }
 async function getOnboardingByDeal(portalId, dealId) {

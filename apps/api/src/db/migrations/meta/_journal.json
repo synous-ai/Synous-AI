@@ -218,6 +218,13 @@
       "when": 1788207749884,
       "tag": "0030_spooky_timeslip",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788296246793,
+      "tag": "0031_dusty_nova",
+      "breakpoints": true
     }
   ]
 }
