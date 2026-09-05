@@ -61,7 +61,7 @@ function WizardTopBar({ step }: { step: number }) {
       </div>
       <div className="mt-4 h-[2px] w-full overflow-hidden rounded-full bg-white/10">
         <div
-          className="h-full rounded-full bg-foreground transition-[width] duration-500 ease-out"
+          className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -75,7 +75,7 @@ function OnboardingBadge() {
   return (
     <div className="mt-7 flex justify-center">
       <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/[0.03] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-foreground/70" />
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
         Onboarding
       </span>
     </div>

@@ -132,6 +132,17 @@
  * Es dark-only a propósito (no depende de .dark ni del toggle de tema): la
  * referencia de diseño (K100) es un negro casi puro con textura de puntos,
  * cards gris carbón y acentos blanco-sobre-negro, sin variante clara.
+ *
+ * ─── Verde de marca en el editorial ─────────────────────────────────────────
+ * El editorial nació monocromo (--primary blanco). Ahora `--primary` lleva el
+ * VERDE DE MARCA — el mismo `152 55% 48%` que usa `.dark .portal-theme` en el
+ * login, para que el cliente vea un solo verde en todo el portal.
+ *
+ * Entra por `--primary` (acción: botones, pills elegidas, checkbox, dots de
+ * progreso) y NO por `--signal`, que sigue siendo el dorado cálido reservado a
+ * "requiere tu atención". Si el verde ocupara `--signal`, esa señal de urgencia
+ * se perdería entre los elementos de acción, que son la mayoría de la pantalla.
+ * El fondo, las cards y el texto siguen monocromos: el verde es acento, no tema.
  */
 .portal-editorial {
   --background: 0 0% 5%;
@@ -143,8 +154,8 @@
   --popover: 0 0% 10%;
   --popover-foreground: 0 0% 96%;
 
-  --primary: 0 0% 100%;
-  --primary-foreground: 0 0% 7%;
+  --primary: 152 55% 48%;
+  --primary-foreground: 156 45% 8%;
 
   --secondary: 0 0% 14%;
   --secondary-foreground: 0 0% 93%;
@@ -164,9 +175,11 @@
 
   --border: 0 0% 19%;
   --input: 0 0% 19%;
-  --ring: 0 0% 46%;
+  /* Anillo de foco en verde: acompaña a --primary para que el foco de teclado
+     se lea como parte del mismo sistema y no como un gris ajeno. */
+  --ring: 152 55% 48%;
 
-  --chart-1: 0 0% 96%;
+  --chart-1: 152 55% 48%;
   --chart-2: 42 88% 61%;
   --chart-3: 0 0% 70%;
   --chart-4: 0 0% 45%;

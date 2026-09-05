@@ -15,6 +15,17 @@
 import { Resend } from 'resend'
 import { env } from '../config/env'
 
+/**
+ * Raíz del Client Portal, sin trailing slash, para armar links en emails.
+ *
+ * El portal NO es una app aparte: vive dentro de `apps/admin` bajo `/portal`,
+ * así que cae a ADMIN_URL antes que al localhost de dev.
+ */
+export function clientPortalBaseUrl(): string {
+  const base = env.CLIENT_PORTAL_URL ?? env.ADMIN_URL ?? 'http://localhost:3000'
+  return base.endsWith('/') ? base.slice(0, -1) : base
+}
+
 /** Parámetros mínimos para enviar un email. */
 export interface SendEmailParams {
   to: string | string[]

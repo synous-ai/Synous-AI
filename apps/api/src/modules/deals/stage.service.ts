@@ -5,7 +5,9 @@ import { deal, pipeline, pipelineStage, contact, clientAccount, clientDealAccess
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
 import { createNotification } from '../notifications/notifications.service'
-import { ensureClerkUserType } from '../../lib/clerk-provisioning'
+import { ensureClerkUserType, createClientPortalInvitation } from '../../lib/clerk-provisioning'
+import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
+import { portalInvitationHtml } from '../onboarding/emails/portal-invitation'
 import {
   PRODUCTION_PIPELINE_LABEL,
   PRODUCTION_DIAGNOSTICO_STAGE_LABEL,
@@ -28,20 +30,45 @@ async function assertStageInPipeline(
 }
 
 /**
+ * Datos para el email de invitación al portal. `activateClientPortal` lo
+ * devuelve en vez de enviar el email inline: el envío es una llamada de red y
+ * corre DENTRO de la transacción del cambio de etapa — mandarlo acá retendría
+ * el lock de la fila del deal mientras Resend responde. El caller lo envía
+ * después del commit (ver `changeStage`).
+ */
+export interface PortalInvitationPayload {
+  email: string
+  firstName: string | null
+  dealName: string
+  /** Link de Clerk con ticket; `null` si no se pudo invitar (ver abajo). */
+  invitationUrl: string | null
+}
+
+/**
  * Activa el portal del cliente al ganar un deal: crea client_account (con invite_token)
  * si no existe, le da acceso al deal y marca el contacto como customer. Idempotente.
+ *
+ * Devuelve los datos del email de invitación SOLO la primera vez que se crea la
+ * cuenta (activación real). En las re-ejecuciones idempotentes devuelve `null`
+ * para no re-invitar a un cliente que ya entró al portal.
  */
-export async function activateClientPortal(tx: Tx, portalId: string, dealId: string): Promise<void> {
+export async function activateClientPortal(
+  tx: Tx,
+  portalId: string,
+  dealId: string,
+): Promise<PortalInvitationPayload | null> {
   const [d] = await tx.select().from(deal).where(eq(deal.id, dealId)).limit(1)
-  if (!d?.primaryContactId) return
+  if (!d?.primaryContactId) return null
   const [c] = await tx.select().from(contact).where(eq(contact.id, d.primaryContactId)).limit(1)
-  if (!c?.email) return
+  if (!c?.email) return null
 
-  let [account] = await tx
+  const [existing] = await tx
     .select()
     .from(clientAccount)
     .where(and(eq(clientAccount.portalId, portalId), eq(clientAccount.email, c.email)))
     .limit(1)
+
+  let account = existing
   if (!account) {
     ;[account] = await tx
       .insert(clientAccount)
@@ -52,6 +79,20 @@ export async function activateClientPortal(tx: Tx, portalId: string, dealId: str
   await tx.insert(clientDealAccess).values({ clientId: account!.id, dealId }).onConflictDoNothing()
   if (c.lifecycleStage !== 'customer') {
     await tx.update(contact).set({ lifecycleStage: 'customer', updatedAt: new Date() }).where(eq(contact.id, c.id))
+  }
+
+  // La invitación va ANTES de ensureClerkUserType: Clerk rechaza invitar a un
+  // email que ya es usuario de la aplicación, y ensureClerkUserType lo crea.
+  // Solo se invita en la activación real (cuenta recién creada) — reejecutar
+  // esto sobre un cliente que ya entró le mandaría un link de activación de
+  // una cuenta que ya activó.
+  let invitationUrl: string | null = null
+  if (!existing) {
+    const invitation = await createClientPortalInvitation({
+      email: c.email,
+      redirectUrl: `${clientPortalBaseUrl()}/portal/accept-invitation`,
+    })
+    invitationUrl = invitation?.invitationUrl ?? null
   }
 
   // Provisionar el cliente en Clerk con userType='client' + linkear clerkUserId (si falta).
@@ -67,7 +108,10 @@ export async function activateClientPortal(tx: Tx, portalId: string, dealId: str
       await tx.update(clientAccount).set({ clerkUserId }).where(eq(clientAccount.id, account.id))
     }
   }
-  // TODO: asignar intake forms por defecto + enviar email de invitación (Resend) cuando estén configurados.
+  // TODO: asignar intake forms por defecto cuando estén configurados.
+
+  if (existing) return null
+  return { email: c.email, firstName: c.firstName, dealName: d.name, invitationUrl }
 }
 
 /**
@@ -119,7 +163,11 @@ export async function changeStage(
 
     const stage = await assertStageInPipeline(tx, d.pipelineId, newStageId)
     if (d.stageId === newStageId) {
-      return { deal: d, notify: null as null | { ownerId: string | null; dealName: string; stageLabel: string } }
+      return {
+        deal: d,
+        notify: null as null | { ownerId: string | null; dealName: string; stageLabel: string },
+        invitation: null as PortalInvitationPayload | null,
+      }
     }
 
     const [updated] = await tx
@@ -177,10 +225,14 @@ export async function changeStage(
     }
 
     // Si la etapa es ganada, activar el portal del cliente automáticamente.
-    if (stage.isWon) await activateClientPortal(tx, portalId, dealId)
+    const invitation = stage.isWon ? await activateClientPortal(tx, portalId, dealId) : null
     // Notificar al owner FINAL (el reasignado si lo hubo; si no, sigue siendo
     // el mismo que ya tenía el deal — nunca al viejo owner pre-reasignación).
-    return { deal: finalDeal, notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label } }
+    return {
+      deal: finalDeal,
+      notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label },
+      invitation,
+    }
   })
 
   // Notificación fuera de la transacción (insert + emit por WebSocket).
@@ -192,6 +244,22 @@ export async function changeStage(
       entityId: dealId,
       type: 'deal_stage_changed',
       title: `El deal "${result.notify.dealName}" pasó a la etapa "${result.notify.stageLabel}"`,
+    })
+  }
+
+  // Email de invitación al portal, ya con la transacción commiteada. Si Clerk no
+  // devolvió link de invitación (usuario preexistente, Clerk caído, sin secret
+  // key), no mandamos un email cuyo botón no llevaría a ningún lado: el cliente
+  // recibiría "activá tu cuenta" sin poder hacerlo.
+  if (result.invitation?.invitationUrl) {
+    await sendEmail({
+      to: result.invitation.email,
+      subject: `Tu portal de ${result.invitation.dealName} ya está listo`,
+      html: portalInvitationHtml({
+        firstName: result.invitation.firstName,
+        dealName: result.invitation.dealName,
+        portalUrl: result.invitation.invitationUrl,
+      }),
     })
   }
   return result.deal

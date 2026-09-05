@@ -2343,6 +2343,108 @@ async function ensureClerkUserType(args) {
     return null;
   }
 }
+async function createClientPortalInvitation(args) {
+  if (!env.CLERK_SECRET_KEY) return null;
+  const { email, redirectUrl } = args;
+  try {
+    const invitation = await clerk().invitations.createInvitation({
+      emailAddress: email,
+      redirectUrl,
+      publicMetadata: { userType: "client" },
+      notify: false,
+      ignoreExisting: true
+    });
+    return invitation.url ? { invitationUrl: invitation.url } : null;
+  } catch (err) {
+    console.error(
+      `[clerk-provisioning] No se pudo crear la invitaci\xF3n de Clerk (${email}):`,
+      err?.message ?? err
+    );
+    return null;
+  }
+}
+
+// src/lib/mailer.ts
+import { Resend } from "resend";
+function clientPortalBaseUrl() {
+  const base = env.CLIENT_PORTAL_URL ?? env.ADMIN_URL ?? "http://localhost:3000";
+  return base.endsWith("/") ? base.slice(0, -1) : base;
+}
+var resendClient = null;
+function getResend() {
+  if (!env.RESEND_API_KEY) return null;
+  if (!resendClient) {
+    resendClient = new Resend(env.RESEND_API_KEY);
+  }
+  return resendClient;
+}
+async function sendEmail(params) {
+  const client4 = getResend();
+  if (!client4) {
+    console.info("[mailer] RESEND_API_KEY no configurada \u2014 email omitido", {
+      to: params.to,
+      subject: params.subject
+    });
+    return;
+  }
+  const from = params.from ?? env.FROM_EMAIL ?? "noreply@onboarding.resend.dev";
+  const { error } = await client4.emails.send({
+    from,
+    to: Array.isArray(params.to) ? params.to : [params.to],
+    subject: params.subject,
+    html: params.html
+  });
+  if (error) {
+    console.error("[mailer] Error al enviar email via Resend", {
+      to: params.to,
+      subject: params.subject,
+      error
+    });
+  }
+}
+
+// src/modules/onboarding/emails/portal-invitation.ts
+function portalInvitationHtml(p) {
+  const greeting = p.firstName ? `Hola ${escHtml(p.firstName)},` : "Hola,";
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tu portal de Synous AI</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
+  <h2>Tu portal ya est\xE1 listo</h2>
+
+  <p>${greeting}</p>
+  <p>
+    Arrancamos con <strong>${escHtml(p.dealName)}</strong>. Desde tu portal vas a poder
+    seguir el avance del proyecto, revisar entregables y encontrar todo en un solo lugar.
+  </p>
+  <p>Para empezar, activ\xE1 tu cuenta y complet\xE1 el onboarding \u2014 son unos minutos.</p>
+
+  <p style="margin: 28px 0;">
+    <a href="${escAttr(p.portalUrl)}"
+       style="display: inline-block; padding: 12px 22px; background: #111; color: #fff; border-radius: 6px; text-decoration: none;">
+      Activar mi cuenta
+    </a>
+  </p>
+
+  <hr style="margin: 32px 0; border: none; border-top: 1px solid #e2e8f0;" />
+  <p style="font-size: 12px; color: #64748b;">
+    Este link es personal \u2014 no lo compartas. Si no esperabas este email, pod\xE9s ignorarlo.
+  </p>
+</body>
+</html>`;
+}
+function escHtml(s) {
+  if (!s) return "";
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function escAttr(s) {
+  if (!s) return "#";
+  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
 
 // src/modules/onboarding/assignees.ts
 import { and as and7, eq as eq8 } from "drizzle-orm";
@@ -2364,10 +2466,11 @@ async function assertStageInPipeline(tx, pipelineId, stageId) {
 }
 async function activateClientPortal(tx, portalId, dealId) {
   const [d] = await tx.select().from(deal).where(eq9(deal.id, dealId)).limit(1);
-  if (!d?.primaryContactId) return;
+  if (!d?.primaryContactId) return null;
   const [c] = await tx.select().from(contact).where(eq9(contact.id, d.primaryContactId)).limit(1);
-  if (!c?.email) return;
-  let [account] = await tx.select().from(clientAccount).where(and8(eq9(clientAccount.portalId, portalId), eq9(clientAccount.email, c.email))).limit(1);
+  if (!c?.email) return null;
+  const [existing] = await tx.select().from(clientAccount).where(and8(eq9(clientAccount.portalId, portalId), eq9(clientAccount.email, c.email))).limit(1);
+  let account = existing;
   if (!account) {
     ;
     [account] = await tx.insert(clientAccount).values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID(), inviteSentAt: /* @__PURE__ */ new Date() }).returning();
@@ -2375,6 +2478,14 @@ async function activateClientPortal(tx, portalId, dealId) {
   await tx.insert(clientDealAccess).values({ clientId: account.id, dealId }).onConflictDoNothing();
   if (c.lifecycleStage !== "customer") {
     await tx.update(contact).set({ lifecycleStage: "customer", updatedAt: /* @__PURE__ */ new Date() }).where(eq9(contact.id, c.id));
+  }
+  let invitationUrl = null;
+  if (!existing) {
+    const invitation = await createClientPortalInvitation({
+      email: c.email,
+      redirectUrl: `${clientPortalBaseUrl()}/portal/accept-invitation`
+    });
+    invitationUrl = invitation?.invitationUrl ?? null;
   }
   if (account && !account.clerkUserId) {
     const clerkUserId = await ensureClerkUserType({
@@ -2387,6 +2498,8 @@ async function activateClientPortal(tx, portalId, dealId) {
       await tx.update(clientAccount).set({ clerkUserId }).where(eq9(clientAccount.id, account.id));
     }
   }
+  if (existing) return null;
+  return { email: c.email, firstName: c.firstName, dealName: d.name, invitationUrl };
 }
 async function reassignProductionOwner(tx, portalId, stageLabel, currentOwnerId) {
   const newOwnerId = await resolveProductionAssignee(tx, portalId, stageLabel);
@@ -2400,7 +2513,11 @@ async function changeStage(portalId, userId, dealId, newStageId) {
     const { deal: d, pipelineLabel } = row;
     const stage = await assertStageInPipeline(tx, d.pipelineId, newStageId);
     if (d.stageId === newStageId) {
-      return { deal: d, notify: null };
+      return {
+        deal: d,
+        notify: null,
+        invitation: null
+      };
     }
     const [updated] = await tx.update(deal).set({ stageId: newStageId, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, dealId)).returning();
     if (!updated) throw Errors.internal("No se pudo cambiar la etapa");
@@ -2441,8 +2558,12 @@ async function changeStage(portalId, userId, dealId, newStageId) {
         }
       }
     }
-    if (stage.isWon) await activateClientPortal(tx, portalId, dealId);
-    return { deal: finalDeal, notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label } };
+    const invitation = stage.isWon ? await activateClientPortal(tx, portalId, dealId) : null;
+    return {
+      deal: finalDeal,
+      notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label },
+      invitation
+    };
   });
   if (result.notify) {
     await createNotification({
@@ -2452,6 +2573,17 @@ async function changeStage(portalId, userId, dealId, newStageId) {
       entityId: dealId,
       type: "deal_stage_changed",
       title: `El deal "${result.notify.dealName}" pas\xF3 a la etapa "${result.notify.stageLabel}"`
+    });
+  }
+  if (result.invitation?.invitationUrl) {
+    await sendEmail({
+      to: result.invitation.email,
+      subject: `Tu portal de ${result.invitation.dealName} ya est\xE1 listo`,
+      html: portalInvitationHtml({
+        firstName: result.invitation.firstName,
+        dealName: result.invitation.dealName,
+        portalUrl: result.invitation.invitationUrl
+      })
     });
   }
   return result.deal;
@@ -3592,41 +3724,6 @@ import { addMinutes as addMinutes2 } from "date-fns";
 import { format as formatTz2, toZonedTime as toZonedTime2 } from "date-fns-tz";
 import jwt from "jsonwebtoken";
 
-// src/lib/mailer.ts
-import { Resend } from "resend";
-var resendClient = null;
-function getResend() {
-  if (!env.RESEND_API_KEY) return null;
-  if (!resendClient) {
-    resendClient = new Resend(env.RESEND_API_KEY);
-  }
-  return resendClient;
-}
-async function sendEmail(params) {
-  const client4 = getResend();
-  if (!client4) {
-    console.info("[mailer] RESEND_API_KEY no configurada \u2014 email omitido", {
-      to: params.to,
-      subject: params.subject
-    });
-    return;
-  }
-  const from = params.from ?? env.FROM_EMAIL ?? "noreply@onboarding.resend.dev";
-  const { error } = await client4.emails.send({
-    from,
-    to: Array.isArray(params.to) ? params.to : [params.to],
-    subject: params.subject,
-    html: params.html
-  });
-  if (error) {
-    console.error("[mailer] Error al enviar email via Resend", {
-      to: params.to,
-      subject: params.subject,
-      error
-    });
-  }
-}
-
 // src/modules/calendar/slots.service.ts
 import { fromZonedTime, toZonedTime, format as formatTz } from "date-fns-tz";
 import { addMinutes, addDays, startOfDay, isBefore, isAfter } from "date-fns";
@@ -3792,17 +3889,17 @@ function bookingConfirmInviteeHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #2563eb;">\u2705 Reuni\xF3n confirmada</h2>
 
-  <p>Hola ${escHtml(p.guestName)},</p>
+  <p>Hola ${escHtml2(p.guestName)},</p>
   <p>Tu reuni\xF3n ha sido confirmada. Aqu\xED est\xE1n los detalles:</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml2(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora</td>
-      <td style="padding: 8px 12px;">${escHtml(p.startLocal)}</td>
+      <td style="padding: 8px 12px;">${escHtml2(p.startLocal)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Duraci\xF3n</td>
@@ -3810,17 +3907,17 @@ function bookingConfirmInviteeHtml(p) {
     </tr>
     ${p.location ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Ubicaci\xF3n / Link</td>
-      <td style="padding: 8px 12px;"><a href="${escAttr(p.location)}" style="color: #2563eb;">${escHtml(p.location)}</a></td>
+      <td style="padding: 8px 12px;"><a href="${escAttr2(p.location)}" style="color: #2563eb;">${escHtml2(p.location)}</a></td>
     </tr>` : ""}
   </table>
 
   <p style="margin-top: 24px;">\xBFNecesit\xE1s cambiar algo?</p>
   <p>
-    <a href="${escAttr(p.cancelUrl)}"
+    <a href="${escAttr2(p.cancelUrl)}"
        style="display: inline-block; margin-right: 12px; padding: 10px 18px; background: #ef4444; color: #fff; border-radius: 6px; text-decoration: none;">
       Cancelar reuni\xF3n
     </a>
-    <a href="${escAttr(p.rescheduleUrl)}"
+    <a href="${escAttr2(p.rescheduleUrl)}"
        style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; border-radius: 6px; text-decoration: none;">
       Reprogramar
     </a>
@@ -3834,11 +3931,11 @@ function bookingConfirmInviteeHtml(p) {
 </body>
 </html>`;
 }
-function escHtml(s) {
+function escHtml2(s) {
   if (!s) return "";
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr(s) {
+function escAttr2(s) {
   if (!s) return "#";
   return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -3855,17 +3952,17 @@ function bookingCancelledHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #ef4444;">\u274C Reuni\xF3n cancelada</h2>
 
-  <p>Hola ${escHtml2(p.guestName)},</p>
+  <p>Hola ${escHtml3(p.guestName)},</p>
   <p>Tu reuni\xF3n ha sido cancelada.</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml2(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml3(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora original</td>
-      <td style="padding: 8px 12px;">${escHtml2(p.startLocal)}</td>
+      <td style="padding: 8px 12px;">${escHtml3(p.startLocal)}</td>
     </tr>
   </table>
 
@@ -3878,14 +3975,14 @@ function bookingCancelledHtml(p) {
 </body>
 </html>`;
 }
-function escHtml2(s) {
+function escHtml3(s) {
   if (!s) return "";
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/calendar/emails/booking-host-notify.ts
 function bookingHostNotifyHtml(p) {
-  const greeting = p.hostName ? `Hola ${escHtml3(p.hostName)},` : "Hola,";
+  const greeting = p.hostName ? `Hola ${escHtml4(p.hostName)},` : "Hola,";
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -3896,21 +3993,21 @@ function bookingHostNotifyHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #2563eb;">\u{1F4C5} Nueva reuni\xF3n agendada</h2>
 
-  <p>${escHtml3(greeting)}</p>
+  <p>${escHtml4(greeting)}</p>
   <p>Ten\xE9s una nueva reuni\xF3n confirmada en tu agenda:</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Invitado</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.guestName)} &lt;<a href="mailto:${escAttr2(p.guestEmail)}" style="color: #2563eb;">${escHtml3(p.guestEmail)}</a>&gt;</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.guestName)} &lt;<a href="mailto:${escAttr3(p.guestEmail)}" style="color: #2563eb;">${escHtml4(p.guestEmail)}</a>&gt;</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.startLocalHost)}</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.startLocalHost)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Duraci\xF3n</td>
@@ -3918,11 +4015,11 @@ function bookingHostNotifyHtml(p) {
     </tr>
     ${p.location ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Ubicaci\xF3n / Link</td>
-      <td style="padding: 8px 12px;"><a href="${escAttr2(p.location)}" style="color: #2563eb;">${escHtml3(p.location)}</a></td>
+      <td style="padding: 8px 12px;"><a href="${escAttr3(p.location)}" style="color: #2563eb;">${escHtml4(p.location)}</a></td>
     </tr>` : ""}
     ${p.notes ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Notas</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.notes)}</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.notes)}</td>
     </tr>` : ""}
   </table>
 
@@ -3933,11 +4030,11 @@ function bookingHostNotifyHtml(p) {
 </body>
 </html>`;
 }
-function escHtml3(s) {
+function escHtml4(s) {
   if (!s) return "";
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr2(s) {
+function escAttr3(s) {
   if (!s) return "#";
   return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -11799,6 +11896,53 @@ async function brandingClientRoutes(app2) {
 // src/modules/onboarding/onboarding.service.ts
 import { and as and38, desc as desc22, eq as eq47, inArray as inArray16, isNull as isNull4, sql as sql31 } from "drizzle-orm";
 
+// src/modules/onboarding/emails/onboarding-completed.ts
+function onboardingCompletedHtml(p) {
+  const greeting = p.firstName ? `Hola ${escHtml5(p.firstName)},` : "Hola,";
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Onboarding completo</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
+  <h2>\xA1Onboarding completo!</h2>
+
+  <p>${greeting}</p>
+  <p>
+    Recibimos todo lo que necesit\xE1bamos para arrancar.
+    Tu proyecto <strong>${escHtml5(p.dealName)}</strong> ya est\xE1 en fase de
+    <strong>${escHtml5(p.stageLabel)}</strong>.
+  </p>
+  <p>
+    A partir de ac\xE1 vas a ver los avances directamente en tu portal \u2014 sin tener que
+    preguntarnos "\xBFc\xF3mo vamos?".
+  </p>
+
+  <p style="margin: 28px 0;">
+    <a href="${escAttr4(p.portalUrl)}"
+       style="display: inline-block; padding: 12px 22px; background: #111; color: #fff; border-radius: 6px; text-decoration: none;">
+      Ir a mi portal
+    </a>
+  </p>
+
+  <hr style="margin: 32px 0; border: none; border-top: 1px solid #e2e8f0;" />
+  <p style="font-size: 12px; color: #64748b;">
+    Si ten\xE9s alguna duda, respond\xE9 este email y te contestamos.
+  </p>
+</body>
+</html>`;
+}
+function escHtml5(s) {
+  if (!s) return "";
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function escAttr4(s) {
+  if (!s) return "#";
+  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 // src/modules/onboarding/onboarding.schema.ts
 import { z as z35 } from "zod";
 var ONBOARDING_STATUS = {
@@ -12004,8 +12148,8 @@ async function submitMaterials(clientId, materials) {
   if (!updated) throw Errors.internal("No se pudo guardar los materiales");
   return updated;
 }
-async function completeOnboarding(clientAccount2) {
-  const clientId = clientAccount2.sub;
+async function completeOnboarding(token) {
+  const clientId = token.sub;
   const activeDeal = await resolveActiveDeal(clientId);
   const result = await db.transaction(async (tx) => {
     const row = await getOrCreateOnboarding(tx, activeDeal.portalId, activeDeal.id, clientId);
@@ -12035,6 +12179,19 @@ async function completeOnboarding(clientAccount2) {
     await createNotification({ portalId: activeDeal.portalId, userId: result.ownerId, ...notifyPayload });
   } else {
     await notifyAdmins(activeDeal.portalId, notifyPayload);
+  }
+  const [c] = await db.select({ email: contact.email, firstName: contact.firstName }).from(contact).where(eq47(contact.id, token.contactId)).limit(1);
+  if (c?.email) {
+    await sendEmail({
+      to: c.email,
+      subject: `Arrancamos con ${result.dealName}`,
+      html: onboardingCompletedHtml({
+        firstName: c.firstName,
+        dealName: result.dealName,
+        stageLabel: result.stageLabel,
+        portalUrl: `${clientPortalBaseUrl()}/portal`
+      })
+    });
   }
   return result;
 }
