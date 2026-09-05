@@ -46,11 +46,13 @@ function WizardTopBar({ step }: { step: number }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4">
-        <span className="font-editorial text-xl italic tracking-wide text-foreground">
+      <div className="relative flex items-center justify-between gap-4">
+        {/* Barrido de luz: decorativo, detrás de la marca (z-0 vs. z-10 del texto). */}
+        <span aria-hidden className="brand-sweep" />
+        <span className="font-editorial relative z-10 text-xl italic tracking-wide text-foreground">
           {brand?.brandName ?? 'NOUS'}
         </span>
-        <div className="flex items-center gap-3">
+        <div className="relative z-10 flex items-center gap-3">
           <span className="hidden text-[11px] uppercase tracking-[0.18em] text-muted-foreground sm:inline">
             {partLabel}
           </span>
@@ -103,9 +105,17 @@ export function StepHeader({
           {eyebrow}
         </p>
       )}
-      <h2 className="font-editorial max-w-lg text-[2rem] leading-[1.15] tracking-tight text-foreground sm:text-[2.25rem]">
-        {title}
-      </h2>
+      {/* Título encuadrado: recuadro fino + puntos en los vértices. El <h2> es
+          inline-block dentro del marco para que este se ajuste al texto. */}
+      <div className="blueprint-title">
+        <span aria-hidden className="blueprint-dot blueprint-dot-tl" />
+        <span aria-hidden className="blueprint-dot blueprint-dot-tr" />
+        <span aria-hidden className="blueprint-dot blueprint-dot-bl" />
+        <span aria-hidden className="blueprint-dot blueprint-dot-br" />
+        <h2 className="font-editorial max-w-lg text-[2rem] leading-[1.15] tracking-tight text-foreground sm:text-[2.25rem]">
+          {title}
+        </h2>
+      </div>
       {hint && <div className="mt-4 max-w-md text-[15px] leading-relaxed text-muted-foreground">{hint}</div>}
     </div>
   )
@@ -179,8 +189,8 @@ export function WizardFrame({
   children: ReactNode
 }) {
   return (
-    <div className="-mx-4 -my-8 min-h-[calc(100vh-4rem)] px-4 py-10 sm:-mx-6 sm:px-6 sm:py-14">
-      <div className="mx-auto w-full max-w-xl">
+    <div className="blueprint-canvas -mx-4 -my-8 min-h-[calc(100vh-4rem)] px-4 py-10 sm:-mx-6 sm:px-6 sm:py-14">
+      <div className="relative z-10 mx-auto w-full max-w-2xl">
         {typeof step === 'number' && (
           <>
             <WizardTopBar step={step} />
@@ -188,8 +198,19 @@ export function WizardFrame({
           </>
         )}
 
-        <div className="editorial-sheen relative mt-7 overflow-hidden rounded-[28px] border border-border bg-card p-7 shadow-card sm:p-10">
-          <div className="relative">{children}</div>
+        {/* Marco técnico: rieles verticales (::before), glow (::after), aspas en
+            las esquinas y puntos en los vértices. Sin radius — el encuadre recto
+            es parte del lenguaje "blueprint". */}
+        <div className="blueprint-frame mt-7 p-7 sm:p-12">
+          <span aria-hidden className="blueprint-corner blueprint-corner-tl" />
+          <span aria-hidden className="blueprint-corner blueprint-corner-tr" />
+          <span aria-hidden className="blueprint-corner blueprint-corner-bl" />
+          <span aria-hidden className="blueprint-corner blueprint-corner-br" />
+          <span aria-hidden className="blueprint-dot blueprint-dot-tl" />
+          <span aria-hidden className="blueprint-dot blueprint-dot-tr" />
+          <span aria-hidden className="blueprint-dot blueprint-dot-bl" />
+          <span aria-hidden className="blueprint-dot blueprint-dot-br" />
+          <div className="relative z-10">{children}</div>
         </div>
 
         {typeof step === 'number' && step <= 4 && onSkip && (
