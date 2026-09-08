@@ -58,6 +58,19 @@ var envSchema = z.object({
   VERTEX_MODEL: z.string().default(""),
   // ── Google service account (auth de Vertex/Gemini) ────────
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().default(""),
+  // ── DocuSeal (firma de contratos y propuestas) ────────────
+  // Sin DOCUSEAL_API_KEY la integración queda inactiva: los endpoints responden
+  // 503 en vez de fallar de forma rara. El webhook rechaza todo si falta el
+  // secret (no se procesa nada sin poder verificar el origen).
+  // OJO: son DOS bases distintas y confundirlas manda al cliente a un link roto.
+  //  - DOCUSEAL_URL     → app pública, de donde sale el link de firma (/s/<slug>)
+  //  - DOCUSEAL_API_URL → API REST
+  // En cloud son hosts distintos (docuseal.com vs api.docuseal.com); en
+  // self-hosted es el mismo host y la API cuelga de /api.
+  DOCUSEAL_URL: z.string().url().default("https://docuseal.com"),
+  DOCUSEAL_API_URL: z.string().url().default("https://api.docuseal.com"),
+  DOCUSEAL_API_KEY: z.string().default(""),
+  DOCUSEAL_WEBHOOK_SECRET: z.string().default(""),
   // ── Onboarding post-venta: asignación automática de responsable por fase del
   // pipeline "Producción" (ver modules/onboarding/assignees.ts). Opcionales con
   // default — si el hub_user no existe (email no seedeado), el helper devuelve
@@ -964,7 +977,7 @@ var clientAsset = pgTable14("client_asset", {
 ]);
 
 // src/db/schema/deliverables.ts
-import { pgTable as pgTable15, text as text15, integer as integer6, timestamp as timestamp15, index as index11, check as check10 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable15, text as text15, integer as integer6, boolean as boolean10, timestamp as timestamp15, index as index11, check as check10 } from "drizzle-orm/pg-core";
 import { sql as sql12 } from "drizzle-orm";
 var deliverable = pgTable15("deliverable", {
   id: text15("id").primaryKey().$defaultFn(() => createId()),
@@ -976,6 +989,20 @@ var deliverable = pgTable15("deliverable", {
   version: integer6("version").notNull().default(1),
   status: text15("status").notNull().default("pending_review"),
   feedback: text15("feedback"),
+  /**
+   * ¿El cliente ve este entregable en su Portal?
+   *
+   * Default `true` porque un "entregable" es, por definición, algo que se le
+   * entrega al cliente — y porque así las filas que ya existían mantienen
+   * exactamente el comportamiento anterior (antes NO había filtro: el cliente
+   * veía todo lo adjuntado al deal).
+   *
+   * Se marca en `false` para el material interno que el proceso de entrega
+   * define como no compartible: Blueprint técnico, Diagnóstico de negocio,
+   * checklist de QA crudo. Lo consumen `clientDeliverables` y
+   * `assertClientDeliverable` en modules/client.
+   */
+  visibleToClient: boolean10("visible_to_client").notNull().default(true),
   reviewedBy: text15("reviewed_by").references(() => clientAccount.id),
   reviewedAt: timestamp15("reviewed_at", { withTimezone: true }),
   createdBy: text15("created_by").references(() => hubUser.id),
@@ -1058,7 +1085,7 @@ var changeRequestComment = pgTable16("change_request_comment", {
 ]);
 
 // src/db/schema/documents.ts
-import { pgTable as pgTable17, text as text17, integer as integer8, timestamp as timestamp17, index as index13, check as check12 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable17, text as text17, integer as integer8, boolean as boolean11, timestamp as timestamp17, index as index13, check as check12 } from "drizzle-orm/pg-core";
 import { sql as sql14 } from "drizzle-orm";
 var document = pgTable17("document", {
   id: text17("id").primaryKey().$defaultFn(() => createId()),
@@ -1074,6 +1101,17 @@ var document = pgTable17("document", {
   docusealStatus: text17("docuseal_status"),
   docusealExternalId: text17("docuseal_external_id").unique(),
   storageKey: text17("storage_key"),
+  /**
+   * ¿El cliente ve este documento en su Portal?
+   *
+   * Default `true` para no cambiar lo que los clientes ya venían viendo
+   * (contratos firmados, propuestas, facturas). Se marca `false` para los
+   * documentos internos del proceso de entrega — Diagnóstico y Blueprint,
+   * que hoy son `type='other'` y por eso terminaban guardándose fuera del CRM.
+   *
+   * Lo consume `listClientDocuments`.
+   */
+  visibleToClient: boolean11("visible_to_client").notNull().default(true),
   signedAt: timestamp17("signed_at", { withTimezone: true }),
   signedBy: text17("signed_by").references(() => clientAccount.id),
   createdBy: text17("created_by").references(() => hubUser.id),
@@ -1157,7 +1195,7 @@ var auditLog = pgTable20("audit_log", {
 ]);
 
 // src/db/schema/library.ts
-import { pgTable as pgTable21, text as text21, boolean as boolean10, jsonb as jsonb11, timestamp as timestamp21, index as index17, check as check14 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable21, text as text21, boolean as boolean12, jsonb as jsonb11, timestamp as timestamp21, index as index17, check as check14 } from "drizzle-orm/pg-core";
 import { sql as sql16 } from "drizzle-orm";
 var libraryItem = pgTable21("library_item", {
   id: text21("id").primaryKey().$defaultFn(() => createId()),
@@ -1179,7 +1217,7 @@ var libraryItem = pgTable21("library_item", {
   createdBy: text21("created_by").references(() => hubUser.id),
   /** Responsable del contenido. null = sin dueño asignado. */
   ownerId: text21("owner_id").references(() => hubUser.id, { onDelete: "set null" }),
-  archived: boolean10("archived").notNull().default(false),
+  archived: boolean12("archived").notNull().default(false),
   archivedAt: timestamp21("archived_at", { withTimezone: true }),
   createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -1197,7 +1235,7 @@ var libraryItem = pgTable21("library_item", {
 ]);
 
 // src/db/schema/work-items.ts
-import { pgTable as pgTable22, text as text22, boolean as boolean11, timestamp as timestamp22, index as index18, check as check15 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable22, text as text22, boolean as boolean13, timestamp as timestamp22, index as index18, check as check15 } from "drizzle-orm/pg-core";
 import { sql as sql17 } from "drizzle-orm";
 var workItem = pgTable22("work_item", {
   id: text22("id").primaryKey().$defaultFn(() => createId()),
@@ -1212,7 +1250,7 @@ var workItem = pgTable22("work_item", {
   dealId: text22("deal_id").references(() => deal.id, { onDelete: "set null" }),
   assignedTo: text22("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
   createdBy: text22("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  archived: boolean11("archived").notNull().default(false),
+  archived: boolean13("archived").notNull().default(false),
   archivedAt: timestamp22("archived_at", { withTimezone: true }),
   createdAt: timestamp22("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp22("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -1239,7 +1277,7 @@ var workItem = pgTable22("work_item", {
 ]);
 
 // src/db/schema/finance.ts
-import { pgTable as pgTable23, text as text23, integer as integer9, numeric as numeric5, date as date4, timestamp as timestamp23, boolean as boolean12, index as index19, check as check16 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable23, text as text23, integer as integer9, numeric as numeric5, date as date4, timestamp as timestamp23, boolean as boolean14, index as index19, check as check16 } from "drizzle-orm/pg-core";
 import { sql as sql18 } from "drizzle-orm";
 var retainer = pgTable23("retainer", {
   id: text23("id").primaryKey().$defaultFn(() => createId()),
@@ -1258,7 +1296,7 @@ var retainer = pgTable23("retainer", {
   endDate: date4("end_date"),
   notes: text23("notes"),
   createdBy: text23("created_by").references(() => hubUser.id),
-  archived: boolean12("archived").notNull().default(false),
+  archived: boolean14("archived").notNull().default(false),
   archivedAt: timestamp23("archived_at", { withTimezone: true }),
   createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -1290,7 +1328,7 @@ var invoice = pgTable23("invoice", {
   /** Retainer que generó esta factura (null si es una factura puntual). */
   retainerId: text23("retainer_id").references(() => retainer.id),
   createdBy: text23("created_by").references(() => hubUser.id),
-  archived: boolean12("archived").notNull().default(false),
+  archived: boolean14("archived").notNull().default(false),
   archivedAt: timestamp23("archived_at", { withTimezone: true }),
   createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -1348,12 +1386,12 @@ var expense = pgTable23("expense", {
   companyId: text23("company_id").references(() => company.id),
   paymentMethod: text23("payment_method"),
   /** Si el gasto es recurrente (ej.: suscripción mensual), se marca para alertas. */
-  isRecurring: boolean12("is_recurring").notNull().default(false),
+  isRecurring: boolean14("is_recurring").notNull().default(false),
   notes: text23("notes"),
   /** Clave del comprobante subido a R2 (sin URL; la URL se genera on-demand). */
   storageKey: text23("storage_key"),
   createdBy: text23("created_by").references(() => hubUser.id),
-  archived: boolean12("archived").notNull().default(false),
+  archived: boolean14("archived").notNull().default(false),
   archivedAt: timestamp23("archived_at", { withTimezone: true }),
   createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -1374,7 +1412,7 @@ var expense = pgTable23("expense", {
 ]);
 
 // src/db/schema/notification-prefs.ts
-import { pgTable as pgTable24, text as text24, boolean as boolean13, timestamp as timestamp24, unique as unique9, index as index20 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable24, text as text24, boolean as boolean15, timestamp as timestamp24, unique as unique9, index as index20 } from "drizzle-orm/pg-core";
 var notificationPref = pgTable24(
   "notification_pref",
   {
@@ -1382,8 +1420,8 @@ var notificationPref = pgTable24(
     portalId: text24("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
     userId: text24("user_id").notNull().references(() => hubUser.id, { onDelete: "cascade" }),
     eventType: text24("event_type").notNull(),
-    inApp: boolean13("in_app").notNull().default(true),
-    email: boolean13("email").notNull().default(false),
+    inApp: boolean15("in_app").notNull().default(true),
+    email: boolean15("email").notNull().default(false),
     createdAt: timestamp24("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp24("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
@@ -1394,7 +1432,7 @@ var notificationPref = pgTable24(
 );
 
 // src/db/schema/custom-fields.ts
-import { pgTable as pgTable25, text as text25, integer as integer10, boolean as boolean14, timestamp as timestamp25, jsonb as jsonb12, unique as unique10, index as index21, check as check17 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable25, text as text25, integer as integer10, boolean as boolean16, timestamp as timestamp25, jsonb as jsonb12, unique as unique10, index as index21, check as check17 } from "drizzle-orm/pg-core";
 import { sql as sql19 } from "drizzle-orm";
 var customField = pgTable25(
   "custom_field",
@@ -1407,7 +1445,7 @@ var customField = pgTable25(
     fieldType: text25("field_type").notNull(),
     options: jsonb12("options").$type().default(null),
     displayOrder: integer10("display_order").notNull().default(0),
-    archived: boolean14("archived").notNull().default(false),
+    archived: boolean16("archived").notNull().default(false),
     archivedAt: timestamp25("archived_at", { withTimezone: true }),
     createdAt: timestamp25("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp25("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -1523,7 +1561,7 @@ var proposal = pgTable28(
 );
 
 // src/db/schema/project-updates.ts
-import { pgTable as pgTable29, text as text29, boolean as boolean15, timestamp as timestamp29, index as index25 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable29, text as text29, boolean as boolean17, timestamp as timestamp29, index as index25 } from "drizzle-orm/pg-core";
 var projectUpdate = pgTable29(
   "project_update",
   {
@@ -1533,7 +1571,7 @@ var projectUpdate = pgTable29(
     stageId: text29("stage_id").references(() => pipelineStage.id, { onDelete: "set null" }),
     body: text29("body").notNull(),
     createdBy: text29("created_by").notNull().references(() => hubUser.id),
-    archived: boolean15("archived").notNull().default(false),
+    archived: boolean17("archived").notNull().default(false),
     archivedAt: timestamp29("archived_at", { withTimezone: true }),
     createdAt: timestamp29("created_at", { withTimezone: true }).notNull().defaultNow()
   },
@@ -2011,6 +2049,191 @@ async function getContactDetail(portalId, id) {
   return { contact: contactRow, deals: [...dealsById.values()], history, notes, tasks };
 }
 
+// src/modules/contacts/next-action.service.ts
+import { and as and5, desc as desc3, eq as eq6 } from "drizzle-orm";
+
+// src/lib/ai/gemini.ts
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+var client = null;
+function getClient() {
+  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    throw new Error("Gemini no configurado (GOOGLE_SERVICE_ACCOUNT_JSON)");
+  }
+  if (client) return client;
+  const credentials = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  if (!credentials.project_id) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON sin project_id");
+  client = new GoogleGenAI({
+    vertexai: true,
+    project: credentials.project_id,
+    location: env.VERTEX_LOCATION,
+    googleAuthOptions: { credentials }
+  });
+  return client;
+}
+var geminiGenerate = async (req) => {
+  const ai = getClient();
+  const res = await ai.models.generateContent({
+    model: env.VERTEX_MODEL,
+    contents: [{ role: "user", parts: [{ text: req.prompt }] }],
+    config: {
+      systemInstruction: req.systemInstruction,
+      temperature: req.temperature,
+      maxOutputTokens: req.maxOutputTokens,
+      // Generar una propuesta o una próxima acción es redacción con formato
+      // fijo, no razonamiento profundo: thinking bajo = más rápido y barato.
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
+    }
+  });
+  return { text: res.text ?? "" };
+};
+
+// src/lib/ai/claude.ts
+import Anthropic from "@anthropic-ai/sdk";
+var client2 = null;
+function getClient2() {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("Claude no configurado (ANTHROPIC_API_KEY)");
+  if (!client2) client2 = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  return client2;
+}
+var claudeGenerate = async (req) => {
+  const ai = getClient2();
+  const res = await ai.messages.create({
+    model: env.ANTHROPIC_MODEL,
+    max_tokens: req.maxOutputTokens,
+    temperature: req.temperature,
+    system: req.systemInstruction,
+    messages: [{ role: "user", content: req.prompt }]
+  });
+  const text30 = res.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  return { text: text30 };
+};
+
+// src/lib/ai/index.ts
+function getProvider(provider) {
+  return provider === "claude" ? claudeGenerate : geminiGenerate;
+}
+
+// src/modules/contacts/next-action.ai.ts
+var LIFECYCLE_LABEL = {
+  lead: "lead",
+  mql: "lead calificado por marketing",
+  sql: "lead calificado por ventas",
+  opportunity: "oportunidad",
+  customer: "cliente",
+  other: "otro"
+};
+var SYSTEM_INSTRUCTION = `Sos el asistente comercial de NOUS (agencia de software a medida). Tu trabajo es sugerir la PR\xD3XIMA ACCI\xD3N concreta para avanzar un lead hacia el cierre.
+
+Reglas:
+- Respond\xE9 SOLO la acci\xF3n, en UNA frase corta, imperativa y accionable (m\xE1x ~120 caracteres).
+- Espa\xF1ol rioplatense (voseo). Nada de pre\xE1mbulos, comillas ni explicaciones.
+- Us\xE1 el contexto (etapa, onboarding, propuesta, deals) para que sea espec\xEDfica, no gen\xE9rica.`;
+function buildPrompt(ctx) {
+  const lines = [];
+  lines.push(`Nombre: ${ctx.firstName || "el lead"}`);
+  lines.push(`Etapa: ${LIFECYCLE_LABEL[ctx.lifecycleStage] ?? ctx.lifecycleStage}`);
+  if (ctx.deals.length) {
+    lines.push(
+      `Deals: ${ctx.deals.map((d) => `${d.name} (etapa: ${d.stage ?? "\u2014"}${d.isWon ? ", ganado" : ""})`).join("; ")}`
+    );
+  } else {
+    lines.push("Deals: ninguno");
+  }
+  if (ctx.onboarding) {
+    const o = ctx.onboarding;
+    lines.push(
+      `Onboarding: completado (routing sugerido: ${o.decision}; tipo: ${o.projectType ?? "\u2014"}; objetivo: ${o.mainGoal ?? "\u2014"}; presupuesto: ${o.budget ?? "\u2014"}; claridad: ${o.clarity ?? "\u2014"}; prefiere: ${o.preference ?? "\u2014"})`
+    );
+  } else {
+    lines.push("Onboarding: NO completado");
+  }
+  if (ctx.proposals.length) {
+    lines.push(`Propuestas: ${ctx.proposals.map((p) => p.status).join(", ")}`);
+  } else {
+    lines.push("Propuestas: ninguna generada");
+  }
+  if (ctx.lastActivityDays != null) {
+    lines.push(`\xDAltima actividad: hace ${ctx.lastActivityDays} d\xEDa(s)`);
+  }
+  return `Suger\xED la pr\xF3xima acci\xF3n para este lead:
+${lines.join("\n")}`;
+}
+async function suggestNextActionAI(ctx, provider = "gemini") {
+  const generate = getProvider(provider);
+  const result = await generate({
+    systemInstruction: SYSTEM_INSTRUCTION,
+    prompt: buildPrompt(ctx),
+    temperature: 0.6,
+    maxOutputTokens: 256
+  });
+  const action = result.text.split("\n").map((l) => l.replace(/^[-*•\s"']+/, "").trim()).find((l) => l.length > 0);
+  if (!action) throw new Error("La IA no devolvi\xF3 una acci\xF3n");
+  return action.slice(0, 160);
+}
+function fallbackNextAction(ctx) {
+  const lastProposal = ctx.proposals[0]?.status;
+  if (ctx.lifecycleStage === "customer") return "Coordin\xE1 el kickoff y los pr\xF3ximos pasos del proyecto.";
+  if (!ctx.onboarding) return "Enviale el link de onboarding para entender bien su proyecto.";
+  if (!ctx.proposals.length) return "Gener\xE1 y revis\xE1 la propuesta con la info del onboarding.";
+  if (lastProposal === "draft") return "Termin\xE1 de revisar la propuesta y aprobala para enviarla.";
+  if (lastProposal === "accepted" || lastProposal === "sent")
+    return "Envi\xE1 el link de la propuesta y confirm\xE1 que la recibi\xF3.";
+  if (lastProposal === "viewed") return "Ya vio la propuesta: llamalo para cerrar.";
+  return "Agend\xE1 un seguimiento para mantener la conversaci\xF3n activa.";
+}
+
+// src/modules/contacts/next-action.service.ts
+function getModelProvider() {
+  return env.MODEL_PROVIDER;
+}
+function s(v) {
+  return typeof v === "string" && v.trim() ? v : void 0;
+}
+async function suggestNextAction(portalId, contactId) {
+  const [c] = await db.select({
+    firstName: contact.firstName,
+    lifecycleStage: contact.lifecycleStage
+  }).from(contact).where(and5(eq6(contact.id, contactId), eq6(contact.portalId, portalId))).limit(1);
+  if (!c) throw Errors.notFound("Contacto no encontrado");
+  const deals = await db.select({
+    name: deal.name,
+    amount: deal.amount,
+    stage: pipelineStage.label,
+    isWon: pipelineStage.isWon
+  }).from(deal).leftJoin(pipelineStage, eq6(pipelineStage.id, deal.stageId)).where(and5(eq6(deal.primaryContactId, contactId), eq6(deal.archived, false)));
+  const [sub] = await db.select({ decision: onboardingSubmission.decision, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and5(eq6(onboardingSubmission.portalId, portalId), eq6(onboardingSubmission.contactId, contactId))).orderBy(desc3(onboardingSubmission.createdAt)).limit(1);
+  const proposals = await db.select({ status: proposal.status }).from(proposal).where(and5(eq6(proposal.portalId, portalId), eq6(proposal.contactId, contactId))).orderBy(desc3(proposal.createdAt));
+  const a = sub?.answers ?? {};
+  const ctx = {
+    firstName: c.firstName ?? "",
+    lifecycleStage: c.lifecycleStage,
+    deals: deals.map((d) => ({
+      name: d.name,
+      stage: d.stage,
+      amount: d.amount,
+      isWon: d.isWon ?? false
+    })),
+    onboarding: sub ? {
+      decision: sub.decision,
+      budget: s(a.budget),
+      projectType: s(a.projectType),
+      mainGoal: s(a.mainGoal),
+      preference: s(a.preference),
+      clarity: s(a.clarity)
+    } : void 0,
+    proposals: proposals.map((p) => ({ status: p.status }))
+  };
+  if (env.GOOGLE_SERVICE_ACCOUNT_JSON || env.ANTHROPIC_API_KEY) {
+    try {
+      const provider = getModelProvider();
+      const action = await suggestNextActionAI(ctx, provider);
+      return { action, source: "ai" };
+    } catch {
+    }
+  }
+  return { action: fallbackNextAction(ctx), source: "rules" };
+}
+
 // src/lib/http.ts
 var ADMIN_SECURITY = [{ bearerAuth: [] }];
 var CLIENT_SECURITY = [{ bearerAuth: [] }];
@@ -2048,6 +2271,19 @@ async function contactsRoutes(app2) {
       }
     },
     async (request) => ok(await getContactDetail(request.hubUser.portalId, request.params.id))
+  );
+  r.get(
+    "/:id/next-action",
+    {
+      schema: {
+        tags: [TAG],
+        summary: "Pr\xF3xima acci\xF3n sugerida",
+        description: "Sugiere la pr\xF3xima acci\xF3n para el contacto a partir de su etapa, deals, onboarding y propuestas. Intenta con IA (Model Switcher) y cae a reglas si no hay credenciales o falla \u2014 siempre devuelve una acci\xF3n.",
+        security,
+        params: IdParamSchema
+      }
+    },
+    async (request) => ok(await suggestNextAction(request.hubUser.portalId, request.params.id))
   );
   r.post(
     "/search",
@@ -2104,21 +2340,21 @@ var CreateCompanySchema = z5.object({
 var UpdateCompanySchema = CreateCompanySchema.partial();
 
 // src/modules/companies/companies.service.ts
-import { and as and5, desc as desc3, eq as eq6 } from "drizzle-orm";
+import { and as and6, desc as desc4, eq as eq7 } from "drizzle-orm";
 var ENTITY2 = "company";
 async function listCompanies(portalId, query) {
   const cursor = decodeCursor(query.cursor);
   const rows = await db.select().from(company).where(
-    and5(
-      eq6(company.portalId, portalId),
-      eq6(company.archived, false),
+    and6(
+      eq7(company.portalId, portalId),
+      eq7(company.archived, false),
       cursor ? cursorWhere(company.createdAt, company.id, cursor) : void 0
     )
-  ).orderBy(desc3(company.createdAt), desc3(company.id)).limit(query.limit + 1);
+  ).orderBy(desc4(company.createdAt), desc4(company.id)).limit(query.limit + 1);
   return paginateRows(rows, query.limit);
 }
 async function getCompany(portalId, id) {
-  const [row] = await db.select().from(company).where(and5(eq6(company.portalId, portalId), eq6(company.id, id), eq6(company.archived, false))).limit(1);
+  const [row] = await db.select().from(company).where(and6(eq7(company.portalId, portalId), eq7(company.id, id), eq7(company.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Empresa no encontrada");
   return row;
 }
@@ -2132,9 +2368,9 @@ async function createCompany(portalId, userId, input) {
 }
 async function updateCompany(portalId, userId, id, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(company).where(and5(eq6(company.portalId, portalId), eq6(company.id, id), eq6(company.archived, false))).limit(1);
+    const [existing] = await tx.select().from(company).where(and6(eq7(company.portalId, portalId), eq7(company.id, id), eq7(company.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Empresa no encontrada");
-    const [updated] = await tx.update(company).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq6(company.id, id)).returning();
+    const [updated] = await tx.update(company).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq7(company.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar la empresa");
     await recordFieldChanges({ tx, portalId, entityType: ENTITY2, entityId: id, before: existing, after: input, changedBy: userId });
     await writeAudit({ tx, portalId, userId, entityType: ENTITY2, entityId: id, action: "UPDATE", payload: input });
@@ -2143,20 +2379,20 @@ async function updateCompany(portalId, userId, id, input) {
 }
 async function archiveCompany(portalId, userId, id) {
   await db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(company).where(and5(eq6(company.portalId, portalId), eq6(company.id, id), eq6(company.archived, false))).limit(1);
+    const [existing] = await tx.select().from(company).where(and6(eq7(company.portalId, portalId), eq7(company.id, id), eq7(company.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Empresa no encontrada");
-    await tx.update(company).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq6(company.id, id));
+    await tx.update(company).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq7(company.id, id));
     await writeAudit({ tx, portalId, userId, entityType: ENTITY2, entityId: id, action: "DELETE" });
   });
 }
 async function getCompanyDetail(portalId, id) {
   const companyRow = await getCompany(portalId, id);
   const [contacts, deals, notes, tasks, history] = await Promise.all([
-    db.select().from(contact).where(and5(eq6(contact.portalId, portalId), eq6(contact.companyId, id), eq6(contact.archived, false))).orderBy(desc3(contact.createdAt)),
-    db.select().from(deal).where(and5(eq6(deal.portalId, portalId), eq6(deal.companyId, id), eq6(deal.archived, false))).orderBy(desc3(deal.createdAt)),
-    db.select().from(note).where(and5(eq6(note.portalId, portalId), eq6(note.companyId, id))).orderBy(desc3(note.createdAt)).limit(50),
-    db.select().from(task).where(and5(eq6(task.portalId, portalId), eq6(task.companyId, id))).orderBy(desc3(task.createdAt)),
-    db.select().from(recordHistory).where(and5(eq6(recordHistory.entityType, ENTITY2), eq6(recordHistory.entityId, id))).orderBy(desc3(recordHistory.changedAt)).limit(50)
+    db.select().from(contact).where(and6(eq7(contact.portalId, portalId), eq7(contact.companyId, id), eq7(contact.archived, false))).orderBy(desc4(contact.createdAt)),
+    db.select().from(deal).where(and6(eq7(deal.portalId, portalId), eq7(deal.companyId, id), eq7(deal.archived, false))).orderBy(desc4(deal.createdAt)),
+    db.select().from(note).where(and6(eq7(note.portalId, portalId), eq7(note.companyId, id))).orderBy(desc4(note.createdAt)).limit(50),
+    db.select().from(task).where(and6(eq7(task.portalId, portalId), eq7(task.companyId, id))).orderBy(desc4(task.createdAt)),
+    db.select().from(recordHistory).where(and6(eq7(recordHistory.entityType, ENTITY2), eq7(recordHistory.entityId, id))).orderBy(desc4(recordHistory.changedAt)).limit(50)
   ]);
   return { company: companyRow, contacts, deals, notes, tasks, history };
 }
@@ -2268,14 +2504,14 @@ var ProjectUpdateIdParamSchema = z7.object({
 });
 
 // src/modules/deals/deals.service.ts
-import { and as and9, desc as desc5, eq as eq10, inArray as inArray3 } from "drizzle-orm";
+import { and as and10, desc as desc6, eq as eq11, inArray as inArray3 } from "drizzle-orm";
 
 // src/modules/deals/stage.service.ts
 import { randomUUID } from "crypto";
-import { and as and8, eq as eq9 } from "drizzle-orm";
+import { and as and9, eq as eq10 } from "drizzle-orm";
 
 // src/modules/notifications/notifications.service.ts
-import { and as and6, count, desc as desc4, eq as eq7, isNull as isNull2 } from "drizzle-orm";
+import { and as and7, count, desc as desc5, eq as eq8, isNull as isNull2 } from "drizzle-orm";
 
 // src/lib/notification-bus.ts
 import { EventEmitter } from "events";
@@ -2312,27 +2548,27 @@ async function createNotification(input) {
   });
 }
 async function listNotifications(portalId, userId) {
-  return db.select().from(notification).where(and6(eq7(notification.portalId, portalId), eq7(notification.userId, userId))).orderBy(desc4(notification.createdAt)).limit(50);
+  return db.select().from(notification).where(and7(eq8(notification.portalId, portalId), eq8(notification.userId, userId))).orderBy(desc5(notification.createdAt)).limit(50);
 }
 async function unreadCount(portalId, userId) {
-  const [row] = await db.select({ n: count() }).from(notification).where(and6(eq7(notification.portalId, portalId), eq7(notification.userId, userId), isNull2(notification.readAt)));
+  const [row] = await db.select({ n: count() }).from(notification).where(and7(eq8(notification.portalId, portalId), eq8(notification.userId, userId), isNull2(notification.readAt)));
   return row?.n ?? 0;
 }
 async function markRead(portalId, userId, id) {
-  const res = await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and6(eq7(notification.portalId, portalId), eq7(notification.userId, userId), eq7(notification.id, id))).returning({ id: notification.id });
+  const res = await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and7(eq8(notification.portalId, portalId), eq8(notification.userId, userId), eq8(notification.id, id))).returning({ id: notification.id });
   if (res.length === 0) throw Errors.notFound("Notificaci\xF3n no encontrada");
 }
 async function markAllRead(portalId, userId) {
-  await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and6(eq7(notification.portalId, portalId), eq7(notification.userId, userId), isNull2(notification.readAt)));
+  await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and7(eq8(notification.portalId, portalId), eq8(notification.userId, userId), isNull2(notification.readAt)));
 }
 async function actorName(portalId, userId) {
-  const [u] = await db.select({ firstName: hubUser.firstName, lastName: hubUser.lastName, email: hubUser.email }).from(hubUser).where(and6(eq7(hubUser.id, userId), eq7(hubUser.portalId, portalId))).limit(1);
+  const [u] = await db.select({ firstName: hubUser.firstName, lastName: hubUser.lastName, email: hubUser.email }).from(hubUser).where(and7(eq8(hubUser.id, userId), eq8(hubUser.portalId, portalId))).limit(1);
   if (!u) return "Alguien";
   const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
   return name || u.email || "Alguien";
 }
 async function notifyAdmins(portalId, payload, opts) {
-  const admins = await db.select({ id: hubUser.id }).from(hubUser).where(and6(eq7(hubUser.portalId, portalId), eq7(hubUser.isActive, true)));
+  const admins = await db.select({ id: hubUser.id }).from(hubUser).where(and7(eq8(hubUser.portalId, portalId), eq8(hubUser.isActive, true)));
   for (const a of admins) {
     if (opts?.exceptUserId && a.id === opts.exceptUserId) continue;
     await createNotification({ portalId, userId: a.id, ...payload });
@@ -2435,17 +2671,17 @@ function portalHomeUrl(brandSlug) {
 }
 
 // src/lib/emails/esc.ts
-function escHtml(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr(s) {
-  if (!s) return "#";
-  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escAttr(s2) {
+  if (!s2) return "#";
+  return s2.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escParagraphs(s, style = "") {
+function escParagraphs(s2, style = "") {
   const attr = style ? ` style="${style}"` : "";
-  return s.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean).map((block) => `<p${attr}>${escHtml(block).replace(/\n/g, "<br />")}</p>`).join("\n");
+  return s2.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean).map((block) => `<p${attr}>${escHtml(block).replace(/\n/g, "<br />")}</p>`).join("\n");
 }
 
 // src/modules/deals/emails/portal-welcome.ts
@@ -2514,29 +2750,29 @@ function portalWelcomeHtml(p) {
 }
 
 // src/modules/onboarding/assignees.ts
-import { and as and7, eq as eq8 } from "drizzle-orm";
+import { and as and8, eq as eq9 } from "drizzle-orm";
 var PRODUCTION_PIPELINE_LABEL = "Producci\xF3n";
 var PRODUCTION_DIAGNOSTICO_STAGE_LABEL = "Diagn\xF3stico";
 async function resolveProductionAssignee(dbOrTx, portalId, stageLabel) {
   const email = stageLabel === PRODUCTION_DIAGNOSTICO_STAGE_LABEL ? env.PRODUCTION_ASSIGNEE_DIAGNOSTICO_EMAIL : env.PRODUCTION_ASSIGNEE_DEFAULT_EMAIL;
-  const [u] = await dbOrTx.select({ id: hubUser.id }).from(hubUser).where(and7(eq8(hubUser.portalId, portalId), eq8(hubUser.email, email), eq8(hubUser.isActive, true))).limit(1);
+  const [u] = await dbOrTx.select({ id: hubUser.id }).from(hubUser).where(and8(eq9(hubUser.portalId, portalId), eq9(hubUser.email, email), eq9(hubUser.isActive, true))).limit(1);
   return u?.id ?? null;
 }
 
 // src/modules/deals/stage.service.ts
 var ENTITY3 = "deal";
 async function assertStageInPipeline(tx, pipelineId, stageId) {
-  const [stage] = await tx.select().from(pipelineStage).where(eq9(pipelineStage.id, stageId)).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(eq10(pipelineStage.id, stageId)).limit(1);
   if (!stage) throw Errors.badRequest("Stage inexistente");
   if (stage.pipelineId !== pipelineId) throw Errors.badRequest("El stage no pertenece al pipeline indicado");
   return stage;
 }
 async function activateClientPortal(tx, portalId, dealId) {
-  const [d] = await tx.select().from(deal).where(eq9(deal.id, dealId)).limit(1);
+  const [d] = await tx.select().from(deal).where(eq10(deal.id, dealId)).limit(1);
   if (!d?.primaryContactId) return null;
-  const [c] = await tx.select().from(contact).where(eq9(contact.id, d.primaryContactId)).limit(1);
+  const [c] = await tx.select().from(contact).where(eq10(contact.id, d.primaryContactId)).limit(1);
   if (!c?.email) return null;
-  let [account] = await tx.select().from(clientAccount).where(and8(eq9(clientAccount.portalId, portalId), eq9(clientAccount.email, c.email))).limit(1);
+  let [account] = await tx.select().from(clientAccount).where(and9(eq10(clientAccount.portalId, portalId), eq10(clientAccount.email, c.email))).limit(1);
   const isNewAccount = !account;
   if (!account) {
     ;
@@ -2544,7 +2780,7 @@ async function activateClientPortal(tx, portalId, dealId) {
   }
   await tx.insert(clientDealAccess).values({ clientId: account.id, dealId }).onConflictDoNothing();
   if (c.lifecycleStage !== "customer") {
-    await tx.update(contact).set({ lifecycleStage: "customer", updatedAt: /* @__PURE__ */ new Date() }).where(eq9(contact.id, c.id));
+    await tx.update(contact).set({ lifecycleStage: "customer", updatedAt: /* @__PURE__ */ new Date() }).where(eq10(contact.id, c.id));
   }
   if (account && !account.clerkUserId) {
     const clerkUserId = await ensureClerkUserType({
@@ -2554,7 +2790,7 @@ async function activateClientPortal(tx, portalId, dealId) {
       userType: "client"
     });
     if (clerkUserId) {
-      await tx.update(clientAccount).set({ clerkUserId }).where(eq9(clientAccount.id, account.id));
+      await tx.update(clientAccount).set({ clerkUserId }).where(eq10(clientAccount.id, account.id));
     }
   }
   if (!isNewAccount || !account) return null;
@@ -2578,7 +2814,7 @@ async function sendPortalWelcome(pending) {
         loginUrl: portalLoginUrl(pending.brandSlug)
       })
     });
-    await db.update(clientAccount).set({ inviteSentAt: /* @__PURE__ */ new Date() }).where(eq9(clientAccount.id, pending.clientAccountId));
+    await db.update(clientAccount).set({ inviteSentAt: /* @__PURE__ */ new Date() }).where(eq10(clientAccount.id, pending.clientAccountId));
   } catch (err) {
     console.error("[stage.service] No se pudo enviar el email de bienvenida al portal", {
       clientAccountId: pending.clientAccountId,
@@ -2593,14 +2829,14 @@ async function reassignProductionOwner(tx, portalId, stageLabel, currentOwnerId)
 }
 async function changeStage(portalId, userId, dealId, newStageId) {
   const result = await db.transaction(async (tx) => {
-    const [row] = await tx.select({ deal, pipelineLabel: pipeline.label }).from(deal).innerJoin(pipeline, eq9(pipeline.id, deal.pipelineId)).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, dealId), eq9(deal.archived, false))).limit(1);
+    const [row] = await tx.select({ deal, pipelineLabel: pipeline.label }).from(deal).innerJoin(pipeline, eq10(pipeline.id, deal.pipelineId)).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, dealId), eq10(deal.archived, false))).limit(1);
     if (!row) throw Errors.notFound("Deal no encontrado");
     const { deal: d, pipelineLabel } = row;
     const stage = await assertStageInPipeline(tx, d.pipelineId, newStageId);
     if (d.stageId === newStageId) {
       return { deal: d, notify: null };
     }
-    const [updated] = await tx.update(deal).set({ stageId: newStageId, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, dealId)).returning();
+    const [updated] = await tx.update(deal).set({ stageId: newStageId, updatedAt: /* @__PURE__ */ new Date() }).where(eq10(deal.id, dealId)).returning();
     if (!updated) throw Errors.internal("No se pudo cambiar la etapa");
     await recordFieldChanges({
       tx,
@@ -2624,7 +2860,7 @@ async function changeStage(portalId, userId, dealId, newStageId) {
     if (pipelineLabel === PRODUCTION_PIPELINE_LABEL) {
       const newOwnerId = await reassignProductionOwner(tx, portalId, stage.label, updated.ownerId);
       if (newOwnerId) {
-        const [reassigned] = await tx.update(deal).set({ ownerId: newOwnerId, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, dealId)).returning();
+        const [reassigned] = await tx.update(deal).set({ ownerId: newOwnerId, updatedAt: /* @__PURE__ */ new Date() }).where(eq10(deal.id, dealId)).returning();
         if (reassigned) {
           finalDeal = reassigned;
           await recordFieldChanges({
@@ -2660,11 +2896,11 @@ async function changeStage(portalId, userId, dealId, newStageId) {
   return result.deal;
 }
 async function moveDealToProduction(tx, portalId, dealId, actor) {
-  const [pl] = await tx.select().from(pipeline).where(and8(eq9(pipeline.portalId, portalId), eq9(pipeline.label, PRODUCTION_PIPELINE_LABEL))).limit(1);
+  const [pl] = await tx.select().from(pipeline).where(and9(eq10(pipeline.portalId, portalId), eq10(pipeline.label, PRODUCTION_PIPELINE_LABEL))).limit(1);
   if (!pl) throw Errors.internal('Pipeline "Producci\xF3n" no seedeado en este portal');
-  const [stage] = await tx.select().from(pipelineStage).where(and8(eq9(pipelineStage.pipelineId, pl.id), eq9(pipelineStage.label, PRODUCTION_DIAGNOSTICO_STAGE_LABEL))).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(and9(eq10(pipelineStage.pipelineId, pl.id), eq10(pipelineStage.label, PRODUCTION_DIAGNOSTICO_STAGE_LABEL))).limit(1);
   if (!stage) throw Errors.internal('Stage "Diagn\xF3stico" no seedeado en el pipeline Producci\xF3n');
-  const [d] = await tx.select().from(deal).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, dealId), eq9(deal.archived, false))).limit(1);
+  const [d] = await tx.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, dealId), eq10(deal.archived, false))).limit(1);
   if (!d) throw Errors.notFound("Deal no encontrado");
   const resolvedOwnerId = await reassignProductionOwner(tx, portalId, stage.label, d.ownerId);
   const finalOwnerId = resolvedOwnerId ?? d.ownerId;
@@ -2673,7 +2909,7 @@ async function moveDealToProduction(tx, portalId, dealId, actor) {
     stageId: stage.id,
     ...resolvedOwnerId ? { ownerId: resolvedOwnerId } : {},
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq9(deal.id, dealId)).returning();
+  }).where(eq10(deal.id, dealId)).returning();
   if (!updated) throw Errors.internal("No se pudo mover el deal a Producci\xF3n");
   await recordFieldChanges({
     tx,
@@ -2713,7 +2949,7 @@ function toAmount(amount) {
   return amount === void 0 ? void 0 : amount.toFixed(2);
 }
 async function assertStageInPipeline2(tx, pipelineId, stageId) {
-  const [stage] = await tx.select().from(pipelineStage).where(eq10(pipelineStage.id, stageId)).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(eq11(pipelineStage.id, stageId)).limit(1);
   if (!stage) throw Errors.badRequest("Stage inexistente");
   if (stage.pipelineId !== pipelineId) throw Errors.badRequest("El stage no pertenece al pipeline indicado");
   return stage;
@@ -2721,18 +2957,18 @@ async function assertStageInPipeline2(tx, pipelineId, stageId) {
 async function listDeals(portalId, query) {
   const cursor = decodeCursor(query.cursor);
   const rows = await db.select().from(deal).where(
-    and9(eq10(deal.portalId, portalId), eq10(deal.archived, false), cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
-  ).orderBy(desc5(deal.createdAt), desc5(deal.id)).limit(query.limit + 1);
+    and10(eq11(deal.portalId, portalId), eq11(deal.archived, false), cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
+  ).orderBy(desc6(deal.createdAt), desc6(deal.id)).limit(query.limit + 1);
   return paginateRows(rows, query.limit);
 }
 async function getDeal(portalId, id) {
-  const [row] = await db.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
+  const [row] = await db.select().from(deal).where(and10(eq11(deal.portalId, portalId), eq11(deal.id, id), eq11(deal.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Deal no encontrado");
   return row;
 }
 async function createDeal(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [pl] = await tx.select().from(pipeline).where(and9(eq10(pipeline.id, input.pipelineId), eq10(pipeline.portalId, portalId))).limit(1);
+    const [pl] = await tx.select().from(pipeline).where(and10(eq11(pipeline.id, input.pipelineId), eq11(pipeline.portalId, portalId))).limit(1);
     if (!pl) throw Errors.badRequest("Pipeline inexistente");
     await assertStageInPipeline2(tx, input.pipelineId, input.stageId);
     const [row] = await tx.insert(deal).values({ ...input, amount: toAmount(input.amount), portalId }).returning();
@@ -2743,10 +2979,10 @@ async function createDeal(portalId, userId, input) {
 }
 async function updateDeal(portalId, userId, id, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
+    const [existing] = await tx.select().from(deal).where(and10(eq11(deal.portalId, portalId), eq11(deal.id, id), eq11(deal.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Deal no encontrado");
     const patch = { ...input, amount: toAmount(input.amount) };
-    const [updated] = await tx.update(deal).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq10(deal.id, id)).returning();
+    const [updated] = await tx.update(deal).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq11(deal.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el deal");
     await recordFieldChanges({ tx, portalId, entityType: ENTITY4, entityId: id, before: existing, after: patch, changedBy: userId });
     await writeAudit({ tx, portalId, userId, entityType: ENTITY4, entityId: id, action: "UPDATE", payload: input });
@@ -2755,40 +2991,40 @@ async function updateDeal(portalId, userId, id, input) {
 }
 async function archiveDeal(portalId, userId, id) {
   await db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
+    const [existing] = await tx.select().from(deal).where(and10(eq11(deal.portalId, portalId), eq11(deal.id, id), eq11(deal.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Deal no encontrado");
-    await tx.update(deal).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq10(deal.id, id));
+    await tx.update(deal).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq11(deal.id, id));
     await writeAudit({ tx, portalId, userId, entityType: ENTITY4, entityId: id, action: "DELETE" });
   });
 }
 async function addDealContact(portalId, dealId, contactId, role) {
   await getDeal(portalId, dealId);
-  const [c] = await db.select().from(contact).where(and9(eq10(contact.portalId, portalId), eq10(contact.id, contactId))).limit(1);
+  const [c] = await db.select().from(contact).where(and10(eq11(contact.portalId, portalId), eq11(contact.id, contactId))).limit(1);
   if (!c) throw Errors.badRequest("Contacto inexistente");
   await db.insert(dealContact).values({ dealId, contactId, role }).onConflictDoNothing();
 }
 async function removeDealContact(portalId, dealId, contactId) {
   await getDeal(portalId, dealId);
-  await db.delete(dealContact).where(and9(eq10(dealContact.dealId, dealId), eq10(dealContact.contactId, contactId)));
+  await db.delete(dealContact).where(and10(eq11(dealContact.dealId, dealId), eq11(dealContact.contactId, contactId)));
 }
 async function getDealDetail(portalId, id) {
   const dealRow = await getDeal(portalId, id);
   let companyRow = null;
   if (dealRow.companyId) {
-    const [c] = await db.select().from(company).where(eq10(company.id, dealRow.companyId)).limit(1);
+    const [c] = await db.select().from(company).where(eq11(company.id, dealRow.companyId)).limit(1);
     companyRow = c ?? null;
   }
   const ids = /* @__PURE__ */ new Set();
   if (dealRow.primaryContactId) ids.add(dealRow.primaryContactId);
-  const links = await db.select({ contactId: dealContact.contactId }).from(dealContact).where(eq10(dealContact.dealId, id));
+  const links = await db.select({ contactId: dealContact.contactId }).from(dealContact).where(eq11(dealContact.dealId, id));
   for (const l of links) ids.add(l.contactId);
   let contacts = [];
   if (ids.size > 0) {
-    contacts = await db.select().from(contact).where(and9(eq10(contact.portalId, portalId), inArray3(contact.id, [...ids])));
+    contacts = await db.select().from(contact).where(and10(eq11(contact.portalId, portalId), inArray3(contact.id, [...ids])));
   }
-  const notes = await db.select().from(note).where(and9(eq10(note.portalId, portalId), eq10(note.dealId, id))).orderBy(desc5(note.createdAt)).limit(50);
-  const tasks = await db.select().from(task).where(and9(eq10(task.portalId, portalId), eq10(task.dealId, id))).orderBy(desc5(task.createdAt)).limit(50);
-  const history = await db.select().from(recordHistory).where(and9(eq10(recordHistory.entityType, ENTITY4), eq10(recordHistory.entityId, id))).orderBy(desc5(recordHistory.changedAt)).limit(50);
+  const notes = await db.select().from(note).where(and10(eq11(note.portalId, portalId), eq11(note.dealId, id))).orderBy(desc6(note.createdAt)).limit(50);
+  const tasks = await db.select().from(task).where(and10(eq11(task.portalId, portalId), eq11(task.dealId, id))).orderBy(desc6(task.createdAt)).limit(50);
+  const history = await db.select().from(recordHistory).where(and10(eq11(recordHistory.entityType, ENTITY4), eq11(recordHistory.entityId, id))).orderBy(desc6(recordHistory.changedAt)).limit(50);
   return { deal: dealRow, company: companyRow, contacts, notes, tasks, history };
 }
 var DEAL_FIELDS = {
@@ -2806,22 +3042,22 @@ async function searchDeals(portalId, body) {
   const cond = body.filter ? buildFilter(body.filter, DEAL_FIELDS) : void 0;
   const cursor = decodeCursor(body.cursor);
   const rows = await db.select().from(deal).where(
-    and9(eq10(deal.portalId, portalId), eq10(deal.archived, false), cond, cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
-  ).orderBy(desc5(deal.createdAt), desc5(deal.id)).limit(body.limit + 1);
+    and10(eq11(deal.portalId, portalId), eq11(deal.archived, false), cond, cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
+  ).orderBy(desc6(deal.createdAt), desc6(deal.id)).limit(body.limit + 1);
   return paginateRows(rows, body.limit);
 }
 
 // src/modules/deals/project-updates.service.ts
-import { and as and11, desc as desc6, eq as eq12 } from "drizzle-orm";
+import { and as and12, desc as desc7, eq as eq13 } from "drizzle-orm";
 
 // src/lib/portal-access.ts
-import { and as and10, eq as eq11 } from "drizzle-orm";
+import { and as and11, eq as eq12 } from "drizzle-orm";
 async function clientDealIds(clientId) {
-  const rows = await db.select({ dealId: clientDealAccess.dealId }).from(clientDealAccess).where(eq11(clientDealAccess.clientId, clientId));
+  const rows = await db.select({ dealId: clientDealAccess.dealId }).from(clientDealAccess).where(eq12(clientDealAccess.clientId, clientId));
   return rows.map((r) => r.dealId);
 }
 async function assertDealInPortal(portalId, dealId) {
-  const [d] = await db.select().from(deal).where(and10(eq11(deal.id, dealId), eq11(deal.portalId, portalId), eq11(deal.archived, false))).limit(1);
+  const [d] = await db.select().from(deal).where(and11(eq12(deal.id, dealId), eq12(deal.portalId, portalId), eq12(deal.archived, false))).limit(1);
   if (!d) throw Errors.badRequest("Deal inexistente");
   return d;
 }
@@ -2873,7 +3109,7 @@ function projectUpdateHtml(p) {
 // src/modules/deals/project-updates.service.ts
 var ENTITY5 = "project_update";
 async function assertStageInPipeline3(tx, pipelineId, stageId) {
-  const [stage] = await tx.select().from(pipelineStage).where(eq12(pipelineStage.id, stageId)).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(eq13(pipelineStage.id, stageId)).limit(1);
   if (!stage) throw Errors.badRequest("Stage inexistente");
   if (stage.pipelineId !== pipelineId) throw Errors.badRequest("El stage no pertenece al pipeline del deal");
   return stage;
@@ -2890,7 +3126,7 @@ async function listDealUpdates(portalId, dealId) {
     createdById: hubUser.id,
     createdByFirstName: hubUser.firstName,
     createdByEmail: hubUser.email
-  }).from(projectUpdate).innerJoin(hubUser, eq12(hubUser.id, projectUpdate.createdBy)).leftJoin(pipelineStage, eq12(pipelineStage.id, projectUpdate.stageId)).where(and11(eq12(projectUpdate.portalId, portalId), eq12(projectUpdate.dealId, dealId))).orderBy(desc6(projectUpdate.createdAt));
+  }).from(projectUpdate).innerJoin(hubUser, eq13(hubUser.id, projectUpdate.createdBy)).leftJoin(pipelineStage, eq13(pipelineStage.id, projectUpdate.stageId)).where(and12(eq13(projectUpdate.portalId, portalId), eq13(projectUpdate.dealId, dealId))).orderBy(desc7(projectUpdate.createdAt));
   return rows.map((r) => ({
     id: r.id,
     body: r.body,
@@ -2909,7 +3145,7 @@ async function createDealUpdate(portalId, userId, dealId, input) {
       const stage = await assertStageInPipeline3(tx, d.pipelineId, input.stageId);
       stageId = stage.id;
     } else {
-      const [pl] = await tx.select({ label: pipeline.label }).from(pipeline).where(eq12(pipeline.id, d.pipelineId)).limit(1);
+      const [pl] = await tx.select({ label: pipeline.label }).from(pipeline).where(eq13(pipeline.id, d.pipelineId)).limit(1);
       if (pl?.label === PRODUCTION_PIPELINE_LABEL) stageId = d.stageId;
     }
     const [row2] = await tx.insert(projectUpdate).values({ portalId, dealId, stageId, body: input.body, createdBy: userId }).returning();
@@ -2930,22 +3166,22 @@ async function createDealUpdate(portalId, userId, dealId, input) {
 }
 async function notifyClientOfUpdate(portalId, dealId, row) {
   try {
-    const [d] = await db.select({ name: deal.name }).from(deal).where(eq12(deal.id, dealId)).limit(1);
+    const [d] = await db.select({ name: deal.name }).from(deal).where(eq13(deal.id, dealId)).limit(1);
     if (!d) return;
     let phaseLabel = null;
     if (row.stageId) {
-      const [stage] = await db.select({ label: pipelineStage.label }).from(pipelineStage).where(eq12(pipelineStage.id, row.stageId)).limit(1);
+      const [stage] = await db.select({ label: pipelineStage.label }).from(pipelineStage).where(eq13(pipelineStage.id, row.stageId)).limit(1);
       phaseLabel = stage?.label ?? null;
     }
     const recipients = await db.select({
       email: clientAccount.email,
       brandSlug: clientAccount.brandSlug,
       firstName: contact.firstName
-    }).from(clientDealAccess).innerJoin(clientAccount, eq12(clientAccount.id, clientDealAccess.clientId)).leftJoin(contact, eq12(contact.id, clientAccount.contactId)).where(
-      and11(
-        eq12(clientDealAccess.dealId, dealId),
-        eq12(clientAccount.portalId, portalId),
-        eq12(clientAccount.isActive, true)
+    }).from(clientDealAccess).innerJoin(clientAccount, eq13(clientAccount.id, clientDealAccess.clientId)).leftJoin(contact, eq13(contact.id, clientAccount.contactId)).where(
+      and12(
+        eq13(clientDealAccess.dealId, dealId),
+        eq13(clientAccount.portalId, portalId),
+        eq13(clientAccount.isActive, true)
       )
     );
     for (const r of recipients) {
@@ -2970,9 +3206,9 @@ async function notifyClientOfUpdate(portalId, dealId, row) {
 }
 async function archiveDealUpdate(portalId, userId, id) {
   await db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(projectUpdate).where(and11(eq12(projectUpdate.portalId, portalId), eq12(projectUpdate.id, id), eq12(projectUpdate.archived, false))).limit(1);
+    const [existing] = await tx.select().from(projectUpdate).where(and12(eq13(projectUpdate.portalId, portalId), eq13(projectUpdate.id, id), eq13(projectUpdate.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Novedad no encontrada");
-    await tx.update(projectUpdate).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq12(projectUpdate.id, id));
+    await tx.update(projectUpdate).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq13(projectUpdate.id, id));
     await writeAudit({
       tx,
       portalId,
@@ -3180,14 +3416,14 @@ var UpdateStageSchema = z8.object({
 });
 
 // src/modules/pipelines/pipelines.service.ts
-import { and as and12, asc, count as count2, eq as eq13 } from "drizzle-orm";
+import { and as and13, asc, count as count2, eq as eq14 } from "drizzle-orm";
 async function assertPipeline(portalId, pipelineId) {
-  const [pl] = await db.select({ id: pipeline.id }).from(pipeline).where(and12(eq13(pipeline.id, pipelineId), eq13(pipeline.portalId, portalId))).limit(1);
+  const [pl] = await db.select({ id: pipeline.id }).from(pipeline).where(and13(eq14(pipeline.id, pipelineId), eq14(pipeline.portalId, portalId))).limit(1);
   if (!pl) throw Errors.notFound("Pipeline no encontrado");
 }
 async function addStage(portalId, pipelineId, input) {
   await assertPipeline(portalId, pipelineId);
-  const existing = await db.select({ id: pipelineStage.id }).from(pipelineStage).where(eq13(pipelineStage.pipelineId, pipelineId));
+  const existing = await db.select({ id: pipelineStage.id }).from(pipelineStage).where(eq14(pipelineStage.pipelineId, pipelineId));
   const [row] = await db.insert(pipelineStage).values({
     pipelineId,
     label: input.label,
@@ -3203,24 +3439,24 @@ async function addStage(portalId, pipelineId, input) {
 }
 async function deleteStage(portalId, pipelineId, stageId) {
   await assertPipeline(portalId, pipelineId);
-  const [used] = await db.select({ n: count2() }).from(deal).where(eq13(deal.stageId, stageId));
+  const [used] = await db.select({ n: count2() }).from(deal).where(eq14(deal.stageId, stageId));
   if ((used?.n ?? 0) > 0) throw Errors.badRequest("La etapa tiene deals; movelos antes de eliminarla");
-  const res = await db.delete(pipelineStage).where(and12(eq13(pipelineStage.id, stageId), eq13(pipelineStage.pipelineId, pipelineId))).returning({ id: pipelineStage.id });
+  const res = await db.delete(pipelineStage).where(and13(eq14(pipelineStage.id, stageId), eq14(pipelineStage.pipelineId, pipelineId))).returning({ id: pipelineStage.id });
   if (res.length === 0) throw Errors.notFound("Etapa no encontrada");
 }
 async function listPipelines(portalId) {
-  const pipelines = await db.select().from(pipeline).where(and12(eq13(pipeline.portalId, portalId), eq13(pipeline.archived, false))).orderBy(asc(pipeline.displayOrder), asc(pipeline.id));
+  const pipelines = await db.select().from(pipeline).where(and13(eq14(pipeline.portalId, portalId), eq14(pipeline.archived, false))).orderBy(asc(pipeline.displayOrder), asc(pipeline.id));
   const result = [];
   for (const pl of pipelines) {
-    const stages = await db.select().from(pipelineStage).where(and12(eq13(pipelineStage.pipelineId, pl.id), eq13(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
+    const stages = await db.select().from(pipelineStage).where(and13(eq14(pipelineStage.pipelineId, pl.id), eq14(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
     result.push({ ...pl, stages });
   }
   return result;
 }
 async function getStages(portalId, pipelineId) {
-  const [pl] = await db.select().from(pipeline).where(and12(eq13(pipeline.id, pipelineId), eq13(pipeline.portalId, portalId))).limit(1);
+  const [pl] = await db.select().from(pipeline).where(and13(eq14(pipeline.id, pipelineId), eq14(pipeline.portalId, portalId))).limit(1);
   if (!pl) throw Errors.notFound("Pipeline no encontrado");
-  return db.select().from(pipelineStage).where(and12(eq13(pipelineStage.pipelineId, pipelineId), eq13(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
+  return db.select().from(pipelineStage).where(and13(eq14(pipelineStage.pipelineId, pipelineId), eq14(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
 }
 async function updateStage(portalId, pipelineId, stageId, input) {
   await assertPipeline(portalId, pipelineId);
@@ -3232,7 +3468,7 @@ async function updateStage(portalId, pipelineId, stageId, input) {
   if ("probability" in input) updates.probability = input.probability === void 0 || input.probability === null ? null : input.probability.toFixed(4);
   if ("exitCriteria" in input) updates.exitCriteria = input.exitCriteria ?? null;
   if ("description" in input) updates.description = input.description ?? null;
-  const [row] = await db.update(pipelineStage).set(updates).where(and12(eq13(pipelineStage.id, stageId), eq13(pipelineStage.pipelineId, pipelineId))).returning();
+  const [row] = await db.update(pipelineStage).set(updates).where(and13(eq14(pipelineStage.id, stageId), eq14(pipelineStage.pipelineId, pipelineId))).returning();
   if (!row) throw Errors.notFound("Etapa no encontrada");
   return row;
 }
@@ -3243,15 +3479,15 @@ async function createPipeline(portalId, input) {
     let stages = [];
     if (input.stages && input.stages.length > 0) {
       stages = await tx.insert(pipelineStage).values(
-        input.stages.map((s, i) => ({
+        input.stages.map((s2, i) => ({
           pipelineId: pl.id,
-          label: s.label,
-          displayOrder: s.displayOrder ?? i,
-          probability: s.probability === void 0 ? null : s.probability.toFixed(4),
-          isClosed: s.isClosed ?? false,
-          isWon: s.isWon ?? false,
-          exitCriteria: s.exitCriteria ?? null,
-          description: s.description ?? null
+          label: s2.label,
+          displayOrder: s2.displayOrder ?? i,
+          probability: s2.probability === void 0 ? null : s2.probability.toFixed(4),
+          isClosed: s2.isClosed ?? false,
+          isWon: s2.isWon ?? false,
+          exitCriteria: s2.exitCriteria ?? null,
+          description: s2.description ?? null
         }))
       ).returning();
     }
@@ -3376,7 +3612,7 @@ async function leadsRoutes(app2) {
 }
 
 // src/modules/clients/clients.service.ts
-import { eq as eq14, inArray as inArray4, desc as desc7 } from "drizzle-orm";
+import { eq as eq15, inArray as inArray4, desc as desc8 } from "drizzle-orm";
 var CLIENT_STAGES = ["customer"];
 function listClients(portalId, query) {
   return listContactsByLifecycle(portalId, CLIENT_STAGES, query);
@@ -3391,7 +3627,7 @@ async function listClientAccounts(portalId) {
     inviteAccepted: clientAccount.inviteAccepted,
     isActive: clientAccount.isActive,
     createdAt: clientAccount.createdAt
-  }).from(clientAccount).where(eq14(clientAccount.portalId, portalId)).orderBy(desc7(clientAccount.createdAt));
+  }).from(clientAccount).where(eq15(clientAccount.portalId, portalId)).orderBy(desc8(clientAccount.createdAt));
   if (accounts.length === 0) return [];
   const accIds = accounts.map((a) => a.id);
   const accesses = await db.select({ clientId: clientDealAccess.clientId, dealId: clientDealAccess.dealId }).from(clientDealAccess).where(inArray4(clientDealAccess.clientId, accIds));
@@ -3502,21 +3738,21 @@ var TaskQuerySchema = z10.object({
 });
 
 // src/modules/activities/activities.service.ts
-import { and as and13, desc as desc8, eq as eq15 } from "drizzle-orm";
+import { and as and14, desc as desc9, eq as eq16 } from "drizzle-orm";
 async function createNote(portalId, userId, input) {
   const [row] = await db.insert(note).values({ ...input, portalId, createdBy: userId }).returning();
   if (!row) throw Errors.internal("No se pudo crear la nota");
   return row;
 }
 async function listNotes(portalId, filters) {
-  const conds = [eq15(note.portalId, portalId)];
-  if (filters.contactId) conds.push(eq15(note.contactId, filters.contactId));
-  if (filters.dealId) conds.push(eq15(note.dealId, filters.dealId));
-  if (filters.companyId) conds.push(eq15(note.companyId, filters.companyId));
-  return db.select().from(note).where(and13(...conds)).orderBy(desc8(note.createdAt)).limit(100);
+  const conds = [eq16(note.portalId, portalId)];
+  if (filters.contactId) conds.push(eq16(note.contactId, filters.contactId));
+  if (filters.dealId) conds.push(eq16(note.dealId, filters.dealId));
+  if (filters.companyId) conds.push(eq16(note.companyId, filters.companyId));
+  return db.select().from(note).where(and14(...conds)).orderBy(desc9(note.createdAt)).limit(100);
 }
 async function deleteNote(portalId, id) {
-  const res = await db.delete(note).where(and13(eq15(note.portalId, portalId), eq15(note.id, id))).returning({ id: note.id });
+  const res = await db.delete(note).where(and14(eq16(note.portalId, portalId), eq16(note.id, id))).returning({ id: note.id });
   if (res.length === 0) throw Errors.notFound("Nota no encontrada");
 }
 async function createTask(portalId, userId, input) {
@@ -3526,15 +3762,15 @@ async function createTask(portalId, userId, input) {
   return row;
 }
 async function listTasks(portalId, filters) {
-  const conds = [eq15(task.portalId, portalId)];
-  if (filters.status) conds.push(eq15(task.status, filters.status));
-  if (filters.assignedTo) conds.push(eq15(task.assignedTo, filters.assignedTo));
-  if (filters.contactId) conds.push(eq15(task.contactId, filters.contactId));
-  if (filters.dealId) conds.push(eq15(task.dealId, filters.dealId));
-  return db.select().from(task).where(and13(...conds)).orderBy(desc8(task.createdAt)).limit(200);
+  const conds = [eq16(task.portalId, portalId)];
+  if (filters.status) conds.push(eq16(task.status, filters.status));
+  if (filters.assignedTo) conds.push(eq16(task.assignedTo, filters.assignedTo));
+  if (filters.contactId) conds.push(eq16(task.contactId, filters.contactId));
+  if (filters.dealId) conds.push(eq16(task.dealId, filters.dealId));
+  return db.select().from(task).where(and14(...conds)).orderBy(desc9(task.createdAt)).limit(200);
 }
 async function updateTask(portalId, id, input) {
-  const [existing] = await db.select().from(task).where(and13(eq15(task.portalId, portalId), eq15(task.id, id))).limit(1);
+  const [existing] = await db.select().from(task).where(and14(eq16(task.portalId, portalId), eq16(task.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Tarea no encontrada");
   const patch = {};
   if (input.title !== void 0) patch.title = input.title;
@@ -3547,12 +3783,12 @@ async function updateTask(portalId, id, input) {
     if (input.status === "completed") patch.completedAt = existing.completedAt ?? /* @__PURE__ */ new Date();
     else patch.completedAt = null;
   }
-  const [row] = await db.update(task).set(patch).where(eq15(task.id, id)).returning();
+  const [row] = await db.update(task).set(patch).where(eq16(task.id, id)).returning();
   if (!row) throw Errors.internal("No se pudo actualizar la tarea");
   return row;
 }
 async function deleteTask(portalId, id) {
-  const res = await db.delete(task).where(and13(eq15(task.portalId, portalId), eq15(task.id, id))).returning({ id: task.id });
+  const res = await db.delete(task).where(and14(eq16(task.portalId, portalId), eq16(task.id, id))).returning({ id: task.id });
   if (res.length === 0) throw Errors.notFound("Tarea no encontrada");
 }
 
@@ -3670,7 +3906,7 @@ async function tasksRoutes(app2) {
 }
 
 // src/modules/dashboard/dashboard.service.ts
-import { and as and14, asc as asc2, count as count3, desc as desc9, eq as eq16, inArray as inArray5, notInArray, sql as sql24 } from "drizzle-orm";
+import { and as and15, asc as asc2, count as count3, desc as desc10, eq as eq17, inArray as inArray5, notInArray, sql as sql24 } from "drizzle-orm";
 var OPEN_TASK_STATUSES = ["completed", "cancelled"];
 async function getDashboard(portalId) {
   const [
@@ -3684,14 +3920,14 @@ async function getDashboard(portalId) {
     recentTasks,
     recentDeals
   ] = await Promise.all([
-    db.select({ n: count3() }).from(contact).where(and14(eq16(contact.portalId, portalId), eq16(contact.archived, false), inArray5(contact.lifecycleStage, LEAD_STAGES))),
-    db.select({ n: count3() }).from(contact).where(and14(eq16(contact.portalId, portalId), eq16(contact.archived, false), eq16(contact.lifecycleStage, "customer"))),
-    db.select({ n: count3() }).from(company).where(and14(eq16(company.portalId, portalId), eq16(company.archived, false))),
-    db.select({ n: count3() }).from(task).where(and14(eq16(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
-    db.select({ openDeals: count3(), openValue: sql24`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
+    db.select({ n: count3() }).from(contact).where(and15(eq17(contact.portalId, portalId), eq17(contact.archived, false), inArray5(contact.lifecycleStage, LEAD_STAGES))),
+    db.select({ n: count3() }).from(contact).where(and15(eq17(contact.portalId, portalId), eq17(contact.archived, false), eq17(contact.lifecycleStage, "customer"))),
+    db.select({ n: count3() }).from(company).where(and15(eq17(company.portalId, portalId), eq17(company.archived, false))),
+    db.select({ n: count3() }).from(task).where(and15(eq17(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
+    db.select({ openDeals: count3(), openValue: sql24`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and15(eq17(deal.portalId, portalId), eq17(deal.archived, false))),
     db.select({
       weighted: sql24`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
-    }).from(deal).innerJoin(pipelineStage, eq16(deal.stageId, pipelineStage.id)).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
+    }).from(deal).innerJoin(pipelineStage, eq17(deal.stageId, pipelineStage.id)).where(and15(eq17(deal.portalId, portalId), eq17(deal.archived, false))),
     db.select({
       stageId: pipelineStage.id,
       label: pipelineStage.label,
@@ -3699,10 +3935,10 @@ async function getDashboard(portalId) {
       value: sql24`coalesce(sum(${deal.amount}), 0)`
     }).from(pipelineStage).innerJoin(
       pipeline,
-      and14(eq16(pipelineStage.pipelineId, pipeline.id), eq16(pipeline.portalId, portalId), eq16(pipeline.archived, false))
-    ).leftJoin(deal, and14(eq16(deal.stageId, pipelineStage.id), eq16(deal.archived, false))).groupBy(pipelineStage.id, pipelineStage.label, pipelineStage.displayOrder).orderBy(asc2(pipelineStage.displayOrder)),
-    db.select().from(task).where(and14(eq16(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))).orderBy(asc2(task.dueDate), desc9(task.createdAt)).limit(6),
-    db.select().from(deal).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))).orderBy(desc9(deal.createdAt)).limit(6)
+      and15(eq17(pipelineStage.pipelineId, pipeline.id), eq17(pipeline.portalId, portalId), eq17(pipeline.archived, false))
+    ).leftJoin(deal, and15(eq17(deal.stageId, pipelineStage.id), eq17(deal.archived, false))).groupBy(pipelineStage.id, pipelineStage.label, pipelineStage.displayOrder).orderBy(asc2(pipelineStage.displayOrder)),
+    db.select().from(task).where(and15(eq17(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))).orderBy(asc2(task.dueDate), desc10(task.createdAt)).limit(6),
+    db.select().from(deal).where(and15(eq17(deal.portalId, portalId), eq17(deal.archived, false))).orderBy(desc10(deal.createdAt)).limit(6)
   ]);
   return {
     counts: {
@@ -3876,7 +4112,7 @@ var WeekBookingsQuerySchema = z11.object({
 });
 
 // src/modules/calendar/calendar.service.ts
-import { and as and15, asc as asc3, eq as eq17, gte as gte2, inArray as inArray6, lte as lte2 } from "drizzle-orm";
+import { and as and16, asc as asc3, eq as eq18, gte as gte2, inArray as inArray6, lte as lte2 } from "drizzle-orm";
 import { addMinutes as addMinutes2 } from "date-fns";
 import { format as formatTz2, toZonedTime as toZonedTime2 } from "date-fns-tz";
 import jwt from "jsonwebtoken";
@@ -4088,13 +4324,13 @@ function bookingConfirmInviteeHtml(p) {
 </body>
 </html>`;
 }
-function escHtml2(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml2(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr2(s) {
-  if (!s) return "#";
-  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escAttr2(s2) {
+  if (!s2) return "#";
+  return s2.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/calendar/emails/booking-cancelled.ts
@@ -4132,9 +4368,9 @@ function bookingCancelledHtml(p) {
 </body>
 </html>`;
 }
-function escHtml3(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml3(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/calendar/emails/booking-host-notify.ts
@@ -4187,21 +4423,21 @@ function bookingHostNotifyHtml(p) {
 </body>
 </html>`;
 }
-function escHtml4(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml4(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr3(s) {
-  if (!s) return "#";
-  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escAttr3(s2) {
+  if (!s2) return "#";
+  return s2.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/calendar/calendar.service.ts
-function slugify(s) {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+function slugify(s2) {
+  return s2.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 async function listMeetingTypes(portalId) {
-  return db.select().from(meetingType).where(eq17(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
+  return db.select().from(meetingType).where(eq18(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
 }
 async function createMeetingType(portalId, ownerId, input) {
   const [row] = await db.insert(meetingType).values({
@@ -4219,17 +4455,17 @@ async function createMeetingType(portalId, ownerId, input) {
   return row;
 }
 async function updateMeetingType(portalId, id, input) {
-  const [existing] = await db.select().from(meetingType).where(and15(eq17(meetingType.portalId, portalId), eq17(meetingType.id, id))).limit(1);
+  const [existing] = await db.select().from(meetingType).where(and16(eq18(meetingType.portalId, portalId), eq18(meetingType.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
-  const [row] = await db.update(meetingType).set({ ...input, slug: input.slug ? slugify(input.slug) : void 0 }).where(eq17(meetingType.id, id)).returning();
+  const [row] = await db.update(meetingType).set({ ...input, slug: input.slug ? slugify(input.slug) : void 0 }).where(eq18(meetingType.id, id)).returning();
   return row;
 }
 async function deleteMeetingType(portalId, id) {
-  const res = await db.delete(meetingType).where(and15(eq17(meetingType.portalId, portalId), eq17(meetingType.id, id))).returning({ id: meetingType.id });
+  const res = await db.delete(meetingType).where(and16(eq18(meetingType.portalId, portalId), eq18(meetingType.id, id))).returning({ id: meetingType.id });
   if (res.length === 0) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
 }
 async function listAvailabilityRules(ownerId) {
-  return db.select().from(availabilityRule).where(eq17(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
+  return db.select().from(availabilityRule).where(eq18(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
 }
 async function createAvailabilityRule(ownerId, input) {
   if (input.endTime <= input.startTime) throw Errors.badRequest("La hora de fin debe ser posterior a la de inicio");
@@ -4244,17 +4480,17 @@ async function createAvailabilityRule(ownerId, input) {
   return row;
 }
 async function deleteAvailabilityRule(ownerId, id) {
-  const res = await db.delete(availabilityRule).where(and15(eq17(availabilityRule.ownerId, ownerId), eq17(availabilityRule.id, id))).returning({ id: availabilityRule.id });
+  const res = await db.delete(availabilityRule).where(and16(eq18(availabilityRule.ownerId, ownerId), eq18(availabilityRule.id, id))).returning({ id: availabilityRule.id });
   if (res.length === 0) throw Errors.notFound("Regla no encontrada");
 }
 async function loadHostSchedule(mt, ownerId) {
   if (mt.availabilityScheduleId) {
-    const [schedule] = await db.select().from(availabilitySchedule).where(eq17(availabilitySchedule.id, mt.availabilityScheduleId)).limit(1);
+    const [schedule] = await db.select().from(availabilitySchedule).where(eq18(availabilitySchedule.id, mt.availabilityScheduleId)).limit(1);
     if (!schedule) {
       return loadLegacyRules(ownerId);
     }
-    const intervals = await db.select().from(availabilityInterval).where(eq17(availabilityInterval.scheduleId, schedule.id)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime));
-    const overrides = await db.select().from(dateOverride).where(eq17(dateOverride.scheduleId, schedule.id));
+    const intervals = await db.select().from(availabilityInterval).where(eq18(availabilityInterval.scheduleId, schedule.id)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime));
+    const overrides = await db.select().from(dateOverride).where(eq18(dateOverride.scheduleId, schedule.id));
     const weeklyIntervals = intervals.map((i) => ({
       dayOfWeek: i.dayOfWeek,
       // Los campos time en Drizzle/PG llegan como string 'HH:MM:SS' → tomar solo 'HH:MM'
@@ -4275,7 +4511,7 @@ async function loadHostSchedule(mt, ownerId) {
   return loadLegacyRules(ownerId);
 }
 async function loadLegacyRules(ownerId) {
-  const rules = await db.select().from(availabilityRule).where(eq17(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
+  const rules = await db.select().from(availabilityRule).where(eq18(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
   const timeZone = rules[0]?.timeZone ?? "America/Argentina/Buenos_Aires";
   const intervals = rules.map((r) => ({
     dayOfWeek: r.dayOfWeek,
@@ -4311,19 +4547,19 @@ function verifyBookingToken(token, expectedType) {
   }
 }
 async function resolvePortalRef(ref) {
-  const [bySlug] = await db.select({ id: portal.id }).from(portal).where(eq17(portal.slug, ref)).limit(1);
+  const [bySlug] = await db.select({ id: portal.id }).from(portal).where(eq18(portal.slug, ref)).limit(1);
   if (bySlug) return bySlug.id;
-  const [byId] = await db.select({ id: portal.id }).from(portal).where(eq17(portal.id, ref)).limit(1);
+  const [byId] = await db.select({ id: portal.id }).from(portal).where(eq18(portal.id, ref)).limit(1);
   if (byId) return byId.id;
   throw Errors.notFound("Portal no encontrado");
 }
 async function getPublicEventType(portalRef, eventSlug) {
   const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
-    and15(
-      eq17(meetingType.portalId, portalId),
-      eq17(meetingType.slug, eventSlug),
-      eq17(meetingType.isActive, true)
+    and16(
+      eq18(meetingType.portalId, portalId),
+      eq18(meetingType.slug, eventSlug),
+      eq18(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
@@ -4356,7 +4592,7 @@ function toEventTypeConfig(mt) {
 }
 async function getSchedulesForMeetingType(mt) {
   if (mt.kind === "group") {
-    const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq17(eventMembership.meetingTypeId, mt.id));
+    const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq18(eventMembership.meetingTypeId, mt.id));
     const hostIds = memberships.map((m) => m.hostId);
     if (hostIds.length === 0) return { schedules: [], hostIds: [] };
     const schedules = await Promise.all(hostIds.map((hostId) => loadHostSchedule(mt, hostId)));
@@ -4366,7 +4602,7 @@ async function getSchedulesForMeetingType(mt) {
 }
 async function getBusyBookings(hostIds, excludeBookingId) {
   if (hostIds.length === 0) return [];
-  const rows = await db.select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status }).from(booking).where(and15(inArray6(booking.ownerId, hostIds), eq17(booking.status, "confirmed")));
+  const rows = await db.select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status }).from(booking).where(and16(inArray6(booking.ownerId, hostIds), eq18(booking.status, "confirmed")));
   return rows.filter((b) => b.id !== excludeBookingId).map((b) => ({
     startsAt: new Date(b.startsAt).toISOString(),
     endsAt: new Date(b.endsAt).toISOString(),
@@ -4394,7 +4630,7 @@ async function assertSlotAvailable(mt, startsAtIso, excludeBookingId) {
     now: /* @__PURE__ */ new Date()
   });
   const target = startsAt.getTime();
-  const available = slots.some((s) => new Date(s.startUtc).getTime() === target);
+  const available = slots.some((s2) => new Date(s2.startUtc).getTime() === target);
   if (!available) {
     throw Errors.badRequest("El horario seleccionado no est\xE1 disponible");
   }
@@ -4402,10 +4638,10 @@ async function assertSlotAvailable(mt, startsAtIso, excludeBookingId) {
 async function getPublicSlots(portalRef, eventSlug, from, to, tz) {
   const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
-    and15(
-      eq17(meetingType.portalId, portalId),
-      eq17(meetingType.slug, eventSlug),
-      eq17(meetingType.isActive, true)
+    and16(
+      eq18(meetingType.portalId, portalId),
+      eq18(meetingType.slug, eventSlug),
+      eq18(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
@@ -4423,26 +4659,26 @@ async function getPublicSlots(portalRef, eventSlug, from, to, tz) {
     inviteeTimezone: tz,
     now: /* @__PURE__ */ new Date()
   });
-  return slots.map((s) => ({
-    startUtc: s.startUtc,
-    endUtc: s.endUtc,
-    startLocal: toInviteeDisplay(s.startUtc, tz, "yyyy-MM-dd HH:mm")
+  return slots.map((s2) => ({
+    startUtc: s2.startUtc,
+    endUtc: s2.endUtc,
+    startLocal: toInviteeDisplay(s2.startUtc, tz, "yyyy-MM-dd HH:mm")
   }));
 }
 async function createPublicBooking(portalRef, eventSlug, input, baseUrl2) {
   const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
-    and15(
-      eq17(meetingType.portalId, portalId),
-      eq17(meetingType.slug, eventSlug),
-      eq17(meetingType.isActive, true)
+    and16(
+      eq18(meetingType.portalId, portalId),
+      eq18(meetingType.slug, eventSlug),
+      eq18(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
   await assertSlotAvailable(mt, input.startsAt);
   const startsAt = new Date(input.startsAt);
   const endsAt = addMinutes2(startsAt, mt.durationMin);
-  const [owner] = await db.select({ email: hubUser.email, firstName: hubUser.firstName, lastName: hubUser.lastName }).from(hubUser).where(eq17(hubUser.id, mt.ownerId)).limit(1);
+  const [owner] = await db.select({ email: hubUser.email, firstName: hubUser.firstName, lastName: hubUser.lastName }).from(hubUser).where(eq18(hubUser.id, mt.ownerId)).limit(1);
   let newBooking;
   try {
     newBooking = await db.transaction(async (tx) => {
@@ -4471,7 +4707,7 @@ async function createPublicBooking(portalRef, eventSlug, input, baseUrl2) {
   }
   const cancelToken = signBookingToken(newBooking.id, "booking-cancel", startsAt);
   const rescheduleToken = signBookingToken(newBooking.id, "booking-reschedule", startsAt);
-  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq17(booking.id, newBooking.id)).returning();
+  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq18(booking.id, newBooking.id)).returning();
   const finalBooking = updated ?? newBooking;
   const cancelUrl = `${baseUrl2}/book/cancel?token=${cancelToken}`;
   const rescheduleUrl = `${baseUrl2}/book/reschedule?token=${rescheduleToken}`;
@@ -4529,7 +4765,7 @@ async function createPublicBooking(portalRef, eventSlug, input, baseUrl2) {
 }
 async function cancelPublicBooking(token) {
   const decoded = verifyBookingToken(token, "booking-cancel");
-  const [existing] = await db.select().from(booking).where(eq17(booking.id, decoded.sub)).limit(1);
+  const [existing] = await db.select().from(booking).where(eq18(booking.id, decoded.sub)).limit(1);
   if (!existing) throw Errors.notFound("Booking no encontrado");
   if (existing.cancelToken !== token) {
     throw Errors.unauthorized("Token de cancelaci\xF3n ya revocado o inv\xE1lido");
@@ -4542,8 +4778,8 @@ async function cancelPublicBooking(token) {
     cancelledAt: /* @__PURE__ */ new Date(),
     cancelToken: null
     // Revocar para que no pueda usarse dos veces
-  }).where(eq17(booking.id, existing.id)).returning();
-  const [mt] = await db.select({ name: meetingType.name }).from(meetingType).where(eq17(meetingType.id, existing.meetingTypeId)).limit(1);
+  }).where(eq18(booking.id, existing.id)).returning();
+  const [mt] = await db.select({ name: meetingType.name }).from(meetingType).where(eq18(meetingType.id, existing.meetingTypeId)).limit(1);
   try {
     const startLocal = toInviteeDisplay(
       new Date(existing.startsAt).toISOString(),
@@ -4566,7 +4802,7 @@ async function cancelPublicBooking(token) {
 }
 async function reschedulePublicBooking(token, rescheduleData, baseUrl2) {
   const decoded = verifyBookingToken(token, "booking-reschedule");
-  const [original] = await db.select().from(booking).where(eq17(booking.id, decoded.sub)).limit(1);
+  const [original] = await db.select().from(booking).where(eq18(booking.id, decoded.sub)).limit(1);
   if (!original) throw Errors.notFound("Booking no encontrado");
   if (original.rescheduleToken !== token) {
     throw Errors.unauthorized("Token de reprogramaci\xF3n ya revocado o inv\xE1lido");
@@ -4574,7 +4810,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl2) {
   if (original.status === "cancelled") {
     throw Errors.badRequest("No se puede reprogramar un booking cancelado");
   }
-  const [mt] = await db.select().from(meetingType).where(eq17(meetingType.id, original.meetingTypeId)).limit(1);
+  const [mt] = await db.select().from(meetingType).where(eq18(meetingType.id, original.meetingTypeId)).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
   await assertSlotAvailable(mt, rescheduleData.newStartsAt, original.id);
   const newStartsAt = new Date(rescheduleData.newStartsAt);
@@ -4589,7 +4825,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl2) {
         cancelToken: null,
         rescheduleToken: null
         // Revocar ambos tokens del original
-      }).where(eq17(booking.id, original.id));
+      }).where(eq18(booking.id, original.id));
       const [row] = await tx.insert(booking).values({
         meetingTypeId: original.meetingTypeId,
         ownerId: original.ownerId,
@@ -4618,7 +4854,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl2) {
   }
   const cancelToken = signBookingToken(newBooking.id, "booking-cancel", newStartsAt);
   const rescheduleToken = signBookingToken(newBooking.id, "booking-reschedule", newStartsAt);
-  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq17(booking.id, newBooking.id)).returning();
+  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq18(booking.id, newBooking.id)).returning();
   const finalBooking = updated ?? newBooking;
   const cancelUrl = `${baseUrl2}/book/cancel?token=${cancelToken}`;
   const rescheduleUrl = `${baseUrl2}/book/reschedule?token=${rescheduleToken}`;
@@ -4648,39 +4884,39 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl2) {
   };
 }
 async function listSchedules(portalId) {
-  const schedules = await db.select().from(availabilitySchedule).where(eq17(availabilitySchedule.portalId, portalId)).orderBy(asc3(availabilitySchedule.name));
+  const schedules = await db.select().from(availabilitySchedule).where(eq18(availabilitySchedule.portalId, portalId)).orderBy(asc3(availabilitySchedule.name));
   if (schedules.length === 0) return [];
-  const scheduleIds = schedules.map((s) => s.id);
+  const scheduleIds = schedules.map((s2) => s2.id);
   const [intervals, overrides] = await Promise.all([
     db.select().from(availabilityInterval).where(inArray6(availabilityInterval.scheduleId, scheduleIds)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
     db.select().from(dateOverride).where(inArray6(dateOverride.scheduleId, scheduleIds))
   ]);
-  return schedules.map((s) => ({
-    ...s,
-    intervals: intervals.filter((i) => i.scheduleId === s.id),
-    dateOverrides: overrides.filter((o) => o.scheduleId === s.id)
+  return schedules.map((s2) => ({
+    ...s2,
+    intervals: intervals.filter((i) => i.scheduleId === s2.id),
+    dateOverrides: overrides.filter((o) => o.scheduleId === s2.id)
   }));
 }
 async function getSchedule(portalId, scheduleId) {
-  const [schedule] = await db.select().from(availabilitySchedule).where(and15(eq17(availabilitySchedule.id, scheduleId), eq17(availabilitySchedule.portalId, portalId))).limit(1);
+  const [schedule] = await db.select().from(availabilitySchedule).where(and16(eq18(availabilitySchedule.id, scheduleId), eq18(availabilitySchedule.portalId, portalId))).limit(1);
   if (!schedule) throw Errors.notFound("Schedule no encontrado");
   const [intervals, overrides] = await Promise.all([
-    db.select().from(availabilityInterval).where(eq17(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
-    db.select().from(dateOverride).where(eq17(dateOverride.scheduleId, scheduleId))
+    db.select().from(availabilityInterval).where(eq18(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
+    db.select().from(dateOverride).where(eq18(dateOverride.scheduleId, scheduleId))
   ]);
   return { ...schedule, intervals, dateOverrides: overrides };
 }
 async function createSchedule(portalId, ownerId, input) {
   return db.transaction(async (tx) => {
     const existing = await tx.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(
-      and15(eq17(availabilitySchedule.portalId, portalId), eq17(availabilitySchedule.ownerId, ownerId))
+      and16(eq18(availabilitySchedule.portalId, portalId), eq18(availabilitySchedule.ownerId, ownerId))
     );
     const makeDefault = input.isDefault === true || existing.length === 0;
     if (makeDefault && existing.length > 0) {
       await tx.update(availabilitySchedule).set({ isDefault: false }).where(
-        and15(
-          eq17(availabilitySchedule.portalId, portalId),
-          eq17(availabilitySchedule.ownerId, ownerId)
+        and16(
+          eq18(availabilitySchedule.portalId, portalId),
+          eq18(availabilitySchedule.ownerId, ownerId)
         )
       );
     }
@@ -4691,13 +4927,13 @@ async function createSchedule(portalId, ownerId, input) {
 }
 async function updateSchedule(portalId, scheduleId, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(availabilitySchedule).where(and15(eq17(availabilitySchedule.id, scheduleId), eq17(availabilitySchedule.portalId, portalId))).limit(1);
+    const [existing] = await tx.select().from(availabilitySchedule).where(and16(eq18(availabilitySchedule.id, scheduleId), eq18(availabilitySchedule.portalId, portalId))).limit(1);
     if (!existing) throw Errors.notFound("Schedule no encontrado");
     if (input.isDefault === true && !existing.isDefault) {
       await tx.update(availabilitySchedule).set({ isDefault: false }).where(
-        and15(
-          eq17(availabilitySchedule.portalId, portalId),
-          eq17(availabilitySchedule.ownerId, existing.ownerId)
+        and16(
+          eq18(availabilitySchedule.portalId, portalId),
+          eq18(availabilitySchedule.ownerId, existing.ownerId)
         )
       );
     }
@@ -4705,22 +4941,22 @@ async function updateSchedule(portalId, scheduleId, input) {
     if (input.name !== void 0) updateData.name = input.name;
     if (input.timeZone !== void 0) updateData.timeZone = input.timeZone;
     if (input.isDefault !== void 0) updateData.isDefault = input.isDefault;
-    const [updated] = await tx.update(availabilitySchedule).set(updateData).where(eq17(availabilitySchedule.id, scheduleId)).returning();
+    const [updated] = await tx.update(availabilitySchedule).set(updateData).where(eq18(availabilitySchedule.id, scheduleId)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el schedule");
     const [intervals, overrides] = await Promise.all([
-      tx.select().from(availabilityInterval).where(eq17(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
-      tx.select().from(dateOverride).where(eq17(dateOverride.scheduleId, scheduleId))
+      tx.select().from(availabilityInterval).where(eq18(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
+      tx.select().from(dateOverride).where(eq18(dateOverride.scheduleId, scheduleId))
     ]);
     return { ...updated, intervals, dateOverrides: overrides };
   });
 }
 async function deleteSchedule(portalId, scheduleId) {
-  const res = await db.delete(availabilitySchedule).where(and15(eq17(availabilitySchedule.id, scheduleId), eq17(availabilitySchedule.portalId, portalId))).returning({ id: availabilitySchedule.id });
+  const res = await db.delete(availabilitySchedule).where(and16(eq18(availabilitySchedule.id, scheduleId), eq18(availabilitySchedule.portalId, portalId))).returning({ id: availabilitySchedule.id });
   if (res.length === 0) throw Errors.notFound("Schedule no encontrado");
 }
 async function assertScheduleOwnership(portalId, scheduleId) {
-  const [s] = await db.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(and15(eq17(availabilitySchedule.id, scheduleId), eq17(availabilitySchedule.portalId, portalId))).limit(1);
-  if (!s) throw Errors.notFound("Schedule no encontrado");
+  const [s2] = await db.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(and16(eq18(availabilitySchedule.id, scheduleId), eq18(availabilitySchedule.portalId, portalId))).limit(1);
+  if (!s2) throw Errors.notFound("Schedule no encontrado");
 }
 async function addScheduleInterval(portalId, scheduleId, input) {
   await assertScheduleOwnership(portalId, scheduleId);
@@ -4746,7 +4982,7 @@ async function replaceScheduleIntervals(portalId, scheduleId, input) {
     }
   }
   return db.transaction(async (tx) => {
-    await tx.delete(availabilityInterval).where(eq17(availabilityInterval.scheduleId, scheduleId));
+    await tx.delete(availabilityInterval).where(eq18(availabilityInterval.scheduleId, scheduleId));
     if (input.intervals.length === 0) return [];
     const rows = await tx.insert(availabilityInterval).values(
       input.intervals.map((i) => ({
@@ -4762,15 +4998,15 @@ async function replaceScheduleIntervals(portalId, scheduleId, input) {
 async function deleteScheduleInterval(portalId, scheduleId, intervalId) {
   await assertScheduleOwnership(portalId, scheduleId);
   const res = await db.delete(availabilityInterval).where(
-    and15(eq17(availabilityInterval.id, intervalId), eq17(availabilityInterval.scheduleId, scheduleId))
+    and16(eq18(availabilityInterval.id, intervalId), eq18(availabilityInterval.scheduleId, scheduleId))
   ).returning({ id: availabilityInterval.id });
   if (res.length === 0) throw Errors.notFound("Intervalo no encontrado");
 }
 async function upsertDateOverride(portalId, scheduleId, input) {
   await assertScheduleOwnership(portalId, scheduleId);
-  const [existing] = await db.select().from(dateOverride).where(and15(eq17(dateOverride.scheduleId, scheduleId), eq17(dateOverride.date, input.date))).limit(1);
+  const [existing] = await db.select().from(dateOverride).where(and16(eq18(dateOverride.scheduleId, scheduleId), eq18(dateOverride.date, input.date))).limit(1);
   if (existing) {
-    const [updated] = await db.update(dateOverride).set({ intervals: input.intervals }).where(eq17(dateOverride.id, existing.id)).returning();
+    const [updated] = await db.update(dateOverride).set({ intervals: input.intervals }).where(eq18(dateOverride.id, existing.id)).returning();
     return updated;
   }
   const [row] = await db.insert(dateOverride).values({ scheduleId, date: input.date, intervals: input.intervals }).returning();
@@ -4779,7 +5015,7 @@ async function upsertDateOverride(portalId, scheduleId, input) {
 }
 async function deleteDateOverride(portalId, scheduleId, overrideId) {
   await assertScheduleOwnership(portalId, scheduleId);
-  const res = await db.delete(dateOverride).where(and15(eq17(dateOverride.id, overrideId), eq17(dateOverride.scheduleId, scheduleId))).returning({ id: dateOverride.id });
+  const res = await db.delete(dateOverride).where(and16(eq18(dateOverride.id, overrideId), eq18(dateOverride.scheduleId, scheduleId))).returning({ id: dateOverride.id });
   if (res.length === 0) throw Errors.notFound("Override no encontrado");
 }
 function toEventTypeV2(mt, hosts) {
@@ -4813,7 +5049,7 @@ function toEventTypeV2(mt, hosts) {
   };
 }
 async function listEventTypesV2(portalId) {
-  const types = await db.select().from(meetingType).where(eq17(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
+  const types = await db.select().from(meetingType).where(eq18(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
   if (types.length === 0) return [];
   const typeIds = types.map((t) => t.id);
   const memberships = await db.select({ meetingTypeId: eventMembership.meetingTypeId, hostId: eventMembership.hostId }).from(eventMembership).where(inArray6(eventMembership.meetingTypeId, typeIds));
@@ -4823,9 +5059,9 @@ async function listEventTypesV2(portalId) {
   });
 }
 async function getEventTypeV2(portalId, id) {
-  const [mt] = await db.select().from(meetingType).where(and15(eq17(meetingType.id, id), eq17(meetingType.portalId, portalId))).limit(1);
+  const [mt] = await db.select().from(meetingType).where(and16(eq18(meetingType.id, id), eq18(meetingType.portalId, portalId))).limit(1);
   if (!mt) throw Errors.notFound("Event type no encontrado");
-  const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq17(eventMembership.meetingTypeId, id));
+  const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq18(eventMembership.meetingTypeId, id));
   return toEventTypeV2(mt, memberships.map((m) => m.hostId));
 }
 async function createEventTypeV2(portalId, ownerId, input) {
@@ -4868,7 +5104,7 @@ async function createEventTypeV2(portalId, ownerId, input) {
 }
 async function updateEventTypeV2(portalId, id, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(meetingType).where(and15(eq17(meetingType.id, id), eq17(meetingType.portalId, portalId))).limit(1);
+    const [existing] = await tx.select().from(meetingType).where(and16(eq18(meetingType.id, id), eq18(meetingType.portalId, portalId))).limit(1);
     if (!existing) throw Errors.notFound("Event type no encontrado");
     const updateData = {};
     if (input.name !== void 0) updateData.name = input.name;
@@ -4893,24 +5129,24 @@ async function updateEventTypeV2(portalId, id, input) {
     if (input.dailyLimit !== void 0) updateData.dailyLimit = input.dailyLimit;
     if (input.maxInvitees !== void 0) updateData.maxInvitees = input.maxInvitees;
     if (input.availabilityScheduleId !== void 0) updateData.availabilityScheduleId = input.availabilityScheduleId;
-    const [updated] = await tx.update(meetingType).set(updateData).where(eq17(meetingType.id, id)).returning();
+    const [updated] = await tx.update(meetingType).set(updateData).where(eq18(meetingType.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el event type");
     let hostIds;
     if (input.hostIds !== void 0) {
-      await tx.delete(eventMembership).where(eq17(eventMembership.meetingTypeId, id));
+      await tx.delete(eventMembership).where(eq18(eventMembership.meetingTypeId, id));
       if (input.hostIds.length > 0) {
         await tx.insert(eventMembership).values(input.hostIds.map((hostId) => ({ meetingTypeId: id, hostId })));
       }
       hostIds = input.hostIds;
     } else {
-      const memberships = await tx.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq17(eventMembership.meetingTypeId, id));
+      const memberships = await tx.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq18(eventMembership.meetingTypeId, id));
       hostIds = memberships.map((m) => m.hostId);
     }
     return toEventTypeV2(updated, hostIds);
   });
 }
 async function deleteEventTypeV2(portalId, id) {
-  const res = await db.delete(meetingType).where(and15(eq17(meetingType.id, id), eq17(meetingType.portalId, portalId))).returning({ id: meetingType.id });
+  const res = await db.delete(meetingType).where(and16(eq18(meetingType.id, id), eq18(meetingType.portalId, portalId))).returning({ id: meetingType.id });
   if (res.length === 0) throw Errors.notFound("Event type no encontrado");
 }
 async function listWeekBookings(portalId, from, to) {
@@ -4927,9 +5163,9 @@ async function listWeekBookings(portalId, from, to) {
     inviteeTimeZone: booking.inviteeTimeZone,
     meetingTypeName: meetingType.name,
     meetingTypeColor: meetingType.color
-  }).from(booking).innerJoin(meetingType, eq17(booking.meetingTypeId, meetingType.id)).where(
-    and15(
-      eq17(meetingType.portalId, portalId),
+  }).from(booking).innerJoin(meetingType, eq18(booking.meetingTypeId, meetingType.id)).where(
+    and16(
+      eq18(meetingType.portalId, portalId),
       gte2(booking.startsAt, fromDate),
       lte2(booking.startsAt, toDate)
     )
@@ -4940,7 +5176,7 @@ async function cancelAdminBooking(portalId, bookingId) {
     id: booking.id,
     status: booking.status,
     portalId: meetingType.portalId
-  }).from(booking).innerJoin(meetingType, eq17(booking.meetingTypeId, meetingType.id)).where(eq17(booking.id, bookingId)).limit(1);
+  }).from(booking).innerJoin(meetingType, eq18(booking.meetingTypeId, meetingType.id)).where(eq18(booking.id, bookingId)).limit(1);
   if (!existing) throw Errors.notFound("Booking no encontrado");
   if (existing.portalId !== portalId) throw Errors.notFound("Booking no encontrado");
   if (existing.status === "cancelled") {
@@ -4951,7 +5187,7 @@ async function cancelAdminBooking(portalId, bookingId) {
     cancelledAt: /* @__PURE__ */ new Date(),
     cancelToken: null,
     rescheduleToken: null
-  }).where(eq17(booking.id, bookingId)).returning({ id: booking.id });
+  }).where(eq18(booking.id, bookingId)).returning({ id: booking.id });
   return { bookingId: cancelled.id };
 }
 async function listBookings(portalId) {
@@ -4964,7 +5200,7 @@ async function listBookings(portalId) {
     status: booking.status,
     meetLink: booking.meetLink,
     meetingTypeName: meetingType.name
-  }).from(booking).innerJoin(meetingType, eq17(booking.meetingTypeId, meetingType.id)).where(eq17(meetingType.portalId, portalId)).orderBy(asc3(booking.startsAt)).limit(100);
+  }).from(booking).innerJoin(meetingType, eq18(booking.meetingTypeId, meetingType.id)).where(eq18(meetingType.portalId, portalId)).orderBy(asc3(booking.startsAt)).limit(100);
 }
 
 // src/modules/calendar/calendar.router.ts
@@ -5045,7 +5281,7 @@ var UpdateUserSchema = z12.object({
 }).partial();
 
 // src/modules/users/users.service.ts
-import { and as and16, asc as asc4, eq as eq18 } from "drizzle-orm";
+import { and as and17, asc as asc4, eq as eq19 } from "drizzle-orm";
 var publicCols = {
   id: hubUser.id,
   email: hubUser.email,
@@ -5055,10 +5291,10 @@ var publicCols = {
   isActive: hubUser.isActive
 };
 async function listUsers(portalId) {
-  return db.select(publicCols).from(hubUser).where(eq18(hubUser.portalId, portalId)).orderBy(asc4(hubUser.id));
+  return db.select(publicCols).from(hubUser).where(eq19(hubUser.portalId, portalId)).orderBy(asc4(hubUser.id));
 }
 async function createUser(portalId, input) {
-  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and16(eq18(hubUser.portalId, portalId), eq18(hubUser.email, input.email))).limit(1);
+  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and17(eq19(hubUser.portalId, portalId), eq19(hubUser.email, input.email))).limit(1);
   if (existing) throw Errors.conflict("Ya existe un usuario con ese email");
   const [row] = await db.insert(hubUser).values({
     portalId,
@@ -5075,14 +5311,14 @@ async function createUser(portalId, input) {
     userType: "admin"
   });
   if (clerkUserId) {
-    await db.update(hubUser).set({ clerkUserId }).where(eq18(hubUser.id, row.id));
+    await db.update(hubUser).set({ clerkUserId }).where(eq19(hubUser.id, row.id));
   }
   return row;
 }
 async function updateUser(portalId, id, input) {
-  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and16(eq18(hubUser.portalId, portalId), eq18(hubUser.id, id))).limit(1);
+  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and17(eq19(hubUser.portalId, portalId), eq19(hubUser.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Usuario no encontrado");
-  const [row] = await db.update(hubUser).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq18(hubUser.id, id)).returning(publicCols);
+  const [row] = await db.update(hubUser).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq19(hubUser.id, id)).returning(publicCols);
   return row;
 }
 
@@ -5113,7 +5349,7 @@ async function usersRoutes(app2) {
 }
 
 // src/modules/settings/settings.service.ts
-import { eq as eq19 } from "drizzle-orm";
+import { eq as eq20 } from "drizzle-orm";
 import { z as z13 } from "zod";
 var UpdatePortalSchema = z13.object({
   name: z13.string().min(1).optional(),
@@ -5121,12 +5357,12 @@ var UpdatePortalSchema = z13.object({
   currency: z13.string().length(3).optional()
 });
 async function getPortal(portalId) {
-  const [row] = await db.select().from(portal).where(eq19(portal.id, portalId)).limit(1);
+  const [row] = await db.select().from(portal).where(eq20(portal.id, portalId)).limit(1);
   if (!row) throw Errors.notFound("Portal no encontrado");
   return row;
 }
 async function updatePortal(portalId, input) {
-  const [row] = await db.update(portal).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq19(portal.id, portalId)).returning();
+  const [row] = await db.update(portal).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq20(portal.id, portalId)).returning();
   if (!row) throw Errors.notFound("Portal no encontrado");
   return row;
 }
@@ -5160,7 +5396,7 @@ async function authenticateClient(request, _reply) {
 }
 
 // src/modules/client-auth/client-auth.service.ts
-import { eq as eq20 } from "drizzle-orm";
+import { eq as eq21 } from "drizzle-orm";
 function toPublicClient(row) {
   return {
     id: row.id,
@@ -5174,7 +5410,7 @@ function toPublicClient(row) {
   };
 }
 async function getClientAccount(id) {
-  const [account] = await db.select().from(clientAccount).where(eq20(clientAccount.id, id)).limit(1);
+  const [account] = await db.select().from(clientAccount).where(eq21(clientAccount.id, id)).limit(1);
   if (!account) throw Errors.notFound("Cuenta de cliente no encontrada");
   return toPublicClient(account);
 }
@@ -5209,28 +5445,35 @@ var CreateDeliverableSchema = z14.object({
   title: z14.string().min(1),
   type: DeliverableTypeEnum,
   url: z14.string().url().optional(),
-  description: z14.string().optional()
+  description: z14.string().optional(),
+  /**
+   * ¿Se muestra en el Portal del cliente? Default true — un entregable se
+   * entrega. Se manda false para material interno del proceso (Blueprint
+   * técnico, Diagnóstico), que el cliente no debe ver.
+   */
+  visibleToClient: z14.boolean().optional()
 });
 var UpdateDeliverableSchema = z14.object({
   title: z14.string().min(1),
   url: z14.string().url(),
   description: z14.string(),
   status: DeliverableStatusEnum,
-  feedback: z14.string()
+  feedback: z14.string(),
+  visibleToClient: z14.boolean()
 }).partial();
 var DeliverableListQuerySchema = z14.object({
   dealId: z14.string().min(1).optional()
 });
 
 // src/modules/deliverables/deliverables.service.ts
-import { and as and17, desc as desc10, eq as eq21 } from "drizzle-orm";
+import { and as and18, desc as desc11, eq as eq22 } from "drizzle-orm";
 async function requireDeliverableInPortal(tx, id, portalId) {
-  const [row] = await tx.select({ deliverable }).from(deliverable).innerJoin(deal, and17(eq21(deal.id, deliverable.dealId), eq21(deal.portalId, portalId), eq21(deal.archived, false))).where(eq21(deliverable.id, id)).limit(1);
+  const [row] = await tx.select({ deliverable }).from(deliverable).innerJoin(deal, and18(eq22(deal.id, deliverable.dealId), eq22(deal.portalId, portalId), eq22(deal.archived, false))).where(eq22(deliverable.id, id)).limit(1);
   if (!row) throw Errors.notFound("Entregable no encontrado");
   return row.deliverable;
 }
 async function listDeliverables(portalId, query) {
-  const rows = await db.select({ deliverable }).from(deliverable).innerJoin(deal, and17(eq21(deal.id, deliverable.dealId), eq21(deal.portalId, portalId), eq21(deal.archived, false))).where(query.dealId ? eq21(deliverable.dealId, query.dealId) : void 0).orderBy(desc10(deliverable.createdAt));
+  const rows = await db.select({ deliverable }).from(deliverable).innerJoin(deal, and18(eq22(deal.id, deliverable.dealId), eq22(deal.portalId, portalId), eq22(deal.archived, false))).where(query.dealId ? eq22(deliverable.dealId, query.dealId) : void 0).orderBy(desc11(deliverable.createdAt));
   return rows.map((r) => r.deliverable);
 }
 async function createDeliverable(portalId, userId, input) {
@@ -5242,6 +5485,8 @@ async function createDeliverable(portalId, userId, input) {
       type: input.type,
       url: input.url ?? null,
       description: input.description ?? null,
+      // Omitido → cae al default de la columna (true).
+      ...input.visibleToClient === void 0 ? {} : { visibleToClient: input.visibleToClient },
       createdBy: userId
     }).returning();
     if (!row) throw Errors.internal("No se pudo crear el entregable");
@@ -5255,7 +5500,7 @@ async function updateDeliverable(portalId, id, input) {
     const [updated] = await tx.update(deliverable).set({
       ...input,
       ...reviewTimestamp ? { reviewedAt: reviewTimestamp } : {}
-    }).where(eq21(deliverable.id, id)).returning();
+    }).where(eq22(deliverable.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el entregable");
     return updated;
   });
@@ -5263,7 +5508,7 @@ async function updateDeliverable(portalId, id, input) {
 async function deleteDeliverable(portalId, id) {
   await db.transaction(async (tx) => {
     await requireDeliverableInPortal(tx, id, portalId);
-    await tx.delete(deliverable).where(eq21(deliverable.id, id));
+    await tx.delete(deliverable).where(eq22(deliverable.id, id));
   });
 }
 
@@ -5346,35 +5591,37 @@ async function deliverablesRoutes(app2) {
 import { z as z15 } from "zod";
 
 // src/modules/client/client.service.ts
-import { and as and18, asc as asc5, desc as desc11, eq as eq22, inArray as inArray7, sql as sql25 } from "drizzle-orm";
+import { and as and19, asc as asc5, desc as desc12, eq as eq23, inArray as inArray7, sql as sql25 } from "drizzle-orm";
 async function clientDeals(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select({ id: deal.id, name: deal.name, amount: deal.amount, currency: deal.currency, stageId: deal.stageId, createdAt: deal.createdAt }).from(deal).where(and18(inArray7(deal.id, ids), eq22(deal.archived, false)));
+  return db.select({ id: deal.id, name: deal.name, amount: deal.amount, currency: deal.currency, stageId: deal.stageId, createdAt: deal.createdAt }).from(deal).where(and19(inArray7(deal.id, ids), eq23(deal.archived, false)));
 }
 async function clientDeliverables(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select().from(deliverable).where(inArray7(deliverable.dealId, ids)).orderBy(desc11(deliverable.createdAt));
+  return db.select().from(deliverable).where(and19(inArray7(deliverable.dealId, ids), eq23(deliverable.visibleToClient, true))).orderBy(desc12(deliverable.createdAt));
 }
 async function assertClientDeliverable(clientId, deliverableId) {
   const ids = await clientDealIds(clientId);
-  const [dv] = await db.select().from(deliverable).where(eq22(deliverable.id, deliverableId)).limit(1);
-  if (!dv || !ids.includes(dv.dealId)) throw Errors.notFound("Entregable no encontrado");
+  const [dv] = await db.select().from(deliverable).where(eq23(deliverable.id, deliverableId)).limit(1);
+  if (!dv || !ids.includes(dv.dealId) || !dv.visibleToClient) {
+    throw Errors.notFound("Entregable no encontrado");
+  }
   return dv;
 }
 async function approveDeliverable(clientId, deliverableId) {
   await assertClientDeliverable(clientId, deliverableId);
-  await db.update(deliverable).set({ status: "approved", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback: null }).where(eq22(deliverable.id, deliverableId));
+  await db.update(deliverable).set({ status: "approved", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback: null }).where(eq23(deliverable.id, deliverableId));
 }
 async function requestChanges(clientId, deliverableId, feedback) {
   await assertClientDeliverable(clientId, deliverableId);
-  await db.update(deliverable).set({ status: "changes_requested", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback }).where(eq22(deliverable.id, deliverableId));
+  await db.update(deliverable).set({ status: "changes_requested", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback }).where(eq23(deliverable.id, deliverableId));
 }
 async function listClientInvoices(clientId) {
   const dealIds = await clientDealIds(clientId);
   if (dealIds.length === 0) return [];
-  const invoices = await db.select().from(invoice).where(and18(inArray7(invoice.dealId, dealIds), eq22(invoice.archived, false))).orderBy(desc11(invoice.createdAt));
+  const invoices = await db.select().from(invoice).where(and19(inArray7(invoice.dealId, dealIds), eq23(invoice.archived, false))).orderBy(desc12(invoice.createdAt));
   if (invoices.length === 0) return [];
   const invoiceIds = invoices.map((inv) => inv.id);
   const paymentTotals = await db.select({
@@ -5400,13 +5647,13 @@ async function listClientInvoices(clientId) {
   });
 }
 async function resolveActiveClientDeal(clientId) {
-  const [row] = await db.select({ id: deal.id, portalId: deal.portalId, name: deal.name, pipelineId: deal.pipelineId, stageId: deal.stageId }).from(clientDealAccess).innerJoin(deal, eq22(deal.id, clientDealAccess.dealId)).where(and18(eq22(clientDealAccess.clientId, clientId), eq22(deal.archived, false))).orderBy(desc11(deal.createdAt)).limit(1);
+  const [row] = await db.select({ id: deal.id, portalId: deal.portalId, name: deal.name, pipelineId: deal.pipelineId, stageId: deal.stageId }).from(clientDealAccess).innerJoin(deal, eq23(deal.id, clientDealAccess.dealId)).where(and19(eq23(clientDealAccess.clientId, clientId), eq23(deal.archived, false))).orderBy(desc12(deal.createdAt)).limit(1);
   if (!row) throw Errors.notFound("No hay un proyecto activo asociado a esta cuenta");
   return row;
 }
 async function getClientProject(clientId) {
   const activeDeal = await resolveActiveClientDeal(clientId);
-  const [pl] = await db.select({ id: pipeline.id, label: pipeline.label }).from(pipeline).where(eq22(pipeline.id, activeDeal.pipelineId)).limit(1);
+  const [pl] = await db.select({ id: pipeline.id, label: pipeline.label }).from(pipeline).where(eq23(pipeline.id, activeDeal.pipelineId)).limit(1);
   const inProduction = pl?.label === PRODUCTION_PIPELINE_LABEL;
   let currentPhase = null;
   let phases = null;
@@ -5416,22 +5663,22 @@ async function getClientProject(clientId) {
       label: pipelineStage.label,
       description: pipelineStage.description,
       displayOrder: pipelineStage.displayOrder
-    }).from(pipelineStage).where(and18(eq22(pipelineStage.pipelineId, activeDeal.pipelineId), eq22(pipelineStage.archived, false))).orderBy(asc5(pipelineStage.displayOrder));
-    const current = stages.find((s) => s.id === activeDeal.stageId);
+    }).from(pipelineStage).where(and19(eq23(pipelineStage.pipelineId, activeDeal.pipelineId), eq23(pipelineStage.archived, false))).orderBy(asc5(pipelineStage.displayOrder));
+    const current = stages.find((s2) => s2.id === activeDeal.stageId);
     const currentDisplayOrder = current?.displayOrder ?? -1;
-    phases = stages.map((s) => ({
-      id: s.id,
-      label: s.label,
-      description: s.description,
-      displayOrder: s.displayOrder,
-      isCurrent: s.id === activeDeal.stageId,
-      isDone: s.displayOrder < currentDisplayOrder
+    phases = stages.map((s2) => ({
+      id: s2.id,
+      label: s2.label,
+      description: s2.description,
+      displayOrder: s2.displayOrder,
+      isCurrent: s2.id === activeDeal.stageId,
+      isDone: s2.displayOrder < currentDisplayOrder
     }));
     if (current) {
       currentPhase = { id: current.id, label: current.label, description: current.description };
     }
   }
-  const updateRows = await db.select({ id: projectUpdate.id, body: projectUpdate.body, createdAt: projectUpdate.createdAt, stageLabel: pipelineStage.label }).from(projectUpdate).leftJoin(pipelineStage, eq22(pipelineStage.id, projectUpdate.stageId)).where(and18(eq22(projectUpdate.dealId, activeDeal.id), eq22(projectUpdate.archived, false))).orderBy(desc11(projectUpdate.createdAt)).limit(20);
+  const updateRows = await db.select({ id: projectUpdate.id, body: projectUpdate.body, createdAt: projectUpdate.createdAt, stageLabel: pipelineStage.label }).from(projectUpdate).leftJoin(pipelineStage, eq23(pipelineStage.id, projectUpdate.stageId)).where(and19(eq23(projectUpdate.dealId, activeDeal.id), eq23(projectUpdate.archived, false))).orderBy(desc12(projectUpdate.createdAt)).limit(20);
   const updates = updateRows.map((u) => ({
     id: u.id,
     body: u.body,
@@ -5448,7 +5695,7 @@ async function getClientProject(clientId) {
 }
 
 // src/modules/documents/documents.service.ts
-import { and as and19, desc as desc12, eq as eq23, inArray as inArray8 } from "drizzle-orm";
+import { and as and20, desc as desc13, eq as eq24, inArray as inArray8 } from "drizzle-orm";
 function toDTO(row) {
   return {
     id: row.id,
@@ -5465,11 +5712,11 @@ function toDTO(row) {
   };
 }
 async function listDocuments(portalId, query) {
-  const conditions = [eq23(document.portalId, portalId)];
+  const conditions = [eq24(document.portalId, portalId)];
   if (query.dealId) {
-    conditions.push(eq23(document.dealId, query.dealId));
+    conditions.push(eq24(document.dealId, query.dealId));
   }
-  const rows = await db.select().from(document).where(and19(...conditions)).orderBy(desc12(document.createdAt));
+  const rows = await db.select().from(document).where(and20(...conditions)).orderBy(desc13(document.createdAt));
   return rows.map(toDTO);
 }
 async function createDocument(portalId, userId, input) {
@@ -5481,19 +5728,21 @@ async function createDocument(portalId, userId, input) {
     type: input.type,
     source: "manual",
     storageKey: input.storageKey ?? null,
+    // Omitido → cae al default de la columna (true).
+    ...input.visibleToClient === void 0 ? {} : { visibleToClient: input.visibleToClient },
     createdBy: userId
   }).returning();
   if (!row) throw Errors.internal("Error al crear documento");
   return toDTO(row);
 }
 async function deleteDocument(portalId, id) {
-  const [row] = await db.select({ id: document.id }).from(document).where(and19(eq23(document.id, id), eq23(document.portalId, portalId))).limit(1);
+  const [row] = await db.select({ id: document.id }).from(document).where(and20(eq24(document.id, id), eq24(document.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Documento no encontrado");
-  await db.delete(document).where(eq23(document.id, id));
+  await db.delete(document).where(eq24(document.id, id));
 }
 async function listClientDocuments(dealIds) {
   if (dealIds.length === 0) return [];
-  const rows = await db.select().from(document).where(inArray8(document.dealId, dealIds)).orderBy(desc12(document.createdAt));
+  const rows = await db.select().from(document).where(and20(inArray8(document.dealId, dealIds), eq24(document.visibleToClient, true))).orderBy(desc13(document.createdAt));
   return rows.map((row) => ({
     id: row.id,
     dealId: row.dealId,
@@ -5607,12 +5856,12 @@ var RespondIntakeSchema = z16.object({
 });
 
 // src/modules/intake/intake.service.ts
-import { and as and20, asc as asc6, desc as desc13, eq as eq24, inArray as inArray9 } from "drizzle-orm";
-function slugify2(s) {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+import { and as and21, asc as asc6, desc as desc14, eq as eq25, inArray as inArray9 } from "drizzle-orm";
+function slugify2(s2) {
+  return s2.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 async function listIntakeForms(portalId) {
-  return db.select().from(intakeForm).where(eq24(intakeForm.portalId, portalId)).orderBy(asc6(intakeForm.name));
+  return db.select().from(intakeForm).where(eq25(intakeForm.portalId, portalId)).orderBy(asc6(intakeForm.name));
 }
 async function createIntakeForm(portalId, input) {
   const [row] = await db.insert(intakeForm).values({
@@ -5633,12 +5882,12 @@ async function listDealIntakes(portalId, dealId) {
     dueDate: dealIntake.dueDate,
     completedAt: dealIntake.completedAt,
     formName: intakeForm.name
-  }).from(dealIntake).innerJoin(deal, and20(eq24(deal.id, dealIntake.dealId), eq24(deal.portalId, portalId))).innerJoin(intakeForm, eq24(intakeForm.id, dealIntake.formId)).where(eq24(dealIntake.dealId, dealId)).orderBy(desc13(dealIntake.createdAt));
+  }).from(dealIntake).innerJoin(deal, and21(eq25(deal.id, dealIntake.dealId), eq25(deal.portalId, portalId))).innerJoin(intakeForm, eq25(intakeForm.id, dealIntake.formId)).where(eq25(dealIntake.dealId, dealId)).orderBy(desc14(dealIntake.createdAt));
 }
 async function assignIntake(portalId, input) {
-  const [d] = await db.select().from(deal).where(and20(eq24(deal.id, input.dealId), eq24(deal.portalId, portalId))).limit(1);
+  const [d] = await db.select().from(deal).where(and21(eq25(deal.id, input.dealId), eq25(deal.portalId, portalId))).limit(1);
   if (!d) throw Errors.badRequest("Deal inexistente");
-  const [f] = await db.select().from(intakeForm).where(and20(eq24(intakeForm.id, input.formId), eq24(intakeForm.portalId, portalId))).limit(1);
+  const [f] = await db.select().from(intakeForm).where(and21(eq25(intakeForm.id, input.formId), eq25(intakeForm.portalId, portalId))).limit(1);
   if (!f) throw Errors.badRequest("Formulario inexistente");
   const [row] = await db.insert(dealIntake).values({
     dealId: input.dealId,
@@ -5658,14 +5907,14 @@ async function clientIntakes(clientId) {
     dueDate: dealIntake.dueDate,
     fields: intakeForm.fields,
     answers: dealIntakeResponse.answers
-  }).from(dealIntake).innerJoin(intakeForm, eq24(intakeForm.id, dealIntake.formId)).leftJoin(dealIntakeResponse, eq24(dealIntakeResponse.intakeId, dealIntake.id)).where(inArray9(dealIntake.dealId, ids)).orderBy(asc6(dealIntake.status));
+  }).from(dealIntake).innerJoin(intakeForm, eq25(intakeForm.id, dealIntake.formId)).leftJoin(dealIntakeResponse, eq25(dealIntakeResponse.intakeId, dealIntake.id)).where(inArray9(dealIntake.dealId, ids)).orderBy(asc6(dealIntake.status));
 }
 async function respondIntake(clientId, intakeId, answers) {
   const ids = await clientDealIds(clientId);
-  const [intake] = await db.select().from(dealIntake).where(eq24(dealIntake.id, intakeId)).limit(1);
+  const [intake] = await db.select().from(dealIntake).where(eq25(dealIntake.id, intakeId)).limit(1);
   if (!intake || !ids.includes(intake.dealId)) throw Errors.notFound("Formulario no encontrado");
   await db.insert(dealIntakeResponse).values({ intakeId, clientId, answers }).onConflictDoUpdate({ target: dealIntakeResponse.intakeId, set: { answers, clientId, submittedAt: /* @__PURE__ */ new Date() } });
-  await db.update(dealIntake).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq24(dealIntake.id, intakeId));
+  await db.update(dealIntake).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq25(dealIntake.id, intakeId));
 }
 
 // src/modules/intake/intake.router.ts
@@ -5789,7 +6038,12 @@ import { randomUUID as randomUUID2 } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
 import { existsSync, createReadStream } from "fs";
 import { join, basename, extname } from "path";
+import { Readable } from "stream";
+import { put, get, del } from "@vercel/blob";
 var UPLOADS_DIR = join(process.cwd(), "uploads");
+function isBlobConfigured() {
+  return Boolean(process.env["BLOB_READ_WRITE_TOKEN"] ?? process.env["BLOB_STORE_ID"]);
+}
 var MIME_BY_EXT = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -5797,29 +6051,78 @@ var MIME_BY_EXT = {
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".svg": "image/svg+xml",
-  ".pdf": "application/pdf"
+  ".pdf": "application/pdf",
+  ".webm": "audio/webm",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".ogg": "audio/ogg",
+  ".wav": "audio/wav"
 };
 function sanitize(name) {
   return basename(name).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100) || "archivo";
 }
-async function saveUpload(buffer, originalName, mimeType) {
-  await mkdir(UPLOADS_DIR, { recursive: true });
-  const storageKey = `${randomUUID2()}-${sanitize(originalName)}`;
-  await writeFile(join(UPLOADS_DIR, storageKey), buffer);
-  return { storageKey, name: originalName, mimeType, sizeBytes: buffer.length, url: `/api/files/${storageKey}` };
+function mimeForKey(key) {
+  return MIME_BY_EXT[extname(basename(key)).toLowerCase()] ?? "application/octet-stream";
 }
-function resolveFile(key) {
+async function saveUpload(buffer, originalName, mimeType) {
+  const storageKey = `${randomUUID2()}-${sanitize(originalName)}`;
+  if (isBlobConfigured()) {
+    await put(storageKey, buffer, { access: "private", contentType: mimeType });
+  } else {
+    await mkdir(UPLOADS_DIR, { recursive: true });
+    await writeFile(join(UPLOADS_DIR, storageKey), buffer);
+  }
+  return {
+    storageKey,
+    name: originalName,
+    mimeType,
+    sizeBytes: buffer.length,
+    url: `/api/files/${storageKey}`
+  };
+}
+async function readFile(key) {
   const safe = basename(key);
+  if (isBlobConfigured()) {
+    try {
+      const result = await get(safe, { access: "private" });
+      if (!result || result.statusCode !== 200) return null;
+      return {
+        stream: Readable.fromWeb(result.stream),
+        mime: result.blob.contentType || mimeForKey(safe)
+      };
+    } catch {
+      return null;
+    }
+  }
   const path = join(UPLOADS_DIR, safe);
   if (!existsSync(path)) return null;
-  return { path, mime: MIME_BY_EXT[extname(safe).toLowerCase()] ?? "application/octet-stream" };
-}
-function fileStream(path) {
-  return createReadStream(path);
+  return { stream: createReadStream(path), mime: mimeForKey(safe) };
 }
 
 // src/modules/files/files.router.ts
 var TAG17 = "Archivos";
+async function authenticateAny(request) {
+  const header = request.headers.authorization;
+  const queryToken = request.query.token;
+  const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : queryToken;
+  if (!token) throw Errors.unauthorized("Falta el token de acceso");
+  let clerkUserId;
+  try {
+    clerkUserId = await verifyClerkToken(token);
+  } catch {
+    throw Errors.unauthorized("Token de acceso inv\xE1lido o expirado");
+  }
+  try {
+    await resolveHubUser(clerkUserId);
+    return;
+  } catch {
+  }
+  try {
+    await resolveClientAccount(clerkUserId);
+  } catch {
+    throw Errors.unauthorized("Usuario no autorizado");
+  }
+}
 async function filesRoutes(app2) {
   app2.post(
     "/",
@@ -5831,12 +6134,19 @@ async function filesRoutes(app2) {
       return reply.status(201).send(ok(saved));
     }
   );
-  app2.get("/:key", { schema: { tags: [TAG17], summary: "Descargar archivo por key" } }, async (request, reply) => {
-    const { key } = request.params;
-    const f = resolveFile(key);
-    if (!f) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Archivo no encontrado" } });
-    return reply.type(f.mime).send(fileStream(f.path));
-  });
+  app2.get(
+    "/:key",
+    { schema: { tags: [TAG17], summary: "Descargar archivo por key (requiere sesi\xF3n)", security: [{ bearerAuth: [] }] } },
+    async (request, reply) => {
+      await authenticateAny(request);
+      const { key } = request.params;
+      const f = await readFile(key);
+      if (!f) {
+        return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Archivo no encontrado" } });
+      }
+      return reply.type(f.mime).send(f.stream);
+    }
+  );
 }
 async function clientFilesRoutes(app2) {
   app2.post(
@@ -5887,7 +6197,7 @@ var CommentSchema = z17.object({ body: z17.string().min(1) });
 var ClientDecisionSchema = z17.object({ comment: z17.string().optional() });
 
 // src/modules/change-requests/cr.service.ts
-import { and as and21, asc as asc7, desc as desc14, eq as eq25, inArray as inArray10, ne as ne2, sql as sql26 } from "drizzle-orm";
+import { and as and22, asc as asc7, desc as desc15, eq as eq26, getTableColumns, inArray as inArray10, ne as ne2, sql as sql26 } from "drizzle-orm";
 
 // src/lib/money.ts
 function toDecimal(n) {
@@ -5896,24 +6206,24 @@ function toDecimal(n) {
 
 // src/modules/change-requests/cr.service.ts
 async function getCRInPortal(portalId, id) {
-  const [cr] = await db.select().from(changeRequest).where(and21(eq25(changeRequest.id, id), eq25(changeRequest.portalId, portalId))).limit(1);
+  const [cr] = await db.select().from(changeRequest).where(and22(eq26(changeRequest.id, id), eq26(changeRequest.portalId, portalId))).limit(1);
   if (!cr) throw Errors.notFound("Change request no encontrada");
   return cr;
 }
 async function listCRs(portalId, dealId) {
-  return db.select().from(changeRequest).where(dealId ? and21(eq25(changeRequest.portalId, portalId), eq25(changeRequest.dealId, dealId)) : eq25(changeRequest.portalId, portalId)).orderBy(desc14(changeRequest.createdAt));
+  return db.select({ ...getTableColumns(changeRequest), dealName: deal.name }).from(changeRequest).leftJoin(deal, eq26(deal.id, changeRequest.dealId)).where(dealId ? and22(eq26(changeRequest.portalId, portalId), eq26(changeRequest.dealId, dealId)) : eq26(changeRequest.portalId, portalId)).orderBy(desc15(changeRequest.createdAt));
 }
 async function getCRDetail(portalId, id) {
   const cr = await getCRInPortal(portalId, id);
-  const items = await db.select().from(changeRequestItem).where(eq25(changeRequestItem.changeRequestId, id));
-  const comments = await db.select().from(changeRequestComment).where(eq25(changeRequestComment.changeRequestId, id)).orderBy(asc7(changeRequestComment.createdAt));
-  const history = await db.select().from(changeRequestHistory).where(eq25(changeRequestHistory.changeRequestId, id)).orderBy(desc14(changeRequestHistory.changedAt));
+  const items = await db.select().from(changeRequestItem).where(eq26(changeRequestItem.changeRequestId, id));
+  const comments = await db.select().from(changeRequestComment).where(eq26(changeRequestComment.changeRequestId, id)).orderBy(asc7(changeRequestComment.createdAt));
+  const history = await db.select().from(changeRequestHistory).where(eq26(changeRequestHistory.changeRequestId, id)).orderBy(desc15(changeRequestHistory.changedAt));
   return { changeRequest: cr, items, comments, history };
 }
 async function createCR(portalId, userId, input) {
   await assertDealInPortal(portalId, input.dealId);
   return db.transaction(async (tx) => {
-    const numRows = await tx.select({ next: sql26`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq25(changeRequest.dealId, input.dealId));
+    const numRows = await tx.select({ next: sql26`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq26(changeRequest.dealId, input.dealId));
     const next = numRows[0]?.next ?? 1;
     const [cr] = await tx.insert(changeRequest).values({
       portalId,
@@ -5946,7 +6256,7 @@ async function createCR(portalId, userId, input) {
 async function updateCR(portalId, id, input) {
   const cr = await getCRInPortal(portalId, id);
   if (cr.status !== "draft") throw Errors.badRequest("Solo se puede editar una CR en borrador");
-  const [row] = await db.update(changeRequest).set({ ...input, totalAmount: toDecimal(input.totalAmount), updatedAt: /* @__PURE__ */ new Date() }).where(eq25(changeRequest.id, id)).returning();
+  const [row] = await db.update(changeRequest).set({ ...input, totalAmount: toDecimal(input.totalAmount), updatedAt: /* @__PURE__ */ new Date() }).where(eq26(changeRequest.id, id)).returning();
   return row;
 }
 async function addItem(portalId, id, input) {
@@ -5963,13 +6273,13 @@ async function addItem(portalId, id, input) {
 }
 async function deleteItem(portalId, id, itemId) {
   await getCRInPortal(portalId, id);
-  await db.delete(changeRequestItem).where(and21(eq25(changeRequestItem.id, itemId), eq25(changeRequestItem.changeRequestId, id)));
+  await db.delete(changeRequestItem).where(and22(eq26(changeRequestItem.id, itemId), eq26(changeRequestItem.changeRequestId, id)));
 }
 async function transitionCR(portalId, userId, id, status, comment) {
   const cr = await getCRInPortal(portalId, id);
   const patch = { status, updatedAt: /* @__PURE__ */ new Date() };
   if (status === "completed") patch.completedAt = /* @__PURE__ */ new Date();
-  const [row] = await db.update(changeRequest).set(patch).where(eq25(changeRequest.id, id)).returning();
+  const [row] = await db.update(changeRequest).set(patch).where(eq26(changeRequest.id, id)).returning();
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: status, comment, changedByUser: userId });
   return row;
 }
@@ -5980,14 +6290,14 @@ async function addComment(portalId, userId, id, body) {
 }
 async function getClientCR(clientId, id) {
   const ids = await clientDealIds(clientId);
-  const [cr] = await db.select().from(changeRequest).where(eq25(changeRequest.id, id)).limit(1);
+  const [cr] = await db.select().from(changeRequest).where(eq26(changeRequest.id, id)).limit(1);
   if (!cr || !ids.includes(cr.dealId)) throw Errors.notFound("Change request no encontrada");
   return cr;
 }
 async function clientListCRs(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select().from(changeRequest).where(and21(inArray10(changeRequest.dealId, ids), ne2(changeRequest.status, "draft"))).orderBy(desc14(changeRequest.createdAt));
+  return db.select().from(changeRequest).where(and22(inArray10(changeRequest.dealId, ids), ne2(changeRequest.status, "draft"))).orderBy(desc15(changeRequest.createdAt));
 }
 async function clientDecision(clientId, id, decision, comment) {
   const cr = await getClientCR(clientId, id);
@@ -5995,7 +6305,7 @@ async function clientDecision(clientId, id, decision, comment) {
     status: decision,
     updatedAt: /* @__PURE__ */ new Date(),
     ...decision === "approved" ? { approvedAt: /* @__PURE__ */ new Date(), approvedBy: clientId } : {}
-  }).where(eq25(changeRequest.id, id));
+  }).where(eq26(changeRequest.id, id));
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: decision, comment, changedByClient: clientId });
   await createNotification({
     portalId: cr.portalId,
@@ -6153,20 +6463,20 @@ var ListLibraryQuerySchema = z19.object({
 });
 
 // src/modules/library/library.service.ts
-import { and as and22, desc as desc15, eq as eq26 } from "drizzle-orm";
+import { and as and23, desc as desc16, eq as eq27 } from "drizzle-orm";
 async function requireItemInPortal(portalId, id) {
-  const [row] = await db.select().from(libraryItem).where(and22(eq26(libraryItem.id, id), eq26(libraryItem.portalId, portalId), eq26(libraryItem.archived, false))).limit(1);
+  const [row] = await db.select().from(libraryItem).where(and23(eq27(libraryItem.id, id), eq27(libraryItem.portalId, portalId), eq27(libraryItem.archived, false))).limit(1);
   if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
   return row;
 }
 async function listLibraryItems(portalId, query) {
   const conditions = [
-    eq26(libraryItem.portalId, portalId),
-    eq26(libraryItem.archived, false),
-    ...query.type ? [eq26(libraryItem.type, query.type)] : [],
-    ...query.kind ? [eq26(libraryItem.kind, query.kind)] : []
+    eq27(libraryItem.portalId, portalId),
+    eq27(libraryItem.archived, false),
+    ...query.type ? [eq27(libraryItem.type, query.type)] : [],
+    ...query.kind ? [eq27(libraryItem.kind, query.kind)] : []
   ];
-  return db.select().from(libraryItem).where(and22(...conditions)).orderBy(desc15(libraryItem.createdAt));
+  return db.select().from(libraryItem).where(and23(...conditions)).orderBy(desc16(libraryItem.createdAt));
 }
 async function getLibraryItem(portalId, id) {
   return requireItemInPortal(portalId, id);
@@ -6192,7 +6502,7 @@ async function createLibraryItem(portalId, userId, input) {
 }
 async function updateLibraryItem(portalId, id, input) {
   return db.transaction(async (tx) => {
-    await tx.select({ id: libraryItem.id }).from(libraryItem).where(and22(eq26(libraryItem.id, id), eq26(libraryItem.portalId, portalId), eq26(libraryItem.archived, false))).limit(1).then(([row]) => {
+    await tx.select({ id: libraryItem.id }).from(libraryItem).where(and23(eq27(libraryItem.id, id), eq27(libraryItem.portalId, portalId), eq27(libraryItem.archived, false))).limit(1).then(([row]) => {
       if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
     });
     const patch = { updatedAt: /* @__PURE__ */ new Date() };
@@ -6207,16 +6517,16 @@ async function updateLibraryItem(portalId, id, input) {
     if (input.steps !== void 0) {
       patch.steps = input.steps;
     }
-    const [updated] = await tx.update(libraryItem).set(patch).where(eq26(libraryItem.id, id)).returning();
+    const [updated] = await tx.update(libraryItem).set(patch).where(eq27(libraryItem.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el \xEDtem de biblioteca");
     return updated;
   });
 }
 async function archiveLibraryItem(portalId, id) {
   await db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: libraryItem.id }).from(libraryItem).where(and22(eq26(libraryItem.id, id), eq26(libraryItem.portalId, portalId), eq26(libraryItem.archived, false))).limit(1);
+    const [row] = await tx.select({ id: libraryItem.id }).from(libraryItem).where(and23(eq27(libraryItem.id, id), eq27(libraryItem.portalId, portalId), eq27(libraryItem.archived, false))).limit(1);
     if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
-    await tx.update(libraryItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq26(libraryItem.id, id));
+    await tx.update(libraryItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq27(libraryItem.id, id));
   });
 }
 
@@ -6342,15 +6652,15 @@ var ListWorkItemsQuerySchema = z20.object({
 });
 
 // src/modules/work-items/work-items.service.ts
-import { and as and23, desc as desc16, eq as eq27 } from "drizzle-orm";
+import { and as and24, desc as desc17, eq as eq28 } from "drizzle-orm";
 async function listWorkItems(portalId, query) {
   const conditions = [
-    eq27(workItem.portalId, portalId),
-    eq27(workItem.archived, false),
-    ...query.type ? [eq27(workItem.type, query.type)] : [],
-    ...query.status ? [eq27(workItem.status, query.status)] : []
+    eq28(workItem.portalId, portalId),
+    eq28(workItem.archived, false),
+    ...query.type ? [eq28(workItem.type, query.type)] : [],
+    ...query.status ? [eq28(workItem.status, query.status)] : []
   ];
-  return db.select().from(workItem).where(and23(...conditions)).orderBy(desc16(workItem.createdAt));
+  return db.select().from(workItem).where(and24(...conditions)).orderBy(desc17(workItem.createdAt));
 }
 async function createWorkItem(portalId, userId, input) {
   const [row] = await db.insert(workItem).values({
@@ -6369,19 +6679,19 @@ async function createWorkItem(portalId, userId, input) {
 }
 async function updateWorkItem(portalId, id, input) {
   return db.transaction(async (tx) => {
-    await tx.select({ id: workItem.id }).from(workItem).where(and23(eq27(workItem.id, id), eq27(workItem.portalId, portalId), eq27(workItem.archived, false))).limit(1).then(([row]) => {
+    await tx.select({ id: workItem.id }).from(workItem).where(and24(eq28(workItem.id, id), eq28(workItem.portalId, portalId), eq28(workItem.archived, false))).limit(1).then(([row]) => {
       if (!row) throw Errors.notFound("\xCDtem de operaciones no encontrado");
     });
-    const [updated] = await tx.update(workItem).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq27(workItem.id, id)).returning();
+    const [updated] = await tx.update(workItem).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq28(workItem.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el \xEDtem de operaciones");
     return updated;
   });
 }
 async function archiveWorkItem(portalId, id) {
   await db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: workItem.id }).from(workItem).where(and23(eq27(workItem.id, id), eq27(workItem.portalId, portalId), eq27(workItem.archived, false))).limit(1);
+    const [row] = await tx.select({ id: workItem.id }).from(workItem).where(and24(eq28(workItem.id, id), eq28(workItem.portalId, portalId), eq28(workItem.archived, false))).limit(1);
     if (!row) throw Errors.notFound("\xCDtem de operaciones no encontrado");
-    await tx.update(workItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq27(workItem.id, id));
+    await tx.update(workItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(workItem.id, id));
   });
 }
 
@@ -6616,7 +6926,7 @@ var DebtorsQuerySchema = z21.object({
 });
 
 // src/modules/finance/finance.service.ts
-import { and as and24, asc as asc8, between, desc as desc17, eq as eq28, gte as gte3, inArray as inArray11, lte as lte3, sql as sql27, sum as sum2 } from "drizzle-orm";
+import { and as and25, asc as asc8, between, desc as desc18, eq as eq29, gte as gte3, inArray as inArray11, lte as lte3, sql as sql27, sum as sum2 } from "drizzle-orm";
 
 // src/lib/fx.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
@@ -6670,17 +6980,17 @@ function calcAmountBase(amount, currency, exchangeRate) {
   return amount / exchangeRate;
 }
 async function requireInvoice(portalId, id) {
-  const [row] = await db.select().from(invoice).where(and24(eq28(invoice.id, id), eq28(invoice.portalId, portalId), eq28(invoice.archived, false))).limit(1);
+  const [row] = await db.select().from(invoice).where(and25(eq29(invoice.id, id), eq29(invoice.portalId, portalId), eq29(invoice.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Factura no encontrada");
   return row;
 }
 async function requireExpense(portalId, id) {
-  const [row] = await db.select().from(expense).where(and24(eq28(expense.id, id), eq28(expense.portalId, portalId), eq28(expense.archived, false))).limit(1);
+  const [row] = await db.select().from(expense).where(and25(eq29(expense.id, id), eq29(expense.portalId, portalId), eq29(expense.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Gasto no encontrado");
   return row;
 }
 async function requireRetainer(portalId, id) {
-  const [row] = await db.select().from(retainer).where(and24(eq28(retainer.id, id), eq28(retainer.portalId, portalId), eq28(retainer.archived, false))).limit(1);
+  const [row] = await db.select().from(retainer).where(and25(eq29(retainer.id, id), eq29(retainer.portalId, portalId), eq29(retainer.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Retainer no encontrado");
   return row;
 }
@@ -6695,20 +7005,20 @@ function computeDerivedStatus(inv, balance) {
   return "enviada";
 }
 async function listInvoices(portalId, query) {
-  const conditions = [eq28(invoice.portalId, portalId), eq28(invoice.archived, false)];
+  const conditions = [eq29(invoice.portalId, portalId), eq29(invoice.archived, false)];
   const { tab, status } = query;
   if (status) {
-    conditions.push(eq28(invoice.status, status));
+    conditions.push(eq29(invoice.status, status));
   } else if (tab === "borradores") {
-    conditions.push(eq28(invoice.status, "draft"));
+    conditions.push(eq29(invoice.status, "draft"));
   } else if (tab === "vencidas") {
-    conditions.push(eq28(invoice.status, "overdue"));
+    conditions.push(eq29(invoice.status, "overdue"));
   } else if (tab === "pagadas") {
-    conditions.push(eq28(invoice.status, "paid"));
+    conditions.push(eq29(invoice.status, "paid"));
   } else if (tab === "por_cobrar") {
     conditions.push(inArray11(invoice.status, ["sent", "overdue"]));
   }
-  const invoices = await db.select().from(invoice).where(and24(...conditions)).orderBy(desc17(invoice.createdAt));
+  const invoices = await db.select().from(invoice).where(and25(...conditions)).orderBy(desc18(invoice.createdAt));
   if (invoices.length === 0) return [];
   const ids = invoices.map((i) => i.id);
   const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray11(payment.invoiceId, ids)).groupBy(payment.invoiceId);
@@ -6734,15 +7044,15 @@ async function listInvoices(portalId, query) {
 }
 async function getInvoiceDetail(portalId, id) {
   const inv = await requireInvoice(portalId, id);
-  const items = await db.select().from(invoiceItem).where(eq28(invoiceItem.invoiceId, id));
-  const payments_ = await db.select().from(payment).where(eq28(payment.invoiceId, id)).orderBy(desc17(payment.paidAt));
+  const items = await db.select().from(invoiceItem).where(eq29(invoiceItem.invoiceId, id));
+  const payments_ = await db.select().from(payment).where(eq29(payment.invoiceId, id)).orderBy(desc18(payment.paidAt));
   const totalPaid = payments_.reduce((acc, p) => acc + Number(p.amountBase), 0);
   const balance = num(Math.max(0, Number(inv.amountBase) - totalPaid));
   return { invoice: inv, items, payments: payments_, balance };
 }
 async function createInvoice(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq29(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const subtotal = input.items.reduce((acc, it) => acc + (it.quantity ?? 1) * it.unitPrice, 0);
     const tax = input.tax ?? 0;
@@ -6796,22 +7106,22 @@ async function updateInvoice(portalId, id, input) {
     ...needsRecalc ? { exchangeRate: num(exchangeRate), amountBase: num(amountBase) } : {},
     ...input.notes !== void 0 ? { notes: input.notes } : {},
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq28(invoice.id, id)).returning();
+  }).where(eq29(invoice.id, id)).returning();
   return row;
 }
 async function transitionInvoice(portalId, id, status) {
   await requireInvoice(portalId, id);
-  const [row] = await db.update(invoice).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq28(invoice.id, id)).returning();
+  const [row] = await db.update(invoice).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq29(invoice.id, id)).returning();
   return row;
 }
 async function archiveInvoice(portalId, id) {
   await requireInvoice(portalId, id);
-  await db.update(invoice).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(invoice.id, id));
+  await db.update(invoice).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq29(invoice.id, id));
 }
 async function listPayments(portalId, query) {
-  const conditions = [eq28(payment.portalId, portalId)];
-  if (query.method) conditions.push(eq28(payment.method, query.method));
-  if (query.invoiceId) conditions.push(eq28(payment.invoiceId, query.invoiceId));
+  const conditions = [eq29(payment.portalId, portalId)];
+  if (query.method) conditions.push(eq29(payment.method, query.method));
+  if (query.invoiceId) conditions.push(eq29(payment.invoiceId, query.invoiceId));
   if (query.from && query.to) {
     conditions.push(between(payment.paidAt, new Date(query.from), /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   } else if (query.from) {
@@ -6819,7 +7129,7 @@ async function listPayments(portalId, query) {
   } else if (query.to) {
     conditions.push(lte3(payment.paidAt, /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   }
-  const payments_ = await db.select().from(payment).where(and24(...conditions)).orderBy(desc17(payment.paidAt));
+  const payments_ = await db.select().from(payment).where(and25(...conditions)).orderBy(desc18(payment.paidAt));
   if (payments_.length === 0) {
     return { payments: [], meta: { totalPeriod: "0.00" } };
   }
@@ -6855,7 +7165,7 @@ async function listPayments(portalId, query) {
 }
 async function registerPayment(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [inv] = await tx.select().from(invoice).where(and24(eq28(invoice.id, input.invoiceId), eq28(invoice.portalId, portalId), eq28(invoice.archived, false))).limit(1);
+    const [inv] = await tx.select().from(invoice).where(and25(eq29(invoice.id, input.invoiceId), eq29(invoice.portalId, portalId), eq29(invoice.archived, false))).limit(1);
     if (!inv) throw Errors.notFound("Factura no encontrada");
     const currency = input.currency ?? "USD";
     const exchangeRate = currency === "ARS" ? input.exchangeRate ?? 1 : 1;
@@ -6873,19 +7183,19 @@ async function registerPayment(portalId, userId, input) {
       createdBy: userId
     }).returning();
     if (!row) throw Errors.internal("No se pudo registrar el cobro");
-    const [totals] = await tx.select({ total: sum2(payment.amountBase) }).from(payment).where(eq28(payment.invoiceId, input.invoiceId));
+    const [totals] = await tx.select({ total: sum2(payment.amountBase) }).from(payment).where(eq29(payment.invoiceId, input.invoiceId));
     const totalPaid = Number(totals?.total ?? 0);
     if (totalPaid >= Number(inv.amountBase)) {
-      await tx.update(invoice).set({ status: "paid", updatedAt: /* @__PURE__ */ new Date() }).where(eq28(invoice.id, input.invoiceId));
+      await tx.update(invoice).set({ status: "paid", updatedAt: /* @__PURE__ */ new Date() }).where(eq29(invoice.id, input.invoiceId));
     }
     return row;
   });
 }
 async function listExpenses(portalId, query) {
-  const conditions = [eq28(expense.portalId, portalId), eq28(expense.archived, false)];
-  if (query.category) conditions.push(eq28(expense.category, query.category));
-  if (query.dealId) conditions.push(eq28(expense.dealId, query.dealId));
-  if (query.isRecurring != null) conditions.push(eq28(expense.isRecurring, query.isRecurring));
+  const conditions = [eq29(expense.portalId, portalId), eq29(expense.archived, false)];
+  if (query.category) conditions.push(eq29(expense.category, query.category));
+  if (query.dealId) conditions.push(eq29(expense.dealId, query.dealId));
+  if (query.isRecurring != null) conditions.push(eq29(expense.isRecurring, query.isRecurring));
   if (query.from && query.to) {
     conditions.push(between(expense.expenseDate, query.from, query.to));
   } else if (query.from) {
@@ -6893,7 +7203,7 @@ async function listExpenses(portalId, query) {
   } else if (query.to) {
     conditions.push(lte3(expense.expenseDate, query.to));
   }
-  return db.select().from(expense).where(and24(...conditions)).orderBy(desc17(expense.expenseDate));
+  return db.select().from(expense).where(and25(...conditions)).orderBy(desc18(expense.expenseDate));
 }
 async function createExpense(portalId, userId, input) {
   return db.transaction(async (tx) => {
@@ -6965,7 +7275,7 @@ async function updateExpense(portalId, id, userId, input) {
     if (input.isRecurring != null) patch.isRecurring = input.isRecurring;
     if (input.notes !== void 0) patch.notes = input.notes ?? null;
     if (input.storageKey !== void 0) patch.storageKey = input.storageKey ?? null;
-    const [updated] = await tx.update(expense).set(patch).where(eq28(expense.id, id)).returning();
+    const [updated] = await tx.update(expense).set(patch).where(eq29(expense.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el gasto");
     await recordFieldChanges({
       tx,
@@ -6982,10 +7292,10 @@ async function updateExpense(portalId, id, userId, input) {
 }
 async function archiveExpense(portalId, id) {
   await requireExpense(portalId, id);
-  await db.update(expense).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(expense.id, id));
+  await db.update(expense).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq29(expense.id, id));
 }
 async function expenseSummary(portalId) {
-  const expenses = await db.select().from(expense).where(and24(eq28(expense.portalId, portalId), eq28(expense.archived, false)));
+  const expenses = await db.select().from(expense).where(and25(eq29(expense.portalId, portalId), eq29(expense.archived, false)));
   let totalUsd = 0;
   let totalArs = 0;
   const byCategory = {};
@@ -7006,10 +7316,10 @@ async function expenseSummary(portalId) {
   };
 }
 async function listRetainers(portalId, query) {
-  const conditions = [eq28(retainer.portalId, portalId), eq28(retainer.archived, false)];
-  if (query.status) conditions.push(eq28(retainer.status, query.status));
-  if (query.companyId) conditions.push(eq28(retainer.companyId, query.companyId));
-  const retainers = await db.select().from(retainer).where(and24(...conditions)).orderBy(asc8(retainer.startDate));
+  const conditions = [eq29(retainer.portalId, portalId), eq29(retainer.archived, false)];
+  if (query.status) conditions.push(eq29(retainer.status, query.status));
+  if (query.companyId) conditions.push(eq29(retainer.companyId, query.companyId));
+  const retainers = await db.select().from(retainer).where(and25(...conditions)).orderBy(asc8(retainer.startDate));
   if (retainers.length === 0) return [];
   const companyIds = [...new Set(retainers.map((r) => r.companyId))];
   const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray11(company.id, companyIds));
@@ -7018,8 +7328,8 @@ async function listRetainers(portalId, query) {
 }
 async function getRetainerDetail(portalId, id) {
   const ret = await requireRetainer(portalId, id);
-  const [companyRow] = await db.select({ name: company.name }).from(company).where(eq28(company.id, ret.companyId)).limit(1);
-  const invoices_ = await db.select().from(invoice).where(and24(eq28(invoice.retainerId, id), eq28(invoice.archived, false))).orderBy(desc17(invoice.createdAt));
+  const [companyRow] = await db.select({ name: company.name }).from(company).where(eq29(company.id, ret.companyId)).limit(1);
+  const invoices_ = await db.select().from(invoice).where(and25(eq29(invoice.retainerId, id), eq29(invoice.archived, false))).orderBy(desc18(invoice.createdAt));
   return {
     ...ret,
     companyName: companyRow?.name ?? null,
@@ -7027,7 +7337,7 @@ async function getRetainerDetail(portalId, id) {
   };
 }
 async function createRetainer(portalId, userId, input) {
-  const [companyRow] = await db.select().from(company).where(and24(eq28(company.id, input.companyId), eq28(company.portalId, portalId))).limit(1);
+  const [companyRow] = await db.select().from(company).where(and25(eq29(company.id, input.companyId), eq29(company.portalId, portalId))).limit(1);
   if (!companyRow) throw Errors.notFound("Empresa no encontrada");
   const currency = input.currency;
   const exchangeRate = currency === "ARS" ? input.exchangeRate ?? 1 : 1;
@@ -7069,15 +7379,15 @@ async function updateRetainer(portalId, id, input) {
       ...input.endDate !== void 0 ? { endDate: input.endDate ?? null } : {},
       ...input.notes !== void 0 ? { notes: input.notes ?? null } : {},
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq28(retainer.id, id)).returning();
+    }).where(eq29(retainer.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el retainer");
-    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq28(company.id, updated.companyId)).limit(1);
+    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq29(company.id, updated.companyId)).limit(1);
     return { ...updated, companyName: companyRow?.name ?? null };
   });
 }
 async function archiveRetainer(portalId, id) {
   await requireRetainer(portalId, id);
-  await db.update(retainer).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(retainer.id, id));
+  await db.update(retainer).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq29(retainer.id, id));
 }
 async function generateRetainerInvoice(portalId, retainerId, userId) {
   return db.transaction(async (tx) => {
@@ -7087,15 +7397,15 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
     }
     const currentMonth = (/* @__PURE__ */ new Date()).toISOString().slice(0, 7);
     const [existing] = await tx.select().from(invoice).where(
-      and24(
-        eq28(invoice.retainerId, retainerId),
-        eq28(invoice.archived, false),
+      and25(
+        eq29(invoice.retainerId, retainerId),
+        eq29(invoice.archived, false),
         // issueDate LIKE 'YYYY-MM-%'
         sql27`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
       )
     ).limit(1);
     if (existing) return { invoice: existing, created: false };
-    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq29(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const [row] = await tx.insert(invoice).values({
@@ -7127,7 +7437,7 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
   });
 }
 async function financeSummary(portalId, query) {
-  const invoiceConds = [eq28(invoice.portalId, portalId), eq28(invoice.archived, false)];
+  const invoiceConds = [eq29(invoice.portalId, portalId), eq29(invoice.archived, false)];
   if (query.from && query.to) {
     invoiceConds.push(between(invoice.issueDate, query.from, query.to));
   } else if (query.from) {
@@ -7135,13 +7445,13 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     invoiceConds.push(lte3(invoice.issueDate, query.to));
   }
-  const invoicesInPeriod = await db.select().from(invoice).where(and24(...invoiceConds));
+  const invoicesInPeriod = await db.select().from(invoice).where(and25(...invoiceConds));
   const totalInvoiced = invoicesInPeriod.filter((i) => i.status !== "void").reduce((acc, i) => acc + Number(i.amountBase), 0);
   const invoicesByStatus = {};
   for (const inv of invoicesInPeriod) {
     invoicesByStatus[inv.status] = (invoicesByStatus[inv.status] ?? 0) + 1;
   }
-  const paymentConds = [eq28(payment.portalId, portalId)];
+  const paymentConds = [eq29(payment.portalId, portalId)];
   if (query.from && query.to) {
     paymentConds.push(between(payment.paidAt, new Date(query.from), /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   } else if (query.from) {
@@ -7149,9 +7459,9 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     paymentConds.push(lte3(payment.paidAt, /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   }
-  const [payTotals] = await db.select({ total: sum2(payment.amountBase) }).from(payment).where(and24(...paymentConds));
+  const [payTotals] = await db.select({ total: sum2(payment.amountBase) }).from(payment).where(and25(...paymentConds));
   const totalPaid = Number(payTotals?.total ?? 0);
-  const expenseConds = [eq28(expense.portalId, portalId), eq28(expense.archived, false)];
+  const expenseConds = [eq29(expense.portalId, portalId), eq29(expense.archived, false)];
   if (query.from && query.to) {
     expenseConds.push(between(expense.expenseDate, query.from, query.to));
   } else if (query.from) {
@@ -7159,13 +7469,13 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     expenseConds.push(lte3(expense.expenseDate, query.to));
   }
-  const [expTotals] = await db.select({ total: sum2(expense.amountBase) }).from(expense).where(and24(...expenseConds));
+  const [expTotals] = await db.select({ total: sum2(expense.amountBase) }).from(expense).where(and25(...expenseConds));
   const totalExpenses = Number(expTotals?.total ?? 0);
   const netProfit = totalPaid - totalExpenses;
   const openInvoices = await db.select().from(invoice).where(
-    and24(
-      eq28(invoice.portalId, portalId),
-      eq28(invoice.archived, false),
+    and25(
+      eq29(invoice.portalId, portalId),
+      eq29(invoice.archived, false),
       inArray11(invoice.status, ["sent", "overdue"])
     )
   );
@@ -7180,7 +7490,7 @@ async function financeSummary(portalId, query) {
       outstanding += Math.max(0, Number(inv.amountBase) - (paidMap.get(inv.id) ?? 0));
     }
   }
-  const [mrrRow] = await db.select({ total: sum2(retainer.amountBase) }).from(retainer).where(and24(eq28(retainer.portalId, portalId), eq28(retainer.status, "active"), eq28(retainer.archived, false)));
+  const [mrrRow] = await db.select({ total: sum2(retainer.amountBase) }).from(retainer).where(and25(eq29(retainer.portalId, portalId), eq29(retainer.status, "active"), eq29(retainer.archived, false)));
   const mrr = Number(mrrRow?.total ?? 0);
   return {
     totalInvoiced: num(totalInvoiced),
@@ -7205,14 +7515,14 @@ async function monthlySummary(portalId, months = 6) {
   const incomeRows = await db.select({
     month: sql27`to_char(${payment.paidAt}, 'YYYY-MM')`,
     total: sum2(payment.amountBase)
-  }).from(payment).where(and24(eq28(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql27`to_char(${payment.paidAt}, 'YYYY-MM')`);
+  }).from(payment).where(and25(eq29(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql27`to_char(${payment.paidAt}, 'YYYY-MM')`);
   const expenseRows = await db.select({
     month: sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
     total: sum2(expense.amountBase)
   }).from(expense).where(
-    and24(
-      eq28(expense.portalId, portalId),
-      eq28(expense.archived, false),
+    and25(
+      eq29(expense.portalId, portalId),
+      eq29(expense.archived, false),
       between(expense.expenseDate, from, to)
     )
   ).groupBy(sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
@@ -7226,9 +7536,9 @@ async function monthlySummary(portalId, months = 6) {
 }
 async function topDebtors(portalId, limit = 5) {
   const openInvoices = await db.select().from(invoice).where(
-    and24(
-      eq28(invoice.portalId, portalId),
-      eq28(invoice.archived, false),
+    and25(
+      eq29(invoice.portalId, portalId),
+      eq29(invoice.archived, false),
       inArray11(invoice.status, ["sent", "overdue"])
     )
   );
@@ -7256,11 +7566,11 @@ async function topDebtors(portalId, limit = 5) {
 }
 async function generateInvoicePdf(portalId, id) {
   const { invoice: inv, items } = await getInvoiceDetail(portalId, id);
-  const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq28(portal.id, portalId)).limit(1);
+  const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq29(portal.id, portalId)).limit(1);
   const portalName = portalRow?.name ?? "NOUS";
   let companyName = "\u2014";
   if (inv.companyId) {
-    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq28(company.id, inv.companyId)).limit(1);
+    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq29(company.id, inv.companyId)).limit(1);
     companyName = companyRow?.name ?? "\u2014";
   }
   const easyinvoice = (await import("easyinvoice")).default;
@@ -7718,7 +8028,7 @@ var BulkUpsertPrefSchema = z23.object({
 });
 
 // src/modules/notification-prefs/notification-prefs.service.ts
-import { and as and25, eq as eq29 } from "drizzle-orm";
+import { and as and26, eq as eq30 } from "drizzle-orm";
 function defaultPref(portalId, userId, eventType) {
   return {
     id: "",
@@ -7732,7 +8042,7 @@ function defaultPref(portalId, userId, eventType) {
   };
 }
 async function listPrefs(portalId, userId) {
-  const rows = await db.select().from(notificationPref).where(and25(eq29(notificationPref.portalId, portalId), eq29(notificationPref.userId, userId)));
+  const rows = await db.select().from(notificationPref).where(and26(eq30(notificationPref.portalId, portalId), eq30(notificationPref.userId, userId)));
   const rowsByType = new Map(rows.map((r) => [r.eventType, r]));
   return KNOWN_EVENT_TYPES.map(
     (et) => rowsByType.get(et) ?? defaultPref(portalId, userId, et)
@@ -7825,22 +8135,22 @@ var ListCustomFieldsQuerySchema = z24.object({
 });
 
 // src/modules/custom-fields/custom-fields.service.ts
-import { and as and26, asc as asc9, eq as eq30 } from "drizzle-orm";
+import { and as and27, asc as asc9, eq as eq31 } from "drizzle-orm";
 async function listCustomFields(portalId, query) {
   const conditions = [
-    eq30(customField.portalId, portalId),
-    eq30(customField.archived, false),
-    ...query.entityType ? [eq30(customField.entityType, query.entityType)] : []
+    eq31(customField.portalId, portalId),
+    eq31(customField.archived, false),
+    ...query.entityType ? [eq31(customField.entityType, query.entityType)] : []
   ];
-  return db.select().from(customField).where(and26(...conditions)).orderBy(asc9(customField.displayOrder), asc9(customField.createdAt));
+  return db.select().from(customField).where(and27(...conditions)).orderBy(asc9(customField.displayOrder), asc9(customField.createdAt));
 }
 async function createCustomField(portalId, input) {
   const [existing] = await db.select({ id: customField.id }).from(customField).where(
-    and26(
-      eq30(customField.portalId, portalId),
-      eq30(customField.entityType, input.entityType),
-      eq30(customField.key, input.key),
-      eq30(customField.archived, false)
+    and27(
+      eq31(customField.portalId, portalId),
+      eq31(customField.entityType, input.entityType),
+      eq31(customField.key, input.key),
+      eq31(customField.archived, false)
     )
   ).limit(1);
   if (existing) {
@@ -7872,14 +8182,14 @@ async function createCustomField(portalId, input) {
 async function updateCustomField(portalId, id, input) {
   return db.transaction(async (tx) => {
     const [existing] = await tx.select({ id: customField.id }).from(customField).where(
-      and26(
-        eq30(customField.id, id),
-        eq30(customField.portalId, portalId),
-        eq30(customField.archived, false)
+      and27(
+        eq31(customField.id, id),
+        eq31(customField.portalId, portalId),
+        eq31(customField.archived, false)
       )
     ).limit(1);
     if (!existing) throw Errors.notFound("Campo personalizado no encontrado");
-    const [updated] = await tx.update(customField).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq30(customField.id, id)).returning();
+    const [updated] = await tx.update(customField).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq31(customField.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el campo personalizado");
     return updated;
   });
@@ -7887,14 +8197,14 @@ async function updateCustomField(portalId, id, input) {
 async function archiveCustomField(portalId, id) {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({ id: customField.id }).from(customField).where(
-      and26(
-        eq30(customField.id, id),
-        eq30(customField.portalId, portalId),
-        eq30(customField.archived, false)
+      and27(
+        eq31(customField.id, id),
+        eq31(customField.portalId, portalId),
+        eq31(customField.archived, false)
       )
     ).limit(1);
     if (!row) throw Errors.notFound("Campo personalizado no encontrado");
-    await tx.update(customField).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(customField.id, id));
+    await tx.update(customField).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq31(customField.id, id));
   });
 }
 
@@ -8015,16 +8325,16 @@ var TimelineQuerySchema = z25.object({
 });
 
 // src/modules/timeline/timeline.service.ts
-import { and as and27, desc as desc18, eq as eq32, inArray as inArray12 } from "drizzle-orm";
+import { and as and28, desc as desc19, eq as eq33, inArray as inArray12 } from "drizzle-orm";
 
 // src/modules/email-tracking/email-tracking.service.ts
-import { eq as eq31 } from "drizzle-orm";
+import { eq as eq32 } from "drizzle-orm";
 var TRACKING_PIXEL_GIF = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
   "base64"
 );
 async function recordOpen(trackingId, userAgent, ip) {
-  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq31(emailSend.trackingId, trackingId)).limit(1);
+  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq32(emailSend.trackingId, trackingId)).limit(1);
   if (!send) return;
   await db.insert(emailEvent).values({
     emailId: send.id,
@@ -8034,7 +8344,7 @@ async function recordOpen(trackingId, userAgent, ip) {
   });
 }
 async function recordClick(trackingId, url, userAgent, ip) {
-  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq31(emailSend.trackingId, trackingId)).limit(1);
+  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq32(emailSend.trackingId, trackingId)).limit(1);
   if (!send) return;
   await db.insert(emailEvent).values({
     emailId: send.id,
@@ -8111,7 +8421,7 @@ async function logEmail(portalId, _userId, input) {
   if (!row) throw Errors.internal("No se pudo registrar el email");
   if (input.bodyHtml) {
     const htmlWithPixel = injectTrackingPixel(input.bodyHtml, row.trackingId);
-    const [updated] = await db.update(emailSend).set({ bodyHtml: htmlWithPixel }).where(eq32(emailSend.id, row.id)).returning();
+    const [updated] = await db.update(emailSend).set({ bodyHtml: htmlWithPixel }).where(eq33(emailSend.id, row.id)).returning();
     if (updated) return updated;
   }
   return row;
@@ -8120,10 +8430,10 @@ async function getTimeline(portalId, query) {
   const { dealId, contactId, companyId } = query;
   const items = [];
   if (dealId != null || contactId != null) {
-    const callConds = [eq32(call.portalId, portalId)];
-    if (dealId != null) callConds.push(eq32(call.dealId, dealId));
-    else if (contactId != null) callConds.push(eq32(call.contactId, contactId));
-    const calls = await db.select().from(call).where(and27(...callConds)).orderBy(desc18(call.occurredAt)).limit(100);
+    const callConds = [eq33(call.portalId, portalId)];
+    if (dealId != null) callConds.push(eq33(call.dealId, dealId));
+    else if (contactId != null) callConds.push(eq33(call.contactId, contactId));
+    const calls = await db.select().from(call).where(and28(...callConds)).orderBy(desc19(call.occurredAt)).limit(100);
     for (const c of calls) {
       items.push({
         kind: "call",
@@ -8139,10 +8449,10 @@ async function getTimeline(portalId, query) {
     }
   }
   if (dealId != null || contactId != null) {
-    const meetConds = [eq32(meeting.portalId, portalId)];
-    if (dealId != null) meetConds.push(eq32(meeting.dealId, dealId));
-    else if (contactId != null) meetConds.push(eq32(meeting.contactId, contactId));
-    const meetings = await db.select().from(meeting).where(and27(...meetConds)).orderBy(desc18(meeting.createdAt)).limit(100);
+    const meetConds = [eq33(meeting.portalId, portalId)];
+    if (dealId != null) meetConds.push(eq33(meeting.dealId, dealId));
+    else if (contactId != null) meetConds.push(eq33(meeting.contactId, contactId));
+    const meetings = await db.select().from(meeting).where(and28(...meetConds)).orderBy(desc19(meeting.createdAt)).limit(100);
     for (const m of meetings) {
       items.push({
         kind: "meeting",
@@ -8159,10 +8469,10 @@ async function getTimeline(portalId, query) {
     }
   }
   if (dealId != null || contactId != null) {
-    const emailConds = [eq32(emailSend.portalId, portalId)];
-    if (dealId != null) emailConds.push(eq32(emailSend.dealId, dealId));
-    else if (contactId != null) emailConds.push(eq32(emailSend.contactId, contactId));
-    const emails = await db.select().from(emailSend).where(and27(...emailConds)).orderBy(desc18(emailSend.sentAt)).limit(100);
+    const emailConds = [eq33(emailSend.portalId, portalId)];
+    if (dealId != null) emailConds.push(eq33(emailSend.dealId, dealId));
+    else if (contactId != null) emailConds.push(eq33(emailSend.contactId, contactId));
+    const emails = await db.select().from(emailSend).where(and28(...emailConds)).orderBy(desc19(emailSend.sentAt)).limit(100);
     const emailIds = emails.map((e) => e.id);
     const eventRows = emailIds.length ? await db.select({ emailId: emailEvent.emailId, type: emailEvent.type }).from(emailEvent).where(inArray12(emailEvent.emailId, emailIds)) : [];
     const openedSet = /* @__PURE__ */ new Set();
@@ -8190,11 +8500,11 @@ async function getTimeline(portalId, query) {
     }
   }
   {
-    const noteConds = [eq32(note.portalId, portalId)];
-    if (dealId != null) noteConds.push(eq32(note.dealId, dealId));
-    else if (contactId != null) noteConds.push(eq32(note.contactId, contactId));
-    else if (companyId != null) noteConds.push(eq32(note.companyId, companyId));
-    const notes = await db.select().from(note).where(and27(...noteConds)).orderBy(desc18(note.createdAt)).limit(100);
+    const noteConds = [eq33(note.portalId, portalId)];
+    if (dealId != null) noteConds.push(eq33(note.dealId, dealId));
+    else if (contactId != null) noteConds.push(eq33(note.contactId, contactId));
+    else if (companyId != null) noteConds.push(eq33(note.companyId, companyId));
+    const notes = await db.select().from(note).where(and28(...noteConds)).orderBy(desc19(note.createdAt)).limit(100);
     for (const n of notes) {
       items.push({
         kind: "note",
@@ -8206,11 +8516,11 @@ async function getTimeline(portalId, query) {
     }
   }
   {
-    const taskConds = [eq32(task.portalId, portalId)];
-    if (dealId != null) taskConds.push(eq32(task.dealId, dealId));
-    else if (contactId != null) taskConds.push(eq32(task.contactId, contactId));
-    else if (companyId != null) taskConds.push(eq32(task.companyId, companyId));
-    const tasks = await db.select().from(task).where(and27(...taskConds)).orderBy(desc18(task.createdAt)).limit(100);
+    const taskConds = [eq33(task.portalId, portalId)];
+    if (dealId != null) taskConds.push(eq33(task.dealId, dealId));
+    else if (contactId != null) taskConds.push(eq33(task.contactId, contactId));
+    else if (companyId != null) taskConds.push(eq33(task.companyId, companyId));
+    const tasks = await db.select().from(task).where(and28(...taskConds)).orderBy(desc19(task.createdAt)).limit(100);
     for (const t of tasks) {
       items.push({
         kind: "task",
@@ -8241,12 +8551,12 @@ async function getTimeline(portalId, query) {
       entityId = companyId;
     }
     const history = await db.select().from(recordHistory).where(
-      and27(
-        eq32(recordHistory.portalId, portalId),
-        eq32(recordHistory.entityType, entityType),
-        eq32(recordHistory.entityId, entityId)
+      and28(
+        eq33(recordHistory.portalId, portalId),
+        eq33(recordHistory.entityType, entityType),
+        eq33(recordHistory.entityId, entityId)
       )
-    ).orderBy(desc18(recordHistory.changedAt)).limit(100);
+    ).orderBy(desc19(recordHistory.changedAt)).limit(100);
     for (const h of history) {
       items.push({
         kind: "history",
@@ -8356,7 +8666,7 @@ var FocusQuerySchema = z26.object({
 });
 
 // src/modules/focus/focus.service.ts
-import { and as and28, asc as asc10, eq as eq33, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql28 } from "drizzle-orm";
+import { and as and29, asc as asc10, eq as eq34, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql28 } from "drizzle-orm";
 
 // src/lib/dates.ts
 function startOfDay2(d) {
@@ -8379,14 +8689,14 @@ async function getFollowUps(portalId, userId) {
   const todayStart = startOfDay2(now);
   const sevenDaysEnd = endOfDay(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1e3));
   const baseConds = [
-    eq33(task.portalId, portalId),
+    eq34(task.portalId, portalId),
     inArray13(task.status, ["pending", "in_progress"]),
     isNotNull2(task.dueDate),
     lte4(task.dueDate, sevenDaysEnd)
     // only up to 7 days out
   ];
-  if (userId != null) baseConds.push(eq33(task.assignedTo, userId));
-  const openTasks = await db.select().from(task).where(and28(...baseConds)).orderBy(asc10(task.dueDate));
+  if (userId != null) baseConds.push(eq34(task.assignedTo, userId));
+  const openTasks = await db.select().from(task).where(and29(...baseConds)).orderBy(asc10(task.dueDate));
   const dealIds = [...new Set(openTasks.filter((t) => t.dealId != null).map((t) => t.dealId))];
   const contactIds = [...new Set(openTasks.filter((t) => t.contactId != null).map((t) => t.contactId))];
   const companyIds = [...new Set(openTasks.filter((t) => t.companyId != null).map((t) => t.companyId))];
@@ -8446,18 +8756,18 @@ async function getDealsNeedingAttention(portalId) {
     ownerId: deal.ownerId,
     createdAt: deal.createdAt,
     stageLabel: pipelineStage.label
-  }).from(deal).innerJoin(pipelineStage, eq33(deal.stageId, pipelineStage.id)).where(
-    and28(
-      eq33(deal.portalId, portalId),
-      eq33(deal.archived, false),
-      eq33(pipelineStage.isClosed, false)
+  }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).where(
+    and29(
+      eq34(deal.portalId, portalId),
+      eq34(deal.archived, false),
+      eq34(pipelineStage.isClosed, false)
     )
   );
   if (openDeals.length === 0) return { noNextAction: [], stale: [] };
   const dealIds = openDeals.map((d) => d.id);
   const openTaskRows = await db.select({ dealId: task.dealId, id: task.id, dueDate: task.dueDate }).from(task).where(
-    and28(
-      eq33(task.portalId, portalId),
+    and29(
+      eq34(task.portalId, portalId),
       inArray13(task.status, ["pending", "in_progress"]),
       inArray13(task.dealId, dealIds)
     )
@@ -8465,21 +8775,21 @@ async function getDealsNeedingAttention(portalId) {
   const dealsWithTask = new Set(openTaskRows.map((t) => t.dealId).filter((id) => id != null));
   const [callAgg, meetingAgg, emailAgg, noteAgg, taskAgg] = await Promise.all([
     // calls: max(occurredAt)
-    db.select({ dealId: call.dealId, maxDate: sql28`max(${call.occurredAt})` }).from(call).where(and28(eq33(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
+    db.select({ dealId: call.dealId, maxDate: sql28`max(${call.occurredAt})` }).from(call).where(and29(eq34(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
     // meetings: max(coalesce(starts_at, created_at))
     db.select({
       dealId: meeting.dealId,
       maxDate: sql28`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
-    }).from(meeting).where(and28(eq33(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
+    }).from(meeting).where(and29(eq34(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
     // emails: max(sentAt)
-    db.select({ dealId: emailSend.dealId, maxDate: sql28`max(${emailSend.sentAt})` }).from(emailSend).where(and28(eq33(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
+    db.select({ dealId: emailSend.dealId, maxDate: sql28`max(${emailSend.sentAt})` }).from(emailSend).where(and29(eq34(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
     // notes: max(createdAt)
-    db.select({ dealId: note.dealId, maxDate: sql28`max(${note.createdAt})` }).from(note).where(and28(eq33(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
+    db.select({ dealId: note.dealId, maxDate: sql28`max(${note.createdAt})` }).from(note).where(and29(eq34(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
     // tasks (any task, completed too): max(completedAt ?? createdAt)
     db.select({
       dealId: task.dealId,
       maxDate: sql28`max(coalesce(${task.completedAt}, ${task.createdAt}))`
-    }).from(task).where(and28(eq33(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
+    }).from(task).where(and29(eq34(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
   ]);
   const lastActivityMap = /* @__PURE__ */ new Map();
   function applyAgg(rows) {
@@ -8557,7 +8867,7 @@ var ReportsQuerySchema = z27.object({
 });
 
 // src/modules/reports/reports.service.ts
-import { and as and29, asc as asc11, count as count4, eq as eq34, gte as gte5, inArray as inArray14, lte as lte5, sql as sql29 } from "drizzle-orm";
+import { and as and30, asc as asc11, count as count4, eq as eq35, gte as gte5, inArray as inArray14, lte as lte5, sql as sql29 } from "drizzle-orm";
 async function getReports(portalId, params) {
   const now = /* @__PURE__ */ new Date();
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -8594,12 +8904,12 @@ async function fetchPipelineFunnel(portalId) {
     currentValue: sql29`coalesce(sum(${deal.amount}), 0)`
   }).from(pipelineStage).innerJoin(
     pipeline,
-    and29(
-      eq34(pipelineStage.pipelineId, pipeline.id),
-      eq34(pipeline.portalId, portalId),
-      eq34(pipeline.archived, false)
+    and30(
+      eq35(pipelineStage.pipelineId, pipeline.id),
+      eq35(pipeline.portalId, portalId),
+      eq35(pipeline.archived, false)
     )
-  ).leftJoin(deal, and29(eq34(deal.stageId, pipelineStage.id), eq34(deal.archived, false))).where(eq34(pipelineStage.archived, false)).groupBy(
+  ).leftJoin(deal, and30(eq35(deal.stageId, pipelineStage.id), eq35(deal.archived, false))).where(eq35(pipelineStage.archived, false)).groupBy(
     pipelineStage.id,
     pipelineStage.label,
     pipelineStage.displayOrder,
@@ -8609,10 +8919,10 @@ async function fetchPipelineFunnel(portalId) {
   const [winRateRow] = await db.select({
     won: sql29`count(*) filter (where ${pipelineStage.isWon} = true)`,
     closed: sql29`count(*) filter (where ${pipelineStage.isClosed} = true)`
-  }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).innerJoin(
+  }).from(deal).innerJoin(pipelineStage, eq35(deal.stageId, pipelineStage.id)).innerJoin(
     pipeline,
-    and29(eq34(pipelineStage.pipelineId, pipeline.id), eq34(pipeline.portalId, portalId))
-  ).where(and29(eq34(deal.portalId, portalId), eq34(deal.archived, false)));
+    and30(eq35(pipelineStage.pipelineId, pipeline.id), eq35(pipeline.portalId, portalId))
+  ).where(and30(eq35(deal.portalId, portalId), eq35(deal.archived, false)));
   const won = Number(winRateRow?.won ?? 0);
   const closed = Number(winRateRow?.closed ?? 0);
   const winRate = closed > 0 ? Math.round(won / closed * 100) : null;
@@ -8633,7 +8943,7 @@ async function fetchConversionBySource(portalId) {
     source: sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
     total: count4(),
     customers: sql29`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
-  }).from(contact).where(and29(eq34(contact.portalId, portalId), eq34(contact.archived, false))).groupBy(sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql29`count(*) desc`);
+  }).from(contact).where(and30(eq35(contact.portalId, portalId), eq35(contact.archived, false))).groupBy(sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql29`count(*) desc`);
   return rows.map((r) => {
     const leads = Number(r.total);
     const customers = Number(r.customers);
@@ -8651,14 +8961,14 @@ async function fetchActivityByUser(portalId, from, to) {
     firstName: hubUser.firstName,
     lastName: hubUser.lastName,
     email: hubUser.email
-  }).from(hubUser).where(and29(eq34(hubUser.portalId, portalId), eq34(hubUser.isActive, true)));
+  }).from(hubUser).where(and30(eq35(hubUser.portalId, portalId), eq35(hubUser.isActive, true)));
   if (users.length === 0) return [];
   const userIds = users.map((u) => u.id);
   const [callRows, meetingRows, noteRows, taskCreatedRows, taskCompletedRows] = await Promise.all([
     // calls by createdBy
     db.select({ userId: call.createdBy, n: count4() }).from(call).where(
-      and29(
-        eq34(call.portalId, portalId),
+      and30(
+        eq35(call.portalId, portalId),
         inArray14(call.createdBy, userIds),
         gte5(call.createdAt, from),
         lte5(call.createdAt, to)
@@ -8666,8 +8976,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(call.createdBy),
     // meetings by createdBy
     db.select({ userId: meeting.createdBy, n: count4() }).from(meeting).where(
-      and29(
-        eq34(meeting.portalId, portalId),
+      and30(
+        eq35(meeting.portalId, portalId),
         inArray14(meeting.createdBy, userIds),
         gte5(meeting.createdAt, from),
         lte5(meeting.createdAt, to)
@@ -8675,8 +8985,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(meeting.createdBy),
     // notes by createdBy
     db.select({ userId: note.createdBy, n: count4() }).from(note).where(
-      and29(
-        eq34(note.portalId, portalId),
+      and30(
+        eq35(note.portalId, portalId),
         inArray14(note.createdBy, userIds),
         gte5(note.createdAt, from),
         lte5(note.createdAt, to)
@@ -8684,8 +8994,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(note.createdBy),
     // tasks created by user
     db.select({ userId: task.createdBy, n: count4() }).from(task).where(
-      and29(
-        eq34(task.portalId, portalId),
+      and30(
+        eq35(task.portalId, portalId),
         inArray14(task.createdBy, userIds),
         gte5(task.createdAt, from),
         lte5(task.createdAt, to)
@@ -8693,10 +9003,10 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(task.createdBy),
     // tasks completed by assignedTo (in period)
     db.select({ userId: task.assignedTo, n: count4() }).from(task).where(
-      and29(
-        eq34(task.portalId, portalId),
+      and30(
+        eq35(task.portalId, portalId),
         inArray14(task.assignedTo, userIds),
-        eq34(task.status, "completed"),
+        eq35(task.status, "completed"),
         gte5(task.completedAt, from),
         lte5(task.completedAt, to)
       )
@@ -8722,13 +9032,13 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
     const [row] = await db.select({
       n: count4(),
       value: sql29`coalesce(sum(${deal.amount}), 0)`
-    }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).innerJoin(
+    }).from(deal).innerJoin(pipelineStage, eq35(deal.stageId, pipelineStage.id)).innerJoin(
       pipeline,
-      and29(eq34(pipelineStage.pipelineId, pipeline.id), eq34(pipeline.portalId, portalId))
+      and30(eq35(pipelineStage.pipelineId, pipeline.id), eq35(pipeline.portalId, portalId))
     ).where(
-      and29(
-        eq34(deal.portalId, portalId),
-        eq34(pipelineStage.isWon, true),
+      and30(
+        eq35(deal.portalId, portalId),
+        eq35(pipelineStage.isWon, true),
         gte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
         lte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
       )
@@ -8771,7 +9081,7 @@ import { z as z28 } from "zod";
 
 // src/modules/webhooks/webhooks.service.ts
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq as eq35, and as and30, asc as asc12 } from "drizzle-orm";
+import { eq as eq36, and as and31, asc as asc12 } from "drizzle-orm";
 function verifyFathomSignature(rawBody, signature) {
   if (!env.FATHOM_WEBHOOK_SECRET || !signature) return false;
   const bodyStr = typeof rawBody === "string" ? rawBody : rawBody.toString("utf8");
@@ -8786,18 +9096,25 @@ function verifyFathomSignature(rawBody, signature) {
     return false;
   }
 }
+function verifyDocusealToken(token) {
+  if (!env.DOCUSEAL_WEBHOOK_SECRET || !token) return false;
+  const expected = Buffer.from(env.DOCUSEAL_WEBHOOK_SECRET, "utf8");
+  const received = Buffer.from(token, "utf8");
+  if (expected.length !== received.length) return false;
+  return timingSafeEqual(expected, received);
+}
 async function resolvePortalId() {
   const [row] = await db.select({ id: portal.id }).from(portal).orderBy(asc12(portal.createdAt)).limit(1);
   return row?.id ?? null;
 }
 async function findContactByEmail(portalId, email) {
-  const [row] = await db.select({ id: contact.id }).from(contact).where(and30(eq35(contact.portalId, portalId), eq35(contact.email, email))).limit(1);
+  const [row] = await db.select({ id: contact.id }).from(contact).where(and31(eq36(contact.portalId, portalId), eq36(contact.email, email))).limit(1);
   if (!row) return null;
   const [dealRow] = await db.select({ id: deal.id }).from(deal).where(
-    and30(
-      eq35(deal.portalId, portalId),
-      eq35(deal.primaryContactId, row.id),
-      eq35(deal.archived, false)
+    and31(
+      eq36(deal.portalId, portalId),
+      eq36(deal.primaryContactId, row.id),
+      eq36(deal.archived, false)
     )
   ).limit(1);
   return { id: row.id, primaryDealId: dealRow?.id ?? null };
@@ -8825,9 +9142,9 @@ async function handleFathomMeeting(portalId, payload) {
   }
   if (fathomTranscriptUrl) {
     const [existing] = await db.select({ id: meeting.id }).from(meeting).where(
-      and30(
-        eq35(meeting.portalId, portalId),
-        eq35(meeting.fathomTranscriptUrl, fathomTranscriptUrl)
+      and31(
+        eq36(meeting.portalId, portalId),
+        eq36(meeting.fathomTranscriptUrl, fathomTranscriptUrl)
       )
     ).limit(1);
     if (existing) {
@@ -8840,7 +9157,7 @@ async function handleFathomMeeting(portalId, payload) {
         fathomParticipants,
         contactId: contactId ?? void 0,
         dealId: dealId ?? void 0
-      }).where(eq35(meeting.id, existing.id));
+      }).where(eq36(meeting.id, existing.id));
       return;
     }
   }
@@ -8870,6 +9187,198 @@ async function handleFathomWebhook(payload) {
   const portalId = await resolvePortalId();
   if (portalId == null) return;
   await handleFathomMeeting(portalId, payload);
+}
+
+// src/modules/documents/docuseal.service.ts
+import { and as and32, eq as eq37 } from "drizzle-orm";
+
+// src/modules/documents/docuseal.client.ts
+function isDocusealConfigured() {
+  return Boolean(env.DOCUSEAL_API_KEY);
+}
+function apiBase() {
+  return env.DOCUSEAL_API_URL.replace(/\/+$/, "");
+}
+function appBase() {
+  return env.DOCUSEAL_URL.replace(/\/+$/, "");
+}
+async function docusealFetch(path, init) {
+  if (!isDocusealConfigured()) {
+    throw Errors.badRequest("DocuSeal no est\xE1 configurado (falta DOCUSEAL_API_KEY)");
+  }
+  const res = await fetch(`${apiBase()}${path}`, {
+    ...init,
+    headers: {
+      "X-Auth-Token": env.DOCUSEAL_API_KEY,
+      "Content-Type": "application/json",
+      ...init?.headers ?? {}
+    }
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    console.error("[docuseal] Error de la API", { path, status: res.status, detail: detail.slice(0, 500) });
+    throw Errors.internal(`DocuSeal respondi\xF3 ${res.status}`);
+  }
+  return await res.json();
+}
+async function createSubmission(templateId, submitters) {
+  return docusealFetch("/submissions", {
+    method: "POST",
+    body: JSON.stringify({
+      template_id: templateId,
+      send_email: false,
+      submitters
+    })
+  });
+}
+async function fetchSubmissionDocuments(submissionId) {
+  const detail = await docusealFetch(`/submissions/${submissionId}/documents`);
+  return detail.documents ?? [];
+}
+function signingUrl(submitterSlug) {
+  return `${appBase()}/s/${submitterSlug}`;
+}
+
+// src/modules/documents/emails/signature-request.ts
+function signatureRequestSubject(documentName) {
+  return `Para tu firma: ${documentName}`;
+}
+function signatureRequestHtml(p) {
+  const saludo = p.firstName ? `Hola ${escHtml(p.firstName)},` : "Hola,";
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documento para firmar</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f5f5f4;">
+  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #1c1917; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
+
+    <p style="margin: 0 0 4px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716c;">Documento para firmar</p>
+    <h1 style="margin: 0 0 20px; font-size: 22px; line-height: 1.3; font-weight: 600;">${escHtml(p.documentName)}</h1>
+
+    <p style="font-size: 15px; line-height: 1.6;">${saludo}</p>
+    <p style="font-size: 15px; line-height: 1.6;">
+      Te dejamos el documento listo para que lo revises y lo firmes. Se firma
+      online, desde el navegador \u2014 no hace falta imprimir ni escanear nada.
+    </p>
+
+    <p style="margin: 28px 0;">
+      <a href="${escAttr(p.signingUrl)}"
+         style="display: inline-block; padding: 14px 28px; background: #0c0a09; color: #fafaf9; border-radius: 999px; text-decoration: none; font-size: 15px; font-weight: 600;">
+        Revisar y firmar
+      </a>
+    </p>
+
+    <p style="font-size: 15px; line-height: 1.6;">
+      Si algo del documento no te cierra, respond\xE9 este email antes de firmar y
+      lo vemos.
+    </p>
+
+    <hr style="margin: 32px 0 16px; border: none; border-top: 1px solid #e7e5e4;" />
+    <p style="font-size: 12px; color: #78716c; line-height: 1.5;">
+      Este link es personal: es tu enlace de firma, no lo compartas.
+    </p>
+  </div>
+</body>
+</html>`;
+}
+
+// src/modules/documents/docuseal.service.ts
+var ENTITY6 = "document";
+async function sendForSignature(portalId, dealId, userId, input) {
+  if (!isDocusealConfigured()) {
+    throw Errors.badRequest("DocuSeal no est\xE1 configurado (falta DOCUSEAL_API_KEY)");
+  }
+  const [d] = await db.select({ id: deal.id, name: deal.name, primaryContactId: deal.primaryContactId }).from(deal).where(and32(eq37(deal.id, dealId), eq37(deal.portalId, portalId), eq37(deal.archived, false))).limit(1);
+  if (!d) throw Errors.notFound("Deal no encontrado");
+  if (!d.primaryContactId) throw Errors.badRequest("El deal no tiene contacto principal a qui\xE9n enviarle el documento");
+  const [c] = await db.select({ email: contact.email, firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq37(contact.id, d.primaryContactId)).limit(1);
+  if (!c?.email) throw Errors.badRequest("El contacto principal no tiene email");
+  const fullName = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || void 0;
+  const submitters = await createSubmission(input.templateId, [{ email: c.email, name: fullName }]);
+  const first = submitters[0];
+  if (!first) throw Errors.internal("DocuSeal no devolvi\xF3 ning\xFAn submitter");
+  const name = input.name ?? (input.documentType === "contract" ? `Contrato \u2014 ${d.name}` : `Propuesta \u2014 ${d.name}`);
+  const [row] = await db.insert(document).values({
+    portalId,
+    dealId,
+    name,
+    type: input.documentType,
+    source: "docuseal",
+    docusealSubmissionId: first.submission_id,
+    docusealTemplateId: input.templateId,
+    docusealStatus: "pending",
+    // `slug` del submitter: es lo que identifica al firmante en el webhook.
+    docusealExternalId: first.slug,
+    createdBy: userId
+  }).returning();
+  if (!row) throw Errors.internal("No se pudo crear el documento");
+  const url = signingUrl(first.slug);
+  try {
+    await sendEmail({
+      to: c.email,
+      subject: signatureRequestSubject(name),
+      html: signatureRequestHtml({ firstName: c.firstName, documentName: name, signingUrl: url })
+    });
+  } catch (err) {
+    console.error("[docuseal.service] No se pudo enviar el email de firma", {
+      documentId: row.id,
+      error: err?.message ?? err
+    });
+  }
+  return { documentId: row.id, submissionId: first.submission_id, signingUrl: url };
+}
+async function getSignedDocuments(portalId, documentId) {
+  const [row] = await db.select({ submissionId: document.docusealSubmissionId, status: document.docusealStatus }).from(document).where(and32(eq37(document.id, documentId), eq37(document.portalId, portalId))).limit(1);
+  if (!row) throw Errors.notFound("Documento no encontrado");
+  if (!row.submissionId) throw Errors.badRequest("El documento no tiene una submission de DocuSeal asociada");
+  if (row.status !== "completed") throw Errors.badRequest("El documento todav\xEDa no est\xE1 firmado");
+  return fetchSubmissionDocuments(row.submissionId);
+}
+var HANDLED_EVENTS = /* @__PURE__ */ new Set(["form.completed", "form.declined"]);
+async function handleDocusealWebhook(payload) {
+  const eventType = payload.event_type;
+  if (!eventType || !HANDLED_EVENTS.has(eventType)) return;
+  const slug = payload.data?.slug;
+  if (!slug) {
+    console.error("[docuseal] Evento sin slug de submitter \u2014 no se puede resolver el documento", { eventType });
+    return;
+  }
+  const [row] = await db.select({
+    id: document.id,
+    portalId: document.portalId,
+    dealId: document.dealId,
+    type: document.type,
+    status: document.docusealStatus
+  }).from(document).where(eq37(document.docusealExternalId, slug)).limit(1);
+  if (!row) {
+    console.error("[docuseal] No hay documento para el slug recibido", { slug, eventType });
+    return;
+  }
+  const newStatus = eventType === "form.completed" ? "completed" : "declined";
+  if (row.status === newStatus) return;
+  const shouldActivate = newStatus === "completed" && row.type === "contract" && Boolean(row.dealId);
+  const welcome = await db.transaction(async (tx) => {
+    await tx.update(document).set({
+      docusealStatus: newStatus,
+      signedAt: newStatus === "completed" ? /* @__PURE__ */ new Date() : null
+    }).where(eq37(document.id, row.id));
+    await recordFieldChanges({
+      tx,
+      portalId: row.portalId,
+      entityType: ENTITY6,
+      entityId: row.id,
+      before: { docusealStatus: row.status },
+      after: { docusealStatus: newStatus },
+      // El cambio lo origina DocuSeal, no un hub_user: `changed_by` va null.
+      changedBy: null,
+      sourceType: "DOCUSEAL"
+    });
+    return shouldActivate ? activateClientPortal(tx, row.portalId, row.dealId) : null;
+  });
+  if (welcome) await sendPortalWelcome(welcome);
 }
 
 // src/modules/webhooks/webhooks.router.ts
@@ -8921,6 +9430,26 @@ async function webhooksRoutes(app2) {
       }
     },
     fathomHandler
+  );
+  async function docusealHandler(request, reply) {
+    const token = request.headers["x-docuseal-signature"] ?? request.headers["x-webhook-secret"];
+    if (!verifyDocusealToken(token)) {
+      await reply.code(401).send();
+      return;
+    }
+    await handleDocusealWebhook(request.body);
+    await reply.code(200).send({ ok: true });
+  }
+  app2.post(
+    "/docuseal",
+    {
+      schema: {
+        tags: ["Webhooks"],
+        summary: "Webhook de DocuSeal",
+        description: "Recibe eventos de firma (form.completed / form.declined). Protegido por token fijo en el header X-Docuseal-Signature comparado contra DOCUSEAL_WEBHOOK_SECRET. Responde 401 sin detalle si no valida. Al completarse un CONTRATO, activa el Client Portal."
+      }
+    },
+    docusealHandler
   );
 }
 
@@ -8981,10 +9510,22 @@ var CreateDocumentSchema = z30.object({
   crId: z30.string().min(1).optional(),
   name: z30.string().min(1, "El nombre es requerido"),
   type: DocumentTypeEnum,
-  storageKey: z30.string().min(1).optional()
+  storageKey: z30.string().min(1).optional(),
+  /**
+   * ¿Se muestra en el Portal del cliente? Default true, para no cambiar lo que
+   * los clientes ya veían (contratos, propuestas, facturas). Se manda false
+   * para documentos internos del proceso de entrega.
+   */
+  visibleToClient: z30.boolean().optional()
 });
 var ListDocumentsQuerySchema = z30.object({
   dealId: z30.string().min(1).optional()
+});
+var SendForSignatureSchema = z30.object({
+  /** ID numérico del template en DocuSeal. */
+  templateId: z30.number().int().positive(),
+  documentType: z30.enum(["contract", "proposal"]),
+  name: z30.string().min(1).max(200).optional()
 });
 
 // src/modules/documents/documents.router.ts
@@ -9043,6 +9584,41 @@ async function documentsRoutes(app2) {
       return reply.status(204).send();
     }
   );
+  r.post(
+    "/deals/:id/send-for-signature",
+    {
+      schema: {
+        tags: [TAG28],
+        summary: "Enviar un documento a firmar (DocuSeal)",
+        description: "Crea una submission en DocuSeal para el contacto principal del deal, deja el documento en estado `pending` y le manda el pedido de firma por email con la marca de la agencia. Devuelve la URL de firma.",
+        security: security27,
+        params: IdParamSchema,
+        body: SendForSignatureSchema
+      }
+    },
+    async (request, reply) => {
+      const result = await sendForSignature(
+        request.hubUser.portalId,
+        request.params.id,
+        request.hubUser.sub,
+        request.body
+      );
+      return reply.status(201).send(ok(result));
+    }
+  );
+  r.get(
+    "/:id/signed-documents",
+    {
+      schema: {
+        tags: [TAG28],
+        summary: "URLs del documento firmado (ef\xEDmeras)",
+        description: "Pide a DocuSeal las URLs del PDF firmado EN EL MOMENTO. Caducan a los 40 minutos, por eso no se guardan en la base: hay que pedirlas cada vez que se necesitan.",
+        security: security27,
+        params: IdParamSchema
+      }
+    },
+    async (request) => ok(await getSignedDocuments(request.hubUser.portalId, request.params.id))
+  );
 }
 
 // src/modules/proposals/proposals.schema.ts
@@ -9095,68 +9671,7 @@ var ProposalTokenParamSchema = z31.object({
 });
 
 // src/modules/proposals/proposals.service.ts
-import { and as and31, desc as desc19, eq as eq36 } from "drizzle-orm";
-
-// src/lib/ai/gemini.ts
-import { GoogleGenAI, ThinkingLevel } from "@google/genai";
-var client = null;
-function getClient() {
-  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    throw new Error("Gemini no configurado (GOOGLE_SERVICE_ACCOUNT_JSON)");
-  }
-  if (client) return client;
-  const credentials = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  if (!credentials.project_id) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON sin project_id");
-  client = new GoogleGenAI({
-    vertexai: true,
-    project: credentials.project_id,
-    location: env.VERTEX_LOCATION,
-    googleAuthOptions: { credentials }
-  });
-  return client;
-}
-var geminiGenerate = async (req) => {
-  const ai = getClient();
-  const res = await ai.models.generateContent({
-    model: env.VERTEX_MODEL,
-    contents: [{ role: "user", parts: [{ text: req.prompt }] }],
-    config: {
-      systemInstruction: req.systemInstruction,
-      temperature: req.temperature,
-      maxOutputTokens: req.maxOutputTokens,
-      // Generar una propuesta o una próxima acción es redacción con formato
-      // fijo, no razonamiento profundo: thinking bajo = más rápido y barato.
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
-    }
-  });
-  return { text: res.text ?? "" };
-};
-
-// src/lib/ai/claude.ts
-import Anthropic from "@anthropic-ai/sdk";
-var client2 = null;
-function getClient2() {
-  if (!env.ANTHROPIC_API_KEY) throw new Error("Claude no configurado (ANTHROPIC_API_KEY)");
-  if (!client2) client2 = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  return client2;
-}
-var claudeGenerate = async (req) => {
-  const ai = getClient2();
-  const res = await ai.messages.create({
-    model: env.ANTHROPIC_MODEL,
-    max_tokens: req.maxOutputTokens,
-    temperature: req.temperature,
-    system: req.systemInstruction,
-    messages: [{ role: "user", content: req.prompt }]
-  });
-  const text30 = res.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  return { text: text30 };
-};
-
-// src/lib/ai/index.ts
-function getProvider(provider) {
-  return provider === "claude" ? claudeGenerate : geminiGenerate;
-}
+import { and as and33, desc as desc20, eq as eq38 } from "drizzle-orm";
 
 // src/modules/proposals/proposals.ai.ts
 var PROJECT_TYPE_LABEL = {
@@ -9184,7 +9699,7 @@ var PRIORITY_LABEL = {
   calidad: "la calidad",
   escalabilidad: "la escalabilidad"
 };
-var SYSTEM_INSTRUCTION = `Sos el redactor comercial de NOUS, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escrib\xEDs propuestas claras, concretas y profesionales, en espa\xF1ol rioplatense (voseo), sin relleno ni buzzwords vac\xEDos. Habl\xE1s de valor de negocio, no de tecnolog\xEDa por la tecnolog\xEDa. Sos honesto y espec\xEDfico: nada de promesas gen\xE9ricas.
+var SYSTEM_INSTRUCTION2 = `Sos el redactor comercial de NOUS, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escrib\xEDs propuestas claras, concretas y profesionales, en espa\xF1ol rioplatense (voseo), sin relleno ni buzzwords vac\xEDos. Habl\xE1s de valor de negocio, no de tecnolog\xEDa por la tecnolog\xEDa. Sos honesto y espec\xEDfico: nada de promesas gen\xE9ricas.
 
 Devolv\xE9s SIEMPRE y \xDANICAMENTE un objeto JSON v\xE1lido (sin markdown, sin texto fuera del JSON) con esta forma exacta:
 {
@@ -9208,7 +9723,7 @@ Devolv\xE9s SIEMPRE y \xDANICAMENTE un objeto JSON v\xE1lido (sin markdown, sin 
   "nextSteps": string,        // cierre / pr\xF3ximos pasos
   "terms": string             // t\xE9rminos breves (validez, revisiones, etc.)
 }`;
-function buildPrompt(input) {
+function buildPrompt2(input) {
   const lines = [];
   lines.push(`Cliente: ${input.contactName}${input.companyName ? ` (${input.companyName})` : ""}`);
   if (input.projectType) lines.push(`Tipo de proyecto: ${PROJECT_TYPE_LABEL[input.projectType] ?? input.projectType}`);
@@ -9243,8 +9758,8 @@ function safeJsonParse(text30) {
 async function generateProposalContent(input, provider = "gemini") {
   const generate = getProvider(provider);
   const result = await generate({
-    systemInstruction: SYSTEM_INSTRUCTION,
-    prompt: buildPrompt(input),
+    systemInstruction: SYSTEM_INSTRUCTION2,
+    prompt: buildPrompt2(input),
     temperature: 0.8,
     maxOutputTokens: 8192
   });
@@ -9366,9 +9881,9 @@ function buildProposalPdf(content) {
   }
   if (content.scope.length) {
     heading("Alcance");
-    for (const s of content.scope) {
-      doc.font("Helvetica-Bold").fontSize(11.5).fillColor(INK).text(s.title, { width });
-      doc.font("Helvetica").fontSize(10.5).fillColor(MUTED).text(s.description, { width, lineGap: 2 });
+    for (const s2 of content.scope) {
+      doc.font("Helvetica-Bold").fontSize(11.5).fillColor(INK).text(s2.title, { width });
+      doc.font("Helvetica").fontSize(10.5).fillColor(MUTED).text(s2.description, { width, lineGap: 2 });
       doc.moveDown(0.5);
     }
   }
@@ -9431,7 +9946,7 @@ function publicUrl(token) {
   const base = env.ADMIN_URL ?? "http://localhost:3000";
   return `${base}/p/${token}`;
 }
-function getModelProvider() {
+function getModelProvider2() {
   return env.MODEL_PROVIDER;
 }
 function toDTO2(row) {
@@ -9460,19 +9975,19 @@ async function generateProposal(portalId, dealId, actorId) {
     id: deal.id,
     primaryContactId: deal.primaryContactId,
     companyId: deal.companyId
-  }).from(deal).where(and31(eq36(deal.id, dealId), eq36(deal.portalId, portalId), eq36(deal.archived, false))).limit(1);
+  }).from(deal).where(and33(eq38(deal.id, dealId), eq38(deal.portalId, portalId), eq38(deal.archived, false))).limit(1);
   if (!d) throw Errors.notFound("Deal no encontrado");
   let contactName = "Cliente";
   if (d.primaryContactId) {
-    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq36(contact.id, d.primaryContactId)).limit(1);
+    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq38(contact.id, d.primaryContactId)).limit(1);
     if (c) contactName = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || contactName;
   }
   let companyName;
   if (d.companyId) {
-    const [co] = await db.select({ name: company.name }).from(company).where(eq36(company.id, d.companyId)).limit(1);
+    const [co] = await db.select({ name: company.name }).from(company).where(eq38(company.id, d.companyId)).limit(1);
     companyName = co?.name;
   }
-  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and31(eq36(onboardingSubmission.portalId, portalId), eq36(onboardingSubmission.dealId, dealId))).orderBy(desc19(onboardingSubmission.createdAt)).limit(1);
+  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and33(eq38(onboardingSubmission.portalId, portalId), eq38(onboardingSubmission.dealId, dealId))).orderBy(desc20(onboardingSubmission.createdAt)).limit(1);
   const a = sub?.answers ?? {};
   const input = {
     contactName,
@@ -9488,7 +10003,7 @@ async function generateProposal(portalId, dealId, actorId) {
     toAutomate: str(a.toAutomate),
     priority: str(a.priority)
   };
-  const provider = getModelProvider();
+  const provider = getModelProvider2();
   let content;
   let model;
   try {
@@ -9528,11 +10043,11 @@ async function generateProposal(portalId, dealId, actorId) {
   return toDTO2(row);
 }
 async function listProposals(portalId) {
-  const rows = await db.select().from(proposal).where(eq36(proposal.portalId, portalId)).orderBy(desc19(proposal.createdAt)).limit(500);
+  const rows = await db.select().from(proposal).where(eq38(proposal.portalId, portalId)).orderBy(desc20(proposal.createdAt)).limit(500);
   return rows.map(toDTO2);
 }
 async function getProposal(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and33(eq38(proposal.id, id), eq38(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
@@ -9545,12 +10060,12 @@ async function updateProposal(portalId, id, input) {
     patch.currency = input.content.pricing.currency || "USD";
   }
   if (Object.keys(patch).length === 0) return getProposal(portalId, id);
-  const [row] = await db.update(proposal).set(patch).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set(patch).where(and33(eq38(proposal.id, id), eq38(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
 async function acceptProposal(portalId, id, actorId) {
-  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and33(eq38(proposal.id, id), eq38(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   const who = await actorName(portalId, actorId);
   await notifyAdmins(
@@ -9568,26 +10083,26 @@ async function acceptProposal(portalId, id, actorId) {
   return toDTO2(row);
 }
 async function markProposalSent(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and33(eq38(proposal.id, id), eq38(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   if (!row.sentAt) {
-    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and31(eq36(proposal.id, id), eq36(proposal.portalId, portalId))).returning();
+    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and33(eq38(proposal.id, id), eq38(proposal.portalId, portalId))).returning();
     if (updated) return toDTO2(updated);
   }
   return toDTO2(row);
 }
 async function markProposalCompleted(token) {
-  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq36(proposal.token, token)).limit(1);
+  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq38(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") return;
   if (!row.completedAt) {
-    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq36(proposal.id, row.id));
+    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq38(proposal.id, row.id));
   }
 }
 async function getPublicProposal(token) {
-  const [row] = await db.select().from(proposal).where(eq36(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq38(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   if (!row.viewedAt) {
-    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq36(proposal.id, row.id));
+    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq38(proposal.id, row.id));
     const cliente = row.content.companyName || row.content.clientName;
     await notifyAdmins(row.portalId, {
       entityType: "proposal",
@@ -9605,11 +10120,11 @@ async function getPublicProposal(token) {
     updatedAt: row.updatedAt.toISOString()
   };
 }
-function slugify3(s) {
-  return s.normalize("NFD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "propuesta";
+function slugify3(s2) {
+  return s2.normalize("NFD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "propuesta";
 }
 async function getPublicProposalPdf(token) {
-  const [row] = await db.select().from(proposal).where(eq36(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq38(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   const buffer = await buildProposalPdf(row.content);
   return { filename: `${slugify3(row.title)}.pdf`, buffer };
@@ -9755,7 +10270,7 @@ var SlugParamSchema = z32.object({
 });
 
 // src/modules/branding/branding.service.ts
-import { and as and32, asc as asc13, eq as eq37 } from "drizzle-orm";
+import { and as and34, asc as asc13, eq as eq39 } from "drizzle-orm";
 function logoUrl(key) {
   return key ? `${env.PUBLIC_API_URL}/api/files/${key}` : null;
 }
@@ -9774,7 +10289,7 @@ async function getBrandingBySlug(slug) {
     brandLogoKey: clientAccount.brandLogoKey,
     brandPrimary: clientAccount.brandPrimary,
     brandSecondary: clientAccount.brandSecondary
-  }).from(clientAccount).where(eq37(clientAccount.brandSlug, slug)).limit(1);
+  }).from(clientAccount).where(eq39(clientAccount.brandSlug, slug)).limit(1);
   if (!row) return null;
   return {
     brandName: row.brandName,
@@ -9784,7 +10299,7 @@ async function getBrandingBySlug(slug) {
   };
 }
 async function listClientBranding(portalId) {
-  const rows = await db.select(brandingCols).from(clientAccount).where(eq37(clientAccount.portalId, portalId)).orderBy(asc13(clientAccount.email));
+  const rows = await db.select(brandingCols).from(clientAccount).where(eq39(clientAccount.portalId, portalId)).orderBy(asc13(clientAccount.email));
   return rows.map((r) => ({
     id: r.id,
     email: r.email,
@@ -9797,7 +10312,7 @@ async function listClientBranding(portalId) {
   }));
 }
 async function updateClientBranding(portalId, accountId, input) {
-  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and32(eq37(clientAccount.id, accountId), eq37(clientAccount.portalId, portalId))).limit(1);
+  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and34(eq39(clientAccount.id, accountId), eq39(clientAccount.portalId, portalId))).limit(1);
   if (!exists) throw Errors.notFound("Cuenta de cliente no encontrada");
   let row;
   try {
@@ -9808,7 +10323,7 @@ async function updateClientBranding(portalId, accountId, input) {
       brandLogoKey: input.brandLogoKey ?? null,
       brandPrimary: input.brandPrimary ?? null,
       brandSecondary: input.brandSecondary ?? null
-    }).where(eq37(clientAccount.id, accountId)).returning(brandingCols);
+    }).where(eq39(clientAccount.id, accountId)).returning(brandingCols);
   } catch {
     throw new AppError("SLUG_TAKEN", "Ese slug ya est\xE1 en uso por otro cliente", 409);
   }
@@ -9825,7 +10340,7 @@ async function updateClientBranding(portalId, accountId, input) {
   };
 }
 async function getOwnBranding(clientId) {
-  const [row] = await db.select(brandingCols).from(clientAccount).where(eq37(clientAccount.id, clientId)).limit(1);
+  const [row] = await db.select(brandingCols).from(clientAccount).where(eq39(clientAccount.id, clientId)).limit(1);
   if (!row) throw Errors.notFound("Cuenta no encontrada");
   return {
     id: row.id,
@@ -9844,7 +10359,7 @@ async function updateOwnBranding(clientId, input) {
     brandLogoKey: input.brandLogoKey ?? null,
     brandPrimary: input.brandPrimary ?? null,
     brandSecondary: input.brandSecondary ?? null
-  }).where(eq37(clientAccount.id, clientId)).returning(brandingCols);
+  }).where(eq39(clientAccount.id, clientId)).returning(brandingCols);
   if (!row) throw Errors.notFound("Cuenta no encontrada");
   return {
     id: row.id,
@@ -9920,7 +10435,7 @@ async function brandingClientRoutes(app2) {
 }
 
 // src/modules/onboarding/onboarding.service.ts
-import { and as and33, desc as desc20, eq as eq38, inArray as inArray15, isNull as isNull4, sql as sql30 } from "drizzle-orm";
+import { and as and35, desc as desc21, eq as eq40, inArray as inArray15, isNull as isNull4, sql as sql30 } from "drizzle-orm";
 
 // src/modules/onboarding/onboarding.schema.ts
 import { z as z33 } from "zod";
@@ -9945,12 +10460,12 @@ var DELIVERY_CHANNELS = [
   "kajabi",
   "otro"
 ];
-var stripControl = (s) => s.split("").filter((c) => {
+var stripControl = (s2) => s2.split("").filter((c) => {
   const code = c.charCodeAt(0);
   return code > 31 && code !== 127;
 }).join("");
-var freeText = (max) => z33.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).pipe(z33.string().min(1, "Requerido"));
-var freeTextOptional = (max) => z33.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).optional();
+var freeText = (max) => z33.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).pipe(z33.string().min(1, "Requerido"));
+var freeTextOptional = (max) => z33.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).optional();
 var OnboardingBriefSchema = z33.object({
   businessProgram: freeText(2e3),
   // q1
@@ -10019,16 +10534,16 @@ var CATEGORY_TO_ASSET_TYPE = {
   toolAccess: "acceso"
 };
 async function resolveActiveDeal(clientId) {
-  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq38(deal.id, clientDealAccess.dealId)).where(and33(eq38(clientDealAccess.clientId, clientId), eq38(deal.archived, false))).orderBy(desc20(deal.createdAt)).limit(1);
+  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq40(deal.id, clientDealAccess.dealId)).where(and35(eq40(clientDealAccess.clientId, clientId), eq40(deal.archived, false))).orderBy(desc21(deal.createdAt)).limit(1);
   if (!row) throw Errors.notFound("No hay un proyecto activo asociado a esta cuenta");
   return row;
 }
 async function getOrCreateOnboarding(dbOrTx, portalId, dealId, clientId) {
-  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq38(clientOnboarding.dealId, dealId)).limit(1);
+  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq40(clientOnboarding.dealId, dealId)).limit(1);
   if (existing) return existing;
   const [created] = await dbOrTx.insert(clientOnboarding).values({ portalId, dealId, clientId }).onConflictDoNothing({ target: clientOnboarding.dealId }).returning();
   if (created) return created;
-  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq38(clientOnboarding.dealId, dealId)).limit(1);
+  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq40(clientOnboarding.dealId, dealId)).limit(1);
   if (!row) throw Errors.internal("No se pudo crear el onboarding");
   return row;
 }
@@ -10039,7 +10554,7 @@ async function getOnboardingState(clientId) {
   const activeDeal = await resolveActiveDeal(clientId);
   const [onboarding, assets] = await Promise.all([
     getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId),
-    db.select().from(clientAsset).where(and33(eq38(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc20(clientAsset.uploadedAt))
+    db.select().from(clientAsset).where(and35(eq40(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
   ]);
   return { onboarding, assets };
 }
@@ -10052,7 +10567,7 @@ async function markStepProgress(clientId, step) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, Math.min(step + 1, 8)),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq38(clientOnboarding.id, row.id)).returning();
+  }).where(eq40(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo actualizar el progreso");
   return updated;
 }
@@ -10069,7 +10584,7 @@ async function submitSignature(clientId, fullName, ip) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 6),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq38(clientOnboarding.id, row.id)).returning();
+  }).where(eq40(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar la firma");
   return updated;
 }
@@ -10083,7 +10598,7 @@ async function submitBrief(clientId, answers) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 7),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq38(clientOnboarding.id, row.id)).returning();
+  }).where(eq40(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar el brief");
   return updated;
 }
@@ -10110,7 +10625,7 @@ async function submitMaterials(clientId, materials) {
   assertNotCompleted(row);
   const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? []);
   if (allAssetIds.length > 0) {
-    const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and33(eq38(clientAsset.dealId, activeDeal.id), inArray15(clientAsset.id, allAssetIds)));
+    const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and35(eq40(clientAsset.dealId, activeDeal.id), inArray15(clientAsset.id, allAssetIds)));
     const ownedSet = new Set(owned.map((o) => o.id));
     const invalid = allAssetIds.filter((id) => !ownedSet.has(id));
     if (invalid.length > 0) {
@@ -10123,7 +10638,7 @@ async function submitMaterials(clientId, materials) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 8),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq38(clientOnboarding.id, row.id)).returning();
+  }).where(eq40(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar los materiales");
   return updated;
 }
@@ -10141,7 +10656,7 @@ async function completeOnboarding(clientAccount2) {
       throw Errors.badRequest(`Faltan completar pasos previos: ${missing.join(", ")}`, { missing });
     }
     const stepsCompleted = { ...row.stepsCompleted, "8": (/* @__PURE__ */ new Date()).toISOString() };
-    const [updatedOnboarding] = await tx.update(clientOnboarding).set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: /* @__PURE__ */ new Date(), stepsCompleted, currentStep: 8, updatedAt: /* @__PURE__ */ new Date() }).where(and33(eq38(clientOnboarding.id, row.id), eq38(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
+    const [updatedOnboarding] = await tx.update(clientOnboarding).set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: /* @__PURE__ */ new Date(), stepsCompleted, currentStep: 8, updatedAt: /* @__PURE__ */ new Date() }).where(and35(eq40(clientOnboarding.id, row.id), eq40(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
     if (!updatedOnboarding) {
       throw Errors.conflict("El onboarding ya est\xE1 completo");
     }
@@ -10174,13 +10689,13 @@ function toAdminListItem(onboarding, dealName, clientEmail) {
   };
 }
 async function listOnboardings(portalId) {
-  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and33(eq38(deal.id, clientOnboarding.dealId), eq38(deal.archived, false))).innerJoin(clientAccount, eq38(clientAccount.id, clientOnboarding.clientId)).where(eq38(clientOnboarding.portalId, portalId)).orderBy(sql30`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc20(clientOnboarding.updatedAt));
+  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and35(eq40(deal.id, clientOnboarding.dealId), eq40(deal.archived, false))).innerJoin(clientAccount, eq40(clientAccount.id, clientOnboarding.clientId)).where(eq40(clientOnboarding.portalId, portalId)).orderBy(sql30`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc21(clientOnboarding.updatedAt));
   return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail));
 }
 async function getOnboardingByDeal(portalId, dealId) {
   const [[row], assets] = await Promise.all([
-    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq38(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq38(clientAccount.id, clientOnboarding.clientId)).where(and33(eq38(clientOnboarding.portalId, portalId), eq38(clientOnboarding.dealId, dealId))).limit(1),
-    db.select().from(clientAsset).where(and33(eq38(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc20(clientAsset.uploadedAt))
+    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq40(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq40(clientAccount.id, clientOnboarding.clientId)).where(and35(eq40(clientOnboarding.portalId, portalId), eq40(clientOnboarding.dealId, dealId))).limit(1),
+    db.select().from(clientAsset).where(and35(eq40(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
   ]);
   if (!row) throw Errors.notFound("Onboarding no encontrado para este deal");
   return { onboarding: row.onboarding, assets, dealName: row.dealName, clientEmail: row.clientEmail };

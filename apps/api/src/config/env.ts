@@ -51,6 +51,20 @@ const envSchema = z.object({
   // ── Google service account (auth de Vertex/Gemini) ────────
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().default(''),
 
+  // ── DocuSeal (firma de contratos y propuestas) ────────────
+  // Sin DOCUSEAL_API_KEY la integración queda inactiva: los endpoints responden
+  // 503 en vez de fallar de forma rara. El webhook rechaza todo si falta el
+  // secret (no se procesa nada sin poder verificar el origen).
+  // OJO: son DOS bases distintas y confundirlas manda al cliente a un link roto.
+  //  - DOCUSEAL_URL     → app pública, de donde sale el link de firma (/s/<slug>)
+  //  - DOCUSEAL_API_URL → API REST
+  // En cloud son hosts distintos (docuseal.com vs api.docuseal.com); en
+  // self-hosted es el mismo host y la API cuelga de /api.
+  DOCUSEAL_URL: z.string().url().default('https://docuseal.com'),
+  DOCUSEAL_API_URL: z.string().url().default('https://api.docuseal.com'),
+  DOCUSEAL_API_KEY: z.string().default(''),
+  DOCUSEAL_WEBHOOK_SECRET: z.string().default(''),
+
   // ── Onboarding post-venta: asignación automática de responsable por fase del
   // pipeline "Producción" (ver modules/onboarding/assignees.ts). Opcionales con
   // default — si el hub_user no existe (email no seedeado), el helper devuelve

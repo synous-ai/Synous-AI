@@ -52,6 +52,27 @@ export function verifyFathomSignature(
   }
 }
 
+// ── DocuSeal ──────────────────────────────────────────────────────────────────
+
+/**
+ * Valida el token del webhook de DocuSeal.
+ *
+ * A diferencia de Fathom, DocuSeal NO firma el payload: manda un valor fijo en
+ * un header. Igual se compara con `timingSafeEqual` — es un secreto compartido y
+ * una comparación con `===` filtra información por tiempo.
+ *
+ * Si el secret no está configurado devuelve SIEMPRE false: sin poder verificar
+ * el origen no se procesa nada, porque este endpoint activa portales de cliente.
+ */
+export function verifyDocusealToken(token: string | undefined): boolean {
+  if (!env.DOCUSEAL_WEBHOOK_SECRET || !token) return false
+
+  const expected = Buffer.from(env.DOCUSEAL_WEBHOOK_SECRET, 'utf8')
+  const received = Buffer.from(token, 'utf8')
+  if (expected.length !== received.length) return false
+  return timingSafeEqual(expected, received)
+}
+
 // ── Fathom payload type ───────────────────────────────────────────────────────
 
 export interface FathomParticipant {
