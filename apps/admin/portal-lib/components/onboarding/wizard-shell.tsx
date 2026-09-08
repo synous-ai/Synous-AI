@@ -33,42 +33,37 @@ export const stepVariants: Variants = {
   exit: (dir: number) => ({ opacity: 0, x: dir >= 0 ? -24 : 24 }),
 }
 
-// ─── Top bar: marca a la izquierda, parte + contador mono a la derecha, ─────
-// ─── línea de progreso fina (2px) debajo ─────────────────────────────────────
+// ─── Barra de progreso: única señal de avance que queda fuera del contenido ──
+// La marca y el label de parte vivían acá y se quitaron; el paso ya se indica
+// dentro de la tarjeta como "Paso N de 8".
 
-function WizardTopBar({ step }: { step: number }) {
+function WizardProgress({ step }: { step: number }) {
   const pct = Math.max(4, Math.round((step / TOTAL_STEPS) * 100))
-  const partLabel = step <= 4 ? 'Parte 1 · Orientación' : 'Parte 2 · Acción'
-
   return (
-    <div>
-      <div className="relative flex items-center justify-between gap-4">
-        {/* Decorative light sweep behind the brand mark. */}
-        <span aria-hidden className="brand-sweep" />
-        <span className="font-editorial relative z-10 text-2xl tracking-wide text-foreground">Synous</span>
-        {/* The numeric counter lives inside the card ("Paso N de 8"); here we
-            only keep the part label so the bar does not repeat it. */}
-        <span className="relative z-10 hidden text-[11px] uppercase tracking-[0.18em] text-muted-foreground sm:inline">
-          {partLabel}
-        </span>
-      </div>
-      <div className="mt-4 h-[2px] w-full overflow-hidden rounded-full bg-white/10">
-        <div
-          className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+    <div
+      role="progressbar"
+      aria-valuenow={step}
+      aria-valuemin={1}
+      aria-valuemax={TOTAL_STEPS}
+      aria-label={`Paso ${step} de ${TOTAL_STEPS}`}
+      className="h-[2px] w-full overflow-hidden rounded-full bg-white/10"
+    >
+      <div
+        className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+        style={{ width: `${pct}%` }}
+      />
     </div>
   )
 }
 
-// ─── Badge pill centrado bajo la top bar ─────────────────────────────────────
+// ─── Badge pill centrado, dentro del marco ───────────────────────────────────
 
 function OnboardingBadge() {
   return (
-    <div className="mt-8 flex justify-center">
+    <div className="mb-[35px] flex justify-center">
       <span className="glass-badge inline-flex items-center gap-2 px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/80">
-        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+        {/* El pulso vive en el punto, no en el borde de la pastilla. */}
+        <span aria-hidden className="badge-pulse-dot" />
         Onboarding
       </span>
     </div>
@@ -103,7 +98,7 @@ export function StepHeader({
         <span aria-hidden className="blueprint-dot blueprint-dot-tr" />
         <span aria-hidden className="blueprint-dot blueprint-dot-bl" />
         <span aria-hidden className="blueprint-dot blueprint-dot-br" />
-        <h2 className="font-editorial max-w-3xl text-[2.5rem] leading-[1.1] tracking-tight text-foreground sm:text-[3.25rem]">
+        <h2 className="font-editorial max-w-4xl text-[3rem] leading-[1.05] tracking-tight text-foreground sm:text-[4rem]">
           {title}
         </h2>
       </div>
@@ -180,17 +175,11 @@ export function WizardFrame({
     <div className="blueprint-canvas -mx-4 -my-8 min-h-[calc(100vh-4rem)] px-4 py-10 sm:-mx-6 sm:px-6 sm:py-14">
       {/* Same 1140px rail as the header, so the frame lines up with the shell. */}
       <div className="relative z-10 mx-auto w-full max-w-[1140px]">
-        {typeof step === 'number' && (
-          <>
-            <WizardTopBar step={step} />
-            <OnboardingBadge />
-          </>
-        )}
-
         {/* Technical frame: vertical rails (::before), glow (::after), corner
             crosses and vertex dots. No radius — the square framing is part of
-            the blueprint language. */}
-        <div className="blueprint-frame mt-8 p-8 sm:p-14">
+            the blueprint language. Badge, progress bar and step navigation all
+            live inside it, so nothing floats outside the box. */}
+        <div className="blueprint-frame p-8 sm:p-14">
           <span aria-hidden className="blueprint-corner blueprint-corner-tl" />
           <span aria-hidden className="blueprint-corner blueprint-corner-tr" />
           <span aria-hidden className="blueprint-corner blueprint-corner-bl" />
@@ -199,7 +188,17 @@ export function WizardFrame({
           <span aria-hidden className="blueprint-dot blueprint-dot-tr" />
           <span aria-hidden className="blueprint-dot blueprint-dot-bl" />
           <span aria-hidden className="blueprint-dot blueprint-dot-br" />
-          <div className="relative z-10">{children}</div>
+          <div className="relative z-10">
+            {typeof step === 'number' && (
+              <>
+                <OnboardingBadge />
+                <div className="mb-10">
+                  <WizardProgress step={step} />
+                </div>
+              </>
+            )}
+            {children}
+          </div>
         </div>
       </div>
     </div>

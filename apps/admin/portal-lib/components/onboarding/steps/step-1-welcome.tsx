@@ -25,21 +25,13 @@ export function Step1Welcome({ onContinue, loading }: { onContinue: () => void; 
         cuando esté grabado el guion. Sugerido: <video> propio o iframe de
         Loom/YouTube sin listar, manteniendo el frame 16:9.
       */}
-      <div className="blueprint-frame relative aspect-video w-full">
-        <span aria-hidden className="blueprint-corner blueprint-corner-tl" />
-        <span aria-hidden className="blueprint-corner blueprint-corner-tr" />
-        <span aria-hidden className="blueprint-corner blueprint-corner-bl" />
-        <span aria-hidden className="blueprint-corner blueprint-corner-br" />
-        <span aria-hidden className="blueprint-dot blueprint-dot-tl" />
-        <span aria-hidden className="blueprint-dot blueprint-dot-tr" />
-        <span aria-hidden className="blueprint-dot blueprint-dot-bl" />
-        <span aria-hidden className="blueprint-dot blueprint-dot-br" />
-        <div className="relative z-10 flex h-full flex-col items-center justify-center gap-4">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-secondary">
-            <PlayCircle className="h-8 w-8 text-foreground/80" strokeWidth={1.5} />
-          </span>
-          <p className="text-sm font-medium text-muted-foreground">Video de bienvenida — próximamente</p>
-        </div>
+      {/* Plain 16:9 slot — no blueprint framing here, that belongs to the card
+          around it; repeating it would nest one frame inside another. */}
+      <div className="flex aspect-video w-full flex-col items-center justify-center gap-4 rounded-xl border border-border/60 bg-black/30">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-secondary">
+          <PlayCircle className="h-8 w-8 text-foreground/80" strokeWidth={1.5} />
+        </span>
+        <p className="text-sm font-medium text-muted-foreground">Video de bienvenida — próximamente</p>
       </div>
 
       <WizardNav>

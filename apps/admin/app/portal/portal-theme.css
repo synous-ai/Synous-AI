@@ -422,8 +422,10 @@
   isolation: isolate;
   border: 1px solid transparent;
   border-radius: 9999px;
+  /* Solid dark grey fill (padding-box) under the rotating conic border
+     (border-box), so the pill reads against the frame instead of dissolving. */
   background:
-    linear-gradient(hsl(var(--card) / 55%), hsl(var(--card) / 55%)) padding-box,
+    linear-gradient(hsl(0 0% 13%), hsl(0 0% 13%)) padding-box,
     conic-gradient(
       from var(--badge-angle),
       transparent 0%,
@@ -436,24 +438,37 @@
   animation: badge-spin 4s linear infinite;
 }
 
-/* Ripple: a ring that expands and fades, echoing the badge outline. */
-.portal-editorial .glass-badge::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  border: 1px solid hsl(var(--primary) / 45%);
-  animation: badge-ripple 2.6s ease-out infinite;
-}
-
 @keyframes badge-spin {
   to { --badge-angle: 360deg; }
 }
-@keyframes badge-ripple {
-  0%   { opacity: 0.6; transform: scale(1); }
-  70%  { opacity: 0;   transform: scale(1.35); }
-  100% { opacity: 0;   transform: scale(1.35); }
+
+/*
+ * Pulse lives on the dot, not on the pill's border: a ring around the badge
+ * competed with the frame's own rules. The dot keeps the "live" signal in a
+ * spot small enough not to fight the layout.
+ */
+.portal-editorial .badge-pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  flex-shrink: 0;
+}
+.portal-editorial .badge-pulse-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: hsl(var(--primary));
+  animation: dot-pulse 2.2s ease-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%   { opacity: 0.7; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(3.2); }
+  100% { opacity: 0;   transform: scale(3.2); }
 }
 
 /*
@@ -614,7 +629,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .portal-editorial .glass-badge,
-  .portal-editorial .glass-badge::after,
+  .portal-editorial .badge-pulse-dot::after,
   .portal-editorial .shiny-cta,
   .portal-editorial .shiny-cta::before,
   .portal-editorial .shiny-cta::after,
