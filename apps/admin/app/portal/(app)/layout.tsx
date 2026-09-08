@@ -22,30 +22,33 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { Instrument_Serif } from 'next/font/google'
+import { Averia_Serif_Libre } from 'next/font/google'
 import { useRouter } from 'next/navigation'
-import { useAuth, useUser, useClerk } from '@clerk/nextjs'
-import { LogOut, Palette } from 'lucide-react'
+import { useAuth, useClerk } from '@clerk/nextjs'
+import { UserButton } from '@clerk/nextjs'
+import { LogOut } from 'lucide-react'
 import { cn } from '@portal/lib/utils'
 import { Button } from '@portal/components/ui/button'
 import { Skeleton } from '@portal/components/ui/skeleton'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
-import { useBranding } from '@portal/components/branding/branding-provider'
 
-const editorialSerif = Instrument_Serif({
+// Display font for the brand mark and every heading in the portal shell.
+// Paired with Plus Jakarta Sans (body) — two typefaces total, no more.
+const editorialSerif = Averia_Serif_Libre({
   subsets: ['latin'],
-  weight: '400',
+  weight: ['400', '700'],
   style: ['normal', 'italic'],
   variable: '--font-editorial-serif',
   display: 'swap',
 })
 
+/** Shared shell width — matches the wizard frame (1140px on desktop). */
+const SHELL_WIDTH = 'mx-auto w-full max-w-[1140px] px-4 sm:px-6'
+
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { isLoaded, isSignedIn } = useAuth()
-  const { user } = useUser()
   const { signOut } = useClerk()
-  const { brand } = useBranding()
 
   // Guard del lado cliente: si Clerk cargó y no hay sesión, ir a login.
   // El middleware ya bloquea antes de llegar acá, pero cubrimos el caso
@@ -68,8 +71,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         className={cn('portal-editorial flex min-h-screen flex-col', editorialSerif.variable)}
       >
         {/* Skeleton del header */}
-        <div className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md">
-          <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4 sm:px-6">
+        <div className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-md">
+          <div className={cn(SHELL_WIDTH, 'flex h-16 items-center justify-between')}>
             <Skeleton className="h-5 w-32" />
             <div className="flex items-center gap-2">
               <Skeleton className="h-8 w-8 rounded-full" />
@@ -82,7 +85,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             facturas, documentos, marca). Por eso NO imita el Home — cada panel
             monta su propio skeleton fiel al cargar sus datos. Si acá imitáramos el
             Home, al entrar a otra ruta se verían dos skeletons distintos seguidos. */}
-        <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 sm:px-6">
+        <main className={cn(SHELL_WIDTH, 'flex-1 py-8')}>
           <div className="space-y-4">
             <Skeleton className="h-7 w-52" />
             <Skeleton className="h-4 w-72" />
@@ -93,41 +96,25 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     )
   }
 
-  // Email del usuario autenticado (viene del perfil Clerk, no de un JWT propio).
-  const email = user?.primaryEmailAddress?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? ''
-
   return (
     <div className={cn('portal-editorial flex min-h-screen flex-col', editorialSerif.variable)}>
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4 sm:px-6">
-          <Link href="/portal" className="flex items-center gap-3">
-            {brand?.logoUrl ? (
-              // Dimensiones explícitas + lazy: reservan el espacio antes de cargar
-              // (evita CLS). El logo viene de R2/API (host dinámico), por eso <img>.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={brand.logoUrl}
-                alt={brand.brandName ?? 'logo'}
-                width={28}
-                height={28}
-                loading="lazy"
-                className="h-7 w-7 rounded-lg object-contain"
-              />
-            ) : null}
-            <span className="font-editorial text-lg italic tracking-wide text-foreground">
-              {brand?.brandName ?? 'NOUS · Portal'}
-            </span>
+      {/* Header: brand mark on one side, account controls on the other. The
+          client cannot re-brand the portal, so no "Mi Marca" entry point. */}
+      <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-md">
+        <div className={cn(SHELL_WIDTH, 'flex h-16 items-center justify-between')}>
+          <Link href="/portal" className="font-editorial text-lg tracking-wide text-foreground">
+            Synous <span className="text-muted-foreground">· Portal</span>
           </Link>
 
-          <div className="flex items-center gap-1">
-            <span className="hidden text-sm text-muted-foreground sm:mr-2 sm:block">{email}</span>
-            <Button variant="ghost" size="sm" asChild className="gap-1.5 rounded-full text-muted-foreground hover:text-foreground">
-              <Link href="/portal/marca">
-                <Palette className="h-4 w-4" />
-                <span className="hidden sm:inline">Mi Marca</span>
-              </Link>
-            </Button>
+          <div className="flex items-center gap-2">
+            <UserButton
+              appearance={{
+                elements: {
+                  avatarBox: 'h-8 w-8',
+                  userButtonPopoverCard: 'bg-card border border-border',
+                },
+              }}
+            />
             <Button
               variant="ghost"
               size="sm"
@@ -141,10 +128,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8 sm:px-6">
-        {children}
-      </main>
+      {/* Main content — same rail as the header so everything lines up. */}
+      <main className={cn(SHELL_WIDTH, 'flex-1 py-8')}>{children}</main>
     </div>
   )
 }

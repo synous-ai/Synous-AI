@@ -14,6 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { ArrowRight, ClipboardList, Loader2 } from 'lucide-react'
 import { Button } from '@portal/components/ui/button'
+import { ShinyButton } from '@portal/components/ui/shiny-button'
 import { Label } from '@portal/components/ui/label'
 import { Input } from '@portal/components/ui/input'
 import { Textarea } from '@portal/components/ui/textarea'
@@ -225,11 +226,11 @@ export function Step6Brief({
       )}
 
       <WizardNav onBack={goPrevBlock}>
-        <Button type="button" onClick={goNextBlock} disabled={submitBrief.isPending} className="min-w-32 gap-2 rounded-full">
+        <ShinyButton onClick={goNextBlock} disabled={submitBrief.isPending}>
           {submitBrief.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           {isLastBlock ? 'Guardar y continuar' : 'Siguiente bloque'}
           {!submitBrief.isPending && <ArrowRight className="h-4 w-4" />}
-        </Button>
+        </ShinyButton>
       </WizardNav>
     </div>
   )

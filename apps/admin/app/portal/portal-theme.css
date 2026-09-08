@@ -186,8 +186,12 @@
   --chart-5: 0 0% 28%;
 
   background-color: hsl(var(--background));
-  background-image: radial-gradient(hsl(0 0% 100% / 6%) 1px, transparent 0);
-  background-size: 24px 24px;
+  /* GRID.webp replaces the former dot texture. Fixed attachment keeps the grid
+     anchored to the viewport, so it does not slide while the wizard scrolls. */
+  background-image: url('/GRID.webp');
+  background-repeat: repeat;
+  background-position: center top;
+  background-attachment: fixed;
   color: hsl(var(--foreground));
   min-height: 100vh;
 }
@@ -231,28 +235,18 @@
  * el resto del portal (las 6 pestañas) conserve el fondo sobrio de siempre.
  */
 
-/* Lienzo del wizard: grilla grande + viñeta que apaga los bordes. */
+/* Wizard canvas. The grid texture comes from the shell background (GRID.webp);
+   this only adds the vignette that fades it out toward the edges. */
 .portal-editorial .blueprint-canvas {
   position: relative;
-  --grid: 84px;
-  background-color: hsl(var(--background));
-  background-image:
-    linear-gradient(hsl(0 0% 100% / 3.5%) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(0 0% 100% / 3.5%) 1px, transparent 1px),
-    radial-gradient(hsl(0 0% 100% / 5%) 1px, transparent 0);
-  background-size:
-    var(--grid) var(--grid),
-    var(--grid) var(--grid),
-    calc(var(--grid) / 5) calc(var(--grid) / 5);
 }
-/* Viñeta radial: la grilla se desvanece hacia los bordes en vez de cortarse. */
 .portal-editorial .blueprint-canvas::after {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 100% 65% at 50% 40%, transparent 35%, hsl(var(--background)) 85%);
+  background: radial-gradient(ellipse 100% 70% at 50% 40%, transparent 40%, hsl(var(--background) / 92%) 88%);
 }
 
 /*
@@ -356,11 +350,10 @@
   overflow: hidden;
   pointer-events: none;
   z-index: 0;
-  /* Textura de puntos que da el "grano" del halo, sin depender de un SVG externo. */
-  -webkit-mask-image: radial-gradient(circle at center, #000 1px, transparent 1.6px);
-  mask-image: radial-gradient(circle at center, #000 1px, transparent 1.6px);
-  -webkit-mask-size: 6px 6px;
-  mask-size: 6px 6px;
+  /* Dot mask from the design assets — shapes the halo into the fading dot
+     pattern instead of a solid band. */
+  -webkit-mask: url('/MASKDOT.svg') center center / contain no-repeat;
+  mask: url('/MASKDOT.svg') center center / contain no-repeat;
   opacity: 0.55;
 }
 .portal-editorial .brand-sweep::before,
@@ -411,11 +404,229 @@
   }
 }
 
+/*
+ * ─── Glass badge with a travelling border ───────────────────────────────────
+ *
+ * Frosted pill whose border is a conic gradient rotating around the edge, plus
+ * a pulse ring that ripples outward. The rotation needs @property so the angle
+ * animates as an angle rather than snapping between keyframes.
+ */
+@property --badge-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.portal-editorial .glass-badge {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  background:
+    linear-gradient(hsl(var(--card) / 55%), hsl(var(--card) / 55%)) padding-box,
+    conic-gradient(
+      from var(--badge-angle),
+      transparent 0%,
+      hsl(var(--primary) / 15%) 12%,
+      hsl(var(--primary)) 25%,
+      hsl(var(--primary) / 15%) 38%,
+      transparent 50%
+    ) border-box;
+  backdrop-filter: blur(10px) saturate(140%);
+  animation: badge-spin 4s linear infinite;
+}
+
+/* Ripple: a ring that expands and fades, echoing the badge outline. */
+.portal-editorial .glass-badge::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  border: 1px solid hsl(var(--primary) / 45%);
+  animation: badge-ripple 2.6s ease-out infinite;
+}
+
+@keyframes badge-spin {
+  to { --badge-angle: 360deg; }
+}
+@keyframes badge-ripple {
+  0%   { opacity: 0.6; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(1.35); }
+  100% { opacity: 0;   transform: scale(1.35); }
+}
+
+/*
+ * ─── Shiny CTA ──────────────────────────────────────────────────────────────
+ *
+ * Ported from the reference component into the stylesheet instead of styled-jsx:
+ * the original injects its <style> block once per rendered instance, and the
+ * wizard renders this button on all eight steps. Living here it is emitted once.
+ * Colours are driven by --primary so it follows the brand green.
+ */
+@property --gradient-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@property --gradient-angle-offset {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@property --gradient-percent {
+  syntax: '<percentage>';
+  initial-value: 5%;
+  inherits: false;
+}
+@property --gradient-shine {
+  syntax: '<color>';
+  initial-value: white;
+  inherits: false;
+}
+
+.portal-editorial .shiny-cta {
+  --shiny-cta-bg: hsl(var(--background));
+  --shiny-cta-bg-subtle: hsl(0 0% 12%);
+  --shiny-cta-fg: hsl(var(--foreground));
+  --shiny-cta-highlight: hsl(var(--primary));
+  --shiny-cta-highlight-subtle: hsl(var(--primary) / 65%);
+  --animation: gradient-angle linear infinite;
+  --duration: 3s;
+  --shadow-size: 2px;
+  --transition: 800ms cubic-bezier(0.25, 1, 0.5, 1);
+
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  outline-offset: 4px;
+  padding: 0.9rem 2rem;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 360px;
+  color: var(--shiny-cta-fg);
+  background:
+    linear-gradient(var(--shiny-cta-bg), var(--shiny-cta-bg)) padding-box,
+    conic-gradient(
+      from calc(var(--gradient-angle) - var(--gradient-angle-offset)),
+      transparent,
+      var(--shiny-cta-highlight) var(--gradient-percent),
+      var(--gradient-shine) calc(var(--gradient-percent) * 2),
+      var(--shiny-cta-highlight) calc(var(--gradient-percent) * 3),
+      transparent calc(var(--gradient-percent) * 4)
+    ) border-box;
+  box-shadow: inset 0 0 0 1px var(--shiny-cta-bg-subtle);
+  transition: var(--transition);
+  transition-property: --gradient-angle-offset, --gradient-percent, --gradient-shine;
+}
+
+.portal-editorial .shiny-cta:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.portal-editorial .shiny-cta::before,
+.portal-editorial .shiny-cta::after,
+.portal-editorial .shiny-cta > span::before {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block-start: 50%;
+  translate: -50% -50%;
+  z-index: -1;
+}
+
+.portal-editorial .shiny-cta:active { translate: 0 1px; }
+
+/* Dot pattern inside the pill. */
+.portal-editorial .shiny-cta::before {
+  --size: calc(100% - var(--shadow-size) * 3);
+  --position: 2px;
+  --space: calc(var(--position) * 2);
+  width: var(--size);
+  height: var(--size);
+  background: radial-gradient(
+    circle at var(--position) var(--position),
+    hsl(var(--foreground)) calc(var(--position) / 4),
+    transparent 0
+  ) padding-box;
+  background-size: var(--space) var(--space);
+  background-repeat: space;
+  -webkit-mask-image: conic-gradient(from calc(var(--gradient-angle) + 45deg), black, transparent 10% 90%, black);
+  mask-image: conic-gradient(from calc(var(--gradient-angle) + 45deg), black, transparent 10% 90%, black);
+  border-radius: inherit;
+  opacity: 0.4;
+  z-index: -1;
+}
+
+/* Inner shimmer. */
+.portal-editorial .shiny-cta::after {
+  --animation: shimmer linear infinite;
+  width: 100%;
+  aspect-ratio: 1;
+  background: linear-gradient(-50deg, transparent, var(--shiny-cta-highlight), transparent);
+  -webkit-mask-image: radial-gradient(circle at bottom, transparent 40%, black);
+  mask-image: radial-gradient(circle at bottom, transparent 40%, black);
+  opacity: 0.6;
+}
+
+.portal-editorial .shiny-cta > span { z-index: 1; position: relative; }
+
+.portal-editorial .shiny-cta > span::before {
+  --size: calc(100% + 1rem);
+  width: var(--size);
+  height: var(--size);
+  box-shadow: inset 0 -1ex 2rem 4px var(--shiny-cta-highlight);
+  opacity: 0;
+  transition: opacity var(--transition);
+  animation: calc(var(--duration) * 1.5) breathe linear infinite;
+}
+
+.portal-editorial .shiny-cta,
+.portal-editorial .shiny-cta::before,
+.portal-editorial .shiny-cta::after {
+  animation: var(--animation) var(--duration),
+    var(--animation) calc(var(--duration) / 0.4) reverse paused;
+  animation-composition: add;
+}
+
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled) {
+  --gradient-percent: 20%;
+  --gradient-angle-offset: 95deg;
+  --gradient-shine: var(--shiny-cta-highlight-subtle);
+}
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled),
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled)::before,
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled)::after {
+  animation-play-state: running;
+}
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled) > span::before {
+  opacity: 1;
+}
+
+@keyframes gradient-angle { to { --gradient-angle: 360deg; } }
+@keyframes shimmer { to { rotate: 360deg; } }
+@keyframes breathe { from, to { scale: 1; } 50% { scale: 1.2; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-editorial .glass-badge,
+  .portal-editorial .glass-badge::after,
+  .portal-editorial .shiny-cta,
+  .portal-editorial .shiny-cta::before,
+  .portal-editorial .shiny-cta::after,
+  .portal-editorial .shiny-cta > span::before {
+    animation: none;
+  }
+}
+
 /* En pantallas chicas los rieles y las aspas se comen el contenido. */
 @media (max-width: 640px) {
   .portal-editorial .blueprint-frame::before { background-position: 26px 0, calc(100% - 26px) 0; }
   .portal-editorial .blueprint-corner { width: 30px; height: 30px; }
-  .portal-editorial .blueprint-canvas { --grid: 56px; }
   .portal-editorial .blueprint-title { padding: 10px 16px; }
   .portal-editorial .brand-sweep { height: 110px; }
 }

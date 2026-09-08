@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { ArrowRight, FolderUp, Loader2, Paperclip, Check, X } from 'lucide-react'
 import { Button } from '@portal/components/ui/button'
+import { ShinyButton } from '@portal/components/ui/shiny-button'
 import { Textarea } from '@portal/components/ui/textarea'
 import { StepHeader, WizardNav } from '@portal/components/onboarding/wizard-shell'
 import { useSubmitOnboardingMaterials, useUploadOnboardingMaterial } from '@portal/lib/hooks'
@@ -199,11 +200,11 @@ export function Step7Materials({
       )}
 
       <WizardNav onBack={onBack}>
-        <Button type="button" onClick={handleContinue} disabled={busy} className="min-w-32 gap-2 rounded-full">
+        <ShinyButton onClick={handleContinue} disabled={busy}>
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}
           Continuar
           {!busy && <ArrowRight className="h-4 w-4" />}
-        </Button>
+        </ShinyButton>
       </WizardNav>
     </div>
   )

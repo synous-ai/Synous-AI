@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowRight, CheckCircle2, Circle, Loader2, PartyPopper, Rocket } from 'lucide-react'
 import { Button } from '@portal/components/ui/button'
+import { ShinyButton } from '@portal/components/ui/shiny-button'
 import { StepHeader, WizardNav } from '@portal/components/onboarding/wizard-shell'
 import { useCompleteOnboarding } from '@portal/lib/hooks'
 import type { ClientOnboarding, CompleteOnboardingResultDTO } from '@portal/lib/types'
@@ -60,7 +61,7 @@ export function Step8Complete({
         <h2 className="font-editorial text-4xl leading-[1.15] tracking-tight text-foreground">¡Onboarding completo!</h2>
         <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">
           Tu proyecto <strong className="text-foreground">{result.dealName}</strong> ya está en fase de{' '}
-          <strong className="text-foreground">{result.stageLabel}</strong>. A partir de acá vas a ver los avances de
+          <strong className="text-foreground">{result.stageLabel}</strong>. A partir de aquí vas a ver los avances de
           tu plataforma directamente en este mismo Portal — sin tener que preguntarnos &ldquo;¿cómo vamos?&rdquo;.
         </p>
         <div className="editorial-sheen mt-6 w-full max-w-sm rounded-2xl border border-border bg-card p-4 text-left text-sm text-muted-foreground">
@@ -68,13 +69,15 @@ export function Step8Complete({
             <Rocket className="h-4 w-4 text-foreground" />
             Próximos pasos
           </p>
-          Nuestro equipo ya arrancó con el Diagnóstico de tu proyecto. Te vamos a ir mostrando avances acá mismo, y
+          Nuestro equipo ya comenzó con el Diagnóstico de tu proyecto. Te vamos a ir mostrando avances aquí mismo, y
           te contactamos para coordinar la llamada de la primera versión (MVP) cuando esté lista.
         </div>
-        <Button type="button" onClick={onFinish} className="mt-8 min-w-40 gap-2 rounded-full">
-          Ir a mi Portal
-          <ArrowRight className="h-4 w-4" />
-        </Button>
+        <div className="mt-10">
+          <ShinyButton onClick={onFinish}>
+            Ir a mi Portal
+            <ArrowRight className="h-4 w-4" />
+          </ShinyButton>
+        </div>
       </div>
     )
   }
@@ -116,11 +119,11 @@ export function Step8Complete({
       )}
 
       <WizardNav onBack={onBack}>
-        <Button type="button" onClick={handleComplete} disabled={!allDone || complete.isPending} className="min-w-44 gap-2 rounded-full">
+        <ShinyButton onClick={handleComplete} disabled={!allDone || complete.isPending}>
           {complete.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           Completar onboarding
           {!complete.isPending && <ArrowRight className="h-4 w-4" />}
-        </Button>
+        </ShinyButton>
       </WizardNav>
     </div>
   )

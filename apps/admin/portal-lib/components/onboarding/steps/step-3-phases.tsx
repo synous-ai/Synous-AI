@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowRight, Map } from 'lucide-react'
-import { Button } from '@portal/components/ui/button'
+import { ShinyButton } from '@portal/components/ui/shiny-button'
 import { StepHeader, WizardNav } from '@portal/components/onboarding/wizard-shell'
 import { PhasesRoadmap, type RoadmapPhase } from '@portal/components/project/phases-roadmap'
 
@@ -43,10 +43,10 @@ export function Step3Phases({
       <PhasesRoadmap phases={PHASES} />
 
       <WizardNav onBack={onBack}>
-        <Button type="button" onClick={onContinue} disabled={loading} className="min-w-32 gap-2 rounded-full">
+        <ShinyButton onClick={onContinue} disabled={loading}>
           Continuar
           <ArrowRight className="h-4 w-4" />
-        </Button>
+        </ShinyButton>
       </WizardNav>
     </div>
   )

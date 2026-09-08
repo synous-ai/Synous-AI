@@ -11,11 +11,9 @@
  * depende del theme toggle (que además ya no existe en el shell del portal).
  *
  * Lo que se conserva de versiones anteriores: el patrón de dos partes del
- * wizard (Orientación 1-4 · Acción 5-8, ahora como label junto al contador),
- * las transiciones framer-motion entre pasos (slide + fade, con `dir` para el
- * sentido de la navegación) y el link para saltar la introducción (pasos
- * 1-4), que reusa el PATCH /progress existente vía el callback `onSkip` que
- * le pasa `client-onboarding-wizard.tsx`.
+ * wizard (Orientación 1-4 · Acción 5-8, como label en la barra superior) y las
+ * transiciones framer-motion entre pasos (slide + fade, con `dir` para el
+ * sentido de la navegación).
  */
 
 import type { ReactNode } from 'react'
@@ -23,7 +21,6 @@ import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer
 import { ArrowLeft, type LucideIcon } from 'lucide-react'
 import { cn } from '@portal/lib/utils'
 import { Button } from '@portal/components/ui/button'
-import { useBranding } from '@portal/components/branding/branding-provider'
 import { TOTAL_STEPS } from '@portal/lib/onboarding-content'
 
 export { TOTAL_STEPS }
@@ -40,26 +37,20 @@ export const stepVariants: Variants = {
 // ─── línea de progreso fina (2px) debajo ─────────────────────────────────────
 
 function WizardTopBar({ step }: { step: number }) {
-  const { brand } = useBranding()
   const pct = Math.max(4, Math.round((step / TOTAL_STEPS) * 100))
   const partLabel = step <= 4 ? 'Parte 1 · Orientación' : 'Parte 2 · Acción'
 
   return (
     <div>
       <div className="relative flex items-center justify-between gap-4">
-        {/* Barrido de luz: decorativo, detrás de la marca (z-0 vs. z-10 del texto). */}
+        {/* Decorative light sweep behind the brand mark. */}
         <span aria-hidden className="brand-sweep" />
-        <span className="font-editorial relative z-10 text-xl italic tracking-wide text-foreground">
-          {brand?.brandName ?? 'NOUS'}
+        <span className="font-editorial relative z-10 text-2xl tracking-wide text-foreground">Synous</span>
+        {/* The numeric counter lives inside the card ("Paso N de 8"); here we
+            only keep the part label so the bar does not repeat it. */}
+        <span className="relative z-10 hidden text-[11px] uppercase tracking-[0.18em] text-muted-foreground sm:inline">
+          {partLabel}
         </span>
-        <div className="relative z-10 flex items-center gap-3">
-          <span className="hidden text-[11px] uppercase tracking-[0.18em] text-muted-foreground sm:inline">
-            {partLabel}
-          </span>
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
-            {String(step).padStart(2, '0')} / {String(TOTAL_STEPS).padStart(2, '0')}
-          </span>
-        </div>
       </div>
       <div className="mt-4 h-[2px] w-full overflow-hidden rounded-full bg-white/10">
         <div
@@ -75,8 +66,8 @@ function WizardTopBar({ step }: { step: number }) {
 
 function OnboardingBadge() {
   return (
-    <div className="mt-7 flex justify-center">
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white/[0.03] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+    <div className="mt-8 flex justify-center">
+      <span className="glass-badge inline-flex items-center gap-2 px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/80">
         <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
         Onboarding
       </span>
@@ -98,25 +89,25 @@ export function StepHeader({
   hint?: ReactNode
 }) {
   return (
-    <div className="mb-9 flex flex-col items-center text-center">
+    <div className="mb-12 flex flex-col items-center text-center">
       {eyebrow && (
-        <p className="eyebrow mb-4 flex items-center justify-center gap-2">
+        <p className="eyebrow mb-5 flex items-center justify-center gap-2">
           <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" strokeWidth={1.75} aria-hidden />
           {eyebrow}
         </p>
       )}
-      {/* Título encuadrado: recuadro fino + puntos en los vértices. El <h2> es
-          inline-block dentro del marco para que este se ajuste al texto. */}
+      {/* Framed title: thin rule with a dot at each vertex. The <h2> sits inside
+          so the frame hugs the text. Type scale is shared by every step. */}
       <div className="blueprint-title">
         <span aria-hidden className="blueprint-dot blueprint-dot-tl" />
         <span aria-hidden className="blueprint-dot blueprint-dot-tr" />
         <span aria-hidden className="blueprint-dot blueprint-dot-bl" />
         <span aria-hidden className="blueprint-dot blueprint-dot-br" />
-        <h2 className="font-editorial max-w-lg text-[2rem] leading-[1.15] tracking-tight text-foreground sm:text-[2.25rem]">
+        <h2 className="font-editorial max-w-3xl text-[2.5rem] leading-[1.1] tracking-tight text-foreground sm:text-[3.25rem]">
           {title}
         </h2>
       </div>
-      {hint && <div className="mt-4 max-w-md text-[15px] leading-relaxed text-muted-foreground">{hint}</div>}
+      {hint && <div className="mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground">{hint}</div>}
     </div>
   )
 }
@@ -155,7 +146,7 @@ export function WizardNav({
   children: ReactNode
 }) {
   return (
-    <div className="mt-9 flex items-center justify-between gap-3">
+    <div className="mt-12 flex items-center justify-between gap-3">
       {onBack ? (
         <Button
           type="button"
@@ -179,18 +170,16 @@ export function WizardNav({
 
 export function WizardFrame({
   step,
-  onSkip,
   children,
 }: {
-  /** Paso activo (1-8). Se omite en los estados de carga/error del wizard. */
+  /** Active step (1-8). Omitted in the wizard's loading/error states. */
   step?: number
-  /** Si viene y `step` es 1-4, muestra "Saltar la introducción" al pie. */
-  onSkip?: () => void
   children: ReactNode
 }) {
   return (
     <div className="blueprint-canvas -mx-4 -my-8 min-h-[calc(100vh-4rem)] px-4 py-10 sm:-mx-6 sm:px-6 sm:py-14">
-      <div className="relative z-10 mx-auto w-full max-w-2xl">
+      {/* Same 1140px rail as the header, so the frame lines up with the shell. */}
+      <div className="relative z-10 mx-auto w-full max-w-[1140px]">
         {typeof step === 'number' && (
           <>
             <WizardTopBar step={step} />
@@ -198,10 +187,10 @@ export function WizardFrame({
           </>
         )}
 
-        {/* Marco técnico: rieles verticales (::before), glow (::after), aspas en
-            las esquinas y puntos en los vértices. Sin radius — el encuadre recto
-            es parte del lenguaje "blueprint". */}
-        <div className="blueprint-frame mt-7 p-7 sm:p-12">
+        {/* Technical frame: vertical rails (::before), glow (::after), corner
+            crosses and vertex dots. No radius — the square framing is part of
+            the blueprint language. */}
+        <div className="blueprint-frame mt-8 p-8 sm:p-14">
           <span aria-hidden className="blueprint-corner blueprint-corner-tl" />
           <span aria-hidden className="blueprint-corner blueprint-corner-tr" />
           <span aria-hidden className="blueprint-corner blueprint-corner-bl" />
@@ -212,18 +201,6 @@ export function WizardFrame({
           <span aria-hidden className="blueprint-dot blueprint-dot-br" />
           <div className="relative z-10">{children}</div>
         </div>
-
-        {typeof step === 'number' && step <= 4 && onSkip && (
-          <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={onSkip}
-              className="text-xs text-muted-foreground/50 underline-offset-4 transition-colors hover:text-muted-foreground hover:underline"
-            >
-              Saltar la introducción
-            </button>
-          </div>
-        )}
       </div>
     </div>
   )

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { ArrowRight, PenLine, CheckCircle2, Loader2 } from 'lucide-react'
 import { Button } from '@portal/components/ui/button'
+import { ShinyButton } from '@portal/components/ui/shiny-button'
 import { Input } from '@portal/components/ui/input'
 import { Label } from '@portal/components/ui/label'
 import { StepHeader, WizardNav } from '@portal/components/onboarding/wizard-shell'
@@ -56,10 +57,10 @@ export function Step5Signature({
           </div>
         </div>
         <WizardNav onBack={onBack}>
-          <Button type="button" onClick={onContinue} className="min-w-32 gap-2 rounded-full">
+          <ShinyButton onClick={onContinue}>
             Continuar
             <ArrowRight className="h-4 w-4" />
-          </Button>
+          </ShinyButton>
         </WizardNav>
       </div>
     )
@@ -112,11 +113,11 @@ export function Step5Signature({
       </div>
 
       <WizardNav onBack={onBack}>
-        <Button type="button" onClick={handleSign} disabled={!canSign} className="min-w-32 gap-2 rounded-full">
+        <ShinyButton onClick={handleSign} disabled={!canSign}>
           {signature.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           Firmar
           {!signature.isPending && <ArrowRight className="h-4 w-4" />}
-        </Button>
+        </ShinyButton>
       </WizardNav>
     </div>
   )
