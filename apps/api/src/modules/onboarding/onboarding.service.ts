@@ -1,10 +1,12 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, type DB } from '../../db'
-import { clientOnboarding, clientAsset, deal, clientAccount, clientDealAccess } from '../../db/schema'
+import { clientOnboarding, clientAsset, deal, clientAccount, clientDealAccess, contact } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import type { Tx } from '../../lib/audit'
 import { createNotification, notifyAdmins } from '../notifications/notifications.service'
 import { moveDealToProduction } from '../deals/stage.service'
+import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
+import { onboardingCompletedHtml } from './emails/onboarding-completed'
 import type { ClientTokenPayload } from '../../middleware/authenticate-client'
 import type { SavedFile } from '../files/files.service'
 import { ONBOARDING_STATUS, type OnboardingBriefDTO, type OnboardingMaterialCategory, type OnboardingMaterialsDTO } from './onboarding.schema'
@@ -267,8 +269,8 @@ export interface CompleteOnboardingResultDTO {
  * es justo lo que estamos cambiando). La notificación al responsable asignado
  * va DESPUÉS de la transacción (mismo patrón que changeStage).
  */
-export async function completeOnboarding(clientAccount: ClientTokenPayload): Promise<CompleteOnboardingResultDTO> {
-  const clientId = clientAccount.sub
+export async function completeOnboarding(token: ClientTokenPayload): Promise<CompleteOnboardingResultDTO> {
+  const clientId = token.sub
   const activeDeal = await resolveActiveDeal(clientId)
 
   const result = await db.transaction(async (tx) => {
@@ -323,6 +325,26 @@ export async function completeOnboarding(clientAccount: ClientTokenPayload): Pro
     await createNotification({ portalId: activeDeal.portalId, userId: result.ownerId, ...notifyPayload })
   } else {
     await notifyAdmins(activeDeal.portalId, notifyPayload)
+  }
+
+  // Confirmación al cliente, fuera de la transacción. El email/nombre no vienen
+  // en el token (solo sub/portalId/contactId), así que se leen del contacto.
+  const [c] = await db
+    .select({ email: contact.email, firstName: contact.firstName })
+    .from(contact)
+    .where(eq(contact.id, token.contactId))
+    .limit(1)
+  if (c?.email) {
+    await sendEmail({
+      to: c.email,
+      subject: `Arrancamos con ${result.dealName}`,
+      html: onboardingCompletedHtml({
+        firstName: c.firstName,
+        dealName: result.dealName,
+        stageLabel: result.stageLabel,
+        portalUrl: `${clientPortalBaseUrl()}/portal`,
+      }),
+    })
   }
 
   return result

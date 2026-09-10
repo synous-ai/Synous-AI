@@ -21,7 +21,10 @@ import { ensurePortalAndUser, ensurePipeline, type PipelineContext } from '../..
 import { verifyDocusealToken } from '../webhooks/webhooks.service'
 import { handleDocusealWebhook } from './docuseal.service'
 
-vi.mock('../../lib/mailer', () => ({ sendEmail: vi.fn(async () => {}) }))
+vi.mock('../../lib/mailer', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../lib/mailer')>()
+  return { ...original, sendEmail: vi.fn(async () => {}) }
+})
 
 let portalId: string
 let userId: string

@@ -2,7 +2,7 @@
 
 import { ArrowRight, LayoutDashboard, PhoneCall, MessageCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { Button } from '@portal/components/ui/button'
+import { ShinyButton } from '@portal/components/ui/shiny-button'
 import { StepHeader, WizardNav } from '@portal/components/onboarding/wizard-shell'
 
 interface Point {
@@ -15,7 +15,7 @@ const POINTS: Point[] = [
   {
     icon: LayoutDashboard,
     title: 'Todo vive en tu Portal',
-    desc: 'Roadmap, avances, entregables y documentos — todo queda acá, en un solo lugar. No WhatsApp.',
+    desc: 'Roadmap, avances, entregables y documentos — todo queda aquí, en un solo lugar. No WhatsApp.',
   },
   {
     icon: PhoneCall,
@@ -58,10 +58,10 @@ export function Step4WorkMode({
       </div>
 
       <WizardNav onBack={onBack}>
-        <Button type="button" onClick={onContinue} disabled={loading} className="min-w-32 gap-2 rounded-full">
+        <ShinyButton onClick={onContinue} disabled={loading}>
           Continuar
           <ArrowRight className="h-4 w-4" />
-        </Button>
+        </ShinyButton>
       </WizardNav>
     </div>
   )

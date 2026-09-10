@@ -88,20 +88,8 @@ export function ClientOnboardingWizard({ onFinish }: { onFinish: () => void }) {
     goTo(step + 1, 1)
   }
 
-  // "Saltar la introducción" (link al pie durante los pasos 1-4): marca los
-  // pasos de orientación como vistos reusando el mismo PATCH /progress que
-  // usa "Continuar" en cada paso, y salta directo al paso 5 (Firma).
-  async function skipIntro() {
-    try {
-      await markProgress.mutateAsync(4)
-    } catch {
-      /* no bloqueante, igual que en advanceOrientation */
-    }
-    goTo(5, 1)
-  }
-
   return (
-    <WizardFrame step={activeStep} onSkip={skipIntro}>
+    <WizardFrame step={activeStep}>
       <StepStage step={activeStep} direction={direction}>
         {activeStep === 1 && <Step1Welcome onContinue={() => void advanceOrientation(1)} loading={markProgress.isPending} />}
         {activeStep === 2 && (

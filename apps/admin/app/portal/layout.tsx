@@ -10,8 +10,8 @@ const jakarta = Plus_Jakarta_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'NOUS — Portal de Clientes',
-  description: 'Tu portal de seguimiento de proyectos con NOUS',
+  title: 'Synous — Portal de Clientes',
+  description: 'Tu portal de seguimiento de proyectos con Synous',
 }
 
 export default function PortalRootLayout({ children }: { children: React.ReactNode }) {

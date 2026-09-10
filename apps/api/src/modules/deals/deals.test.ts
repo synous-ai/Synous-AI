@@ -1,10 +1,23 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { and, eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
 import { recordHistory, auditLog, contact, deal, clientAccount } from '../../db/schema'
 import { ensurePortalAndUser, ensurePipeline, loginToken, type PipelineContext } from '../../test/helpers'
+
+// `activate-portal` invita al cliente vía Clerk (createClientPortalInvitation),
+// que corta y devuelve `null` apenas ve CLERK_SECRET_KEY vacío (forzado así en
+// vitest.config.ts). Sin mockear esto, `invitationUrl` sería siempre `null` y
+// jamás se mandaría el email ni se sellaría `inviteSentAt` — dejando sin
+// cobertura real el camino "activated" que estos tests verifican.
+vi.mock('../../lib/clerk-provisioning', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../lib/clerk-provisioning')>()
+  return {
+    ...original,
+    createClientPortalInvitation: vi.fn(async () => ({ invitationUrl: 'https://portal.test/accept-invitation?ticket=fake' })),
+  }
+})
 
 const app = buildApp()
 let token: string

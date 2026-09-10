@@ -69,10 +69,10 @@ export const ONBOARDING_BRIEF_BLOCKS: OnboardingBriefBlockDef[] = [
     ],
   },
   {
-    title: 'Cómo llegaste hasta acá',
+    title: 'Cómo llegaste hasta aquí',
     marketing: true,
     fields: [
-      { key: 'howFoundUs', label: '¿Cómo nos encontraste / cómo llegaste a Synous AI?' },
+      { key: 'howFoundUs', label: '¿Cómo nos encontraste / cómo llegaste a Synous?' },
       { key: 'decisionTrigger', label: "¿Qué fue lo que te hizo pasar de 'tengo curiosidad' a 'quiero contratar esto'?" },
       { key: 'doubtsBeforeBuying', label: '¿Qué dudas tenías antes de decidirte a avanzar?' },
     ],

@@ -132,6 +132,17 @@
  * Es dark-only a propósito (no depende de .dark ni del toggle de tema): la
  * referencia de diseño (K100) es un negro casi puro con textura de puntos,
  * cards gris carbón y acentos blanco-sobre-negro, sin variante clara.
+ *
+ * ─── Verde de marca en el editorial ─────────────────────────────────────────
+ * El editorial nació monocromo (--primary blanco). Ahora `--primary` lleva el
+ * VERDE DE MARCA — el mismo `152 55% 48%` que usa `.dark .portal-theme` en el
+ * login, para que el cliente vea un solo verde en todo el portal.
+ *
+ * Entra por `--primary` (acción: botones, pills elegidas, checkbox, dots de
+ * progreso) y NO por `--signal`, que sigue siendo el dorado cálido reservado a
+ * "requiere tu atención". Si el verde ocupara `--signal`, esa señal de urgencia
+ * se perdería entre los elementos de acción, que son la mayoría de la pantalla.
+ * El fondo, las cards y el texto siguen monocromos: el verde es acento, no tema.
  */
 .portal-editorial {
   --background: 0 0% 5%;
@@ -143,8 +154,8 @@
   --popover: 0 0% 10%;
   --popover-foreground: 0 0% 96%;
 
-  --primary: 0 0% 100%;
-  --primary-foreground: 0 0% 7%;
+  --primary: 152 55% 48%;
+  --primary-foreground: 156 45% 8%;
 
   --secondary: 0 0% 14%;
   --secondary-foreground: 0 0% 93%;
@@ -164,17 +175,23 @@
 
   --border: 0 0% 19%;
   --input: 0 0% 19%;
-  --ring: 0 0% 46%;
+  /* Anillo de foco en verde: acompaña a --primary para que el foco de teclado
+     se lea como parte del mismo sistema y no como un gris ajeno. */
+  --ring: 152 55% 48%;
 
-  --chart-1: 0 0% 96%;
+  --chart-1: 152 55% 48%;
   --chart-2: 42 88% 61%;
   --chart-3: 0 0% 70%;
   --chart-4: 0 0% 45%;
   --chart-5: 0 0% 28%;
 
   background-color: hsl(var(--background));
-  background-image: radial-gradient(hsl(0 0% 100% / 6%) 1px, transparent 0);
-  background-size: 24px 24px;
+  /* GRID.webp replaces the former dot texture. Fixed attachment keeps the grid
+     anchored to the viewport, so it does not slide while the wizard scrolls. */
+  background-image: url('/GRID.webp');
+  background-repeat: repeat;
+  background-position: center top;
+  background-attachment: fixed;
   color: hsl(var(--foreground));
   min-height: 100vh;
 }
@@ -204,4 +221,427 @@
   border-radius: inherit;
   background: radial-gradient(120% 60% at 50% -20%, hsl(0 0% 100% / 8%), transparent 60%);
   pointer-events: none;
+}
+
+/*
+ * ─── Marco técnico del wizard ───────────────────────────────────────────────
+ *
+ * Recursos geométricos que dan el carácter "blueprint": rieles verticales,
+ * aspas en las esquinas, puntos en los vértices y una grilla de fondo más
+ * marcada que la del shell. Todo es CSS (gradientes + pseudo-elementos): no
+ * hay imágenes ni SVGs externos, así que nada depende de un host de terceros.
+ *
+ * Se aplican sobre el marco del wizard, no sobre `.portal-editorial`, para que
+ * el resto del portal (las 6 pestañas) conserve el fondo sobrio de siempre.
+ */
+
+/* Wizard canvas. The grid texture comes from the shell background (GRID.webp);
+   this only adds the vignette that fades it out toward the edges. */
+.portal-editorial .blueprint-canvas {
+  position: relative;
+}
+.portal-editorial .blueprint-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 100% 70% at 50% 40%, transparent 40%, hsl(var(--background) / 92%) 88%);
+}
+
+/*
+ * Marco con rieles verticales y esquinas. El contenido va en un hijo con
+ * `position: relative`, porque el ::before/::after del marco quedan por debajo.
+ */
+.portal-editorial .blueprint-frame {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid hsl(var(--border) / 70%);
+  background: hsl(var(--card) / 55%);
+  backdrop-filter: blur(6px);
+}
+
+/* Rieles verticales interiores — las dos líneas que cruzan de arriba abajo. */
+.portal-editorial .blueprint-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(hsl(var(--border) / 55%), hsl(var(--border) / 55%)),
+    linear-gradient(hsl(var(--border) / 55%), hsl(var(--border) / 55%));
+  background-size: 1px 100%, 1px 100%;
+  background-position: 68px 0, calc(100% - 68px) 0;
+  background-repeat: no-repeat;
+}
+
+/* Glow superior — halo tenue detrás del contenido, como el del logo del ref. */
+.portal-editorial .blueprint-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(60% 42% at 50% 0%, hsl(var(--primary) / 12%), transparent 70%);
+}
+
+/* Esquina: caja cuadrada con dos diagonales cruzadas (la "X" del template). */
+.portal-editorial .blueprint-corner {
+  position: absolute;
+  width: 68px;
+  height: 68px;
+  pointer-events: none;
+  overflow: hidden;
+  /* Las diagonales se dibujan con dos gradientes lineales de 1px. */
+  background-image:
+    linear-gradient(45deg, transparent calc(50% - 0.5px), hsl(var(--border) / 60%) 50%, transparent calc(50% + 0.5px)),
+    linear-gradient(-45deg, transparent calc(50% - 0.5px), hsl(var(--border) / 60%) 50%, transparent calc(50% + 0.5px));
+}
+.portal-editorial .blueprint-corner-tl { top: -1px; left: -1px; border-bottom: 1px solid hsl(var(--border) / 60%); }
+.portal-editorial .blueprint-corner-tr { top: -1px; right: -1px; border-bottom: 1px solid hsl(var(--border) / 60%); }
+.portal-editorial .blueprint-corner-bl { bottom: -1px; left: -1px; border-top: 1px solid hsl(var(--border) / 60%); }
+.portal-editorial .blueprint-corner-br { bottom: -1px; right: -1px; border-top: 1px solid hsl(var(--border) / 60%); }
+
+/* Punto de vértice — marca cada esquina del marco. */
+.portal-editorial .blueprint-dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: hsl(var(--primary) / 75%);
+  pointer-events: none;
+}
+.portal-editorial .blueprint-dot-tl { top: -3px; left: -3px; }
+.portal-editorial .blueprint-dot-tr { top: -3px; right: -3px; }
+.portal-editorial .blueprint-dot-bl { bottom: -3px; left: -3px; }
+.portal-editorial .blueprint-dot-br { bottom: -3px; right: -3px; }
+
+/*
+ * Título con marcas de encuadre — el recuadro fino con puntos en las esquinas
+ * que envuelve al título en el template.
+ */
+.portal-editorial .blueprint-title {
+  position: relative;
+  display: inline-block;
+  padding: 14px 26px;
+  border: 1px solid hsl(var(--border) / 55%);
+}
+.portal-editorial .blueprint-title > .blueprint-dot { background: hsl(var(--muted-foreground) / 55%); }
+
+/*
+ * ─── Barrido de luz detrás de la marca ──────────────────────────────────────
+ *
+ * Dos haces que cruzan el ancho desde el centro hacia afuera, en loop. Portado
+ * del efecto de referencia, con dos cambios: el color es el verde de marca (el
+ * original era azul fijo) y la máscara de puntos se genera con un
+ * radial-gradient propio en vez del SVG remoto del sitio original.
+ *
+ * El contenedor recorta con overflow y va detrás del contenido (z-index: 0
+ * sobre un hijo relative), para que los haces no tapen texto ni sean clicables.
+ */
+.portal-editorial .brand-sweep {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(520px, 96%);
+  height: 160px;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  /* Dot mask from the design assets — shapes the halo into the fading dot
+     pattern instead of a solid band. */
+  -webkit-mask: url('/MASKDOT.svg') center center / contain no-repeat;
+  mask: url('/MASKDOT.svg') center center / contain no-repeat;
+  opacity: 0.55;
+}
+.portal-editorial .brand-sweep::before,
+.portal-editorial .brand-sweep::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 80px;
+  height: 100%;
+  z-index: 20;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    transparent 1%,
+    hsl(var(--primary)) 40%,
+    hsl(var(--primary)) 60%,
+    transparent 100%
+  );
+}
+.portal-editorial .brand-sweep::before {
+  left: -100%;
+  animation: brand-sweep-left 5s linear infinite;
+}
+.portal-editorial .brand-sweep::after {
+  right: 100%;
+  animation: brand-sweep-right 5s linear infinite;
+}
+
+@keyframes brand-sweep-left {
+  0%   { left: -5%; opacity: 0; }
+  10%  { left: 2%;  opacity: 1; }
+  90%  { left: 45%; }
+  100% { left: 47%; opacity: 0; }
+}
+@keyframes brand-sweep-right {
+  0%   { right: -5%; opacity: 0; }
+  10%  { right: 2%;  opacity: 1; }
+  90%  { right: 45%; }
+  100% { right: 47%; opacity: 0; }
+}
+
+/* Respeta a quien pidió menos movimiento: el halo queda fijo, sin barrido. */
+@media (prefers-reduced-motion: reduce) {
+  .portal-editorial .brand-sweep::before,
+  .portal-editorial .brand-sweep::after {
+    animation: none;
+    opacity: 0.35;
+  }
+}
+
+/*
+ * ─── Glass badge with a travelling border ───────────────────────────────────
+ *
+ * Frosted pill whose border is a conic gradient rotating around the edge, plus
+ * a pulse ring that ripples outward. The rotation needs @property so the angle
+ * animates as an angle rather than snapping between keyframes.
+ */
+@property --badge-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.portal-editorial .glass-badge {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  /* Solid dark grey fill (padding-box) under the rotating conic border
+     (border-box), so the pill reads against the frame instead of dissolving. */
+  background:
+    linear-gradient(hsl(0 0% 13%), hsl(0 0% 13%)) padding-box,
+    conic-gradient(
+      from var(--badge-angle),
+      transparent 0%,
+      hsl(var(--primary) / 15%) 12%,
+      hsl(var(--primary)) 25%,
+      hsl(var(--primary) / 15%) 38%,
+      transparent 50%
+    ) border-box;
+  backdrop-filter: blur(10px) saturate(140%);
+  animation: badge-spin 4s linear infinite;
+}
+
+@keyframes badge-spin {
+  to { --badge-angle: 360deg; }
+}
+
+/*
+ * Pulse lives on the dot, not on the pill's border: a ring around the badge
+ * competed with the frame's own rules. The dot keeps the "live" signal in a
+ * spot small enough not to fight the layout.
+ */
+.portal-editorial .badge-pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  flex-shrink: 0;
+}
+.portal-editorial .badge-pulse-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: hsl(var(--primary));
+  animation: dot-pulse 2.2s ease-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%   { opacity: 0.7; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(3.2); }
+  100% { opacity: 0;   transform: scale(3.2); }
+}
+
+/*
+ * ─── Shiny CTA ──────────────────────────────────────────────────────────────
+ *
+ * Ported from the reference component into the stylesheet instead of styled-jsx:
+ * the original injects its <style> block once per rendered instance, and the
+ * wizard renders this button on all eight steps. Living here it is emitted once.
+ * Colours are driven by --primary so it follows the brand green.
+ */
+@property --gradient-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@property --gradient-angle-offset {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@property --gradient-percent {
+  syntax: '<percentage>';
+  initial-value: 5%;
+  inherits: false;
+}
+@property --gradient-shine {
+  syntax: '<color>';
+  initial-value: white;
+  inherits: false;
+}
+
+.portal-editorial .shiny-cta {
+  --shiny-cta-bg: hsl(var(--background));
+  --shiny-cta-bg-subtle: hsl(0 0% 12%);
+  --shiny-cta-fg: hsl(var(--foreground));
+  --shiny-cta-highlight: hsl(var(--primary));
+  --shiny-cta-highlight-subtle: hsl(var(--primary) / 65%);
+  --animation: gradient-angle linear infinite;
+  --duration: 3s;
+  --shadow-size: 2px;
+  --transition: 800ms cubic-bezier(0.25, 1, 0.5, 1);
+
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  outline-offset: 4px;
+  padding: 0.9rem 2rem;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 360px;
+  color: var(--shiny-cta-fg);
+  background:
+    linear-gradient(var(--shiny-cta-bg), var(--shiny-cta-bg)) padding-box,
+    conic-gradient(
+      from calc(var(--gradient-angle) - var(--gradient-angle-offset)),
+      transparent,
+      var(--shiny-cta-highlight) var(--gradient-percent),
+      var(--gradient-shine) calc(var(--gradient-percent) * 2),
+      var(--shiny-cta-highlight) calc(var(--gradient-percent) * 3),
+      transparent calc(var(--gradient-percent) * 4)
+    ) border-box;
+  box-shadow: inset 0 0 0 1px var(--shiny-cta-bg-subtle);
+  transition: var(--transition);
+  transition-property: --gradient-angle-offset, --gradient-percent, --gradient-shine;
+}
+
+.portal-editorial .shiny-cta:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.portal-editorial .shiny-cta::before,
+.portal-editorial .shiny-cta::after,
+.portal-editorial .shiny-cta > span::before {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block-start: 50%;
+  translate: -50% -50%;
+  z-index: -1;
+}
+
+.portal-editorial .shiny-cta:active { translate: 0 1px; }
+
+/* Dot pattern inside the pill. */
+.portal-editorial .shiny-cta::before {
+  --size: calc(100% - var(--shadow-size) * 3);
+  --position: 2px;
+  --space: calc(var(--position) * 2);
+  width: var(--size);
+  height: var(--size);
+  background: radial-gradient(
+    circle at var(--position) var(--position),
+    hsl(var(--foreground)) calc(var(--position) / 4),
+    transparent 0
+  ) padding-box;
+  background-size: var(--space) var(--space);
+  background-repeat: space;
+  -webkit-mask-image: conic-gradient(from calc(var(--gradient-angle) + 45deg), black, transparent 10% 90%, black);
+  mask-image: conic-gradient(from calc(var(--gradient-angle) + 45deg), black, transparent 10% 90%, black);
+  border-radius: inherit;
+  opacity: 0.4;
+  z-index: -1;
+}
+
+/* Inner shimmer. */
+.portal-editorial .shiny-cta::after {
+  --animation: shimmer linear infinite;
+  width: 100%;
+  aspect-ratio: 1;
+  background: linear-gradient(-50deg, transparent, var(--shiny-cta-highlight), transparent);
+  -webkit-mask-image: radial-gradient(circle at bottom, transparent 40%, black);
+  mask-image: radial-gradient(circle at bottom, transparent 40%, black);
+  opacity: 0.6;
+}
+
+.portal-editorial .shiny-cta > span { z-index: 1; position: relative; }
+
+.portal-editorial .shiny-cta > span::before {
+  --size: calc(100% + 1rem);
+  width: var(--size);
+  height: var(--size);
+  box-shadow: inset 0 -1ex 2rem 4px var(--shiny-cta-highlight);
+  opacity: 0;
+  transition: opacity var(--transition);
+  animation: calc(var(--duration) * 1.5) breathe linear infinite;
+}
+
+.portal-editorial .shiny-cta,
+.portal-editorial .shiny-cta::before,
+.portal-editorial .shiny-cta::after {
+  animation: var(--animation) var(--duration),
+    var(--animation) calc(var(--duration) / 0.4) reverse paused;
+  animation-composition: add;
+}
+
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled) {
+  --gradient-percent: 20%;
+  --gradient-angle-offset: 95deg;
+  --gradient-shine: var(--shiny-cta-highlight-subtle);
+}
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled),
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled)::before,
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled)::after {
+  animation-play-state: running;
+}
+.portal-editorial .shiny-cta:is(:hover, :focus-visible):not(:disabled) > span::before {
+  opacity: 1;
+}
+
+@keyframes gradient-angle { to { --gradient-angle: 360deg; } }
+@keyframes shimmer { to { rotate: 360deg; } }
+@keyframes breathe { from, to { scale: 1; } 50% { scale: 1.2; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-editorial .glass-badge,
+  .portal-editorial .badge-pulse-dot::after,
+  .portal-editorial .shiny-cta,
+  .portal-editorial .shiny-cta::before,
+  .portal-editorial .shiny-cta::after,
+  .portal-editorial .shiny-cta > span::before {
+    animation: none;
+  }
+}
+
+/* En pantallas chicas los rieles y las aspas se comen el contenido. */
+@media (max-width: 640px) {
+  .portal-editorial .blueprint-frame::before { background-position: 26px 0, calc(100% - 26px) 0; }
+  .portal-editorial .blueprint-corner { width: 30px; height: 30px; }
+  .portal-editorial .blueprint-title { padding: 10px 16px; }
+  .portal-editorial .brand-sweep { height: 110px; }
 }

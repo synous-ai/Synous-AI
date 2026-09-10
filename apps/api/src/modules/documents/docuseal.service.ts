@@ -14,7 +14,7 @@ import { document, deal, contact } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges } from '../../lib/audit'
 import { sendEmail } from '../../lib/mailer'
-import { activateClientPortal, sendPortalWelcome } from '../deals/stage.service'
+import { activateClientPortal, sendPortalInvitationEmail } from '../deals/stage.service'
 import {
   createSubmission,
   fetchSubmissionDocuments,
@@ -190,7 +190,7 @@ export async function handleDocusealWebhook(payload: DocusealWebhookPayload): Pr
   // Activar el portal solo si es un CONTRATO completado y el deal existe.
   const shouldActivate = newStatus === 'completed' && row.type === 'contract' && Boolean(row.dealId)
 
-  const welcome = await db.transaction(async (tx) => {
+  const invitation = await db.transaction(async (tx) => {
     await tx
       .update(document)
       .set({
@@ -214,7 +214,7 @@ export async function handleDocusealWebhook(payload: DocusealWebhookPayload): Pr
     return shouldActivate ? activateClientPortal(tx, row.portalId, row.dealId!) : null
   })
 
-  // Bienvenida al portal FUERA de la transacción, igual que en changeStage: si
+  // Invitación al portal FUERA de la transacción, igual que en changeStage: si
   // la transacción hiciera rollback, el email ya habría salido.
-  if (welcome) await sendPortalWelcome(welcome)
+  if (invitation) await sendPortalInvitationEmail(invitation)
 }

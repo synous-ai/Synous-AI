@@ -65,3 +65,46 @@ export async function ensureClerkUserType(args: {
     return null
   }
 }
+
+export interface ClientInvitationResult {
+  /** Link con el `__clerk_ticket` que consume /portal/accept-invitation. */
+  invitationUrl: string
+}
+
+/**
+ * Invita a un cliente al portal vía Clerk, devolviendo el link de activación.
+ *
+ * Clerk RECHAZA crear una invitación si el email ya es un usuario de la
+ * aplicación, así que esto debe correr ANTES de `ensureClerkUserType` (que
+ * crea el usuario). Cuando el usuario ya existe, no hay invitación posible:
+ * devolvemos `null` y el caller cae al link de login común.
+ *
+ * `notify: false` porque el email lo mandamos nosotros con Resend, con nuestro
+ * copy y nuestro dominio — no el template por defecto de Clerk.
+ *
+ * Best-effort: cualquier fallo loguea y devuelve `null`; nunca rompe la
+ * activación del portal, que ya dejó la cuenta creada en DB.
+ */
+export async function createClientPortalInvitation(args: {
+  email: string
+  redirectUrl: string
+}): Promise<ClientInvitationResult | null> {
+  if (!env.CLERK_SECRET_KEY) return null
+  const { email, redirectUrl } = args
+  try {
+    const invitation = await clerk().invitations.createInvitation({
+      emailAddress: email,
+      redirectUrl,
+      publicMetadata: { userType: 'client' satisfies UserType },
+      notify: false,
+      ignoreExisting: true,
+    })
+    return invitation.url ? { invitationUrl: invitation.url } : null
+  } catch (err) {
+    console.error(
+      `[clerk-provisioning] No se pudo crear la invitación de Clerk (${email}):`,
+      (err as Error)?.message ?? err,
+    )
+    return null
+  }
+}

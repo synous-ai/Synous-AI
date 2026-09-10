@@ -1,13 +1,20 @@
 /**
  * portal-emails.test.ts — Emails automáticos hacia el cliente (Resend).
  *
- * Cubre las dos piezas que faltaban del flujo "pago → cuenta → invitación":
- * el email de bienvenida al activarse el portal y el aviso de novedad.
+ * Cubre las piezas que dependen de Resend en el flujo "pago → cuenta →
+ * invitación": el email de invitación al activarse el portal (vía Clerk) y el
+ * aviso de novedad.
  *
  * El mailer va MOCKEADO: sin mock, `sendEmail()` sin `RESEND_API_KEY` loguea y
  * retorna, con lo cual los tests solo podrían afirmar "no explotó". Con el mock
  * verificamos lo que importa de verdad: a QUIÉN le llega cada email, con qué
  * asunto, y que no se mande dos veces.
+ *
+ * `createClientPortalInvitation` (Clerk) también va mockeado: en test,
+ * `CLERK_SECRET_KEY` viene forzado a '' (ver vitest.config.ts), y esa función
+ * corta antes de pegarle a Clerk devolviendo `null` — sin este mock,
+ * `invitationUrl` sería siempre `null` y el email de invitación nunca saldría,
+ * dejando sin cobertura el camino real de "invitación + sella inviteSentAt".
  */
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest'
 import { and, eq } from 'drizzle-orm'
@@ -17,13 +24,30 @@ import { ensurePortalAndUser, ensurePipeline, type PipelineContext } from '../..
 import { changeStage, activateClientPortal } from './stage.service'
 import { createDealUpdate } from './project-updates.service'
 import { portalLoginUrl, portalHomeUrl } from '../../lib/portal-url'
-import { portalWelcomeHtml, portalWelcomeSubject } from './emails/portal-welcome'
+import { portalInvitationHtml } from '../onboarding/emails/portal-invitation'
 import { projectUpdateHtml } from './emails/project-update-published'
 import { escParagraphs } from '../../lib/emails/esc'
 import { sendEmail } from '../../lib/mailer'
+import { createClientPortalInvitation } from '../../lib/clerk-provisioning'
 
-vi.mock('../../lib/mailer', () => ({ sendEmail: vi.fn(async () => {}) }))
+vi.mock('../../lib/mailer', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../lib/mailer')>()
+  return { ...original, sendEmail: vi.fn(async () => {}) }
+})
 const sendEmailMock = vi.mocked(sendEmail)
+
+// La invitación de Clerk se mockea acá (no vía clerkFake de test/setup.ts):
+// `createClientPortalInvitation` retorna `null` apenas ve `CLERK_SECRET_KEY`
+// vacío, sin llegar a instanciar el cliente de Clerk — clerkFake nunca se
+// ejecutaría. Mockear el helper completo es lo único que ejercita el flujo.
+vi.mock('../../lib/clerk-provisioning', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../lib/clerk-provisioning')>()
+  return {
+    ...original,
+    createClientPortalInvitation: vi.fn(async () => ({ invitationUrl: 'https://portal.test/accept-invitation?ticket=fake' })),
+  }
+})
+const createInvitationMock = vi.mocked(createClientPortalInvitation)
 
 let portalId: string
 let userId: string
@@ -38,6 +62,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   sendEmailMock.mockClear()
+  createInvitationMock.mockClear()
 })
 
 afterAll(async () => {
@@ -92,30 +117,23 @@ describe('portal-url — base y white-label', () => {
 // ─── Templates ───────────────────────────────────────────────────────────────
 
 describe('templates — escapado y contenido', () => {
-  it('el asunto de bienvenida nombra el proyecto', () => {
-    expect(portalWelcomeSubject('Sitio Acme')).toContain('Sitio Acme')
-  })
-
-  it('la bienvenida escapa HTML del nombre del deal (no inyecta markup)', () => {
-    const html = portalWelcomeHtml({
+  it('la invitación al portal escapa HTML del nombre del deal (no inyecta markup)', () => {
+    const html = portalInvitationHtml({
       firstName: 'Ana',
       dealName: '<script>alert(1)</script>',
-      email: 'ana@test.com',
-      loginUrl: 'https://app.test/portal/login',
+      portalUrl: 'https://app.test/portal/accept-invitation?ticket=x',
     })
     expect(html).not.toContain('<script>alert(1)</script>')
     expect(html).toContain('&lt;script&gt;')
   })
 
-  it('la bienvenida incluye el link de login y el email de acceso', () => {
-    const html = portalWelcomeHtml({
+  it('la invitación incluye el link de Clerk y saluda genérico sin firstName', () => {
+    const html = portalInvitationHtml({
       firstName: null,
       dealName: 'Proyecto',
-      email: 'ana@test.com',
-      loginUrl: 'https://app.test/portal/login',
+      portalUrl: 'https://app.test/portal/accept-invitation?ticket=x',
     })
-    expect(html).toContain('https://app.test/portal/login')
-    expect(html).toContain('ana@test.com')
+    expect(html).toContain('https://app.test/portal/accept-invitation?ticket=x')
     // Sin firstName el saludo no queda colgado con "undefined".
     expect(html).not.toContain('undefined')
   })
@@ -153,8 +171,8 @@ describe('templates — escapado y contenido', () => {
 
 // ─── Activación del portal ───────────────────────────────────────────────────
 
-describe('activateClientPortal — bienvenida e idempotencia', () => {
-  it('al ganar el deal crea la cuenta y marca inviteSentAt tras mandar el email', async () => {
+describe('activateClientPortal — invitación e idempotencia', () => {
+  it('al ganar el deal crea la cuenta, manda la invitación y marca inviteSentAt', async () => {
     const { dealId, email } = await seedDeal('won')
 
     await changeStage(portalId, userId, dealId, ventas.wonStageId)
@@ -172,15 +190,15 @@ describe('activateClientPortal — bienvenida e idempotencia', () => {
     const access = await db.select().from(clientDealAccess).where(eq(clientDealAccess.dealId, dealId))
     expect(access).toHaveLength(1)
 
-    // Le llegó al cliente, no al equipo, y con el link de login adentro.
+    // Le llegó al cliente, no al equipo, y con el link de invitación de Clerk adentro.
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
     const sent = sendEmailMock.mock.calls[0]![0]
     expect(sent.to).toBe(email)
     expect(sent.subject).toContain('Proyecto won')
-    expect(sent.html).toContain('/portal/login')
+    expect(sent.html).toContain('accept-invitation')
   })
 
-  it('ganar un deal ya ganado no re-manda la bienvenida', async () => {
+  it('ganar un deal ya ganado no re-manda la invitación', async () => {
     const { dealId } = await seedDeal('rewon')
 
     await changeStage(portalId, userId, dealId, ventas.wonStageId)
@@ -193,10 +211,26 @@ describe('activateClientPortal — bienvenida e idempotencia', () => {
     expect(sendEmailMock).not.toHaveBeenCalled()
   })
 
-  it('si la cuenta ya existía no devuelve bienvenida (no se re-invita)', async () => {
+  it('si Clerk no devuelve link de invitación, no manda email ni sella inviteSentAt', async () => {
+    const { dealId, email } = await seedDeal('no-invite-link')
+    createInvitationMock.mockResolvedValueOnce(null)
+
+    await changeStage(portalId, userId, dealId, ventas.wonStageId)
+
+    expect(sendEmailMock).not.toHaveBeenCalled()
+    const [acc] = await db
+      .select()
+      .from(clientAccount)
+      .where(and(eq(clientAccount.portalId, portalId), eq(clientAccount.email, email)))
+      .limit(1)
+    expect(acc).toBeDefined()
+    expect(acc!.inviteSentAt).toBeNull()
+  })
+
+  it('si la cuenta ya existía no devuelve invitación (no se re-invita)', async () => {
     const { dealId } = await seedDeal('idem')
 
-    // Primera activación: hay bienvenida pendiente.
+    // Primera activación: hay invitación pendiente.
     const first = await db.transaction((tx) => activateClientPortal(tx, portalId, dealId))
     expect(first).not.toBeNull()
 
@@ -205,7 +239,7 @@ describe('activateClientPortal — bienvenida e idempotencia', () => {
     expect(second).toBeNull()
   })
 
-  it('un deal sin contacto principal no genera bienvenida ni rompe', async () => {
+  it('un deal sin contacto principal no genera invitación ni rompe', async () => {
     const [d] = await db
       .insert(deal)
       .values({
