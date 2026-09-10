@@ -17,6 +17,7 @@ import {
 import { Errors, AppError } from '../../lib/errors'
 import { env } from '../../config/env'
 import { sendEmail } from '../../lib/mailer'
+import { slugify } from '../../lib/slug'
 import { computeSlots, toInviteeDisplay } from './slots.service'
 import type { ScheduleWithIntervals, WeeklyInterval, DateOverrideItem, BookingBusy, EventTypeConfig } from './slots.service'
 import type {
@@ -38,15 +39,6 @@ import { bookingHostNotifyHtml } from './emails/booking-host-notify'
 
 type MeetingTypeRow = typeof meetingType.$inferSelect
 type AvailabilityRow = typeof availabilityRule.$inferSelect
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
 
 // ── Tipos de reunión ───────────────────────────────────
 export async function listMeetingTypes(portalId: string): Promise<MeetingTypeRow[]> {

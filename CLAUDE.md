@@ -1,4 +1,4 @@
-# CLAUDE.md — Synous AI CRM
+# CLAUDE.md — SynousAI
 
 Este archivo es leído automáticamente por Claude Code al abrir el proyecto.
 La documentación completa está en `CRM_SYNOUS_DOCS.md`.
@@ -7,7 +7,7 @@ La documentación completa está en `CRM_SYNOUS_DOCS.md`.
 
 ## Qué es este proyecto
 
-CRM propio para una agencia de desarrollo web de dos personas (Carlos y Andrés).
+CRM propio para una agencia de desarrollo web de dos personas (Jeremias y Laurenao).
 Monorepo con tres apps: API (Fastify), Admin Portal (Next.js), Client Portal (Next.js).
 **No uses librerías externas de CRM. Todo se construye desde cero sobre PostgreSQL.**
 

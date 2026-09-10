@@ -6,10 +6,56 @@ import { Button } from '@portal/components/ui/button'
 import { Textarea } from '@portal/components/ui/textarea'
 import { StepHeader, WizardNav } from '@portal/components/onboarding/wizard-shell'
 import { useSubmitOnboardingMaterials, useUploadOnboardingMaterial } from '@portal/lib/hooks'
-import { API_URL } from '@portal/lib/config'
+import { downloadFile } from '@portal/lib/api'
 import type { OnboardingAsset, OnboardingMaterialCategory, OnboardingMaterialsState } from '@portal/lib/types'
 import { ONBOARDING_MATERIAL_CATEGORIES, type OnboardingMaterialCategoryDef } from '@portal/lib/onboarding-content'
 import { cn, formatSize } from '@portal/lib/utils'
+
+/**
+ * Un adjunto ya subido. Es un botón y no un `<a href>` porque
+ * `GET /api/files/:key` exige el token de Clerk y un anchor no manda headers
+ * (ver downloadFile en lib/api.ts).
+ */
+function AssetLink({ asset }: { asset: OnboardingAsset }) {
+  const [downloading, setDownloading] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  async function handleDownload() {
+    setDownloading(true)
+    setFailed(false)
+    try {
+      await downloadFile(asset.storageKey, asset.name)
+    } catch {
+      setFailed(true)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={downloading}
+      className="flex w-full items-center gap-2 text-left text-sm text-primary hover:underline disabled:opacity-60"
+    >
+      {downloading ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+      ) : (
+        <Paperclip className="h-3.5 w-3.5 shrink-0" />
+      )}
+      <span className="truncate">{asset.name}</span>
+      {asset.sizeBytes != null && (
+        <span className="shrink-0 text-xs text-muted-foreground">{formatSize(asset.sizeBytes)}</span>
+      )}
+      {failed && (
+        <span role="alert" className="shrink-0 text-xs text-destructive">
+          No se pudo descargar
+        </span>
+      )}
+    </button>
+  )
+}
 
 function CategoryCard({
   def,
@@ -54,18 +100,7 @@ function CategoryCard({
         <ul className="mt-3 space-y-1.5">
           {assets.map((a) => (
             <li key={a.id}>
-              <a
-                href={`${API_URL}/api/files/${a.storageKey}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 text-sm text-primary hover:underline"
-              >
-                <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{a.name}</span>
-                {a.sizeBytes != null && (
-                  <span className="shrink-0 text-xs text-muted-foreground">{formatSize(a.sizeBytes)}</span>
-                )}
-              </a>
+              <AssetLink asset={a} />
             </li>
           ))}
         </ul>

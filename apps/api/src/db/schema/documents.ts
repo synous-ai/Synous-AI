@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, index, unique, check } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, boolean, timestamp, index, unique, check } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { portal } from './portal'
 import { deal } from './deals'
@@ -21,6 +21,17 @@ export const document = pgTable('document', {
   docusealStatus: text('docuseal_status'),
   docusealExternalId: text('docuseal_external_id').unique(),
   storageKey: text('storage_key'),
+  /**
+   * ¿El cliente ve este documento en su Portal?
+   *
+   * Default `true` para no cambiar lo que los clientes ya venían viendo
+   * (contratos firmados, propuestas, facturas). Se marca `false` para los
+   * documentos internos del proceso de entrega — Diagnóstico y Blueprint,
+   * que hoy son `type='other'` y por eso terminaban guardándose fuera del CRM.
+   *
+   * Lo consume `listClientDocuments`.
+   */
+  visibleToClient: boolean('visible_to_client').notNull().default(true),
   signedAt: timestamp('signed_at', { withTimezone: true }),
   signedBy: text('signed_by').references(() => clientAccount.id),
   createdBy: text('created_by').references(() => hubUser.id),

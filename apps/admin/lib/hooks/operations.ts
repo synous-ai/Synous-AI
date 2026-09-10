@@ -7,6 +7,7 @@ import type {
   WorkItemPriority,
   Deliverable,
   ChangeRequest,
+  ChangeRequestListItem,
   DealIntake,
   IntakeForm,
   CRDetail,
@@ -31,6 +32,8 @@ export interface CreateDocumentInput {
   name: string
   type: DocumentType
   storageKey?: string
+  /** Omitido = visible al cliente (default del backend). */
+  visibleToClient?: boolean
 }
 
 export function useCreateDocument() {
@@ -116,6 +119,8 @@ export interface DeliverableInput {
   type: 'design' | 'prototype' | 'staging' | 'final'
   url?: string
   description?: string
+  /** Omitido = visible al cliente (default del backend). */
+  visibleToClient?: boolean
 }
 
 export function useCreateDeliverable() {
@@ -129,7 +134,7 @@ export function useCreateDeliverable() {
 export function useUpdateDeliverable() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Partial<{ status: string; title: string; url: string; feedback: string }> }) =>
+    mutationFn: ({ id, input }: { id: string; input: Partial<{ status: string; title: string; url: string; feedback: string; visibleToClient: boolean }> }) =>
       apiPatch<Deliverable>(`/api/deliverables/${id}`, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['deliverables'] }),
   })
@@ -181,6 +186,18 @@ export function useDealCRs(dealId: string | null) {
     queryKey: ['change-requests', dealId],
     queryFn: () => apiGet<ChangeRequest[]>(`/api/change-requests?dealId=${dealId}`),
     enabled: dealId != null,
+  })
+}
+
+/**
+ * Todas las CRs del portal, sin filtrar por deal — alimenta la cola de trabajo
+ * de /admin/change-requests (¿qué CRs están esperando respuesta del cliente?),
+ * que es una pregunta que no se puede responder entrando deal por deal.
+ */
+export function useAllCRs() {
+  return useQuery({
+    queryKey: ['change-requests', 'all'],
+    queryFn: () => apiGet<ChangeRequestListItem[]>('/api/change-requests'),
   })
 }
 

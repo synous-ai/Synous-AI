@@ -1,6 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { SLUG_RESERVED } from '@nous/shared'
 
 /**
  * Middleware unificado de la app web (landing + admin + portal de cliente).
@@ -39,7 +40,13 @@ const isAdminPublic = createRouteMatcher(['/admin/login(.*)'])
 // duplicar el cálculo dejaba `/portal/accept-invitation` protegida en esa rama
 // aunque estuviera exenta acá.
 const PORTAL_PUBLIC_PREFIXES = ['/portal/login', '/portal/accept-invitation'] as const
-const isPortalProtected = createRouteMatcher(['/portal/(.*)'])
+// OJO con el patrón: `/portal/(.*)` NO matchea `/portal` pelado (la barra es
+// literal), así que el HOME del portal —la puerta de entrada del cliente— se
+// servía sin pasar por auth.protect(). No era fuga de datos (el backend
+// devuelve 401 y el layout tiene guard propio), pero el visitante sin sesión
+// recibía el shell de la página en vez de un redirect limpio al login.
+// Por eso las dos entradas: la exacta y la de subrutas.
+const isPortalProtected = createRouteMatcher(['/portal', '/portal/(.*)'])
 const isPortalPublic = createRouteMatcher(PORTAL_PUBLIC_PREFIXES.map((p) => `${p}(.*)`))
 function isPortalPublicPath(pathname: string): boolean {
   return PORTAL_PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
@@ -47,41 +54,56 @@ function isPortalPublicPath(pathname: string): boolean {
 
 // ─── Helpers de tenant ────────────────────────────────────────────────────────
 
-/** Extrae el subdominio del host, o null si es apex/www/localhost pelado. */
+/** Extrae el subdominio del host, o null si es apex/www/localhost pelado o reservado. */
 function getSubdomain(host: string): string | null {
   const hostname = (host.split(':')[0] || '').toLowerCase()
   if (!hostname || hostname === 'localhost') return null
 
+  let candidate: string | null = null
+
   // dev: *.localhost
   if (hostname.endsWith('.localhost')) {
     const first = hostname.split('.')[0]
-    return first && first !== 'www' ? first : null
+    candidate = first && first !== 'www' ? first : null
+  } else {
+    // prod: si está configurado el dominio raíz, sacá el label de adelante
+    const root = process.env['NEXT_PUBLIC_ROOT_DOMAIN']
+    if (root && hostname.endsWith('.' + root.toLowerCase())) {
+      const sub = hostname.slice(0, hostname.length - root.length - 1)
+      const first = sub.split('.')[0]
+      candidate = first && first !== 'www' ? first : null
+    } else {
+      // Dominios propios de plataformas de deploy (Vercel, etc.): el nombre del
+      // proyecto ocupa el label de subdominio (ej. synous-ai-admin.vercel.app),
+      // pero NO es un tenant white-label — es la instancia misma de la app. Sin
+      // esta excepción, el fallback heurístico de abajo confunde el deployment
+      // con un cliente y rompe TODO el sitio (rewrite/protección a /portal/* en
+      // cualquier ruta, incluida /admin/login). Bug real observado en producción
+      // antes de este fix, no una precaución teórica.
+      const PLATFORM_DOMAIN_SUFFIXES = ['.vercel.app'] as const
+      if (PLATFORM_DOMAIN_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) {
+        candidate = null
+      } else {
+        // fallback heurístico: 3+ labels (sub.dominio.tld) y no www
+        const labels = hostname.split('.')
+        candidate = labels.length > 2 && labels[0] && labels[0] !== 'www' ? labels[0] : null
+      }
+    }
   }
 
-  // prod: si está configurado el dominio raíz, sacá el label de adelante
-  const root = process.env['NEXT_PUBLIC_ROOT_DOMAIN']
-  if (root && hostname.endsWith('.' + root.toLowerCase())) {
-    const sub = hostname.slice(0, hostname.length - root.length - 1)
-    const first = sub.split('.')[0]
-    return first && first !== 'www' ? first : null
-  }
+  if (!candidate) return null
 
-  // Dominios propios de plataformas de deploy (Vercel, etc.): el nombre del
-  // proyecto ocupa el label de subdominio (ej. synous-ai-admin.vercel.app),
-  // pero NO es un tenant white-label — es la instancia misma de la app. Sin
-  // esta excepción, el fallback heurístico de abajo confunde el deployment
-  // con un cliente y rompe TODO el sitio (rewrite/protección a /portal/* en
-  // cualquier ruta, incluida /admin/login). Bug real observado en producción
-  // antes de este fix, no una precaución teórica.
-  const PLATFORM_DOMAIN_SUFFIXES = ['.vercel.app'] as const
-  if (PLATFORM_DOMAIN_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) {
-    return null
-  }
+  // Mismo bug que motivó la excepción de PLATFORM_DOMAIN_SUFFIXES arriba, pero
+  // con subdominios PROPIOS de la plataforma en vez de ajenos: con
+  // NEXT_PUBLIC_ROOT_DOMAIN=synousai.com, "app.synousai.com" resolvía como
+  // tenant "app" y el middleware reescribía TODO (incluido /admin/login) a
+  // /portal/*, dejando el admin real inaccesible en producción. `SLUG_RESERVED`
+  // es la MISMA lista que usa `uniqueCompanySlug()` en la API para no
+  // asignarle esos slugs a una empresa — a propósito, para que esta lista y la
+  // de la API nunca diverjan (ver `packages/shared/src/slug.ts`).
+  if ((SLUG_RESERVED as readonly string[]).includes(candidate)) return null
 
-  // fallback heurístico: 3+ labels (sub.dominio.tld) y no www
-  const labels = hostname.split('.')
-  if (labels.length > 2 && labels[0] && labels[0] !== 'www') return labels[0]
-  return null
+  return candidate
 }
 
 /** Setea la cookie del tenant solo si cambió (evita writes innecesarios). */
@@ -171,9 +193,12 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   // 3. Proteger admin (excepto /admin/login que es la página pública de entrada).
-  //    auth.protect() lanza un redirect a NEXT_PUBLIC_CLERK_SIGN_IN_URL si no hay sesión.
+  //    `auth.protect()` a secas hace notFound() cuando no hay sesión, así que
+  //    entrar a cualquier link profundo del admin sin estar logueado devolvía
+  //    un 404 en vez del login (verificado: GET /admin/tasks → 404). Pasamos
+  //    unauthenticatedUrl explícito, igual que el portal más abajo.
   if (isAdminProtected(req) && !isAdminPublic(req)) {
-    await auth.protect()
+    await auth.protect({ unauthenticatedUrl: new URL('/admin/login', req.url).toString() })
   }
 
   // 4. Proteger portal (excepto /portal/login) — CA2.

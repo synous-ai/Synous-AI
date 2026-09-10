@@ -42,15 +42,27 @@ export function DeliverableCard({ deliverable }: { deliverable: Deliverable }) {
   const isActionable =
     deliverable.status === 'pending_review' || deliverable.status === 'changes_requested'
 
+  // Los catch vacíos NO se tragan el error: react-query lo guarda en
+  // `approve.error` / `requestChanges.error` y se renderiza abajo. El try/catch
+  // sólo evita la unhandled promise rejection de `mutateAsync`, y acá garantiza
+  // que el feedback escrito no se pierda si la request falló.
   async function handleApprove() {
-    await approve.mutateAsync(deliverable.id)
+    try {
+      await approve.mutateAsync(deliverable.id)
+    } catch {
+      /* el error se muestra vía approve.error */
+    }
   }
 
   async function handleRequestChanges() {
     if (!feedback.trim()) return
-    await requestChanges.mutateAsync({ id: deliverable.id, feedback: feedback.trim() })
-    setFeedback('')
-    setShowFeedbackForm(false)
+    try {
+      await requestChanges.mutateAsync({ id: deliverable.id, feedback: feedback.trim() })
+      setFeedback('')
+      setShowFeedbackForm(false)
+    } catch {
+      /* el error se muestra vía requestChanges.error */
+    }
   }
 
   return (
@@ -150,6 +162,15 @@ export function DeliverableCard({ deliverable }: { deliverable: Deliverable }) {
                   Pedir cambios
                 </Button>
               </div>
+            )}
+
+            {/* Sin esto, un fallo de aprobar/pedir cambios era INVISIBLE: el
+                spinner paraba y el cliente creía que su acción se registró. */}
+            {(approve.isError || requestChanges.isError) && (
+              <p role="alert" className="text-xs text-destructive">
+                No pudimos registrar tu respuesta. Probá de nuevo en unos
+                segundos; si sigue fallando, escribinos.
+              </p>
             )}
           </div>
         )}

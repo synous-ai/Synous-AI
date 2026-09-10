@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiPatch, apiUpload } from './api'
+import { apiGet, apiPost, apiPatch, apiUpload, fetchFileObjectUrl } from './api'
 import type {
   Deal,
   Deliverable,
@@ -220,4 +221,59 @@ export function useCompleteOnboarding() {
       void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY })
     },
   })
+}
+
+// ─── Imágenes protegidas ─────────────────────────────────────────────────────
+
+/**
+ * Resuelve una URL de `/api/files/:key` a un object URL usable en `<img src>`.
+ *
+ * El backend devuelve el logo como `${PUBLIC_API_URL}/api/files/${key}`
+ * (branding.service.ts), pero ese endpoint exige el token de Clerk y un
+ * `<img>` no manda headers: el logo salía roto en el header del portal y en
+ * "Mi Marca". Este hook baja los bytes autenticado y libera el object URL al
+ * desmontar o al cambiar de imagen.
+ *
+ * Devuelve null mientras carga o si la descarga falla — el caller decide el
+ * fallback (monograma, placeholder, etc.).
+ *
+ * OJO: no sirve para la pantalla de login, que muestra el logo del tenant SIN
+ * sesión. Ese caso necesita una ruta pública de lectura para logos de marca.
+ */
+export function useAuthedImageUrl(fileUrl: string | null | undefined): string | null {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    const key = fileUrl?.match(/\/api\/files\/(.+)$/)?.[1]
+    if (!key) {
+      setObjectUrl(null)
+      return
+    }
+
+    let revoked = false
+    let created: string | null = null
+
+    void fetchFileObjectUrl(key)
+      .then((url) => {
+        // Si el efecto ya se limpió mientras la descarga estaba en vuelo,
+        // revocamos de una y no seteamos estado sobre un componente muerto.
+        if (revoked) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        created = url
+        setObjectUrl(url)
+      })
+      .catch(() => {
+        if (!revoked) setObjectUrl(null)
+      })
+
+    return () => {
+      revoked = true
+      if (created) URL.revokeObjectURL(created)
+      setObjectUrl(null)
+    }
+  }, [fileUrl])
+
+  return objectUrl
 }

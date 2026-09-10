@@ -4,6 +4,7 @@ import { company, contact, deal, note, task, recordHistory } from '../../db/sche
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit } from '../../lib/audit'
 import { decodeCursor, paginateRows, cursorWhere } from '../../lib/pagination'
+import { uniqueCompanySlug } from '../../lib/slug'
 import type { ListQuery } from '../../lib/crm-schemas'
 import type { CreateCompanyDTO, UpdateCompanyDTO } from './companies.schema'
 
@@ -49,7 +50,10 @@ export async function getCompany(portalId: string, id: string): Promise<CompanyR
 
 export async function createCompany(portalId: string, userId: string, input: CreateCompanyDTO): Promise<CompanyRow> {
   return db.transaction(async (tx) => {
-    const [row] = await tx.insert(company).values({ ...input, portalId }).returning()
+    // Slug del tenant: se asigna una única vez, acá. `updateCompany` NUNCA lo
+    // regenera al renombrar (ver comentario ahí) — evita romper URLs ya repartidas.
+    const slug = await uniqueCompanySlug(tx, portalId, input.name)
+    const [row] = await tx.insert(company).values({ ...input, portalId, slug }).returning()
     if (!row) throw Errors.internal('No se pudo crear la empresa')
     await writeAudit({ tx, portalId, userId, entityType: ENTITY, entityId: row.id, action: 'CREATE', payload: input })
     return row
@@ -57,6 +61,11 @@ export async function createCompany(portalId: string, userId: string, input: Cre
 }
 
 export async function updateCompany(portalId: string, userId: string, id: string, input: UpdateCompanyDTO): Promise<CompanyRow> {
+  // NOTA: `input` (CreateCompanySchema.partial()) no incluye `slug` — no hay
+  // forma de pisarlo desde acá aunque se renombre la empresa, y es a propósito:
+  // el slug es la URL del tenant (subdominio / `/c/<slug>`), y regenerarlo al
+  // renombrar rompería links ya repartidos al cliente. Un slug desactualizado
+  // tras un rename es un costo menor que eso.
   return db.transaction(async (tx) => {
     const [existing] = await tx
       .select()

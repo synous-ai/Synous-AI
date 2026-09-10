@@ -3,13 +3,10 @@ import { db } from '../../db'
 import { intakeForm, dealIntake, dealIntakeResponse, deal, intakeForm as form } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { clientDealIds } from '../../lib/portal-access'
+import { slugify } from '../../lib/slug'
 import type { CreateIntakeFormDTO, AssignIntakeDTO } from './intake.schema'
 
 type IntakeFormRow = typeof intakeForm.$inferSelect
-
-function slugify(s: string): string {
-  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-}
 
 // ── Admin: plantillas de formulario ────────────────────
 export async function listIntakeForms(portalId: string): Promise<IntakeFormRow[]> {

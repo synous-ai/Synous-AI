@@ -56,10 +56,16 @@ const REPORTS = { label: 'Reportes', icon: BarChart3, href: '/admin/reports' }
 const CALENDAR = { label: 'Calendario', icon: Calendar, href: '/admin/calendar' }
 const STANDALONE = [DASHBOARD, REPORTS, CALENDAR]
 
-// IA: un ítem = un destino real. Las sub-features (Entregables, Formularios, Change
-// Requests, Disponibilidad, Tipos de reunión) viven como TABS dentro de su entidad,
-// no como ítems de menú. Los filtros (clientes activos/potenciales) son controles
-// in-page. La Biblioteca es el hogar único de assets reutilizables.
+// IA: un ítem = un destino real. Las sub-features (Entregables, Formularios,
+// Disponibilidad, Tipos de reunión) viven como TABS dentro de su entidad, no como
+// ítems de menú. Los filtros (clientes activos/potenciales) son controles in-page.
+// La Biblioteca es el hogar único de assets reutilizables.
+//
+// Excepción a la regla del tab: Change Requests tiene TAMBIÉN un ítem propio.
+// Como tab dentro del deal responde "¿qué CRs tiene este proyecto?"; como ítem de
+// menú responde "¿qué CRs están esperando respuesta del cliente, en todos los
+// proyectos?" — una cola de trabajo, igual que Seguimientos o Tareas. Son dos
+// preguntas distintas: la segunda no se puede contestar entrando deal por deal.
 const GROUPS: Group[] = [
   {
     label: 'CRM',
@@ -71,6 +77,7 @@ const GROUPS: Group[] = [
       { label: 'Contactos', href: '/admin/contacts' },
       { label: 'Empresas', href: '/admin/companies' },
       { label: 'Deals', href: '/admin/deals' },
+      { label: 'Propuestas', href: '/admin/proposals' },
       { label: 'Seguimientos', href: '/admin/follow-ups' },
     ],
   },
@@ -79,6 +86,8 @@ const GROUPS: Group[] = [
     icon: FolderKanban,
     items: [
       { label: 'Proyectos', href: '/admin/projects' },
+      { label: 'Onboarding', href: '/admin/onboarding' },
+      { label: 'Change Requests', href: '/admin/change-requests' },
       { label: 'Tareas', href: '/admin/tasks' },
     ],
   },

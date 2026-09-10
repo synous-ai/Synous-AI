@@ -7,6 +7,7 @@ import { ListQuerySchema, IdParamSchema } from '../../lib/crm-schemas'
 import { SearchBodySchema } from '../../lib/filter'
 import { CreateContactSchema, UpdateContactSchema } from './contacts.schema'
 import { listContacts, getContact, getContactDetail, searchContacts, createContact, updateContact, archiveContact } from './contacts.service'
+import { suggestNextAction } from './next-action.service'
 import { ADMIN_SECURITY } from '../../lib/http'
 
 const TAG = 'Contactos'
@@ -45,6 +46,21 @@ export async function contactsRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => ok(await getContactDetail(request.hubUser!.portalId, request.params.id)),
+  )
+
+  r.get(
+    '/:id/next-action',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Próxima acción sugerida',
+        description:
+          'Sugiere la próxima acción para el contacto a partir de su etapa, deals, onboarding y propuestas. Intenta con IA (Model Switcher) y cae a reglas si no hay credenciales o falla — siempre devuelve una acción.',
+        security,
+        params: IdParamSchema,
+      },
+    },
+    async (request) => ok(await suggestNextAction(request.hubUser!.portalId, request.params.id)),
   )
 
   r.post(

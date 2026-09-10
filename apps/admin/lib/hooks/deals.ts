@@ -94,3 +94,23 @@ export function useRemoveDealContact() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['deals'] }),
   })
 }
+
+/** Respuesta de POST /api/deals/:id/activate-portal — ver deals.service.ts (backend) para el detalle de cada status. */
+export interface ActivatePortalResult {
+  status: 'activated' | 'already_active' | 'missing_contact' | 'missing_email'
+  clientEmail: string | null
+}
+
+/**
+ * Invita manualmente al contacto principal del deal al Client Portal.
+ * Endpoint idempotente (siempre 200): el `status` de la respuesta indica qué pasó,
+ * nunca lanza por los casos de negocio ya cubiertos (sin contacto / sin email / ya activo).
+ * Al resolver, invalida el detalle del deal para que `clientPortal` se refresque solo.
+ */
+export function useActivatePortal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dealId: string) => apiPost<ActivatePortalResult>(`/api/deals/${dealId}/activate-portal`, {}),
+    onSuccess: (_data, dealId) => qc.invalidateQueries({ queryKey: ['deals', 'detail', dealId] }),
+  })
+}

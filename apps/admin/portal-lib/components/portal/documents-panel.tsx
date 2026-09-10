@@ -1,12 +1,13 @@
 'use client'
 
+import { useState } from 'react'
 import { useClientDocuments } from '@portal/lib/hooks'
+import { downloadFile } from '@portal/lib/api'
 import type { ClientDocument } from '@portal/lib/types'
 import { Card, CardContent } from '@portal/components/ui/card'
 import { Badge } from '@portal/components/ui/badge'
-import { FileText, Download } from 'lucide-react'
+import { FileText, Download, Loader2 } from 'lucide-react'
 import { RowListSkeleton } from '@portal/components/ui/skeletons'
-import { API_URL } from '@portal/lib/config'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
 
 // ─── Type label helpers ────────────────────────────────────────────────────────
@@ -36,6 +37,21 @@ function formatDateShort(dateStr: string): string {
 // ─── Document Row ─────────────────────────────────────────────────────────────
 
 function DocumentRow({ doc }: { doc: ClientDocument }) {
+  const [downloading, setDownloading] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  async function handleDownload() {
+    setDownloading(true)
+    setFailed(false)
+    try {
+      await downloadFile(doc.storageKey!, doc.name)
+    } catch {
+      setFailed(true)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <Card>
       <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-2 py-4">
@@ -51,17 +67,29 @@ function DocumentRow({ doc }: { doc: ClientDocument }) {
         {/* Date */}
         <span className="text-xs text-muted-foreground">{formatDateShort(doc.createdAt)}</span>
 
-        {/* Download */}
+        {/* Descarga autenticada: el endpoint pide el token de Clerk, así que no
+            puede ser un <a href> pelado (ver downloadFile en lib/api.ts). */}
         {doc.storageKey && (
-          <a
-            href={`${API_URL}/api/files/${doc.storageKey}`}
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent/50"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Descargar
-          </a>
+          <div className="ml-auto flex items-center gap-2">
+            {failed && (
+              <span role="alert" className="text-xs text-destructive">
+                No se pudo descargar
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent/50 disabled:opacity-60"
+            >
+              {downloading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              Descargar
+            </button>
+          </div>
         )}
       </CardContent>
     </Card>

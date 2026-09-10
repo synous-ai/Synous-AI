@@ -48,11 +48,30 @@ const client = createApiClient({
   // El admin ya no usa refresh via cookie propio — Clerk auto-gestiona su sesión.
   // refreshPath se omite deliberadamente: tryRefresh() devolverá false de inmediato.
   getToken: getAdminToken,
-  // onAuthFailure: redirigir al login. En el admin con Clerk el middleware ya
-  // bloquea el acceso, pero por si acaso recibimos un 401 inesperado.
+  // onAuthFailure: el backend devolvió 401 CON una sesión de Clerk activa — es
+  // una sesión "huérfana" (usuario de Clerk sin hub_user vinculado; típico: un
+  // cliente del portal, o un hub_user con clerk_user_id placeholder del seed).
+  //
+  // Redirigir sin cerrar la sesión dejaba al usuario trabado: /admin/login no
+  // monta el <SignIn> de Clerk si hay sesión activa, así que veía un panel
+  // vacío, y cualquier página que siguiera llamando a la API rebotaba en loop.
+  // Por eso cerramos la sesión PRIMERO y sólo después navegamos (y nunca si ya
+  // estamos en el login). Mismo patrón que portal-lib/lib/api.ts.
   onAuthFailure: () => {
-    if (typeof window !== 'undefined') {
-      window.location.href = '/admin/login'
+    if (typeof window === 'undefined') return
+    console.warn(
+      '[admin-auth] 401 del backend con sesión de Clerk activa — sesión sin hub_user vinculado; cerrando sesión para evitar quedar trabado en el login',
+    )
+    const clerk = (window as unknown as { Clerk?: { session?: unknown; signOut?: () => Promise<void> } }).Clerk
+    const goLogin = (): void => {
+      if (!window.location.pathname.startsWith('/admin/login')) {
+        window.location.href = '/admin/login'
+      }
+    }
+    if (clerk?.session && typeof clerk.signOut === 'function') {
+      void clerk.signOut().then(goLogin, goLogin)
+    } else {
+      goLogin()
     }
   },
 })

@@ -54,6 +54,23 @@ export function useCreateUser() {
   })
 }
 
+/** Campos editables de un miembro del equipo (PATCH /api/users/:id — solo owner). */
+export interface UpdateUserInput {
+  firstName?: string
+  lastName?: string
+  role?: HubUserRole
+  isActive?: boolean
+}
+
+export function useUpdateUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...input }: UpdateUserInput & { id: string }) =>
+      apiPatch<TeamUser>(`/api/users/${id}`, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  })
+}
+
 export function usePipelines() {
   return useQuery({ queryKey: ['pipelines'], queryFn: () => apiGet<Pipeline[]>('/api/pipelines') })
 }

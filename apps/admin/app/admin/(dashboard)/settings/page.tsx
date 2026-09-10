@@ -10,6 +10,7 @@ import {
   useUpdatePortal,
   useUsers,
   useCreateUser,
+  useUpdateUser,
   usePipelines,
   useCreatePipeline,
   useAddStage,
@@ -18,6 +19,8 @@ import {
   useIntakeForms,
   useCreateIntakeForm,
 } from '@/lib/hooks'
+import type { TeamUser, HubUserRole } from '@/lib/types'
+import { ROLE_ORDER, ROLE_LABEL, roleLabel } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -204,6 +207,65 @@ function EmpresaTab() {
   )
 }
 
+/**
+ * Fila de usuario con edición inline de rol y estado.
+ *
+ * El rol se cambia con un Select que guarda al instante (PATCH /api/users/:id).
+ * Solo un owner puede ejecutar ese endpoint; si lo intenta otro rol, la API
+ * responde 403 y se muestra el error sin dejar la fila en un estado falso.
+ */
+function UsuarioRow({ user }: { user: TeamUser }) {
+  const update = useUpdateUser()
+
+  async function changeRole(role: string): Promise<void> {
+    if (role === user.role) return
+    try {
+      await update.mutateAsync({ id: user.id, role: role as HubUserRole })
+      toast.success(`${user.email} ahora es ${roleLabel(role)}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo cambiar el rol')
+    }
+  }
+
+  async function toggleActive(): Promise<void> {
+    try {
+      await update.mutateAsync({ id: user.id, isActive: !user.isActive })
+      toast.success(user.isActive ? 'Usuario desactivado' : 'Usuario reactivado')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo cambiar el estado')
+    }
+  }
+
+  return (
+    <TableRow className={user.isActive ? undefined : 'opacity-60'}>
+      <TableCell className="px-4 py-3 font-medium">{user.email}</TableCell>
+      <TableCell className="px-4 py-3">{user.firstName ?? '—'}</TableCell>
+      <TableCell className="px-4 py-3">
+        <Select value={user.role} onValueChange={changeRole} disabled={update.isPending}>
+          <SelectTrigger className="h-8 w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ROLE_ORDER.map((r) => (
+              <SelectItem key={r} value={r}>
+                {ROLE_LABEL[r]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+      <TableCell className="px-4 py-3 text-muted-foreground">
+        {user.isActive ? 'Activo' : 'Inactivo'}
+      </TableCell>
+      <TableCell className="px-4 py-3 text-right">
+        <Button size="sm" variant="ghost" onClick={toggleActive} disabled={update.isPending}>
+          {user.isActive ? 'Desactivar' : 'Reactivar'}
+        </Button>
+      </TableCell>
+    </TableRow>
+  )
+}
+
 function UsuariosTab() {
   const { data, isLoading } = useUsers()
   const create = useCreateUser()
@@ -214,7 +276,7 @@ function UsuariosTab() {
       await create.mutateAsync({
         email: form.email,
         firstName: form.firstName || undefined,
-        role: form.role as 'owner' | 'member' | 'viewer',
+        role: form.role as HubUserRole,
         password: form.password,
       })
       toast.success('Usuario creado correctamente')
@@ -248,9 +310,11 @@ function UsuariosTab() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="owner">owner</SelectItem>
-                  <SelectItem value="member">member</SelectItem>
-                  <SelectItem value="viewer">viewer</SelectItem>
+                  {ROLE_ORDER.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {ROLE_LABEL[r]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -278,16 +342,14 @@ function UsuariosTab() {
                   <TableHead className="px-4 py-3 text-xs font-medium text-muted-foreground">Nombre</TableHead>
                   <TableHead className="px-4 py-3 text-xs font-medium text-muted-foreground">Rol</TableHead>
                   <TableHead className="px-4 py-3 text-xs font-medium text-muted-foreground">Estado</TableHead>
+                  <TableHead className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">
+                    Acciones
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(data ?? []).map((u) => (
-                  <TableRow key={u.id}>
-                    <TableCell className="px-4 py-3 font-medium">{u.email}</TableCell>
-                    <TableCell className="px-4 py-3">{u.firstName ?? '—'}</TableCell>
-                    <TableCell className="px-4 py-3"><span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">{u.role}</span></TableCell>
-                    <TableCell className="px-4 py-3 text-muted-foreground">{u.isActive ? 'Activo' : 'Inactivo'}</TableCell>
-                  </TableRow>
+                  <UsuarioRow key={u.id} user={u} />
                 ))}
               </TableBody>
             </Table>

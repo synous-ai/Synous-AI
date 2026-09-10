@@ -97,3 +97,50 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
   }
   return (json as { data: T }).data
 }
+
+/**
+ * Descarga un archivo protegido y devuelve un object URL apuntando al blob.
+ *
+ * `GET /api/files/:key` exige el token de Clerk. Un `<a href>` o un `<img src>`
+ * pelado NO manda headers, así que todos los links directos a ese endpoint
+ * devolvían 401: documentos, adjuntos del onboarding y el logo de "Mi Marca".
+ *
+ * El endpoint también acepta `?token=` como escape hatch, pero un token en la
+ * query string queda en el historial del navegador, en la cabecera Referer y
+ * en los logs de acceso del servidor. Por eso bajamos los bytes con el header
+ * y servimos el archivo desde memoria.
+ *
+ * IMPORTANTE: quien llama es dueño del object URL y debe liberarlo con
+ * `URL.revokeObjectURL(...)` cuando deja de usarlo, o el blob queda retenido
+ * en memoria hasta que se recargue la página.
+ */
+export async function fetchFileObjectUrl(storageKey: string): Promise<string> {
+  const token = await getPortalToken()
+  const res = await fetch(`${API_URL}/api/files/${storageKey}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    throw new _ApiError('DOWNLOAD_FAILED', 'No se pudo descargar el archivo', res.status)
+  }
+  return URL.createObjectURL(await res.blob())
+}
+
+/**
+ * Baja un archivo protegido y dispara la descarga en el navegador.
+ * Revoca el object URL apenas termina — a diferencia de `fetchFileObjectUrl`,
+ * acá el blob no tiene que sobrevivir a la llamada.
+ */
+export async function downloadFile(storageKey: string, filename: string): Promise<void> {
+  const url = await fetchFileObjectUrl(storageKey)
+  try {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}

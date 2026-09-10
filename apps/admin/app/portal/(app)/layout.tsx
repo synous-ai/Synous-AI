@@ -31,6 +31,7 @@ import { Button } from '@portal/components/ui/button'
 import { Skeleton } from '@portal/components/ui/skeleton'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
 import { useBranding } from '@portal/components/branding/branding-provider'
+import { useAuthedImageUrl } from '@portal/lib/hooks'
 
 const editorialSerif = Instrument_Serif({
   subsets: ['latin'],
@@ -46,6 +47,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const { user } = useUser()
   const { signOut } = useClerk()
   const { brand } = useBranding()
+  // brand.logoUrl apunta a /api/files/:key, que exige token — un <img src>
+  // pelado devolvía 401 y el logo del cliente nunca se veía.
+  const logoSrc = useAuthedImageUrl(brand?.logoUrl)
 
   // Guard del lado cliente: si Clerk cargó y no hay sesión, ir a login.
   // El middleware ya bloquea antes de llegar acá, pero cubrimos el caso
@@ -102,16 +106,16 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <header className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-4xl items-center justify-between px-4 sm:px-6">
           <Link href="/portal" className="flex items-center gap-3">
-            {brand?.logoUrl ? (
-              // Dimensiones explícitas + lazy: reservan el espacio antes de cargar
-              // (evita CLS). El logo viene de R2/API (host dinámico), por eso <img>.
+            {logoSrc ? (
+              // Dimensiones explícitas: reservan el espacio antes de cargar
+              // (evita CLS). El src es un object URL ya descargado con el token
+              // (useAuthedImageUrl), por eso <img> y no next/image.
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={brand.logoUrl}
-                alt={brand.brandName ?? 'logo'}
+                src={logoSrc}
+                alt={brand?.brandName ?? 'logo'}
                 width={28}
                 height={28}
-                loading="lazy"
                 className="h-7 w-7 rounded-lg object-contain"
               />
             ) : null}

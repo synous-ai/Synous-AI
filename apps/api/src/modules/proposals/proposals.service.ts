@@ -3,6 +3,7 @@ import { db } from '../../db'
 import { proposal, deal, contact, company, onboardingSubmission } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { env } from '../../config/env'
+import { slugify as baseSlugify } from '../../lib/slug'
 import type { ModelProvider } from '../../lib/ai'
 import type { ProposalContent } from './proposals.types'
 import {
@@ -363,17 +364,16 @@ export async function getPublicProposal(token: string): Promise<PublicProposalDT
   }
 }
 
+/**
+ * Slug de archivo para el PDF descargable: reusa el `slugify` compartido
+ * (antes tenía su propia copia, ligeramente distinta — no eliminaba las
+ * marcas combinantes de NFD, solo confiaba en el filtro alfanumérico, lo que
+ * podía dejar guiones espurios en medio de palabras con tilde, ej. "María" →
+ * "mari-a" en vez de "maria") y le agrega el truncado a 60 chars + fallback
+ * "propuesta" que son específicos de nombre de archivo, no de slug genérico.
+ */
 function slugify(s: string): string {
-  // NFD descompone los acentos; el filtro alfanumérico de abajo descarta las
-  // marcas combinantes resultantes (no hace falta un regex de diacríticos).
-  return (
-    s
-      .normalize('NFD')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 60) || 'propuesta'
-  )
+  return baseSlugify(s).slice(0, 60) || 'propuesta'
 }
 
 /**

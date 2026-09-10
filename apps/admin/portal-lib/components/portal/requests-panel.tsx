@@ -49,14 +49,27 @@ export function ChangeRequestCard({ cr }: { cr: ChangeRequest }) {
 
   const isActionable = (CR_ACTIONABLE as string[]).includes(cr.status)
 
+  // Los catch vacíos NO se tragan el error: react-query lo guarda en
+  // `approveCR.error` / `rejectCR.error` y se renderiza abajo. El try/catch
+  // sólo evita la unhandled promise rejection de `mutateAsync`, y en el
+  // rechazo garantiza que el formulario no se cierre ni se pierda lo escrito
+  // si la request falló.
   async function handleApprove() {
-    await approveCR.mutateAsync({ id: cr.id })
+    try {
+      await approveCR.mutateAsync({ id: cr.id })
+    } catch {
+      /* el error se muestra vía approveCR.error */
+    }
   }
 
   async function handleReject() {
-    await rejectCR.mutateAsync({ id: cr.id, comment: rejectComment.trim() || undefined })
-    setRejectComment('')
-    setShowRejectForm(false)
+    try {
+      await rejectCR.mutateAsync({ id: cr.id, comment: rejectComment.trim() || undefined })
+      setRejectComment('')
+      setShowRejectForm(false)
+    } catch {
+      /* el error se muestra vía rejectCR.error */
+    }
   }
 
   return (
@@ -157,6 +170,15 @@ export function ChangeRequestCard({ cr }: { cr: ChangeRequest }) {
                   Rechazar
                 </Button>
               </div>
+            )}
+
+            {/* Sin esto, un fallo de aprobar/rechazar era INVISIBLE: el spinner
+                paraba y el cliente creía que su decisión se había registrado. */}
+            {(approveCR.isError || rejectCR.isError) && (
+              <p role="alert" className="text-xs text-destructive">
+                No pudimos registrar tu decisión. Probá de nuevo en unos
+                segundos; si sigue fallando, escribinos.
+              </p>
             )}
           </div>
         )}

@@ -40,4 +40,16 @@ export const TransitionSchema = z.object({ status: z.enum(CR_STATUSES), comment:
 export type TransitionDTO = z.infer<typeof TransitionSchema>
 
 export const CommentSchema = z.object({ body: z.string().min(1) })
-export const ClientDecisionSchema = z.object({ comment: z.string().optional() })
+
+/**
+ * Decisión del cliente sobre una CR (aprobar / rechazar). El comentario es
+ * opcional — y el body ENTERO también.
+ *
+ * El portal aprueba sin comentario, y en ese caso el api-client compartido no
+ * manda body ni Content-Type (ver packages/api-client/src/index.ts), con lo
+ * que Fastify deja `request.body` en `null`. Un `z.object()` pelado RECHAZA
+ * null por más que todas sus props sean opcionales, así que la validación
+ * fallaba con 400 antes de llegar al handler: el botón "Aprobar" del portal
+ * nunca funcionó. Por eso el `.nullish()`.
+ */
+export const ClientDecisionSchema = z.object({ comment: z.string().optional() }).nullish()

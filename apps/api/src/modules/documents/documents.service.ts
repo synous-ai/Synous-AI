@@ -80,6 +80,8 @@ export async function createDocument(
       type: input.type,
       source: 'manual',
       storageKey: input.storageKey ?? null,
+      // Omitido → cae al default de la columna (true).
+      ...(input.visibleToClient === undefined ? {} : { visibleToClient: input.visibleToClient }),
       createdBy: userId,
     })
     .returning()
@@ -118,7 +120,7 @@ export async function listClientDocuments(dealIds: string[]): Promise<ClientDocu
   const rows = await db
     .select()
     .from(document)
-    .where(inArray(document.dealId, dealIds))
+    .where(and(inArray(document.dealId, dealIds), eq(document.visibleToClient, true)))
     .orderBy(desc(document.createdAt))
 
   return rows.map((row) => ({

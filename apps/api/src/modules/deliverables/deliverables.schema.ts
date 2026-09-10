@@ -9,6 +9,12 @@ export const CreateDeliverableSchema = z.object({
   type: DeliverableTypeEnum,
   url: z.string().url().optional(),
   description: z.string().optional(),
+  /**
+   * ¿Se muestra en el Portal del cliente? Default true — un entregable se
+   * entrega. Se manda false para material interno del proceso (Blueprint
+   * técnico, Diagnóstico), que el cliente no debe ver.
+   */
+  visibleToClient: z.boolean().optional(),
 })
 export type CreateDeliverableDTO = z.infer<typeof CreateDeliverableSchema>
 
@@ -19,6 +25,7 @@ export const UpdateDeliverableSchema = z
     description: z.string(),
     status: DeliverableStatusEnum,
     feedback: z.string(),
+    visibleToClient: z.boolean(),
   })
   .partial()
 export type UpdateDeliverableDTO = z.infer<typeof UpdateDeliverableSchema>

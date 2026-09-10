@@ -142,6 +142,84 @@ export async function sendPortalWelcome(pending: PendingPortalWelcome): Promise<
   }
 }
 
+/** Estados de negocio posibles al invitar manualmente a un deal al Client Portal. */
+export type ActivatePortalStatus = 'activated' | 'already_active' | 'missing_contact' | 'missing_email'
+
+export interface ActivatePortalResultDTO {
+  status: ActivatePortalStatus
+  /** Email del contacto principal, o `null` si todavía no hay a quién invitar. */
+  clientEmail: string | null
+}
+
+/**
+ * Invitación MANUAL al Client Portal desde el detalle del deal (Fase B del
+ * multi-tenant). A diferencia de `changeStage` (stage `is_won`) y del webhook
+ * de DocuSeal (`form.completed`), acá el disparador es un admin apretando un
+ * botón — no hay stage de por medio.
+ *
+ * `missing_contact` / `missing_email` / `already_active` son resultados de
+ * negocio ESPERABLES (no hay nada roto), por eso la función nunca lanza
+ * AppError para esos casos — solo si el deal no existe en el portal.
+ *
+ * Para distinguir `already_active` de `activated`: como acá YA validamos que
+ * el deal tiene `primaryContactId` y que el contacto tiene `email` (los dos
+ * únicos motivos por los que `activateClientPortal` devolvería `null` sin
+ * haber hecho nada), si igual devuelve `null` solo puede ser porque el
+ * `client_account` ya existía — la misma idempotencia que ya usa
+ * `changeStage`/DocuSeal para no reinvitar. No hace falta un chequeo previo
+ * aparte: el propio contrato de `activateClientPortal` alcanza.
+ */
+export async function activateClientPortalManually(
+  portalId: string,
+  userId: string,
+  dealId: string,
+): Promise<ActivatePortalResultDTO> {
+  const result = await db.transaction(async (tx) => {
+    const [d] = await tx
+      .select()
+      .from(deal)
+      .where(and(eq(deal.portalId, portalId), eq(deal.id, dealId), eq(deal.archived, false)))
+      .limit(1)
+    if (!d) throw Errors.notFound('Deal no encontrado')
+
+    if (!d.primaryContactId) {
+      return { status: 'missing_contact' as const, clientEmail: null, welcome: null }
+    }
+    const [c] = await tx.select().from(contact).where(eq(contact.id, d.primaryContactId)).limit(1)
+    if (!c?.email) {
+      return { status: 'missing_email' as const, clientEmail: null, welcome: null }
+    }
+
+    const welcome = await activateClientPortal(tx, portalId, dealId)
+    if (!welcome) {
+      // Ya validamos contacto + email arriba: si igual no hay bienvenida
+      // pendiente, es porque la cuenta ya existía (ver comentario del JSDoc).
+      return { status: 'already_active' as const, clientEmail: c.email, welcome: null }
+    }
+
+    // Auditar la activación manual solo cuando efectivamente activa algo nuevo
+    // (no en cada click sobre un deal ya activado) — mismo criterio que evita
+    // re-mandar el email de bienvenida.
+    await writeAudit({
+      tx,
+      portalId,
+      userId,
+      entityType: ENTITY,
+      entityId: dealId,
+      action: 'CLIENT_PORTAL_ACTIVATED',
+      payload: { clientEmail: c.email },
+    })
+
+    return { status: 'activated' as const, clientEmail: c.email, welcome }
+  })
+
+  // Igual que en changeStage: el email sale DESPUÉS del commit. Si la tx
+  // hubiera hecho rollback, no queremos haber mandado ya la invitación.
+  if (result.welcome) await sendPortalWelcome(result.welcome)
+
+  return { status: result.status, clientEmail: result.clientEmail }
+}
+
 /**
  * Resuelve si corresponde reasignar el owner de un deal en el pipeline
  * "Producción" al entrar a `stageLabel`: consulta resolveProductionAssignee y
