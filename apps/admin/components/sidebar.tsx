@@ -48,7 +48,7 @@ interface Group {
   items: SubItem[]
 }
 
-const STORAGE_KEY = 'nous-sidebar-collapsed'
+const STORAGE_KEY = 'synous-sidebar-collapsed'
 
 // Ítems sueltos (sin grupo) — cada uno = un destino real
 const DASHBOARD = { label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' }
@@ -345,7 +345,7 @@ export function Sidebar() {
           <span className="text-base font-semibold tracking-tight">N</span>
         ) : (
           <>
-            <span className="truncate text-base font-medium tracking-tight">NOUS</span>
+            <span className="truncate text-base font-medium tracking-tight">Synous</span>
             <div className="ml-auto">
               <NotificationBell />
             </div>

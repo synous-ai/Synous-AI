@@ -3,12 +3,12 @@
 // activa de Clerk (clerk.session.getToken()) en lugar del Zustand store.
 //
 // La firma de getToken es `() => Promise<string | null>`, compatible con la
-// firma ampliada del factory de @nous/api-client (sync | async union).
+// firma ampliada del factory de @synous/api-client (sync | async union).
 //
 // El client portal (portal-lib/lib/api.ts) NO se modifica — sigue usando su
 // getter SYNC desde el Zustand store propio.
 
-import { createApiClient, ApiError as _ApiError } from '@nous/api-client'
+import { createApiClient, ApiError as _ApiError } from '@synous/api-client'
 
 /**
  * Obtiene el Clerk session token fresco para adjuntar como Bearer.

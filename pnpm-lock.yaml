@@ -28,12 +28,6 @@ importers:
       '@hookform/resolvers':
         specifier: ^3.10.0
         version: 3.10.0(react-hook-form@7.76.1(react@18.3.1))(zod@3.25.76)
-      '@nous/api-client':
-        specifier: workspace:*
-        version: link:../../packages/api-client
-      '@nous/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@radix-ui/react-avatar':
         specifier: ^1.1.11
         version: 1.1.11(@types/react-dom@18.3.7(@types/react@18.3.29))(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -76,6 +70,12 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@18.3.7(@types/react@18.3.29))(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@synous/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@synous/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@tanstack/react-query':
         specifier: ^5.62.7
         version: 5.100.14(react@18.3.1)
@@ -212,12 +212,12 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.1.0
         version: 1.1.0
-      '@nous/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@paralleldrive/cuid2':
         specifier: ^3.3.0
         version: 3.3.0
+      '@synous/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@vercel/blob':
         specifier: ^2.8.0
         version: 2.8.0
@@ -316,97 +316,9 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.19)(msw@2.14.6(@types/node@22.19.19)(typescript@5.9.3))
 
-  apps/client-portal:
-    dependencies:
-      '@hookform/resolvers':
-        specifier: ^3.10.0
-        version: 3.10.0(react-hook-form@7.76.1(react@18.3.1))(zod@3.25.76)
-      '@nous/api-client':
-        specifier: workspace:*
-        version: link:../../packages/api-client
-      '@nous/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-      '@radix-ui/react-label':
-        specifier: ^2.1.8
-        version: 2.1.8(@types/react-dom@18.3.7(@types/react@18.3.29))(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-slot':
-        specifier: ^1.2.4
-        version: 1.2.4(@types/react@18.3.29)(react@18.3.1)
-      '@radix-ui/react-tabs':
-        specifier: ^1.1.13
-        version: 1.1.13(@types/react-dom@18.3.7(@types/react@18.3.29))(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@tanstack/react-query':
-        specifier: ^5.62.7
-        version: 5.100.14(react@18.3.1)
-      class-variance-authority:
-        specifier: ^0.7.1
-        version: 0.7.1
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
-      lucide-react:
-        specifier: ^0.469.0
-        version: 0.469.0(react@18.3.1)
-      next:
-        specifier: 14.2.18
-        version: 14.2.18(@babel/core@7.29.7)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      next-themes:
-        specifier: ^0.4.6
-        version: 0.4.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      react-hook-form:
-        specifier: ^7.54.2
-        version: 7.76.1(react@18.3.1)
-      tailwind-merge:
-        specifier: ^2.6.0
-        version: 2.6.1
-      zod:
-        specifier: ^3.24.1
-        version: 3.25.76
-      zustand:
-        specifier: ^5.0.2
-        version: 5.0.14(@types/react@18.3.29)(react@18.3.1)(use-sync-external-store@1.6.0(react@18.3.1))
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.19.19
-      '@types/react':
-        specifier: ^18.3.17
-        version: 18.3.29
-      '@types/react-dom':
-        specifier: ^18.3.5
-        version: 18.3.7(@types/react@18.3.29)
-      autoprefixer:
-        specifier: ^10.4.20
-        version: 10.5.0(postcss@8.5.15)
-      eslint:
-        specifier: ^8.57.1
-        version: 8.57.1
-      eslint-config-next:
-        specifier: 14.2.18
-        version: 14.2.18(eslint@8.57.1)(typescript@5.9.3)
-      postcss:
-        specifier: ^8.4.49
-        version: 8.5.15
-      tailwindcss:
-        specifier: ^3.4.17
-        version: 3.4.19(tsx@4.22.3)(yaml@2.9.0)
-      tailwindcss-animate:
-        specifier: ^1.0.7
-        version: 1.0.7(tailwindcss@3.4.19(tsx@4.22.3)(yaml@2.9.0))
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-
   packages/api-client:
     dependencies:
-      '@nous/shared':
+      '@synous/shared':
         specifier: workspace:*
         version: link:../shared
 

@@ -1,4 +1,4 @@
-# WhatsApp Gateway — NOUS CRM
+# WhatsApp Gateway — Synous CRM
 
 Servicio **aislado** (fuera del workspace pnpm del monorepo) que corre
 [`@open-wa/wa-automate`](https://github.com/open-wa/wa-automate-nodejs) — la

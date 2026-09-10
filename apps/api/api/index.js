@@ -2154,7 +2154,7 @@ var LIFECYCLE_LABEL = {
   customer: "cliente",
   other: "otro"
 };
-var SYSTEM_INSTRUCTION = `Sos el asistente comercial de NOUS (agencia de software a medida). Tu trabajo es sugerir la PR\xD3XIMA ACCI\xD3N concreta para avanzar un lead hacia el cierre.
+var SYSTEM_INSTRUCTION = `Sos el asistente comercial de Synous (agencia de software a medida). Tu trabajo es sugerir la PR\xD3XIMA ACCI\xD3N concreta para avanzar un lead hacia el cierre.
 
 Reglas:
 - Respond\xE9 SOLO la acci\xF3n, en UNA frase corta, imperativa y accionable (m\xE1x ~120 caracteres).
@@ -2376,7 +2376,7 @@ import { and as and7, desc as desc4, eq as eq8 } from "drizzle-orm";
 
 // src/lib/slug.ts
 import { and as and6, eq as eq7, ne as ne2 } from "drizzle-orm";
-import { slugify, SLUG_RESERVED } from "@nous/shared";
+import { slugify, SLUG_RESERVED } from "@synous/shared";
 async function slugTaken(tx, slug, excludeCompanyId) {
   const [row] = await tx.select({ id: company.id }).from(company).where(excludeCompanyId ? and6(eq7(company.slug, slug), ne2(company.id, excludeCompanyId)) : eq7(company.slug, slug)).limit(1);
   return !!row;
@@ -7673,7 +7673,7 @@ async function topDebtors(portalId, limit = 5) {
 async function generateInvoicePdf(portalId, id) {
   const { invoice: inv, items } = await getInvoiceDetail(portalId, id);
   const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq30(portal.id, portalId)).limit(1);
-  const portalName = portalRow?.name ?? "NOUS";
+  const portalName = portalRow?.name ?? "Synous";
   let companyName = "\u2014";
   if (inv.companyId) {
     const [companyRow] = await db.select({ name: company.name }).from(company).where(eq30(company.id, inv.companyId)).limit(1);
@@ -9805,7 +9805,7 @@ var PRIORITY_LABEL = {
   calidad: "la calidad",
   escalabilidad: "la escalabilidad"
 };
-var SYSTEM_INSTRUCTION2 = `Sos el redactor comercial de NOUS, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escrib\xEDs propuestas claras, concretas y profesionales, en espa\xF1ol rioplatense (voseo), sin relleno ni buzzwords vac\xEDos. Habl\xE1s de valor de negocio, no de tecnolog\xEDa por la tecnolog\xEDa. Sos honesto y espec\xEDfico: nada de promesas gen\xE9ricas.
+var SYSTEM_INSTRUCTION2 = `Sos el redactor comercial de Synous, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escrib\xEDs propuestas claras, concretas y profesionales, en espa\xF1ol rioplatense (voseo), sin relleno ni buzzwords vac\xEDos. Habl\xE1s de valor de negocio, no de tecnolog\xEDa por la tecnolog\xEDa. Sos honesto y espec\xEDfico: nada de promesas gen\xE9ricas.
 
 Devolv\xE9s SIEMPRE y \xDANICAMENTE un objeto JSON v\xE1lido (sin markdown, sin texto fuera del JSON) con esta forma exacta:
 {
@@ -9825,7 +9825,7 @@ Devolv\xE9s SIEMPRE y \xDANICAMENTE un objeto JSON v\xE1lido (sin markdown, sin 
     "currency": "USD",
     "note": string            // condiciones de pago, ej "50% al inicio, 50% a la entrega"
   },
-  "whyUs": string[],          // 3-4 diferenciales de NOUS
+  "whyUs": string[],          // 3-4 diferenciales de Synous
   "nextSteps": string,        // cierre / pr\xF3ximos pasos
   "terms": string             // t\xE9rminos breves (validez, revisiones, etc.)
 }`;
@@ -9958,7 +9958,7 @@ function buildProposalPdf(content) {
       doc.moveDown(0.35);
     }
   };
-  doc.font("Helvetica-Bold").fontSize(10).fillColor(MUTED).text("NOUS", { characterSpacing: 2 });
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(MUTED).text("Synous", { characterSpacing: 2 });
   doc.moveDown(2);
   doc.font("Helvetica-Bold").fontSize(28).fillColor(INK).text(content.title, { width });
   if (content.tagline) {
@@ -10025,7 +10025,7 @@ function buildProposalPdf(content) {
     doc.font("Helvetica").fontSize(9.5).fillColor(MUTED).text(content.pricing.note, { width });
   }
   if (content.whyUs.length) {
-    heading("Por qu\xE9 NOUS");
+    heading("Por qu\xE9 Synous");
     bullets(content.whyUs);
   }
   if (content.nextSteps) {

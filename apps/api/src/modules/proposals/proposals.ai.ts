@@ -53,9 +53,9 @@ const PRIORITY_LABEL: Record<string, string> = {
   escalabilidad: 'la escalabilidad',
 }
 
-// Instrucción de sistema: la voz de NOUS (agencia rioplatense de software a
+// Instrucción de sistema: la voz de Synous (agencia rioplatense de software a
 // medida, 2 personas). Directa, profesional, sin buzzwords vacíos.
-const SYSTEM_INSTRUCTION = `Sos el redactor comercial de NOUS, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escribís propuestas claras, concretas y profesionales, en español rioplatense (voseo), sin relleno ni buzzwords vacíos. Hablás de valor de negocio, no de tecnología por la tecnología. Sos honesto y específico: nada de promesas genéricas.
+const SYSTEM_INSTRUCTION = `Sos el redactor comercial de Synous, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escribís propuestas claras, concretas y profesionales, en español rioplatense (voseo), sin relleno ni buzzwords vacíos. Hablás de valor de negocio, no de tecnología por la tecnología. Sos honesto y específico: nada de promesas genéricas.
 
 Devolvés SIEMPRE y ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del JSON) con esta forma exacta:
 {
@@ -75,7 +75,7 @@ Devolvés SIEMPRE y ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto 
     "currency": "USD",
     "note": string            // condiciones de pago, ej "50% al inicio, 50% a la entrega"
   },
-  "whyUs": string[],          // 3-4 diferenciales de NOUS
+  "whyUs": string[],          // 3-4 diferenciales de Synous
   "nextSteps": string,        // cierre / próximos pasos
   "terms": string             // términos breves (validez, revisiones, etc.)
 }`

@@ -3,8 +3,8 @@
 // activa de Clerk (window.Clerk.session.getToken()), igual que el admin.
 // No hay refreshPath propio: Clerk auto-gestiona su sesión.
 
-import { createApiClient, ApiError as _ApiError } from '@nous/api-client'
-import { API_URL } from '@nous/shared'
+import { createApiClient, ApiError as _ApiError } from '@synous/api-client'
+import { API_URL } from '@synous/shared'
 
 /**
  * Obtiene el Clerk session token fresco para adjuntar como Bearer.
@@ -76,7 +76,7 @@ export { _ApiError as ApiError }
 
 /**
  * Sube un archivo (multipart/form-data) con el token de Clerk del cliente.
- * El api-client compartido (@nous/api-client) no soporta FormData —mismo
+ * El api-client compartido (@synous/api-client) no soporta FormData —mismo
  * patrón ya usado en brand-kit-form.tsx para /api/client/files—, así que acá
  * hacemos el fetch directo reusando getPortalToken().
  */

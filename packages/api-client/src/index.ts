@@ -1,4 +1,4 @@
-import { API_URL } from '@nous/shared'
+import { API_URL } from '@synous/shared'
 
 // ---------------------------------------------------------------------------
 // Shared envelope type — matches what the Fastify API returns

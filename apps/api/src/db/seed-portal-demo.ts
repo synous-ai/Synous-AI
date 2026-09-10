@@ -75,7 +75,7 @@ async function main(): Promise<void> {
   // Autor de los registros "de la agencia": cualquier hub_user activo del portal.
   // No hardcodeamos el email: el seed base sigue usando carlos@devduo.com (ese
   // valor está linkeado al usuario de Clerk en producción, ver seed.ts) y esta
-  // DB puede tener @nous.com.
+  // DB puede tener @synousai.com.
   // Si no hay ninguno, cortamos: un autor null viola change_request_comment_author_check.
   const [author] = await db
     .select({ id: hubUser.id })

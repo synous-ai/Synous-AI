@@ -1,7 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { SLUG_RESERVED } from '@nous/shared'
+import { SLUG_RESERVED } from '@synous/shared'
 
 /**
  * Middleware unificado de la app web (landing + admin + portal de cliente).

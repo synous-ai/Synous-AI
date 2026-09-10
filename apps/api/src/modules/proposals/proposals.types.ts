@@ -35,7 +35,7 @@ export interface ProposalContent {
   // Inversión
   pricing: ProposalPricing
 
-  // Por qué NOUS (diferenciales, bullets)
+  // Por qué Synous (diferenciales, bullets)
   whyUs: string[]
 
   // Próximos pasos (cierre / call to action)

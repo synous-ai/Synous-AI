@@ -1,4 +1,4 @@
-# NOUS CRM
+# Synous CRM
 
 CRM propio para una agencia de desarrollo web, construido **desde cero** sobre PostgreSQL.
 No usa ninguna librería externa de CRM: toda la lógica de negocio (pipeline, deals, portal
@@ -91,8 +91,8 @@ apps/
                            · wizard de onboarding      → /onboarding (público)
                            · vista pública de propuesta → /p/[token]
 packages/
-  shared/              → @nous/shared — tipos y utilidades compartidas
-  api-client/          → @nous/api-client — cliente HTTP tipado (auth + auto-refresh)
+  shared/              → @synous/shared — tipos y utilidades compartidas
+  api-client/          → @synous/api-client — cliente HTTP tipado (auth + auto-refresh)
 services/
   whatsapp-gateway/    → Gateway open-wa (NO está en el workspace pnpm — servicio aislado)
 docs/
@@ -140,7 +140,7 @@ apps/api/src/
 ```
 apps/admin/
   app/            → rutas Next.js App Router
-    page.tsx           → landing pública de NOUS
+    page.tsx           → landing pública de Synous
     onboarding/        → wizard público pre-venta
     p/[token]/         → vista pública de propuesta (link tokenizado)
     book/              → reserva pública del calendario (slug del event type + cancel/reschedule)
@@ -218,8 +218,8 @@ docker compose -f docker-compose.dev.yml up -d
 
 | Servicio   | Contenedor        | Puerto host |
 | ---------- | ----------------- | ----------- |
-| PostgreSQL | `nous_postgres` | `5433`      |
-| Redis      | `nous_redis`    | `6379`      |
+| PostgreSQL | `devduo_postgres` | `5433`      |
+| Redis      | `devduo_redis`    | `6379`      |
 
 > Postgres se mapea al **5433** del host (contenedor 5432) para evitar conflictos con un Postgres local.
 

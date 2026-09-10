@@ -1,7 +1,13 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
-export * from './slug'
+// Re-export EXPLÍCITO, no `export * from './slug'`. Con el star-export, al
+// ejecutar un archivo .ts con tsx (p. ej. `tsx src/scripts/...`) el loader ESM
+// de Node hace linking estático y no llega a ver los named exports que vienen
+// del re-export: falla con "does not provide an export named 'SLUG_RESERVED'".
+// Con `-e` inline no pasa, porque usa otro camino de carga — por eso el bug se
+// escondía de las pruebas rápidas y del typecheck.
+export { slugify, SLUG_RESERVED } from './slug'
 
 // ---------------------------------------------------------------------------
 // Styling

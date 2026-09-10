@@ -9,8 +9,8 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-sans', display: 'swa
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'NOUS CRM — Admin',
-  description: 'Portal de administración del CRM de NOUS',
+  title: 'Synous CRM — Admin',
+  description: 'Portal de administración del CRM de Synous',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,9 +1,9 @@
 import { and, eq, ne } from 'drizzle-orm'
-import { slugify, SLUG_RESERVED } from '@nous/shared'
+import { slugify, SLUG_RESERVED } from '@synous/shared'
 import { company } from '../db/schema'
 import type { Tx } from './audit'
 
-// `slugify` y `SLUG_RESERVED` viven en `@nous/shared` (no acá) porque
+// `slugify` y `SLUG_RESERVED` viven en `@synous/shared` (no acá) porque
 // `apps/admin/middleware.ts` también los necesita en runtime Edge (sin APIs
 // de Node) para descartar subdominios de plataforma (app.*, api.*, www.*...)
 // antes de tratarlos como tenant. Reexportamos para no romper los imports

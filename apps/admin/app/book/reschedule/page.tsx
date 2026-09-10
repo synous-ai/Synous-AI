@@ -26,7 +26,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Loader2, Globe, Clock } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { API_URL } from '@nous/shared'
+import { API_URL } from '@synous/shared'
 import { ReschedulePageSkeleton, SlotsSkeleton } from '../_components/booking-skeletons'
 
 // ---------------------------------------------------------------------------

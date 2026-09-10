@@ -6,7 +6,7 @@
  * Usa el componente PRE-ARMADO `<SignIn>` de Clerk (no headless): maneja login
  * por contraseña, "olvidé mi contraseña" y la verificación de dispositivo
  * (Client Trust) de forma nativa y segura. Se integra en el layout 2-columnas
- * con el branding NOUS (panel de marca a la izquierda).
+ * con el branding Synous (panel de marca a la izquierda).
  *
  * Por qué `<SignIn>` y no un form propio: el form headless con inputs `name`
  * podía caer a un submit NATIVO (GET) antes de hidratar y exponer credenciales
@@ -85,7 +85,7 @@ export default function LoginPage() {
           <span className="flex h-9 w-9 items-center justify-center rounded-md border border-background/20 font-display text-lg font-medium text-background">
             N
           </span>
-          <span className="eyebrow text-background/70">NOUS · CRM interno</span>
+          <span className="eyebrow text-background/70">Synous · CRM interno</span>
         </div>
 
         <div className="relative">
@@ -101,7 +101,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <p className="relative font-mono text-xs text-background/40">app.nous.com</p>
+        <p className="relative font-mono text-xs text-background/40">app.synousai.com</p>
       </div>
 
       {/* Login (componente nativo de Clerk) */}

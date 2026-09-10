@@ -1,7 +1,7 @@
 import { ProposalDeck } from '@/components/proposals/proposal-deck'
 
 export const metadata = {
-  title: 'Propuesta — NOUS',
+  title: 'Propuesta — Synous',
   description: 'Tu propuesta a medida.',
 }
 

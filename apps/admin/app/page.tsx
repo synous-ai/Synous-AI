@@ -75,7 +75,7 @@ export default function Landing() {
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#C7F94B] text-sm font-bold text-black">
               N
             </span>
-            <span className={`${mono.className} text-sm tracking-wide text-[#EDEDE8]`}>NOUS</span>
+            <span className={`${mono.className} text-sm tracking-wide text-[#EDEDE8]`}>Synous</span>
           </div>
           <Link
             href="/admin/login"
@@ -168,7 +168,7 @@ export default function Landing() {
         {/* Footer */}
         <footer className="mt-auto flex flex-col items-start justify-between gap-4 border-t border-white/10 py-8 sm:flex-row sm:items-center">
           <p className={`${mono.className} text-xs text-[#6E6E66]`}>
-            © {new Date().getFullYear()} NOUS — hecho desde cero.
+            © {new Date().getFullYear()} Synous — hecho desde cero.
           </p>
           <div className={`${mono.className} flex items-center gap-5 text-xs text-[#8A8A82]`}>
             <Link href="/admin/login" className="transition-colors hover:text-[#C7F94B]">
