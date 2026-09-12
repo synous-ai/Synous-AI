@@ -48,6 +48,17 @@ var envSchema = z.object({
    * Ej: "https://synous-ai-admin.vercel.app,https://admin.synousai.com"
    */
   ALLOWED_ORIGINS: z.string().optional(),
+  /**
+   * Dominio raíz de los portales de cliente (ej. `synousai.com`). Habilita por
+   * CORS a CUALQUIER subdominio suyo — que es como se sirve cada tenant
+   * (`<slug>.synousai.com`).
+   *
+   * Sin esto habría que agregar cada empresa nueva a `ALLOWED_ORIGINS` a mano,
+   * y hasta que alguien se acordara el portal de ese cliente quedaría con
+   * TODAS las llamadas a la API bloqueadas. Peor: el gate del onboarding es
+   * fail-open, así que no se ve como un error sino como un portal vacío.
+   */
+  TENANT_ROOT_DOMAIN: z.string().optional(),
   API_URL: z.string().url().optional(),
   // Fathom webhook — opcional; sin secret configurado el webhook responde 401
   FATHOM_WEBHOOK_SECRET: z.string().optional(),
@@ -11624,7 +11635,16 @@ function buildApp() {
       ].map((o) => o?.trim().replace(/\/+$/, "")).filter((o) => Boolean(o))
     )
   ];
-  app2.register(cors, { origin: allowedOrigins, credentials: true });
+  const tenantOriginPattern = env.TENANT_ROOT_DOMAIN ? new RegExp(`^https://[a-z0-9-]+\\.${env.TENANT_ROOT_DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") : null;
+  app2.register(cors, {
+    origin(origin, cb) {
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin.replace(/\/+$/, ""))) return cb(null, true);
+      if (tenantOriginPattern?.test(origin)) return cb(null, true);
+      cb(null, false);
+    },
+    credentials: true
+  });
   app2.register(cookie);
   app2.register(fastifyWebsocket);
   app2.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } });
