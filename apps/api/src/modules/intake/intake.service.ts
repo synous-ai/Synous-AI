@@ -5,6 +5,7 @@ import { Errors } from '../../lib/errors'
 import { clientDealIds } from '../../lib/portal-access'
 import { slugify } from '../../lib/slug'
 import type { CreateIntakeFormDTO, AssignIntakeDTO } from './intake.schema'
+import { notifyAdmins, notifyDealClients } from '../notifications/notify'
 
 type IntakeFormRow = typeof intakeForm.$inferSelect
 
@@ -60,6 +61,14 @@ export async function assignIntake(portalId: string, input: AssignIntakeDTO) {
       dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
     })
     .returning()
+
+  // El cliente tiene una tarea nueva esperándolo. Antes se enteraba solo si
+  // entraba al portal por su cuenta.
+  await notifyDealClients(portalId, input.dealId, 'intake_assigned', {
+    dealId: input.dealId,
+    formName: row!.title,
+  }, { entity: { type: 'deal_intake', id: row!.id }, dedupeKey: `intake_assigned:${row!.id}` })
+
   return row!
 }
 
@@ -94,4 +103,15 @@ export async function respondIntake(clientId: string, intakeId: string, answers:
     .onConflictDoUpdate({ target: dealIntakeResponse.intakeId, set: { answers, clientId, submittedAt: new Date() } })
 
   await db.update(dealIntake).set({ status: 'completed', completedAt: new Date() }).where(eq(dealIntake.id, intakeId))
+
+  // El portalId no está en dealIntake: cuelga del deal.
+  const [d] = await db.select({ portalId: deal.portalId }).from(deal).where(eq(deal.id, intake.dealId)).limit(1)
+  if (d) {
+    // Sin dedupeKey: el cliente puede reenviar el formulario corrigiendo algo
+    // (el insert es un upsert) y cada envío es información nueva para el equipo.
+    await notifyAdmins(d.portalId, 'intake_completed', {
+      dealId: intake.dealId,
+      formName: intake.title,
+    }, { entity: { type: 'deal_intake', id: intakeId } })
+  }
 }

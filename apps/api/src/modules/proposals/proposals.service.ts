@@ -12,7 +12,8 @@ import {
   type ProposalGenerationInput,
 } from './proposals.ai'
 import { buildProposalPdf } from './proposals.pdf'
-import { notifyAdmins, actorName } from '../notifications/notifications.service'
+import { actorName } from '../notifications/notifications.service'
+import { notifyAdmins } from '../notifications/notify'
 
 /** Monto legible para el copy de notificaciones. */
 function money(total: number, currency: string): string {
@@ -180,15 +181,15 @@ export async function generateProposal(
   const amount = money(content.pricing.total, content.pricing.currency)
   await notifyAdmins(
     portalId,
+    'proposal_generated',
+    { proposalId: row.id, contactName: content.companyName || content.clientName },
     {
-      entityType: 'proposal',
-      entityId: row.id,
-      type: 'proposal_generated',
-      title: `${who} generó una propuesta para «${content.companyName || content.clientName}»`,
-      body: amount ? `Valor estimado: ${amount}` : null,
-      actionUrl: `/admin/proposals/${row.id}`,
+      entity: { type: 'proposal', id: row.id },
+      exceptUserId: actorId,
+      // El actor y el monto viajan en metadata: el título del catálogo es
+      // deliberadamente corto (es lo único que entra en la fila de la campana).
+      metadata: { actor: who, amount: amount ?? null },
     },
-    { exceptUserId: actorId },
   )
 
   return toDTO(row)
@@ -264,15 +265,9 @@ export async function acceptProposal(portalId: string, id: string, actorId: stri
   const who = await actorName(portalId, actorId)
   await notifyAdmins(
     portalId,
-    {
-      entityType: 'proposal',
-      entityId: row.id,
-      type: 'proposal_accepted',
-      title: `${who} aprobó la propuesta «${row.title}»`,
-      body: 'Lista para enviar al cliente.',
-      actionUrl: `/admin/proposals/${row.id}`,
-    },
-    { exceptUserId: actorId },
+    'proposal_accepted',
+    { proposalId: row.id, contactName: row.title },
+    { entity: { type: 'proposal', id: row.id }, exceptUserId: actorId, metadata: { actor: who } },
   )
 
   return toDTO(row)
@@ -346,13 +341,11 @@ export async function getPublicProposal(token: string): Promise<PublicProposalDT
       .where(eq(proposal.id, row.id))
 
     const cliente = row.content.companyName || row.content.clientName
-    await notifyAdmins(row.portalId, {
-      entityType: 'proposal',
-      entityId: row.id,
-      type: 'proposal_viewed',
-      title: `🎉 «${cliente}» abrió tu propuesta`,
-      body: 'Buen momento para hacer seguimiento.',
-      actionUrl: `/admin/proposals/${row.id}`,
+    // Solo la PRIMERA vista (el if de arriba mira viewedAt): la dedupeKey lo
+    // refuerza por si dos cargas de la página pública llegan concurrentes.
+    await notifyAdmins(row.portalId, 'proposal_viewed', { proposalId: row.id, contactName: cliente }, {
+      entity: { type: 'proposal', id: row.id },
+      dedupeKey: `proposal_viewed:${row.id}`,
     })
   }
 

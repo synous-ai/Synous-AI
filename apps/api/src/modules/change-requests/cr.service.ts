@@ -10,7 +10,7 @@ import {
 import { Errors } from '../../lib/errors'
 import { toDecimal } from '../../lib/money'
 import { clientDealIds, assertDealInPortal } from '../../lib/portal-access'
-import { createNotification } from '../notifications/notifications.service'
+import { notifyAdmins, notifyDealClients } from '../notifications/notify'
 import type { CreateCRDTO, UpdateCRDTO, AddItemDTO } from './cr.schema'
 
 type CRRow = typeof changeRequest.$inferSelect
@@ -139,12 +139,27 @@ export async function transitionCR(portalId: string, userId: string, id: string,
   if (status === 'completed') patch.completedAt = new Date()
   const [row] = await db.update(changeRequest).set(patch).where(eq(changeRequest.id, id)).returning()
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: status, comment, changedByUser: userId })
+
+  // Al pasar a 'sent' la pelota queda del lado del cliente: necesita decidir.
+  if (status === 'sent' && cr.status !== 'sent') {
+    await notifyDealClients(portalId, cr.dealId, 'cr_sent', {
+      crId: id,
+      crNumber: cr.number,
+      title: cr.title,
+    }, { entity: { type: 'change_request', id }, dedupeKey: `cr_sent:${id}` })
+  }
   return row!
 }
 
 export async function addComment(portalId: string, userId: string, id: string, body: string) {
-  await getCRInPortal(portalId, id)
+  const cr = await getCRInPortal(portalId, id)
   const [row] = await db.insert(changeRequestComment).values({ changeRequestId: id, body, authorUser: userId }).returning()
+
+  // Sin dedupeKey: cada comentario es un evento propio; deduplicarlos por CR
+  // silenciaría toda la conversación después del primero.
+  await notifyDealClients(portalId, cr.dealId, 'cr_commented', { crId: id, crNumber: cr.number }, {
+    entity: { type: 'change_request', id },
+  })
   return row!
 }
 
@@ -177,13 +192,16 @@ export async function clientDecision(clientId: string, id: string, decision: 'ap
     })
     .where(eq(changeRequest.id, id))
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: decision, comment, changedByClient: clientId })
-  await createNotification({
-    portalId: cr.portalId,
-    entityType: 'change_request',
-    entityId: id,
-    type: decision === 'approved' ? 'cr_approved' : 'cr_rejected',
-    title: `El cliente ${decision === 'approved' ? 'aprobó' : 'rechazó'} la CR #${cr.number}`,
-  })
+  // Antes esto llamaba a createNotification SIN userId ni clientId: la fila
+  // quedaba sin destinatario y ninguna query de listado la devolvía nunca — el
+  // equipo no se enteraba de la decisión del cliente. Era una de las fuentes de
+  // las filas huérfanas que destapó el check de la migración 0037.
+  await notifyAdmins(
+    cr.portalId,
+    decision === 'approved' ? 'cr_approved' : 'cr_rejected',
+    { crId: id, crNumber: cr.number, dealName: cr.title },
+    { entity: { type: 'change_request', id }, dedupeKey: `cr_${decision}:${id}` },
+  )
 }
 
 export async function clientComment(clientId: string, id: string, body: string) {

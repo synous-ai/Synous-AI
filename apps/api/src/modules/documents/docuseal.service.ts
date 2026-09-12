@@ -23,6 +23,7 @@ import {
   type DocusealDocument,
 } from './docuseal.client'
 import { signatureRequestHtml, signatureRequestSubject } from './emails/signature-request'
+import { notifyAdmins } from '../notifications/notify'
 
 const ENTITY = 'document'
 
@@ -217,4 +218,31 @@ export async function handleDocusealWebhook(payload: DocusealWebhookPayload): Pr
   // Invitación al portal FUERA de la transacción, igual que en changeStage: si
   // la transacción hiciera rollback, el email ya habría salido.
   if (invitation) await sendPortalInvitationEmail(invitation)
+
+  // Aviso al equipo. Es el hito de venta más importante del sistema y hasta
+  // ahora no lo comunicaba a nadie: el webhook activaba el portal y mandaba el
+  // email al cliente, pero el equipo no se enteraba de que el contrato estaba
+  // firmado (ni de que lo habían rechazado).
+  //
+  // DocuSeal reintenta los webhooks. El corte por `row.status === newStatus`
+  // de arriba ya absorbe el reintento, pero la dedupeKey lo cubre igual por si
+  // dos entregas llegan concurrentes y las dos leen el estado viejo.
+  if (row.dealId) {
+    const [d] = await db.select({ name: deal.name }).from(deal).where(eq(deal.id, row.dealId)).limit(1)
+    const dealName = d?.name ?? 'el proyecto'
+    if (newStatus === 'completed') {
+      // El payload tipado de DocuSeal no expone el nombre del firmante, así
+      // que se omite en vez de castear el webhook a `any` para leerlo.
+      await notifyAdmins(row.portalId, 'contract_signed', {
+        dealId: row.dealId,
+        dealName,
+        signerName: null,
+      }, { entity: { type: 'document', id: row.id }, dedupeKey: `contract_signed:${row.id}` })
+    } else {
+      await notifyAdmins(row.portalId, 'contract_declined', { dealId: row.dealId, dealName }, {
+        entity: { type: 'document', id: row.id },
+        dedupeKey: `contract_declined:${row.id}`,
+      })
+    }
+  }
 }

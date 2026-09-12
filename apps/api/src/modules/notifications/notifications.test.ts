@@ -11,7 +11,7 @@ import request from 'supertest'
 import { and, eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
-import { contact, deal, clientAccount, clientDealAccess, notification, hubUser } from '../../db/schema'
+import { contact, deal, clientAccount, clientDealAccess, notification, hubUser, notificationPref } from '../../db/schema'
 import { ensurePortalAndUser, ensurePipeline, loginToken, type PipelineContext } from '../../test/helpers'
 import { notifyUser, notifyAdmins, notifyDealClients } from './notify'
 import { NOTIFICATION_EVENTS, ADMIN_EVENT_TYPES, CLIENT_EVENT_TYPES } from './notification-events'
@@ -152,6 +152,43 @@ describe('idempotencia', () => {
     const destinatarios = new Set(rows.map((r) => r.userId))
     expect(destinatarios.has(extra!.id)).toBe(true)
     expect(destinatarios.size).toBeGreaterThan(1)
+  })
+})
+
+// ─── Preferencias ────────────────────────────────────────────────────────────
+
+describe('preferencias de notificación', () => {
+  it('un admin que apagó el evento NO lo recibe; los demás sí', async () => {
+    const [silenciado] = await db.insert(hubUser).values({
+      portalId, email: `pref-off-${Date.now()}@test.com`, role: 'member', firstName: 'Silencioso',
+      clerkUserId: `clerk_pref_${Date.now()}`,
+    }).returning()
+
+    await db.insert(notificationPref).values({
+      portalId, userId: silenciado!.id, eventType: 'deal_stale', inApp: false, email: false,
+    })
+
+    const dealId = `pref-deal-${Date.now()}`
+    await notifyAdmins(portalId, 'deal_stale', { dealId, dealName: 'Con pref', days: 9 }, {
+      entity: { type: 'deal', id: dealId },
+    })
+
+    const rows = await db.select().from(notification)
+      .where(and(eq(notification.entityId, dealId), eq(notification.type, 'deal_stale')))
+    const destinatarios = rows.map((r) => r.userId)
+
+    expect(destinatarios).not.toContain(silenciado!.id)
+    // El resto del equipo sí: apagar una preferencia es individual.
+    expect(destinatarios.length).toBeGreaterThan(0)
+  })
+
+  it('sin fila de preferencia, el evento llega (default in-app activado)', async () => {
+    const dealId = `pref-default-${Date.now()}`
+    await notifyAdmins(portalId, 'deal_stale', { dealId, dealName: 'Sin pref', days: 3 }, {
+      entity: { type: 'deal', id: dealId },
+    })
+    const rows = await db.select().from(notification).where(eq(notification.entityId, dealId))
+    expect(rows.length).toBeGreaterThan(0)
   })
 })
 

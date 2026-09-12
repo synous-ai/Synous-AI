@@ -12,8 +12,21 @@ import type {
   ReportsData,
 } from '../types'
 
+/**
+ * Listado de notificaciones del equipo.
+ *
+ * Pollea igual que el contador: sin esto el badge subía (el contador sí
+ * polleaba) pero la lista quedaba con datos viejos hasta una invalidación
+ * manual, así que abrías la campana y no veías la notificación que el número
+ * te acababa de anunciar.
+ */
 export function useNotifications() {
-  return useQuery({ queryKey: ['notifications'], queryFn: () => apiGet<AppNotification[]>('/api/notifications') })
+  return useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => apiGet<AppNotification[]>('/api/notifications?limit=20'),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  })
 }
 
 export function useUnreadCount() {
@@ -21,8 +34,15 @@ export function useUnreadCount() {
     queryKey: ['notifications', 'unread'],
     queryFn: () => apiGet<{ count: number }>('/api/notifications/unread-count'),
     refetchInterval: 60_000,
-    // No pollear cuando la pestaña está en background (ahorra requests con varias
-    // pestañas/dispositivos abiertos; el WS ya refresca en vivo igual).
+    // No pollear con la pestaña en background (ahorra requests con varias
+    // pestañas abiertas).
+    //
+    // El polling NO es un complemento del WebSocket: es el único mecanismo que
+    // funciona en producción. La API corre en Vercel serverless, donde una
+    // función no sostiene una conexión abierta, así que `/ws/notifications`
+    // falla siempre (verificado en la consola del navegador). El WS del bell
+    // sigue intentándose y su fallo es inocuo; para realtime de verdad haría
+    // falta mover la API a un runtime con procesos persistentes.
     refetchIntervalInBackground: false,
   })
 }

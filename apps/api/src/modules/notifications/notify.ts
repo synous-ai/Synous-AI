@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../../db'
-import { notification, hubUser, clientDealAccess } from '../../db/schema'
+import { notification, hubUser, clientDealAccess, notificationPref } from '../../db/schema'
 import { emitNotification } from '../../lib/notification-bus'
 import {
   NOTIFICATION_EVENTS,
@@ -170,9 +170,34 @@ export async function notifyAdmins<T extends NotificationEventType>(
       .from(hubUser)
       .where(and(eq(hubUser.portalId, portalId), eq(hubUser.isActive, true)))
 
+    /**
+     * Preferencias del usuario. `notification_pref` existía con su CRUD desde
+     * antes pero NINGÚN emisor la consultaba: apagar un evento en la UI no
+     * hacía nada. Acá se aplica.
+     *
+     * Solo se leen las filas que dicen "no": ausencia de fila = default
+     * `in_app: true` (mismo criterio que `listPrefs`), así que un evento nuevo
+     * llega por defecto sin obligar a sembrar preferencias para todos.
+     */
+    const silenced = new Set(
+      (
+        await db
+          .select({ userId: notificationPref.userId })
+          .from(notificationPref)
+          .where(
+            and(
+              eq(notificationPref.portalId, portalId),
+              eq(notificationPref.eventType, type),
+              eq(notificationPref.inApp, false),
+            ),
+          )
+      ).map((r) => r.userId),
+    )
+
     const rendered = render(type, payload)
     for (const a of admins) {
       if (opts.exceptUserId && a.id === opts.exceptUserId) continue
+      if (silenced.has(a.id)) continue
       await insertOne({
         portalId,
         userId: a.id,

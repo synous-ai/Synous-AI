@@ -4,7 +4,7 @@ import { db } from '../../db'
 import { deal, pipeline, pipelineStage, contact, clientAccount, clientDealAccess } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
-import { createNotification } from '../notifications/notifications.service'
+import { notifyUser } from '../notifications/notify'
 import { ensureClerkUserType, createClientPortalInvitation } from '../../lib/clerk-provisioning'
 import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
 import { portalInvitationHtml } from '../onboarding/emails/portal-invitation'
@@ -360,14 +360,11 @@ export async function changeStage(
 
   // Notificación fuera de la transacción (insert + emit por WebSocket).
   if (result.notify) {
-    await createNotification({
-      portalId,
-      userId: result.notify.ownerId ?? userId,
-      entityType: ENTITY,
-      entityId: dealId,
-      type: 'deal_stage_changed',
-      title: `El deal "${result.notify.dealName}" pasó a la etapa "${result.notify.stageLabel}"`,
-    })
+    await notifyUser(portalId, result.notify.ownerId ?? userId, 'deal_stage_changed', {
+      dealId,
+      dealName: result.notify.dealName,
+      stageLabel: result.notify.stageLabel,
+    }, { entity: { type: ENTITY, id: dealId } })
   }
 
   // Invitación al portal, ya con la transacción commiteada y best-effort (ver
