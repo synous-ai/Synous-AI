@@ -253,10 +253,14 @@ export function HomePanel({ onNavigate }: HomePanelProps) {
     )
   }
 
+  // Lo accionable va PRIMERO y el estado del proyecto abajo: si el cliente
+  // entra al portal es casi siempre porque algo lo espera. Con el roadmap
+  // arriba, las tarjetas de acción quedaban debajo del fold y había que
+  // scrollear para descubrir que había una factura vencida o un entregable
+  // sin revisar. Cuando no hay nada pendiente el orden se invierte solo:
+  // ese caso lo maneja el early return de arriba (ProjectSection + AllClear).
   return (
     <div className="space-y-8">
-      <ProjectSection />
-
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Estas son las acciones que están esperando tu atención.
@@ -338,6 +342,8 @@ export function HomePanel({ onNavigate }: HomePanelProps) {
             </div>
           )}
       </div>
+
+      <ProjectSection />
     </div>
   )
 }

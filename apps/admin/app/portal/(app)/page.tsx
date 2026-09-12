@@ -94,49 +94,66 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* Tab navigation */}
+      {/*
+        Navegación lateral. Se mantiene Radix Tabs (maneja el foco, aria y el
+        switch de contenido); lo que cambia es la disposición: columna a la
+        izquierda en desktop, tira horizontal scrolleable en mobile, donde una
+        barra lateral se comería el ancho útil de la pantalla.
+
+        `orientation="vertical"` alinea la navegación por teclado con lo que se
+        ve en desktop (flechas arriba/abajo), que es donde el sidebar existe.
+      */}
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as TabId)}
+        orientation="vertical"
         className="w-full"
       >
-        <TabsList className="flex w-full overflow-x-auto">
-          {TABS.map(({ id, label, Icon }) => (
-            <TabsTrigger
-              key={id}
-              value={id}
-              className="flex-1 gap-1.5 text-xs sm:text-sm"
-            >
-              <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden sm:inline">{label}</span>
-              <span className="sm:hidden">{label.slice(0, 4)}</span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          <TabsList className="h-auto w-full shrink-0 justify-start gap-1 overflow-x-auto rounded-2xl p-1.5 lg:sticky lg:top-6 lg:w-56 lg:flex-col lg:overflow-visible">
+            {TABS.map(({ id, label, Icon }) => (
+              <TabsTrigger
+                key={id}
+                value={id}
+                className="shrink-0 gap-2 rounded-xl px-3 py-2 text-sm lg:w-full lg:justify-start"
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        <TabsContent value="home" className="mt-6">
-          <HomePanel onNavigate={(tab) => setActiveTab(tab as TabId)} />
-        </TabsContent>
+          {/*
+            `min-w-0` es necesario: un hijo de flex arranca con min-width:auto y
+            una tabla o un nombre de archivo largo empujarían el ancho,
+            desbordando el layout en vez de scrollear dentro de su panel.
+          */}
+          <div className="min-w-0 flex-1">
+            <TabsContent value="home" className="mt-0">
+              <HomePanel onNavigate={(tab) => setActiveTab(tab as TabId)} />
+            </TabsContent>
 
-        <TabsContent value="deliverables" className="mt-6">
-          <DeliverablesPanel />
-        </TabsContent>
+            <TabsContent value="deliverables" className="mt-0">
+              <DeliverablesPanel />
+            </TabsContent>
 
-        <TabsContent value="forms" className="mt-6">
-          <FormsPanel />
-        </TabsContent>
+            <TabsContent value="forms" className="mt-0">
+              <FormsPanel />
+            </TabsContent>
 
-        <TabsContent value="requests" className="mt-6">
-          <RequestsPanel />
-        </TabsContent>
+            <TabsContent value="requests" className="mt-0">
+              <RequestsPanel />
+            </TabsContent>
 
-        <TabsContent value="invoices" className="mt-6">
-          <InvoicesPanel />
-        </TabsContent>
+            <TabsContent value="invoices" className="mt-0">
+              <InvoicesPanel />
+            </TabsContent>
 
-        <TabsContent value="documents" className="mt-6">
-          <DocumentsPanel />
-        </TabsContent>
+            <TabsContent value="documents" className="mt-0">
+              <DocumentsPanel />
+            </TabsContent>
+          </div>
+        </div>
       </Tabs>
     </div>
   )
