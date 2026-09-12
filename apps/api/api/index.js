@@ -36,6 +36,18 @@ var envSchema = z.object({
   FROM_EMAIL: z.string().email().optional(),
   ADMIN_URL: z.string().url().optional(),
   CLIENT_PORTAL_URL: z.string().url().optional(),
+  /**
+   * Orígenes EXTRA permitidos por CORS, separados por coma. `ADMIN_URL` y
+   * `CLIENT_PORTAL_URL` ya entran solos en la allowlist, pero son UN valor cada
+   * una y además cumplen otra función (`ADMIN_URL` es la base con la que se
+   * arman los links de emails, propuestas y reservas — no se puede cambiar solo
+   * para habilitar un origin). Cuando el mismo front se sirve desde varios
+   * dominios a la vez (el *.vercel.app del proyecto, el dominio propio y el
+   * subdominio del panel), el resto va acá.
+   *
+   * Ej: "https://synous-ai-admin.vercel.app,https://admin.synousai.com"
+   */
+  ALLOWED_ORIGINS: z.string().optional(),
   API_URL: z.string().url().optional(),
   // Fathom webhook — opcional; sin secret configurado el webhook responde 401
   FATHOM_WEBHOOK_SECRET: z.string().optional(),
@@ -1538,6 +1550,18 @@ var clientOnboarding = pgTable27("client_onboarding", {
   signatureIp: text27("signature_ip"),
   // ── Paso 6 — Brief del proyecto (16 preguntas, ver OnboardingBriefSchema).
   briefAnswers: jsonb14("brief_answers").$type(),
+  /**
+   * Borrador PARCIAL del brief. El paso 6 son 5 bloques en pantallas separadas:
+   * sin esto, los bloques 1-4 vivirían solo en memoria de React Hook Form y un
+   * reload (o cerrar la pestaña) perdería todo lo tipeado hasta el último
+   * bloque. El wizard hace PATCH /brief/draft al avanzar cada bloque y se
+   * mergea con `||` (atómico, nunca borra claves previas).
+   *
+   * NO es el brief válido: puede estar incompleto y no marca el paso 6. El
+   * paso 6 solo se completa con POST /brief (las 16 respuestas validadas),
+   * que además limpia este borrador.
+   */
+  briefDraft: jsonb14("brief_draft").$type(),
   // ── Paso 7 — Materiales. Estado por categoría fija (logoBrand, programContent,
   // clientBase, toolAccess) + IDs de client_asset vinculados por cada una.
   materials: jsonb14("materials").$type().notNull().default({}),
@@ -2376,7 +2400,31 @@ import { and as and7, desc as desc4, eq as eq8 } from "drizzle-orm";
 
 // src/lib/slug.ts
 import { and as and6, eq as eq7, ne as ne2 } from "drizzle-orm";
-import { slugify, SLUG_RESERVED } from "@synous/shared";
+
+// ../../packages/shared/src/slug.ts
+var SLUG_RESERVED = [
+  "app",
+  "api",
+  "www",
+  "admin",
+  "portal",
+  "login",
+  "book",
+  "p",
+  "c",
+  "assets",
+  "static",
+  "mail",
+  "dashboard"
+];
+function slugify(s2) {
+  return s2.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// ../../packages/shared/src/index.ts
+var API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001";
+
+// src/lib/slug.ts
 async function slugTaken(tx, slug, excludeCompanyId) {
   const [row] = await tx.select({ id: company.id }).from(company).where(excludeCompanyId ? and6(eq7(company.slug, slug), ne2(company.id, excludeCompanyId)) : eq7(company.slug, slug)).limit(1);
   return !!row;
@@ -10548,7 +10596,7 @@ async function brandingClientRoutes(app2) {
 }
 
 // src/modules/onboarding/onboarding.service.ts
-import { and as and36, desc as desc21, eq as eq41, inArray as inArray15, isNull as isNull4, sql as sql30 } from "drizzle-orm";
+import { and as and36, desc as desc21, eq as eq41, inArray as inArray15, isNull as isNull4, sql as sql31 } from "drizzle-orm";
 
 // src/modules/onboarding/emails/onboarding-completed.ts
 function onboardingCompletedHtml(p) {
@@ -10626,7 +10674,16 @@ var stripControl = (s2) => s2.split("").filter((c) => {
 }).join("");
 var freeText = (max) => z33.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).pipe(z33.string().min(1, "Requerido"));
 var freeTextOptional = (max) => z33.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).optional();
-var OnboardingBriefSchema = z33.object({
+var requireOtherChannelDetail = (value, ctx) => {
+  if (value.deliveryChannels.includes("otro") && !value.deliveryChannelsOther) {
+    ctx.addIssue({
+      code: z33.ZodIssueCode.custom,
+      path: ["deliveryChannelsOther"],
+      message: "Contanos cu\xE1l es el otro canal."
+    });
+  }
+};
+var BriefFieldsSchema = z33.object({
   businessProgram: freeText(2e3),
   // q1
   activeClients: freeText(500),
@@ -10661,6 +10718,27 @@ var OnboardingBriefSchema = z33.object({
   doubtsBeforeBuying: freeText(2e3)
   // q16
 });
+var OnboardingBriefSchema = BriefFieldsSchema.superRefine(requireOtherChannelDetail);
+var OnboardingBriefDraftSchema = BriefFieldsSchema.partial().extend({
+  businessProgram: freeTextOptional(2e3),
+  activeClients: freeTextOptional(500),
+  worstChannel: freeTextOptional(2e3),
+  weeklyTimeDrain: freeTextOptional(2e3),
+  sixMonthConcern: freeTextOptional(2e3),
+  idealDayToDay: freeTextOptional(2e3),
+  desiredStudentFeeling: freeTextOptional(2e3),
+  referenceApps: freeTextOptional(2e3),
+  teamRoles: freeTextOptional(2e3),
+  brandIdentity: freeTextOptional(500),
+  requiredIntegrations: freeTextOptional(2e3),
+  existingClientBase: freeTextOptional(2e3),
+  howFoundUs: freeTextOptional(2e3),
+  decisionTrigger: freeTextOptional(2e3),
+  doubtsBeforeBuying: freeTextOptional(2e3),
+  // Sin el `.min(1)` del submit final: un borrador puede tener el selector
+  // de canales todavía vacío.
+  deliveryChannels: z33.array(z33.enum(DELIVERY_CHANNELS)).optional()
+}).strict().refine((v) => Object.keys(v).length > 0, { message: "El borrador no puede estar vac\xEDo." });
 var MaterialItemSchema = z33.object({
   done: z33.boolean(),
   assetIds: z33.array(z33.string().min(1)).max(50, "M\xE1ximo 50 archivos por categor\xEDa.").optional(),
@@ -10680,11 +10758,52 @@ var OnboardingMaterialsSchema = z33.object({
     toolAccess: MaterialItemSchema
   })
 });
+var OnboardingMaterialsDraftSchema = z33.object({
+  materials: z33.object({
+    logoBrand: MaterialItemSchema.optional(),
+    programContent: MaterialItemSchema.optional(),
+    clientBase: MaterialItemSchema.optional(),
+    toolAccess: MaterialItemSchema.optional()
+  }).strict().refine((v) => Object.keys(v).length > 0, { message: "No hay materiales para guardar." })
+});
 var OnboardingMaterialUploadQuerySchema = z33.object({
   category: z33.enum(ONBOARDING_MATERIAL_CATEGORIES, {
     errorMap: () => ({ message: "Categor\xEDa de material inv\xE1lida" })
   })
 });
+
+// src/modules/onboarding/steps.ts
+import { sql as sql30 } from "drizzle-orm";
+var ONBOARDING_TOTAL_STEPS = 8;
+var STEP_LABELS = {
+  1: "bienvenida",
+  2: "c\xF3mo funciona",
+  3: "fases del proyecto",
+  4: "modo de trabajo",
+  5: "firma",
+  6: "brief",
+  7: "materiales"
+};
+function assertStepPrerequisites(stepsCompleted, step) {
+  const missing = [];
+  for (let prev = 1; prev < step; prev++) {
+    if (!stepsCompleted[String(prev)]) missing.push(STEP_LABELS[prev] ?? String(prev));
+  }
+  if (missing.length > 0) {
+    throw Errors.badRequest(`Faltan completar pasos previos: ${missing.join(", ")}`, { missing });
+  }
+}
+function stepsCompletedMerge(step) {
+  const patch = JSON.stringify({ [String(step)]: (/* @__PURE__ */ new Date()).toISOString() });
+  return sql30`${patch}::jsonb || ${clientOnboarding.stepsCompleted}`;
+}
+function derivedCurrentStep(merged) {
+  return sql30`(
+    SELECT COALESCE(MIN(s), ${ONBOARDING_TOTAL_STEPS})
+    FROM generate_series(1, ${ONBOARDING_TOTAL_STEPS}) AS s
+    WHERE NOT jsonb_exists(${merged}, s::text)
+  )`;
+}
 
 // src/modules/onboarding/onboarding.service.ts
 var CATEGORY_TO_ASSET_TYPE = {
@@ -10722,10 +10841,11 @@ async function markStepProgress(clientId, step) {
   const activeDeal = await resolveActiveDeal(clientId);
   const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
   assertNotCompleted(row);
-  const stepsCompleted = { ...row.stepsCompleted, [String(step)]: (/* @__PURE__ */ new Date()).toISOString() };
+  assertStepPrerequisites(row.stepsCompleted, step);
+  const merged = stepsCompletedMerge(step);
   const [updated] = await db.update(clientOnboarding).set({
-    stepsCompleted,
-    currentStep: Math.max(row.currentStep, Math.min(step + 1, 8)),
+    stepsCompleted: merged,
+    currentStep: derivedCurrentStep(merged),
     updatedAt: /* @__PURE__ */ new Date()
   }).where(eq41(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo actualizar el progreso");
@@ -10735,28 +10855,47 @@ async function submitSignature(clientId, fullName, ip) {
   const activeDeal = await resolveActiveDeal(clientId);
   const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
   assertNotCompleted(row);
+  assertStepPrerequisites(row.stepsCompleted, 5);
   if (row.signatureAcceptedAt) throw Errors.conflict("El onboarding ya fue firmado");
-  const stepsCompleted = { ...row.stepsCompleted, "5": (/* @__PURE__ */ new Date()).toISOString() };
+  const merged = stepsCompletedMerge(5);
   const [updated] = await db.update(clientOnboarding).set({
     signatureName: fullName,
     signatureAcceptedAt: /* @__PURE__ */ new Date(),
     signatureIp: ip,
-    stepsCompleted,
-    currentStep: Math.max(row.currentStep, 6),
+    stepsCompleted: merged,
+    currentStep: derivedCurrentStep(merged),
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(and36(eq41(clientOnboarding.id, row.id), isNull4(clientOnboarding.signatureAcceptedAt))).returning();
+  if (!updated) throw Errors.conflict("El onboarding ya fue firmado");
+  return updated;
+}
+async function saveBriefDraft(clientId, partial) {
+  const activeDeal = await resolveActiveDeal(clientId);
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
+  assertNotCompleted(row);
+  assertStepPrerequisites(row.stepsCompleted, 6);
+  const [updated] = await db.update(clientOnboarding).set({
+    // COALESCE: `brief_draft` arranca en NULL y `NULL || '{...}'` es NULL.
+    briefDraft: sql31`COALESCE(${clientOnboarding.briefDraft}, '{}'::jsonb) || ${JSON.stringify(partial)}::jsonb`,
     updatedAt: /* @__PURE__ */ new Date()
   }).where(eq41(clientOnboarding.id, row.id)).returning();
-  if (!updated) throw Errors.internal("No se pudo guardar la firma");
+  if (!updated) throw Errors.internal("No se pudo guardar el borrador del brief");
   return updated;
 }
 async function submitBrief(clientId, answers) {
   const activeDeal = await resolveActiveDeal(clientId);
   const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
   assertNotCompleted(row);
-  const stepsCompleted = { ...row.stepsCompleted, "6": (/* @__PURE__ */ new Date()).toISOString() };
+  assertStepPrerequisites(row.stepsCompleted, 6);
+  const merged = stepsCompletedMerge(6);
   const [updated] = await db.update(clientOnboarding).set({
     briefAnswers: answers,
-    stepsCompleted,
-    currentStep: Math.max(row.currentStep, 7),
+    // El borrador ya cumplió su función: las 16 respuestas validadas viven
+    // en briefAnswers. Dejarlo sería un segundo estado del mismo dato que
+    // se puede desincronizar.
+    briefDraft: null,
+    stepsCompleted: merged,
+    currentStep: derivedCurrentStep(merged),
     updatedAt: /* @__PURE__ */ new Date()
   }).where(eq41(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar el brief");
@@ -10779,24 +10918,40 @@ async function uploadMaterialAsset(clientId, category, saved) {
   if (!row) throw Errors.internal("No se pudo guardar el archivo");
   return row;
 }
+async function assertOwnedAssets(dealId, materials) {
+  const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? []);
+  if (allAssetIds.length === 0) return;
+  const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and36(eq41(clientAsset.dealId, dealId), inArray15(clientAsset.id, allAssetIds)));
+  const ownedSet = new Set(owned.map((o) => o.id));
+  const invalid = allAssetIds.filter((id) => !ownedSet.has(id));
+  if (invalid.length > 0) {
+    throw Errors.badRequest("Uno o m\xE1s archivos no pertenecen a este proyecto", { invalid });
+  }
+}
+async function saveMaterialsDraft(clientId, materials) {
+  const activeDeal = await resolveActiveDeal(clientId);
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
+  assertNotCompleted(row);
+  assertStepPrerequisites(row.stepsCompleted, 7);
+  await assertOwnedAssets(activeDeal.id, materials);
+  const [updated] = await db.update(clientOnboarding).set({
+    materials: sql31`${clientOnboarding.materials} || ${JSON.stringify(materials)}::jsonb`,
+    updatedAt: /* @__PURE__ */ new Date()
+  }).where(eq41(clientOnboarding.id, row.id)).returning();
+  if (!updated) throw Errors.internal("No se pudo guardar el borrador de materiales");
+  return updated;
+}
 async function submitMaterials(clientId, materials) {
   const activeDeal = await resolveActiveDeal(clientId);
   const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId);
   assertNotCompleted(row);
-  const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? []);
-  if (allAssetIds.length > 0) {
-    const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and36(eq41(clientAsset.dealId, activeDeal.id), inArray15(clientAsset.id, allAssetIds)));
-    const ownedSet = new Set(owned.map((o) => o.id));
-    const invalid = allAssetIds.filter((id) => !ownedSet.has(id));
-    if (invalid.length > 0) {
-      throw Errors.badRequest("Uno o m\xE1s archivos no pertenecen a este proyecto", { invalid });
-    }
-  }
-  const stepsCompleted = { ...row.stepsCompleted, "7": (/* @__PURE__ */ new Date()).toISOString() };
+  assertStepPrerequisites(row.stepsCompleted, 7);
+  await assertOwnedAssets(activeDeal.id, materials);
+  const merged = stepsCompletedMerge(7);
   const [updated] = await db.update(clientOnboarding).set({
     materials,
-    stepsCompleted,
-    currentStep: Math.max(row.currentStep, 8),
+    stepsCompleted: merged,
+    currentStep: derivedCurrentStep(merged),
     updatedAt: /* @__PURE__ */ new Date()
   }).where(eq41(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar los materiales");
@@ -10808,15 +10963,15 @@ async function completeOnboarding(token) {
   const result = await db.transaction(async (tx) => {
     const row = await getOrCreateOnboarding(tx, activeDeal.portalId, activeDeal.id, clientId);
     assertNotCompleted(row);
-    const missing = [];
-    if (!row.stepsCompleted["5"]) missing.push("firma");
-    if (!row.stepsCompleted["6"]) missing.push("brief");
-    if (!row.stepsCompleted["7"]) missing.push("materiales");
-    if (missing.length > 0) {
-      throw Errors.badRequest(`Faltan completar pasos previos: ${missing.join(", ")}`, { missing });
-    }
-    const stepsCompleted = { ...row.stepsCompleted, "8": (/* @__PURE__ */ new Date()).toISOString() };
-    const [updatedOnboarding] = await tx.update(clientOnboarding).set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: /* @__PURE__ */ new Date(), stepsCompleted, currentStep: 8, updatedAt: /* @__PURE__ */ new Date() }).where(and36(eq41(clientOnboarding.id, row.id), eq41(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
+    assertStepPrerequisites(row.stepsCompleted, 8);
+    const merged = stepsCompletedMerge(8);
+    const [updatedOnboarding] = await tx.update(clientOnboarding).set({
+      status: ONBOARDING_STATUS.COMPLETED,
+      completedAt: /* @__PURE__ */ new Date(),
+      stepsCompleted: merged,
+      currentStep: ONBOARDING_TOTAL_STEPS,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(and36(eq41(clientOnboarding.id, row.id), eq41(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
     if (!updatedOnboarding) {
       throw Errors.conflict("El onboarding ya est\xE1 completo");
     }
@@ -10862,7 +11017,7 @@ function toAdminListItem(onboarding, dealName, clientEmail) {
   };
 }
 async function listOnboardings(portalId) {
-  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and36(eq41(deal.id, clientOnboarding.dealId), eq41(deal.archived, false))).innerJoin(clientAccount, eq41(clientAccount.id, clientOnboarding.clientId)).where(eq41(clientOnboarding.portalId, portalId)).orderBy(sql30`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc21(clientOnboarding.updatedAt));
+  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and36(eq41(deal.id, clientOnboarding.dealId), eq41(deal.archived, false))).innerJoin(clientAccount, eq41(clientAccount.id, clientOnboarding.clientId)).where(eq41(clientOnboarding.portalId, portalId)).orderBy(sql31`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc21(clientOnboarding.updatedAt));
   return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail));
 }
 async function getOnboardingByDeal(portalId, dealId) {
@@ -10960,6 +11115,19 @@ async function clientOnboardingRoutes(app2) {
     },
     async (request) => ok(await submitBrief(request.clientAccount.sub, request.body))
   );
+  r.patch(
+    "/brief/draft",
+    {
+      schema: {
+        tags: [TAG32],
+        summary: "Guardar un borrador parcial del brief (paso 6)",
+        description: "Se llama al avanzar cada bloque del paso 6 para que lo tipeado no se pierda en un reload. No valida las 16 respuestas ni marca el paso como completo \u2014 eso lo hace POST /brief.",
+        security: CLIENT_SECURITY,
+        body: OnboardingBriefDraftSchema
+      }
+    },
+    async (request) => ok(await saveBriefDraft(request.clientAccount.sub, request.body))
+  );
   r.post(
     "/materials",
     {
@@ -10972,6 +11140,19 @@ async function clientOnboardingRoutes(app2) {
       }
     },
     async (request) => ok(await submitMaterials(request.clientAccount.sub, request.body.materials))
+  );
+  r.patch(
+    "/materials/draft",
+    {
+      schema: {
+        tags: [TAG32],
+        summary: "Guardar un borrador parcial del checklist de materiales (paso 7)",
+        description: 'Se llama al tildar una categor\xEDa, escribir una nota o terminar una subida, para que ese estado no viva solo en memoria hasta "Continuar". Acepta solo las categor\xEDas que cambiaron y NO marca el paso como completo \u2014 eso lo hace POST /materials.',
+        security: CLIENT_SECURITY,
+        body: OnboardingMaterialsDraftSchema
+      }
+    },
+    async (request) => ok(await saveMaterialsDraft(request.clientAccount.sub, request.body.materials))
   );
   app2.post(
     "/materials/upload",
@@ -11433,11 +11614,16 @@ function buildApp() {
   app2.setValidatorCompiler(validatorCompiler);
   app2.setSerializerCompiler(serializerCompiler);
   const allowedOrigins = [
-    env.ADMIN_URL,
-    env.CLIENT_PORTAL_URL,
-    "http://localhost:3000",
-    "http://localhost:3002"
-  ].filter((o) => Boolean(o));
+    ...new Set(
+      [
+        env.ADMIN_URL,
+        env.CLIENT_PORTAL_URL,
+        ...env.ALLOWED_ORIGINS?.split(",") ?? [],
+        "http://localhost:3000",
+        "http://localhost:3002"
+      ].map((o) => o?.trim().replace(/\/+$/, "")).filter((o) => Boolean(o))
+    )
+  ];
   app2.register(cors, { origin: allowedOrigins, credentials: true });
   app2.register(cookie);
   app2.register(fastifyWebsocket);
