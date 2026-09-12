@@ -2,7 +2,15 @@ import type { Config } from 'tailwindcss'
 import tailwindcssAnimate from 'tailwindcss-animate'
 
 const config: Config = {
-  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
+  content: [
+    './app/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    // portal-lib es donde vive TODO el Client Portal (paneles, sidebar, wizard).
+    // Sin este glob, Tailwind no genera las clases que solo se usan ahí: el
+    // portal quedaba a medio estilar y solo "funcionaban" las clases que por
+    // casualidad también aparecían en app/ o components/.
+    './portal-lib/**/*.{ts,tsx}',
+  ],
   theme: {
     extend: {
       fontFamily: {
