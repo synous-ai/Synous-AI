@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@portal/components/ui/tabs'
 import { HomePanel } from '@portal/components/portal/home-panel'
 import { DeliverablesPanel } from '@portal/components/portal/deliverables-panel'
 import { FormsPanel } from '@portal/components/portal/forms-panel'
@@ -10,7 +9,8 @@ import { RequestsPanel } from '@portal/components/portal/requests-panel'
 import { InvoicesPanel } from '@portal/components/portal/invoices-panel'
 import { DocumentsPanel } from '@portal/components/portal/documents-panel'
 import { ClientOnboardingWizard } from '@portal/components/onboarding/client-onboarding-wizard'
-import { useClientOnboarding } from '@portal/lib/hooks'
+import { useClientOnboarding, usePortalPendingCounts, type PortalPending } from '@portal/lib/hooks'
+import { PortalSidebar } from '@portal/components/portal/portal-sidebar'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
 import { Skeleton } from '@portal/components/ui/skeleton'
 import { House, FileText, ClipboardList, GitPullRequest, Receipt, FolderOpen } from 'lucide-react'
@@ -25,6 +25,17 @@ const TABS: { id: TabId; label: string; Icon: React.ElementType }[] = [
   { id: 'invoices', label: 'Facturas', Icon: Receipt },
   { id: 'documents', label: 'Documentos', Icon: FolderOpen },
 ]
+
+/**
+ * De qué contador se alimenta el badge de cada sección. Inicio no lleva badge:
+ * es justamente la pantalla que los resume todos.
+ */
+const BADGE_BY_TAB: Partial<Record<TabId, (p: PortalPending) => number>> = {
+  deliverables: (p) => p.counts.deliverables,
+  forms: (p) => p.counts.forms,
+  requests: (p) => p.counts.requests,
+  invoices: (p) => p.counts.invoices,
+}
 
 /**
  * Gating del onboarding post-venta: mientras `client_onboarding.status !==
@@ -61,6 +72,8 @@ export default function DashboardPage() {
   // Email del usuario Clerk (reemplaza client.email del store JWT anterior).
   const email = user?.primaryEmailAddress?.emailAddress ?? user?.emailAddresses?.[0]?.emailAddress ?? ''
   const [activeTab, setActiveTab] = useState<TabId>('home')
+  const [collapsed, setCollapsed] = useState(false)
+  const pending = usePortalPendingCounts()
   const gate = useOnboardingGate()
 
   // Mientras no sabemos si hay que mostrar el wizard (primera carga), un
@@ -95,66 +108,41 @@ export default function DashboardPage() {
       </div>
 
       {/*
-        Navegación lateral. Se mantiene Radix Tabs (maneja el foco, aria y el
-        switch de contenido); lo que cambia es la disposición: columna a la
-        izquierda en desktop, tira horizontal scrolleable en mobile, donde una
-        barra lateral se comería el ancho útil de la pantalla.
-
-        `orientation="vertical"` alinea la navegación por teclado con lo que se
-        ve en desktop (flechas arriba/abajo), que es donde el sidebar existe.
+        Navegación lateral con badges de pendientes por sección. Se abandonó
+        Radix Tabs: `TabsContent` desmonta el panel inactivo, así que volver a
+        una sección perdía su estado (scroll, filtros, formularios a medio
+        llenar). Con render condicional sobre `activeTab` el comportamiento es
+        el mismo que tenía —un panel a la vez— pero el control queda acá y el
+        sidebar puede llevar su propio estado de colapsado.
       */}
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) => setActiveTab(v as TabId)}
-        orientation="vertical"
-        className="w-full"
-      >
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-          <TabsList className="h-auto w-full shrink-0 justify-start gap-1 overflow-x-auto rounded-2xl p-1.5 lg:sticky lg:top-6 lg:w-56 lg:flex-col lg:overflow-visible">
-            {TABS.map(({ id, label, Icon }) => (
-              <TabsTrigger
-                key={id}
-                value={id}
-                className="shrink-0 gap-2 rounded-xl px-3 py-2 text-sm lg:w-full lg:justify-start"
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <PortalSidebar
+          items={TABS.map(({ id, label, Icon }) => ({
+            id,
+            label,
+            Icon,
+            badge: BADGE_BY_TAB[id]?.(pending) ?? 0,
+          }))}
+          activeId={activeTab}
+          onSelect={(id) => setActiveTab(id as TabId)}
+          collapsed={collapsed}
+          onToggleCollapsed={() => setCollapsed((v) => !v)}
+        />
 
-          {/*
-            `min-w-0` es necesario: un hijo de flex arranca con min-width:auto y
-            una tabla o un nombre de archivo largo empujarían el ancho,
-            desbordando el layout en vez de scrollear dentro de su panel.
-          */}
-          <div className="min-w-0 flex-1">
-            <TabsContent value="home" className="mt-0">
-              <HomePanel onNavigate={(tab) => setActiveTab(tab as TabId)} />
-            </TabsContent>
-
-            <TabsContent value="deliverables" className="mt-0">
-              <DeliverablesPanel />
-            </TabsContent>
-
-            <TabsContent value="forms" className="mt-0">
-              <FormsPanel />
-            </TabsContent>
-
-            <TabsContent value="requests" className="mt-0">
-              <RequestsPanel />
-            </TabsContent>
-
-            <TabsContent value="invoices" className="mt-0">
-              <InvoicesPanel />
-            </TabsContent>
-
-            <TabsContent value="documents" className="mt-0">
-              <DocumentsPanel />
-            </TabsContent>
-          </div>
+        {/*
+          `min-w-0`: un hijo de flex arranca con min-width:auto, así que una
+          tabla ancha o un nombre de archivo largo empujarían el ancho y
+          desbordarían el layout en vez de scrollear dentro de su panel.
+        */}
+        <div className="min-w-0 flex-1">
+          {activeTab === 'home' && <HomePanel onNavigate={(tab) => setActiveTab(tab as TabId)} />}
+          {activeTab === 'deliverables' && <DeliverablesPanel />}
+          {activeTab === 'forms' && <FormsPanel />}
+          {activeTab === 'requests' && <RequestsPanel />}
+          {activeTab === 'invoices' && <InvoicesPanel />}
+          {activeTab === 'documents' && <DocumentsPanel />}
         </div>
-      </Tabs>
+      </div>
     </div>
   )
 }

@@ -352,3 +352,63 @@ export function useMarkAllNotificationsRead() {
     onSuccess: invalidate,
   })
 }
+
+// ─── Pendientes por sección ──────────────────────────────────────────────────
+
+export interface PortalPending {
+  /** Ítems que esperan acción del cliente, por sección. */
+  deliverables: Deliverable[]
+  forms: ClientIntake[]
+  requests: ChangeRequest[]
+  invoices: ClientInvoice[]
+  counts: { deliverables: number; forms: number; requests: number; invoices: number; total: number }
+  isLoading: boolean
+  isError: boolean
+}
+
+/**
+ * Qué está esperando una acción del cliente en cada sección.
+ *
+ * Devuelve las LISTAS además de los conteos: el sidebar solo necesita el
+ * número para el badge, pero las tarjetas del panel de inicio miran el detalle
+ * (la de facturas distingue vencida de emitida). Si el hook devolviera solo
+ * números, el panel volvería a filtrar por su cuenta y los criterios podrían
+ * divergir — que es justo lo que esto evita.
+ */
+export function usePortalPendingCounts(): PortalPending {
+  const deliverables = useClientDeliverables()
+  const intakes = useClientIntakes()
+  const crs = useClientChangeRequests()
+  const invoices = useClientInvoices()
+
+  const pendingDeliverables = (deliverables.data ?? []).filter(
+    (d) => d.status === 'pending_review' || d.status === 'changes_requested',
+  )
+  const pendingForms = (intakes.data ?? []).filter(
+    (i) => i.status === 'pending' || i.status === 'in_progress',
+  )
+  const pendingRequests = (crs.data ?? []).filter((cr) =>
+    (['sent', 'negotiating'] as string[]).includes(cr.status),
+  )
+  // 'sent' y 'overdue': emitida sin saldar. Una pagada no pide nada.
+  const alertInvoices = (invoices.data ?? []).filter(
+    (inv) => inv.status === 'sent' || inv.status === 'overdue',
+  )
+
+  return {
+    deliverables: pendingDeliverables,
+    forms: pendingForms,
+    requests: pendingRequests,
+    invoices: alertInvoices,
+    counts: {
+      deliverables: pendingDeliverables.length,
+      forms: pendingForms.length,
+      requests: pendingRequests.length,
+      invoices: alertInvoices.length,
+      total:
+        pendingDeliverables.length + pendingForms.length + pendingRequests.length + alertInvoices.length,
+    },
+    isLoading: deliverables.isLoading || intakes.isLoading || crs.isLoading || invoices.isLoading,
+    isError: deliverables.isError || intakes.isError || crs.isError || invoices.isError,
+  }
+}
