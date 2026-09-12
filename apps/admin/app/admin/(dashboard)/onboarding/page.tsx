@@ -18,7 +18,7 @@ function OnboardingCard({ item }: { item: AdminOnboardingListItemDTO }) {
   const doneSteps = Object.keys(item.stepsCompleted ?? {}).length
 
   return (
-    <Link href={`/admin/onboarding/${item.dealId}`}>
+    <Link href={`/onboarding/${item.dealId}`}>
       <Card className="h-full transition-colors hover:border-primary/40">
         <CardContent className="space-y-4 p-5">
           <div className="flex items-start justify-between gap-3">

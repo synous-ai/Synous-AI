@@ -61,7 +61,7 @@ export default function OnboardingDetailPage() {
 
   return (
     <div className="p-6">
-      <Link href="/admin/onboarding" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+      <Link href="/onboarding" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ChevronLeft className="h-4 w-4" />
         Volver a Onboarding
       </Link>
@@ -72,7 +72,7 @@ export default function OnboardingDetailPage() {
           <h1 className="text-3xl font-semibold tracking-tight">{dealName}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Paso {onboarding.currentStep} de 8 ·{' '}
-            <Link href={`/admin/deals/${onboarding.dealId}`} className="font-medium text-signal hover:underline">
+            <Link href={`/deals/${onboarding.dealId}`} className="font-medium text-signal hover:underline">
               Ver Deal
             </Link>
           </p>

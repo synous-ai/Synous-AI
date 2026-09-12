@@ -113,7 +113,7 @@ export default function ProposalEditorPage() {
 
       {/* Header */}
       <div className="mb-6 flex items-center justify-between gap-3">
-        <Link href="/admin/proposals" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <Link href="/proposals" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Propuestas
         </Link>
         <div className="flex items-center gap-2">

@@ -190,7 +190,7 @@ export default function InvoiceDetailPage() {
     try {
       await archive.mutateAsync(data.invoice.id)
       toast.success(`Factura #${data.invoice.number} archivada`)
-      router.push('/admin/finance/invoices')
+      router.push('/finance/invoices')
     } catch {
       toast.error('No se pudo archivar la factura')
     } finally {
@@ -206,7 +206,7 @@ export default function InvoiceDetailPage() {
     <div className="p-6">
       <nav className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
         <Link
-          href="/admin/finance/invoices"
+          href="/finance/invoices"
           className="flex items-center gap-1 hover:text-foreground transition-colors"
         >
           <ChevronLeft className="h-4 w-4" />

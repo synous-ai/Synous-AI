@@ -57,7 +57,7 @@ export default function LoginPage() {
     let cancelled = false
     apiGet<{ id: string }>('/api/auth/me')
       .then(() => {
-        if (!cancelled) router.replace('/admin/dashboard')
+        if (!cancelled) router.replace('/dashboard')
       })
       .catch(() => {
         // 401 → onAuthFailure ya cerró la sesión (sin navegar, porque estamos
@@ -114,7 +114,7 @@ export default function LoginPage() {
           <div className="mt-6">
             <SignIn
               routing="hash"
-              forceRedirectUrl="/admin/dashboard"
+              forceRedirectUrl="/dashboard"
               appearance={ADMIN_APPEARANCE}
             />
           </div>

@@ -78,7 +78,7 @@ export default function Landing() {
             <span className={`${mono.className} text-sm tracking-wide text-[#EDEDE8]`}>Synous</span>
           </div>
           <Link
-            href="/admin/login"
+            href="/login"
             className={`${mono.className} rounded-full border border-white/15 px-4 py-1.5 text-xs text-[#EDEDE8] transition-colors hover:border-[#C7F94B]/60 hover:text-[#C7F94B]`}
           >
             Entrar al panel →
@@ -114,7 +114,7 @@ export default function Landing() {
 
           <div className="rise mt-10 flex flex-wrap items-center gap-4" style={{ animationDelay: '310ms' }}>
             <Link
-              href="/admin/login"
+              href="/login"
               className="group inline-flex items-center gap-2 rounded-full bg-[#C7F94B] px-6 py-3 text-sm font-medium text-black transition-transform hover:-translate-y-0.5"
             >
               Entrar al panel
@@ -171,7 +171,7 @@ export default function Landing() {
             © {new Date().getFullYear()} Synous — hecho desde cero.
           </p>
           <div className={`${mono.className} flex items-center gap-5 text-xs text-[#8A8A82]`}>
-            <Link href="/admin/login" className="transition-colors hover:text-[#C7F94B]">
+            <Link href="/login" className="transition-colors hover:text-[#C7F94B]">
               Panel admin
             </Link>
             <span className="text-[#6E6E66]">·</span>

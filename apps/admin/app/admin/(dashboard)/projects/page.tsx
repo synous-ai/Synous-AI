@@ -90,7 +90,7 @@ export default function ProjectsPage(): React.JSX.Element {
                 {projects.map((d) => (
                   <TableRow
                     key={d.id}
-                    onClick={() => router.push(`/admin/deals/${d.id}`)}
+                    onClick={() => router.push(`/deals/${d.id}`)}
                     className="cursor-pointer transition-colors hover:bg-muted/50"
                   >
                     <TableCell className="px-4 py-3 font-medium">{d.name}</TableCell>

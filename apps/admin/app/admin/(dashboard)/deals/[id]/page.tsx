@@ -246,7 +246,7 @@ export default function DealDetailPage(): React.JSX.Element {
     if (!d) return
     if (!window.confirm(`¿Archivar el deal "${d.name}"? Esta acción no se puede deshacer.`)) return
     await archiveDeal.mutateAsync(id)
-    router.push('/admin/deals')
+    router.push('/deals')
   }
 
   async function handleStageChange(stageId: string): Promise<void> {
@@ -380,7 +380,7 @@ export default function DealDetailPage(): React.JSX.Element {
     return (
       <div className="p-6">
         <p className="text-sm text-muted-foreground">No se encontró el deal.</p>
-        <Link href="/admin/deals" className="mt-2 text-sm text-primary underline">
+        <Link href="/deals" className="mt-2 text-sm text-primary underline">
           ← Volver a Deals
         </Link>
       </div>
@@ -391,7 +391,7 @@ export default function DealDetailPage(): React.JSX.Element {
     <div className="p-6">
       {/* Breadcrumb */}
       <nav className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href="/admin/deals" className="flex items-center gap-1 hover:text-foreground transition-colors">
+        <Link href="/deals" className="flex items-center gap-1 hover:text-foreground transition-colors">
           <ChevronLeft className="h-4 w-4" />
           Deals
         </Link>
@@ -1181,7 +1181,7 @@ export default function DealDetailPage(): React.JSX.Element {
                             <div
                               key={cr.id}
                               className="cursor-pointer rounded-xl border bg-background/60 px-3 py-2.5 transition-colors hover:bg-accent/50"
-                              onClick={() => router.push(`/admin/change-requests/${cr.id}`)}
+                              onClick={() => router.push(`/change-requests/${cr.id}`)}
                             >
                               <div className="flex items-center gap-2">
                                 <span className="font-mono text-xs text-muted-foreground">CR#{cr.number}</span>

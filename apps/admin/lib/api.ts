@@ -64,8 +64,8 @@ const client = createApiClient({
     )
     const clerk = (window as unknown as { Clerk?: { session?: unknown; signOut?: () => Promise<void> } }).Clerk
     const goLogin = (): void => {
-      if (!window.location.pathname.startsWith('/admin/login')) {
-        window.location.href = '/admin/login'
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
       }
     }
     if (clerk?.session && typeof clerk.signOut === 'function') {

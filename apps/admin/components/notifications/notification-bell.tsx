@@ -86,7 +86,11 @@ export function NotificationBell() {
   function handleItemClick(n: AppNotification): void {
     if (!n.readAt) markRead.mutate(n.id)
     if (n.actionUrl) {
-      router.push(n.actionUrl.startsWith('/admin') ? n.actionUrl : `/admin${n.actionUrl}`)
+      // El `action_url` llega en los dos formatos: unas notificaciones lo
+      // guardan con el prefijo viejo (`/admin/proposals/:id`) y otras sin él
+      // (`/deals/:id`). Además hay filas YA GUARDADAS con el prefijo, así que
+      // normalizar acá evita tener que migrarlas.
+      router.push(n.actionUrl.replace(/^\/admin(?=\/|$)/, '') || '/')
     }
   }
 

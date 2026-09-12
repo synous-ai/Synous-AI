@@ -49,7 +49,7 @@ function CRRow({ cr }: { cr: ChangeRequestListItem }) {
       <TableCell className="font-mono text-xs text-muted-foreground">#{cr.number}</TableCell>
       <TableCell>
         <Link
-          href={`/admin/change-requests/${cr.id}`}
+          href={`/change-requests/${cr.id}`}
           className="font-medium text-signal hover:underline"
         >
           {cr.title}
@@ -57,7 +57,7 @@ function CRRow({ cr }: { cr: ChangeRequestListItem }) {
       </TableCell>
       <TableCell className="text-sm text-muted-foreground">
         {cr.dealName ? (
-          <Link href={`/admin/deals/${cr.dealId}`} className="hover:text-foreground hover:underline">
+          <Link href={`/deals/${cr.dealId}`} className="hover:text-foreground hover:underline">
             {cr.dealName}
           </Link>
         ) : (
@@ -177,7 +177,7 @@ export default function ChangeRequestsPage() {
 
           <p className="mt-4 text-xs text-muted-foreground">
             Las CRs se crean desde el detalle de un deal →{' '}
-            <Link href="/admin/deals" className="inline-flex items-center gap-1 hover:text-foreground hover:underline">
+            <Link href="/deals" className="inline-flex items-center gap-1 hover:text-foreground hover:underline">
               ir a Deals <ArrowRight className="h-3 w-3" />
             </Link>
           </p>

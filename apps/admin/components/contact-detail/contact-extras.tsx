@@ -105,7 +105,7 @@ function GenerateButton({ dealId }: { dealId: string }) {
         try {
           const p = await generate.mutateAsync(dealId)
           toast.success('Propuesta generada')
-          router.push(`/admin/proposals/${p.id}`)
+          router.push(`/proposals/${p.id}`)
         } catch {
           toast.error('No se pudo generar la propuesta')
         }
@@ -156,7 +156,7 @@ function ProposalRow({ p }: { p: Proposal }) {
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
         <Link
-          href={`/admin/proposals/${p.id}`}
+          href={`/proposals/${p.id}`}
           className="inline-flex items-center gap-1 font-medium text-signal hover:underline"
         >
           Revisar / Editar <ArrowRight className="h-3.5 w-3.5" />

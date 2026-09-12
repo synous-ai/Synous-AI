@@ -9,8 +9,10 @@ import { SLUG_RESERVED } from '@synous/shared'
  * Orden de responsabilidades:
  *  0. Host del panel (admin.*): sirve SOLO el admin, con URLs sin el prefijo
  *     /admin (admin.synousai.com/login, /dashboard, …). Rewrite a /admin/*.
+ *     Las páginas siguen en app/admin/*; el prefijo desaparece de la URL, no
+ *     del árbol de archivos. Los links internos ya son sin prefijo.
  *  1. Tenant white-label: subdominio o path /c/<slug> → rewrite a /portal/*.
- *  2. Conveniencia: /login → /admin/login (back-compat).
+ *  2. Desde otro dominio, /admin/* y /login → redirect al host del panel.
  *  3. Protección admin: Clerk protege TODO /admin/* EXCEPTO /admin/login.
  *     Unauthenticated → redirect automático a /admin/login.
  *  4. Protección portal (CA2): Clerk protege /portal/* EXCEPTO /portal/login.
@@ -82,11 +84,31 @@ function isAdminHost(host: string): boolean {
  * mantiene el cambio acotado al ruteo.
  */
 function adminHostTarget(pathname: string): string {
-  // `/admin` y `/admin/` no son páginas (los route groups (auth)/(dashboard) no
-  // aportan segmento de URL), así que van al dashboard igual que la raíz.
-  if (pathname === '/' || pathname === '/admin' || pathname === '/admin/') return '/admin/dashboard'
-  if (pathname.startsWith('/admin/')) return pathname
+  // `/` no es una página del panel (los route groups (auth)/(dashboard) no
+  // aportan segmento de URL), así que la raíz va al dashboard.
+  if (pathname === '/') return '/admin/dashboard'
   return `/admin${pathname}`
+}
+
+/**
+ * Base del host del panel, para mandar ahí las URLs viejas con `/admin/...`
+ * que lleguen por otro dominio. `NEXT_PUBLIC_ADMIN_URL` tiene prioridad; si no,
+ * se arma con el dominio raíz.
+ *
+ * Devuelve null en local sin dominio raíz configurado — ahí NO se redirige y
+ * `/admin/*` se sigue sirviendo como antes, para no obligar a levantar
+ * `admin.localhost` sólo para entrar al panel en desarrollo.
+ */
+function adminHostUrl(): string | null {
+  const explicit = process.env['NEXT_PUBLIC_ADMIN_URL']
+  if (explicit) return explicit.replace(/\/+$/, '')
+  const root = process.env['NEXT_PUBLIC_ROOT_DOMAIN']
+  return root ? `https://${ADMIN_HOST_LABEL}.${root.toLowerCase()}` : null
+}
+
+/** Saca el prefijo `/admin` de un path: `/admin/deals/1` → `/deals/1`, `/admin` → `/`. */
+function stripAdminPrefix(pathname: string): string {
+  return pathname.replace(/^\/admin(?=\/|$)/, '') || '/'
 }
 
 function isAdminLoginPath(path: string): boolean {
@@ -201,6 +223,15 @@ export default clerkMiddleware(async (auth, req) => {
   //    servía la LANDING: `admin` está en SLUG_RESERVED, así que no resuelve
   //    como tenant, pero tampoco matcheaba ninguna ruta de /admin/*.
   if (isAdminHost(req.headers.get('host') ?? '')) {
+    // Las URLs con el prefijo viejo se corrigen solas: `/admin/deals/1` →
+    // `/deals/1`. Redirect (no rewrite) para que el prefijo desaparezca de la
+    // barra y no queden dos URLs sirviendo la misma página.
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+      const url = req.nextUrl.clone()
+      url.pathname = stripAdminPrefix(pathname)
+      return NextResponse.redirect(url)
+    }
+
     const target = adminHostTarget(pathname)
 
     if (!isAdminLoginPath(target)) {
@@ -254,17 +285,30 @@ export default clerkMiddleware(async (auth, req) => {
     return tenantResp
   }
 
-  // 2. Conveniencia: /login → /admin/login (back-compat con links viejos).
-  if (pathname === '/login' || pathname.startsWith('/login/')) {
-    return NextResponse.redirect(new URL('/admin/login', req.url))
+  // 2. El panel vive SOLO en el host admin.*. Lo que llegue por otro dominio a
+  //    /admin/* o /login (links viejos, bookmarks, el signInUrl de Clerk) se
+  //    manda ahí, ya sin el prefijo.
+  //
+  //    Si no hay host de admin configurado (dev local sin dominio raíz) NO se
+  //    redirige y /admin/* se sigue sirviendo acá, así no hace falta levantar
+  //    admin.localhost sólo para entrar al panel.
+  const adminUrl = adminHostUrl()
+  if (adminUrl && (pathname === '/admin' || pathname.startsWith('/admin/') || pathname === '/login' || pathname.startsWith('/login/'))) {
+    const dest = new URL(`${adminUrl}${stripAdminPrefix(pathname)}`)
+    dest.search = req.nextUrl.search
+    return NextResponse.redirect(dest)
   }
 
-  // 2b. /admin exacto → /admin/dashboard. Los route groups (auth)/(dashboard) no aportan
-  //     segmento de URL, así que no existe página en /admin (daba 404). Redirigimos al
-  //     dashboard y dejamos que la protección de /admin/* (abajo) decida: sin sesión →
-  //     /admin/login (auth.protect); sesión cliente → /portal; admin → dashboard.
-  if (pathname === '/admin') {
-    return NextResponse.redirect(new URL('/admin/dashboard', req.url))
+  // 2b. Sin host de admin configurado, se mantiene el comportamiento viejo:
+  //     /login → /admin/login y /admin → /admin/dashboard (los route groups
+  //     (auth)/(dashboard) no aportan segmento, así que /admin no es página).
+  if (!adminUrl) {
+    if (pathname === '/login' || pathname.startsWith('/login/')) {
+      return NextResponse.redirect(new URL('/admin/login', req.url))
+    }
+    if (pathname === '/admin') {
+      return NextResponse.redirect(new URL('/admin/dashboard', req.url))
+    }
   }
 
   // 3. Proteger admin (excepto /admin/login que es la página pública de entrada).
@@ -301,9 +345,11 @@ export default clerkMiddleware(async (auth, req) => {
     if (userType === 'client' && isAdminProtected(req) && !isAdminPublic(req)) {
       return NextResponse.redirect(new URL('/portal', req.url))
     }
-    // Admin conocido intentando acceder al portal → admin.
+    // Admin conocido intentando acceder al portal → panel. Si el panel vive en
+    // su propio host, el salto es cross-domain: un /admin/dashboard de ESTE
+    // host ya no sirve el panel.
     if (userType === 'admin' && isPortalProtected(req) && !isPortalPublic(req)) {
-      return NextResponse.redirect(new URL('/admin/dashboard', req.url))
+      return NextResponse.redirect(adminUrl ? `${adminUrl}/dashboard` : new URL('/admin/dashboard', req.url))
     }
   }
 

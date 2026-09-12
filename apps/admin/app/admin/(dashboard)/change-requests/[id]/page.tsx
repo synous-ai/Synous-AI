@@ -192,7 +192,7 @@ export default function ChangeRequestDetailPage(): React.JSX.Element {
     return (
       <div className="p-6">
         <p className="text-sm text-muted-foreground">No se encontró la change request.</p>
-        <Link href="/admin/deals" className="mt-2 text-sm text-primary underline">
+        <Link href="/deals" className="mt-2 text-sm text-primary underline">
           ← Volver a Deals
         </Link>
       </div>

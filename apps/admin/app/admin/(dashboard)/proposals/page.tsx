@@ -56,7 +56,7 @@ function ProposalCard({ p }: { p: Proposal }) {
 
         <div className="flex flex-wrap items-center gap-2 border-t pt-3 text-sm">
           <Link
-            href={`/admin/proposals/${p.id}`}
+            href={`/proposals/${p.id}`}
             className="inline-flex items-center gap-1 font-medium text-signal hover:underline"
           >
             Revisar / Editar

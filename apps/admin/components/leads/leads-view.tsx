@@ -233,7 +233,7 @@ export function LeadsView() {
     ;(window as Window & { __navT0?: number }).__navT0 = performance.now()
     // eslint-disable-next-line no-console
     console.warn(`[NAV DEBUG] 🖱️ CLICK → router.push(/admin/leads/${id})`)
-    router.push(`/admin/leads/${id}`)
+    router.push(`/leads/${id}`)
   }
 
   const VIEW_BUTTONS: { mode: ViewMode; icon: typeof LayoutGrid; label: string }[] = [
