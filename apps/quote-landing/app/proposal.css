@@ -1,0 +1,671 @@
+/* Palette and value structure adapted from the FrontPackPro landing:
+   near-black navy base, surfaces a few points lighter, low-contrast borders and
+   a pale blue accent that carries the type. */
+:root {
+  --void: #010511;
+  --surface: #030520;
+  --surface-raised: #090d1d;
+  --surface-high: #171d33;
+
+  --edge: #181d31;
+  --edge-soft: #1a1d29;
+  --edge-lit: #1c2542;
+
+  --title: #d5e5f9;
+  --body-text: #dadff5;
+  --muted: #778596;
+
+  --accent: #96c0ff;
+  --accent-bright: #669cff;
+  --accent-deep: #1c73ca;
+
+  --ink: var(--void);
+  --paper: var(--title);
+}
+
+body {
+  background: var(--void);
+  color: var(--body-text);
+}
+
+svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+::selection {
+  color: var(--void);
+  background: var(--accent);
+}
+
+/* Film grain over the whole page. A 1px dot tiled every 3px builds the texture,
+   and plus-lighter adds light to the surface underneath instead of veiling it.
+   Sits above every layer but stays inert, so clicks still reach the envelope. */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-image: radial-gradient(at 20% 80%, #fff 1px, transparent 0px);
+  background-size: 3px 3px;
+  opacity: 0.045;
+  mix-blend-mode: plus-lighter;
+  z-index: 9999;
+  pointer-events: none !important;
+}
+
+/* ── Stage: one screen, nothing scrolls ───────────────────────────────── */
+
+.stage {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+/* Backdrop: the animated shader canvas fills this layer. */
+.stage-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--void);
+  /* The shader canvas covers the viewport; without this it would swallow every
+     click meant for the envelope. */
+  pointer-events: none;
+}
+
+.stage-content {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: min(1360px, calc(100% - 96px));
+}
+
+/* ── Announcement bars ────────────────────────────────────────────────── */
+
+.announce-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Both bars share the same centre point, so they cross in the middle. */
+.announce-bar {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 240vw;
+  overflow: hidden;
+  border-block: 1px solid;
+  padding-block: 12px;
+}
+
+/* Inset shadows light the top edge and sink the bottom, giving each bar the
+   read of a physical strip rather than a flat rectangle. */
+.announce-solid {
+  border-color: var(--edge-lit);
+  background: #96c0ff12;
+  backdrop-filter: blur(2px);
+  box-shadow: inset 0 1px 0 #96c0ff40, inset 0 8px 16px -8px #96c0ff26,
+    inset 0 -10px 18px -10px #00030d;
+}
+
+.announce-ghost {
+  border-color: var(--edge-soft);
+  background: #01051180;
+  backdrop-filter: blur(2px);
+  box-shadow: inset 0 1px 0 #96c0ff1a, inset 0 8px 16px -10px #96c0ff14,
+    inset 0 -10px 18px -10px #00030d;
+}
+
+.announce-track {
+  display: flex;
+  width: max-content;
+  align-items: center;
+  gap: 40px;
+  padding-right: 40px;
+  white-space: nowrap;
+  animation: announce-scroll 36s linear infinite;
+  will-change: transform;
+}
+
+.announce-track.is-reverse {
+  animation-duration: 44s;
+  animation-direction: reverse;
+}
+
+.announce-item {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  font-size: clamp(15px, 1.5vw, 22px);
+  font-weight: 500;
+  letter-spacing: -0.4px;
+}
+
+.announce-solid .announce-item {
+  color: var(--title);
+}
+
+.announce-ghost .announce-item {
+  color: #778596a8;
+}
+
+.announce-pill {
+  width: 20px;
+  height: 10px;
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  opacity: 0.55;
+}
+
+/* The track renders its items twice, so travelling -50% lands on an identical
+   frame and the loop reads as continuous. */
+@keyframes announce-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ── Letter scene ─────────────────────────────────────────────────────── */
+
+/* perspective must live here, on the parent: applied to the envelope itself the
+   tilt would flatten into a horizontal squash instead of reading as depth. */
+.letter-scene {
+  position: relative;
+  width: min(100%, 78vh);
+  aspect-ratio: 1;
+  min-width: 0;
+  isolation: isolate;
+  perspective: 1400px;
+  animation: arrive 1s 0.15s both;
+}
+
+.letter-scene::before {
+  content: '';
+  position: absolute;
+  inset: 0 -3%;
+  z-index: -2;
+  background-image: linear-gradient(#96c0ff0a 1px, transparent 1px),
+    linear-gradient(90deg, #96c0ff0a 1px, transparent 1px);
+  background-size: 49px 49px;
+  mask-image: radial-gradient(ellipse, #000 10%, transparent 71%);
+}
+
+/* Halo that separates the envelope from an equally dark backdrop. */
+.scene-glow {
+  position: absolute;
+  inset: 12% 6%;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 55%, #2f6ad073 0%, #1c73ca24 42%, transparent 72%);
+  filter: blur(46px);
+}
+
+/* The link is the envelope itself, so hover and click share one shape and
+   nothing reacts in the empty space around it. */
+.envelope-composition {
+  position: absolute;
+  display: block;
+  left: 12%;
+  top: 50%;
+  width: 76%;
+  height: 60%;
+  transform: translateY(-50%);
+  filter: drop-shadow(0 28px 40px #00030d);
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.envelope-composition:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 14px;
+  border-radius: 12px;
+}
+
+.envelope-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--edge);
+}
+
+/* Back flap, aligned to the raised pocket. */
+.envelope-back::before {
+  content: '';
+  position: absolute;
+  inset: -20% 0 30%;
+  background: linear-gradient(145deg, #0b1024, #1c2542);
+  clip-path: polygon(0 44%, 48% 0, 53% 0, 100% 44%, 100% 100%, 0 100%);
+}
+
+/* Sits behind the envelope front (z-index 2) and rests deep in the pocket, so
+   only the logo and the top of the title show until hover lifts it out.
+   top + height must not exceed 100%, or the sheet hangs below the envelope. */
+.letter-sheet {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  left: 7%;
+  top: 6%;
+  width: 86%;
+  height: 94%;
+  padding: 22px 25px;
+  background: linear-gradient(170deg, #ffffff 0%, #eef3fb 55%, #dde6f4 100%);
+  border: 1px solid #ffffff;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  color: #0b1024;
+  box-shadow: 0 -4px 18px #00030d66;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* The standard mark is built for dark surfaces, which is what the sheet is. */
+.sheet-logo {
+  height: 20px;
+  width: auto;
+  object-fit: contain;
+}
+
+.sheet-header > span:last-child {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0.6px;
+  color: #6a7690;
+}
+
+.sheet-title {
+  display: block;
+  margin-top: 34px;
+}
+
+.sheet-title-lead {
+  display: block;
+  color: #6a7690;
+  font-size: clamp(10px, 0.95vw, 13px);
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* The FrontPackPro gradient gesture, inverted for the light sheet: deep navy
+   settling into the accent blue. */
+.sheet-recipient {
+  display: block;
+  margin-top: 6px;
+  font-size: clamp(21px, 2.25vw, 34px);
+  line-height: 1.12;
+  font-weight: 500;
+  letter-spacing: -1.5px;
+  background: linear-gradient(to bottom, #0b1024, var(--accent-deep));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* The caret is a sibling span, so it must not inherit the clipped fill. */
+  min-height: 1.12em;
+}
+
+.sheet-caret {
+  color: var(--accent-deep);
+  -webkit-text-fill-color: var(--accent-deep);
+}
+
+.sheet-rule {
+  display: block;
+  height: 1px;
+  margin-top: 20px;
+  background: linear-gradient(to right, #c3cfe2, transparent);
+}
+
+.sheet-body {
+  display: block;
+  margin-top: 13px;
+  color: #6a7690;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.sheet-signature {
+  display: block;
+  margin-top: 19px;
+  font-size: 10px;
+  color: var(--accent-deep);
+}
+
+/* Starts high on the composition so the pocket conceals most of the sheet. */
+.envelope-front {
+  position: absolute;
+  z-index: 2;
+  inset: 22% 0 0;
+  overflow: hidden;
+  border: 1px solid var(--edge-lit);
+  border-top: none;
+  border-radius: 0 0 14px 14px;
+  background: linear-gradient(160deg, #131a33, #070b1c);
+  clip-path: polygon(0 0, 50% 32%, 100% 0, 100% 100%, 0 100%);
+}
+
+.envelope-front::before,
+.envelope-front::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.envelope-front::before {
+  background: linear-gradient(150deg, #121a34, #090d1f);
+  clip-path: polygon(0 0, 57% 56%, 0 100%);
+}
+
+.envelope-front::after {
+  background: linear-gradient(230deg, #1a2242, #0b1024);
+  clip-path: polygon(100% 0, 43% 56%, 100% 100%);
+}
+
+.envelope-fold {
+  position: absolute;
+  z-index: 1;
+  inset: 18% 0 0;
+  background: linear-gradient(175deg, #1c2542, #0d1226);
+  clip-path: polygon(0 100%, 49% 9%, 51% 9%, 100% 100%);
+}
+
+/* Inset highlights on the upper edge and shade below give the seal a domed,
+   physical read; the outer glow lifts it off the envelope. */
+.envelope-seal {
+  position: absolute;
+  z-index: 3;
+  top: 42%;
+  left: calc(50% - 29px);
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid #cfe2ff;
+  border-radius: 50%;
+  background: linear-gradient(165deg, #bcd8ff 0%, var(--accent) 45%, #5c93e6 100%);
+  color: #06183a;
+  box-shadow: inset 0 2px 3px #ffffffcc, inset 0 -3px 6px #1a4f9e66,
+    inset 0 0 0 5px #1c73ca2e, 0 6px 16px #00030d99, 0 0 0 0 #96c0ff00;
+}
+
+/* Rests on the glyph's own diagonal and turns on hover. The rotation lives on
+   the svg while the nudge animates the wrapper — two transforms on one element
+   would overwrite each other. */
+.envelope-seal svg {
+  width: 24px;
+  height: 24px;
+}
+
+.seal-glyph {
+  display: grid;
+  place-items: center;
+}
+
+/* Nudges right on a loop, hinting at the direction of travel. */
+@keyframes seal-beckon {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Badge pinned to the cursor while it travels over the scene. The element is
+   positioned at the origin and moved by transform, so the browser animates it
+   on the compositor instead of relaying out on every pointer event. */
+.cursor-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  margin: 14px 0 0 16px;
+  padding: 9px 15px;
+  border: 1px solid #ffffff2e;
+  border-radius: 999px;
+  background: #96c0ff1f;
+  backdrop-filter: blur(14px) saturate(150%);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 #ffffff40, 0 10px 26px #00030d80;
+  animation: badge-in 0.22s ease-out both;
+}
+
+@keyframes badge-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Hover: the sheet slides up out of the pocket.
+   The trigger is the envelope itself — using the scene would fire across its
+   whole square, well before the pointer reaches the envelope.
+   Gated to real pointers so touch devices always see the resting state. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .letter-sheet {
+    transition: transform 0.85s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .envelope-seal {
+    transition: box-shadow 0.45s ease, background 0.45s ease, color 0.45s ease;
+  }
+
+  .envelope-composition:hover .letter-sheet,
+  .envelope-composition:focus-visible .letter-sheet {
+    transform: translateY(-38%);
+    box-shadow: 0 -18px 46px #00030dcc;
+  }
+
+  /* The seal stays put and grows a glow, and the arrow keeps nudging right to
+     point at where the click leads. */
+  .envelope-composition:hover .envelope-seal,
+  .envelope-composition:focus-visible .envelope-seal {
+    background: linear-gradient(165deg, #eaf3ff 0%, #a8caff 45%, #4f8ae4 100%);
+    color: #ffffff;
+    box-shadow: inset 0 2px 3px #ffffffe6, inset 0 -3px 6px #1a4f9e80,
+      inset 0 0 0 5px #1c73ca3d, 0 10px 26px #00030dcc, 0 0 34px 6px #96c0ff6b;
+  }
+
+  .envelope-seal svg {
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .envelope-composition:hover .seal-glyph,
+  .envelope-composition:focus-visible .seal-glyph {
+    animation: seal-beckon 1.1s ease-in-out infinite;
+  }
+
+  .envelope-composition:hover .envelope-seal svg,
+  .envelope-composition:focus-visible .envelope-seal svg {
+    transform: rotate(45deg);
+  }
+}
+
+/* The tilt itself is inline, so it needs its own easing outside the hover block. */
+@media (prefers-reduced-motion: no-preference) {
+  .envelope-composition {
+    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+/* ── Touch devices ────────────────────────────────────────────────────── */
+
+/* Without a pointer there is no hover, so the sheet would never come out and
+   the visitor would only ever see a sealed envelope. Rest it partly raised. */
+@media (hover: none) {
+  .letter-sheet {
+    transform: translateY(-26%);
+    box-shadow: 0 -14px 34px #00030d99;
+  }
+
+  .seal-glyph {
+    animation: seal-beckon 1.6s ease-in-out infinite;
+  }
+
+  .cursor-badge {
+    display: none;
+  }
+}
+
+/* ── Tablet ───────────────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .stage-content {
+    width: calc(100% - 56px);
+  }
+
+  .letter-scene {
+    width: min(100%, 66vh);
+  }
+
+  .announce-item {
+    font-size: 15px;
+    gap: 28px;
+  }
+
+  .announce-track {
+    gap: 28px;
+  }
+
+  .letter-sheet {
+    padding: 20px 22px;
+  }
+}
+
+/* ── Phone ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .stage-content {
+    width: calc(100% - 24px);
+  }
+
+  /* Width-bound here: on a tall phone a height-bound square overflows sideways. */
+  .letter-scene {
+    width: min(100%, 58vh);
+  }
+
+  .envelope-composition {
+    left: 6%;
+    width: 88%;
+    height: 56%;
+  }
+
+  .letter-sheet {
+    padding: 15px 16px;
+  }
+
+  .sheet-logo {
+    height: 15px;
+  }
+
+  .sheet-header > span:last-child {
+    font-size: 7px;
+  }
+
+  .sheet-title {
+    margin-top: 20px;
+  }
+
+  .sheet-title-lead {
+    font-size: 9px;
+  }
+
+  .sheet-recipient {
+    font-size: clamp(17px, 5.6vw, 24px);
+    letter-spacing: -0.9px;
+  }
+
+  .sheet-rule {
+    margin-top: 13px;
+  }
+
+  .sheet-body {
+    margin-top: 10px;
+    font-size: 7.5px;
+  }
+
+  .sheet-signature {
+    margin-top: 13px;
+    font-size: 8px;
+  }
+
+  .envelope-seal {
+    width: 46px;
+    height: 46px;
+    left: calc(50% - 23px);
+  }
+
+  .envelope-seal svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .announce-item {
+    font-size: 13px;
+    gap: 20px;
+  }
+
+  .announce-track {
+    gap: 20px;
+  }
+
+  .announce-bar {
+    padding-block: 9px;
+  }
+}
+
+/* Short landscape phones: the square scene has to yield to the viewport. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .letter-scene {
+    width: min(100%, 84vh);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
