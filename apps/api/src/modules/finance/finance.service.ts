@@ -30,6 +30,7 @@ import { Errors } from '../../lib/errors'
 import { toDecimal } from '../../lib/money'
 import { getDolarRates } from '../../lib/fx'
 import { recordFieldChanges } from '../../lib/audit'
+import { notifyAdmins, notifyDealClients } from '../notifications/notify'
 import type {
   CreateInvoiceDTO,
   UpdateInvoiceDTO,
@@ -367,12 +368,27 @@ export async function transitionInvoice(
   id: string,
   status: string,
 ): Promise<InvoiceRow> {
-  await requireInvoice(portalId, id)
+  const before = await requireInvoice(portalId, id)
   const [row] = await db
     .update(invoice)
     .set({ status, updatedAt: new Date() })
     .where(eq(invoice.id, id))
     .returning()
+
+  // Solo al ENTRAR en 'sent' (no en cada guardado posterior): el cliente tiene
+  // algo nuevo que pagar. La dedupeKey por factura hace que re-transicionar no
+  // vuelva a avisar.
+  if (status === 'sent' && before.status !== 'sent' && row!.dealId) {
+    await notifyDealClients(portalId, row!.dealId, 'invoice_sent', {
+      invoiceId: row!.id,
+      invoiceNumber: row!.number,
+      amount: row!.total,
+      currency: row!.currency,
+    }, {
+      entity: { type: 'invoice', id: row!.id },
+      dedupeKey: `invoice_sent:${row!.id}`,
+    })
+  }
   return row!
 }
 
@@ -524,6 +540,33 @@ export async function registerPayment(
         .update(invoice)
         .set({ status: 'paid', updatedAt: new Date() })
         .where(eq(invoice.id, input.invoiceId))
+    }
+
+    return { row, invoice: inv, saldada: totalPaid >= Number(inv.amountBase) }
+  }).then(async ({ row, invoice: inv, saldada }) => {
+    // Avisos DESPUÉS del commit: si fueran adentro, un fallo de notificación
+    // revertiría un cobro ya registrado. notify nunca lanza, así que esto no
+    // puede romper el registro del pago.
+    await notifyAdmins(portalId, 'payment_received', {
+      invoiceId: inv.id,
+      invoiceNumber: inv.number,
+      amount: row.amount,
+      currency: row.currency,
+    }, {
+      entity: { type: 'payment', id: row.id },
+      // Un cobro por id es un hecho único: reintentos del mismo insert no
+      // deben duplicar el aviso.
+      dedupeKey: `payment_received:${row.id}`,
+    })
+
+    if (saldada && inv.dealId) {
+      await notifyDealClients(portalId, inv.dealId, 'invoice_paid', {
+        invoiceId: inv.id,
+        invoiceNumber: inv.number,
+      }, {
+        entity: { type: 'invoice', id: inv.id },
+        dedupeKey: `invoice_paid:${inv.id}`,
+      })
     }
 
     return row

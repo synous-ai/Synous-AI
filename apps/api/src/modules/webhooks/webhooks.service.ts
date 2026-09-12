@@ -16,7 +16,7 @@ import { eq, and, asc } from 'drizzle-orm'
 import { db } from '../../db'
 import { meeting, contact, deal, portal } from '../../db/schema'
 import { env } from '../../config/env'
-import { createNotification } from '../notifications/notifications.service'
+import { notifyAdmins } from '../notifications/notify'
 
 // ── HMAC ─────────────────────────────────────────────────────────────────────
 
@@ -242,12 +242,11 @@ export async function handleFathomMeeting(
 
   // ── Notificación si matcheó un contacto/deal ──────────────────────────────
   if (contactId && newMeeting) {
-    await createNotification({
-      portalId,
-      type: 'meeting_recorded',
-      title: `Reunión grabada: ${title}`,
-      entityType: dealId ? 'deal' : 'contact',
-      entityId: dealId ?? contactId,
+    // Antes iba sin destinatario y la fila quedaba invisible para todos.
+    // Fathom reintenta los webhooks: la dedupeKey por reunión evita repetir.
+    await notifyAdmins(portalId, 'meeting_recorded', { dealId: dealId ?? null, title }, {
+      entity: { type: dealId ? 'deal' : 'contact', id: dealId ?? contactId },
+      dedupeKey: `meeting_recorded:${newMeeting.id}`,
     })
   }
 }

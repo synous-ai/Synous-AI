@@ -3,7 +3,7 @@ import { db, type DB } from '../../db'
 import { clientOnboarding, clientAsset, deal, clientAccount, clientDealAccess, contact } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import type { Tx } from '../../lib/audit'
-import { createNotification, notifyAdmins } from '../notifications/notifications.service'
+import { notifyUser, notifyAdmins } from '../notifications/notify'
 import { moveDealToProduction } from '../deals/stage.service'
 import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
 import { onboardingCompletedHtml } from './emails/onboarding-completed'
@@ -405,21 +405,21 @@ export async function completeOnboarding(token: ClientTokenPayload): Promise<Com
     return { onboarding: updatedOnboarding, ...move }
   })
 
-  const notifyPayload = {
-    entityType: 'deal',
-    entityId: activeDeal.id,
-    type: 'onboarding_completed',
-    title: `Onboarding completado: "${result.dealName}" pasó a ${result.stageLabel}`,
-  } as const
+  const payload = { dealId: activeDeal.id, dealName: result.dealName, stageLabel: result.stageLabel }
+  const opts = {
+    entity: { type: 'deal', id: activeDeal.id },
+    dedupeKey: `onboarding_completed:${activeDeal.id}`,
+  }
 
   // Si no se resolvió un owner final (helper de assignees.ts sin email
-  // seedeado Y el deal tampoco tenía owner previo), createNotification con
-  // userId=null insertaría una fila que ninguna query de notificaciones
-  // matchea (se pierde en silencio) — broadcast a los admins en su lugar.
+  // seedeado Y el deal tampoco tenía owner previo), se avisa a todos los
+  // admins. Hoy una notificación sin destinatario ni siquiera se puede
+  // insertar (check de la migración 0037), pero el fallback sigue siendo lo
+  // correcto: alguien del equipo tiene que enterarse.
   if (result.ownerId) {
-    await createNotification({ portalId: activeDeal.portalId, userId: result.ownerId, ...notifyPayload })
+    await notifyUser(activeDeal.portalId, result.ownerId, 'onboarding_completed', payload, opts)
   } else {
-    await notifyAdmins(activeDeal.portalId, notifyPayload)
+    await notifyAdmins(activeDeal.portalId, 'onboarding_completed', payload, opts)
   }
 
   // Confirmación al cliente, fuera de la transacción. El email/nombre no vienen

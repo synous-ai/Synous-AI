@@ -5,6 +5,7 @@ import { Errors } from '../../lib/errors'
 import { assertDealInPortal } from '../../lib/portal-access'
 import type { Tx } from '../../lib/audit'
 import type { CreateDeliverableDTO, UpdateDeliverableDTO, DeliverableListQueryType } from './deliverables.schema'
+import { notifyDealClients } from '../notifications/notify'
 
 type DeliverableRow = typeof deliverable.$inferSelect
 
@@ -64,6 +65,16 @@ export async function createDeliverable(
       .returning()
 
     if (!row) throw Errors.internal('No se pudo crear el entregable')
+    return row
+  }).then(async (row) => {
+    // Solo si el cliente puede verlo: un entregable interno no le interesa y
+    // avisarle de algo que no va a encontrar en su portal es peor que callar.
+    if (row.visibleToClient) {
+      await notifyDealClients(portalId, row.dealId, 'deliverable_ready', {
+        dealId: row.dealId,
+        deliverableTitle: row.title,
+      }, { entity: { type: 'deliverable', id: row.id }, dedupeKey: `deliverable_ready:${row.id}` })
+    }
     return row
   })
 }

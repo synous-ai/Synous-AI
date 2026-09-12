@@ -132,7 +132,7 @@ var Errors = {
 };
 
 // src/modules/health/health.router.ts
-import { sql as sql23 } from "drizzle-orm";
+import { sql as sql24 } from "drizzle-orm";
 
 // src/db/index.ts
 import { drizzle as drizzleNodePostgres } from "drizzle-orm/node-postgres";
@@ -1212,7 +1212,8 @@ var emailEvent = pgTable18("email_event", {
 ]);
 
 // src/db/schema/notifications.ts
-import { pgTable as pgTable19, text as text19, timestamp as timestamp19, index as index15 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable19, text as text19, timestamp as timestamp19, jsonb as jsonb10, index as index15, uniqueIndex as uniqueIndex3, check as check14 } from "drizzle-orm/pg-core";
+import { sql as sql16 } from "drizzle-orm";
 var notification = pgTable19("notification", {
   id: text19("id").primaryKey().$defaultFn(() => createId()),
   portalId: text19("portal_id").notNull().references(() => portal.id),
@@ -1224,16 +1225,67 @@ var notification = pgTable19("notification", {
   title: text19("title").notNull(),
   body: text19("body"),
   actionUrl: text19("action_url"),
+  /**
+   * Peso visual y de urgencia. No todo pesa igual: un cambio de etapa es
+   * informativo, una factura vencida exige acción. El front ordena y destaca
+   * por acá. Se valida con un check para que un `type` nuevo no pueda meter un
+   * valor que la UI no sabe pintar.
+   */
+  priority: text19("priority").notNull().default("normal"),
+  /**
+   * Datos extra del evento (montos, nombres, números de CR…) para que el front
+   * pueda enriquecer sin volver a pegarle a la API. NO es para lógica de
+   * negocio: lo que decide comportamiento va en columnas tipadas.
+   */
+  metadata: jsonb10("metadata").$type().notNull().default({}),
+  /**
+   * Clave de idempotencia. Identifica al EVENTO + destinatario, no a la fila:
+   * dos intentos del mismo evento comparten clave y solo el primero inserta
+   * (ver el índice único parcial de abajo).
+   *
+   * Reemplaza al `notificationExistsToday` de reminders.service.ts, que hacía
+   * un SELECT previo por (portal, entity, type) — una comprobación sujeta a
+   * carrera: dos jobs simultáneos leían "no existe" y ambos insertaban. Un
+   * índice único no tiene esa ventana.
+   *
+   * Nullable a propósito: un evento genuinamente repetible (p. ej. varios
+   * mensajes en el mismo hilo) no manda clave y siempre inserta.
+   */
+  dedupeKey: text19("dedupe_key"),
   readAt: timestamp19("read_at", { withTimezone: true }),
-  createdAt: timestamp19("created_at", { withTimezone: true }).notNull().defaultNow()
+  createdAt: timestamp19("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp19("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   index15("idx_notification_user").on(table.userId, table.readAt),
   index15("idx_notification_client").on(table.clientId, table.readAt),
-  index15("idx_notification_portal_user").on(table.portalId, table.userId, table.readAt)
+  index15("idx_notification_portal_user").on(table.portalId, table.userId, table.readAt),
+  // Paginación por cursor: se ordena por created_at DESC y se pagina con
+  // (created_at, id) para desempatar timestamps iguales.
+  index15("idx_notification_user_created").on(table.userId, table.createdAt, table.id),
+  index15("idx_notification_client_created").on(table.clientId, table.createdAt, table.id),
+  /**
+   * Idempotencia real. Parcial (`WHERE dedupe_key IS NOT NULL`) para no
+   * obligar a inventar una clave a los eventos repetibles: en Postgres los
+   * NULL no colisionan entre sí, pero el índice parcial además los deja fuera
+   * del índice y lo mantiene chico.
+   */
+  uniqueIndex3("uq_notification_dedupe").on(table.portalId, table.dedupeKey).where(sql16`dedupe_key IS NOT NULL`),
+  check14("notification_priority_check", sql16`${table.priority} IN ('low','normal','high','urgent')`),
+  /**
+   * Exactamente UN destinatario. Sin esto se podían insertar filas con los dos
+   * campos en null: ninguna query de listado las matchea, así que la
+   * notificación se perdía en silencio. Ya había un comentario en
+   * onboarding.service.ts advirtiendo justamente de ese caso — ahora lo impide
+   * la base en vez de la memoria de quien escribe el próximo call site.
+   */
+  check14(
+    "notification_recipient_check",
+    sql16`(${table.userId} IS NOT NULL AND ${table.clientId} IS NULL) OR (${table.userId} IS NULL AND ${table.clientId} IS NOT NULL)`
+  )
 ]);
 
 // src/db/schema/audit.ts
-import { pgTable as pgTable20, text as text20, jsonb as jsonb10, timestamp as timestamp20, index as index16 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable20, text as text20, jsonb as jsonb11, timestamp as timestamp20, index as index16 } from "drizzle-orm/pg-core";
 var auditLog = pgTable20("audit_log", {
   id: text20("id").primaryKey().$defaultFn(() => createId()),
   portalId: text20("portal_id").notNull().references(() => portal.id),
@@ -1242,7 +1294,7 @@ var auditLog = pgTable20("audit_log", {
   entityType: text20("entity_type"),
   entityId: text20("entity_id"),
   action: text20("action").notNull(),
-  payload: jsonb10("payload"),
+  payload: jsonb11("payload"),
   ipAddress: inet("ip_address"),
   createdAt: timestamp20("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
@@ -1250,8 +1302,8 @@ var auditLog = pgTable20("audit_log", {
 ]);
 
 // src/db/schema/library.ts
-import { pgTable as pgTable21, text as text21, boolean as boolean12, jsonb as jsonb11, timestamp as timestamp21, index as index17, check as check14 } from "drizzle-orm/pg-core";
-import { sql as sql16 } from "drizzle-orm";
+import { pgTable as pgTable21, text as text21, boolean as boolean12, jsonb as jsonb12, timestamp as timestamp21, index as index17, check as check15 } from "drizzle-orm/pg-core";
+import { sql as sql17 } from "drizzle-orm";
 var libraryItem = pgTable21("library_item", {
   id: text21("id").primaryKey().$defaultFn(() => createId()),
   portalId: text21("portal_id").notNull().references(() => portal.id),
@@ -1266,7 +1318,7 @@ var libraryItem = pgTable21("library_item", {
    * Para 'procedure': lista ordenada de pasos. Para 'checklist': lista de ítems.
    * Se almacena como JSONB para permitir estructura flexible por variante.
    */
-  steps: jsonb11("steps").default([]),
+  steps: jsonb12("steps").default([]),
   /** Variante operativa: 'procedure' (SOP ordenado) o 'checklist' (lista de verificación). */
   kind: text21("kind"),
   createdBy: text21("created_by").references(() => hubUser.id),
@@ -1277,21 +1329,21 @@ var libraryItem = pgTable21("library_item", {
   createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14(
+  check15(
     "library_item_type_check",
-    sql16`${table.type} IN ('document','sop','template','contract_base','proposal_base','checklist','tech_doc')`
+    sql17`${table.type} IN ('document','sop','template','contract_base','proposal_base','checklist','tech_doc')`
   ),
   // kind aplica solo a entidades operativas (type='sop' tras la migración 0023).
-  check14(
+  check15(
     "library_item_kind_check",
-    sql16`${table.kind} IS NULL OR ${table.kind} IN ('procedure','checklist')`
+    sql17`${table.kind} IS NULL OR ${table.kind} IN ('procedure','checklist')`
   ),
   index17("idx_library_item_portal_type").on(table.portalId, table.type)
 ]);
 
 // src/db/schema/work-items.ts
-import { pgTable as pgTable22, text as text22, boolean as boolean13, timestamp as timestamp22, index as index18, check as check15 } from "drizzle-orm/pg-core";
-import { sql as sql17 } from "drizzle-orm";
+import { pgTable as pgTable22, text as text22, boolean as boolean13, timestamp as timestamp22, index as index18, check as check16 } from "drizzle-orm/pg-core";
+import { sql as sql18 } from "drizzle-orm";
 var workItem = pgTable22("work_item", {
   id: text22("id").primaryKey().$defaultFn(() => createId()),
   portalId: text22("portal_id").notNull().references(() => portal.id),
@@ -1310,30 +1362,30 @@ var workItem = pgTable22("work_item", {
   createdAt: timestamp22("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp22("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check15(
+  check16(
     "work_item_type_check",
-    sql17`${table.type} IN ('bug','improvement','roadmap','process')`
+    sql18`${table.type} IN ('bug','improvement','roadmap','process')`
   ),
-  check15(
+  check16(
     "work_item_status_check",
-    sql17`${table.status} IN ('open','in_progress','done','cancelled')`
+    sql18`${table.status} IN ('open','in_progress','done','cancelled')`
   ),
-  check15(
+  check16(
     "work_item_priority_check",
-    sql17`${table.priority} IN ('low','medium','high')`
+    sql18`${table.priority} IN ('low','medium','high')`
   ),
   // timeframe es opcional; si se setea, debe ser uno de los tres horizontes conocidos.
-  check15(
+  check16(
     "work_item_timeframe_check",
-    sql17`${table.timeframe} IS NULL OR ${table.timeframe} IN ('now','next','later')`
+    sql18`${table.timeframe} IS NULL OR ${table.timeframe} IN ('now','next','later')`
   ),
   index18("idx_work_item_portal_type").on(table.portalId, table.type),
   index18("idx_work_item_portal").on(table.portalId)
 ]);
 
 // src/db/schema/finance.ts
-import { pgTable as pgTable23, text as text23, integer as integer9, numeric as numeric5, date as date4, timestamp as timestamp23, boolean as boolean14, index as index19, check as check16 } from "drizzle-orm/pg-core";
-import { sql as sql18 } from "drizzle-orm";
+import { pgTable as pgTable23, text as text23, integer as integer9, numeric as numeric5, date as date4, timestamp as timestamp23, boolean as boolean14, index as index19, check as check17 } from "drizzle-orm/pg-core";
+import { sql as sql19 } from "drizzle-orm";
 var retainer = pgTable23("retainer", {
   id: text23("id").primaryKey().$defaultFn(() => createId()),
   portalId: text23("portal_id").notNull().references(() => portal.id),
@@ -1356,10 +1408,10 @@ var retainer = pgTable23("retainer", {
   createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check16("retainer_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
-  check16("retainer_status_check", sql18`${table.status} IN ('active','paused','cancelled')`),
+  check17("retainer_currency_check", sql19`${table.currency} IN ('USD','ARS')`),
+  check17("retainer_status_check", sql19`${table.status} IN ('active','paused','cancelled')`),
   // El día de corte se limita al 28 para evitar ambigüedades en meses cortos.
-  check16("retainer_billing_day_check", sql18`${table.billingDay} BETWEEN 1 AND 28`),
+  check17("retainer_billing_day_check", sql19`${table.billingDay} BETWEEN 1 AND 28`),
   index19("idx_retainer_portal_status").on(table.portalId, table.status)
 ]);
 var invoice = pgTable23("invoice", {
@@ -1388,8 +1440,8 @@ var invoice = pgTable23("invoice", {
   createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check16("invoice_status_check", sql18`${table.status} IN ('draft','sent','paid','overdue','void')`),
-  check16("invoice_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  check17("invoice_status_check", sql19`${table.status} IN ('draft','sent','paid','overdue','void')`),
+  check17("invoice_currency_check", sql19`${table.currency} IN ('USD','ARS')`),
   index19("idx_invoice_portal_status").on(table.portalId, table.status),
   index19("idx_invoice_retainer").on(table.retainerId),
   index19("idx_invoice_deal").on(table.dealId),
@@ -1420,8 +1472,8 @@ var payment = pgTable23("payment", {
   createdBy: text23("created_by").references(() => hubUser.id),
   createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check16("payment_method_check", sql18`${table.method} IN ('transfer','card','cash','other')`),
-  check16("payment_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  check17("payment_method_check", sql19`${table.method} IN ('transfer','card','cash','other')`),
+  check17("payment_currency_check", sql19`${table.currency} IN ('USD','ARS')`),
   index19("idx_payment_portal").on(table.portalId)
 ]);
 var expense = pgTable23("expense", {
@@ -1451,15 +1503,15 @@ var expense = pgTable23("expense", {
   createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check16("expense_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
-  check16(
+  check17("expense_currency_check", sql19`${table.currency} IN ('USD','ARS')`),
+  check17(
     "expense_category_check",
-    sql18`${table.category} IN ('software','infraestructura','equipo','impuestos','oficina','marketing','otros')`
+    sql19`${table.category} IN ('software','infraestructura','equipo','impuestos','oficina','marketing','otros')`
   ),
   // payment_method es opcional; si viene, solo acepta los valores conocidos.
-  check16(
+  check17(
     "expense_payment_method_check",
-    sql18`${table.paymentMethod} IS NULL OR ${table.paymentMethod} IN ('transfer','card','cash','other')`
+    sql19`${table.paymentMethod} IS NULL OR ${table.paymentMethod} IN ('transfer','card','cash','other')`
   ),
   index19("idx_expense_portal_date").on(table.portalId, table.expenseDate),
   index19("idx_expense_deal").on(table.dealId),
@@ -1487,8 +1539,8 @@ var notificationPref = pgTable24(
 );
 
 // src/db/schema/custom-fields.ts
-import { pgTable as pgTable25, text as text25, integer as integer10, boolean as boolean16, timestamp as timestamp25, jsonb as jsonb12, unique as unique11, index as index21, check as check17 } from "drizzle-orm/pg-core";
-import { sql as sql19 } from "drizzle-orm";
+import { pgTable as pgTable25, text as text25, integer as integer10, boolean as boolean16, timestamp as timestamp25, jsonb as jsonb13, unique as unique11, index as index21, check as check18 } from "drizzle-orm/pg-core";
+import { sql as sql20 } from "drizzle-orm";
 var customField = pgTable25(
   "custom_field",
   {
@@ -1498,7 +1550,7 @@ var customField = pgTable25(
     key: text25("key").notNull(),
     label: text25("label").notNull(),
     fieldType: text25("field_type").notNull(),
-    options: jsonb12("options").$type().default(null),
+    options: jsonb13("options").$type().default(null),
     displayOrder: integer10("display_order").notNull().default(0),
     archived: boolean16("archived").notNull().default(false),
     archivedAt: timestamp25("archived_at", { withTimezone: true }),
@@ -1506,13 +1558,13 @@ var customField = pgTable25(
     updatedAt: timestamp25("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    check17(
+    check18(
       "custom_field_entity_type_check",
-      sql19`${table.entityType} IN ('contact','deal','company')`
+      sql20`${table.entityType} IN ('contact','deal','company')`
     ),
-    check17(
+    check18(
       "custom_field_field_type_check",
-      sql19`${table.fieldType} IN ('text','number','date','select','boolean')`
+      sql20`${table.fieldType} IN ('text','number','date','select','boolean')`
     ),
     unique11("custom_field_portal_entity_key_unique").on(table.portalId, table.entityType, table.key),
     index21("idx_custom_field_portal_entity").on(table.portalId, table.entityType)
@@ -1520,8 +1572,8 @@ var customField = pgTable25(
 );
 
 // src/db/schema/onboarding.ts
-import { pgTable as pgTable26, text as text26, jsonb as jsonb13, timestamp as timestamp26, index as index22, check as check18 } from "drizzle-orm/pg-core";
-import { sql as sql20 } from "drizzle-orm";
+import { pgTable as pgTable26, text as text26, jsonb as jsonb14, timestamp as timestamp26, index as index22, check as check19 } from "drizzle-orm/pg-core";
+import { sql as sql21 } from "drizzle-orm";
 var onboardingSubmission = pgTable26("onboarding_submission", {
   id: text26("id").primaryKey().$defaultFn(() => createId()),
   portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
@@ -1530,7 +1582,7 @@ var onboardingSubmission = pgTable26("onboarding_submission", {
   email: text26("email").notNull(),
   company: text26("company"),
   // ── Respuestas completas del wizard ──
-  answers: jsonb13("answers").$type().notNull().default({}),
+  answers: jsonb14("answers").$type().notNull().default({}),
   // ── Routing de ventas: budget > 2000 || claridad baja → call ──
   decision: text26("decision").notNull(),
   // ── CRM creado automáticamente ──
@@ -1538,13 +1590,13 @@ var onboardingSubmission = pgTable26("onboarding_submission", {
   dealId: text26("deal_id").references(() => deal.id, { onDelete: "set null" }),
   createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check18("onboarding_submission_decision_check", sql20`${table.decision} IN ('call','proposal')`),
+  check19("onboarding_submission_decision_check", sql21`${table.decision} IN ('call','proposal')`),
   index22("idx_onboarding_submission_portal").on(table.portalId)
 ]);
 
 // src/db/schema/client-onboarding.ts
-import { pgTable as pgTable27, text as text27, integer as integer11, jsonb as jsonb14, timestamp as timestamp27, unique as unique12, check as check19, index as index23 } from "drizzle-orm/pg-core";
-import { sql as sql21 } from "drizzle-orm";
+import { pgTable as pgTable27, text as text27, integer as integer11, jsonb as jsonb15, timestamp as timestamp27, unique as unique12, check as check20, index as index23 } from "drizzle-orm/pg-core";
+import { sql as sql22 } from "drizzle-orm";
 var clientOnboarding = pgTable27("client_onboarding", {
   id: text27("id").primaryKey().$defaultFn(() => createId()),
   portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
@@ -1553,14 +1605,14 @@ var clientOnboarding = pgTable27("client_onboarding", {
   status: text27("status").notNull().default("in_progress"),
   currentStep: integer11("current_step").notNull().default(1),
   /** Mapa { "1": ISOtimestamp, ..., "8": ISOtimestamp } de pasos completados. */
-  stepsCompleted: jsonb14("steps_completed").$type().notNull().default({}),
+  stepsCompleted: jsonb15("steps_completed").$type().notNull().default({}),
   // ── Paso 5 — Firma. Checkbox de aceptación + nombre tipeado + timestamp + IP.
   // NO DocuSeal (decisión de negocio explícita).
   signatureName: text27("signature_name"),
   signatureAcceptedAt: timestamp27("signature_accepted_at", { withTimezone: true }),
   signatureIp: text27("signature_ip"),
   // ── Paso 6 — Brief del proyecto (16 preguntas, ver OnboardingBriefSchema).
-  briefAnswers: jsonb14("brief_answers").$type(),
+  briefAnswers: jsonb15("brief_answers").$type(),
   /**
    * Borrador PARCIAL del brief. El paso 6 son 5 bloques en pantallas separadas:
    * sin esto, los bloques 1-4 vivirían solo en memoria de React Hook Form y un
@@ -1572,23 +1624,23 @@ var clientOnboarding = pgTable27("client_onboarding", {
    * paso 6 solo se completa con POST /brief (las 16 respuestas validadas),
    * que además limpia este borrador.
    */
-  briefDraft: jsonb14("brief_draft").$type(),
+  briefDraft: jsonb15("brief_draft").$type(),
   // ── Paso 7 — Materiales. Estado por categoría fija (logoBrand, programContent,
   // clientBase, toolAccess) + IDs de client_asset vinculados por cada una.
-  materials: jsonb14("materials").$type().notNull().default({}),
+  materials: jsonb15("materials").$type().notNull().default({}),
   completedAt: timestamp27("completed_at", { withTimezone: true }),
   createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   unique12("client_onboarding_deal_id_unique").on(table.dealId),
-  check19("client_onboarding_status_check", sql21`${table.status} IN ('in_progress','completed')`),
+  check20("client_onboarding_status_check", sql22`${table.status} IN ('in_progress','completed')`),
   // listOnboardings (admin) filtra por portal_id y ordena por status/updated_at.
   index23("idx_client_onboarding_portal_status").on(table.portalId, table.status)
 ]);
 
 // src/db/schema/proposals.ts
-import { pgTable as pgTable28, text as text28, jsonb as jsonb15, numeric as numeric6, char as char3, timestamp as timestamp28, index as index24, check as check20 } from "drizzle-orm/pg-core";
-import { sql as sql22 } from "drizzle-orm";
+import { pgTable as pgTable28, text as text28, jsonb as jsonb16, numeric as numeric6, char as char3, timestamp as timestamp28, index as index24, check as check21 } from "drizzle-orm/pg-core";
+import { sql as sql23 } from "drizzle-orm";
 var proposal = pgTable28(
   "proposal",
   {
@@ -1605,7 +1657,7 @@ var proposal = pgTable28(
     token: text28("token").notNull().$defaultFn(() => createId()),
     title: text28("title").notNull(),
     status: text28("status").notNull().default("draft"),
-    content: jsonb15("content").$type().notNull(),
+    content: jsonb16("content").$type().notNull(),
     // Provider de IA que la generó (gemini | claude | manual).
     model: text28("model"),
     // Total denormalizado para listados rápidos.
@@ -1620,7 +1672,7 @@ var proposal = pgTable28(
     updatedAt: timestamp28("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
   },
   (table) => [
-    check20("proposal_status_check", sql22`${table.status} IN ('draft','accepted','sent','viewed')`),
+    check21("proposal_status_check", sql23`${table.status} IN ('draft','accepted','sent','viewed')`),
     index24("idx_proposal_portal").on(table.portalId),
     index24("idx_proposal_token").on(table.token),
     index24("idx_proposal_deal").on(table.dealId)
@@ -1689,7 +1741,7 @@ async function healthRoutes(app2) {
     },
     async (_request, reply) => {
       try {
-        await db.execute(sql23`select 1`);
+        await db.execute(sql24`select 1`);
         return ok({ status: "ready", db: "up" });
       } catch {
         return reply.status(503).send({
@@ -1872,13 +1924,13 @@ function coerce(kind, value) {
   return value;
 }
 function compileCondition(c, fields) {
-  const def = fields[c.field];
-  if (!def) throw Errors.badRequest(`Campo no permitido: ${c.field}`);
-  if (!OPERATORS_BY_KIND[def.kind].has(c.operator)) {
+  const def2 = fields[c.field];
+  if (!def2) throw Errors.badRequest(`Campo no permitido: ${c.field}`);
+  if (!OPERATORS_BY_KIND[def2.kind].has(c.operator)) {
     throw Errors.badRequest(`Operador "${c.operator}" no v\xE1lido para "${c.field}"`);
   }
-  const col = def.column;
-  const v = coerce(def.kind, c.value);
+  const col = def2.column;
+  const v = coerce(def2.kind, c.value);
   switch (c.operator) {
     case "is_null":
       return isNull(col);
@@ -1888,7 +1940,7 @@ function compileCondition(c, fields) {
       return ilike(col, `%${String(c.value ?? "")}%`);
     case "in":
       if (!Array.isArray(c.value)) throw Errors.badRequest('El operador "in" requiere un array');
-      return inArray(col, c.value.map((x) => coerce(def.kind, x)));
+      return inArray(col, c.value.map((x) => coerce(def2.kind, x)));
     case "eq":
       return eq3(col, v);
     case "neq":
@@ -2619,14 +2671,14 @@ var ProjectUpdateIdParamSchema = z7.object({
 });
 
 // src/modules/deals/deals.service.ts
-import { and as and11, desc as desc6, eq as eq12, inArray as inArray3 } from "drizzle-orm";
+import { and as and11, desc as desc5, eq as eq12, inArray as inArray4 } from "drizzle-orm";
 
 // src/modules/deals/stage.service.ts
 import { randomUUID } from "crypto";
 import { and as and10, eq as eq11 } from "drizzle-orm";
 
-// src/modules/notifications/notifications.service.ts
-import { and as and8, count, desc as desc5, eq as eq9, isNull as isNull2 } from "drizzle-orm";
+// src/modules/notifications/notify.ts
+import { and as and8, eq as eq9, inArray as inArray3, sql as sql25 } from "drizzle-orm";
 
 // src/lib/notification-bus.ts
 import { EventEmitter } from "events";
@@ -2638,18 +2690,205 @@ function emitNotification(event) {
   notificationBus.emit("notification", event);
 }
 
-// src/modules/notifications/notifications.service.ts
-async function createNotification(input) {
-  const [row] = await db.insert(notification).values({
-    portalId: input.portalId,
-    userId: input.userId ?? null,
-    clientId: input.clientId ?? null,
-    entityType: input.entityType ?? null,
-    entityId: input.entityId ?? null,
-    type: input.type,
-    title: input.title,
-    body: input.body ?? null,
-    actionUrl: input.actionUrl ?? null
+// src/modules/notifications/notification-events.ts
+var def = (d) => d;
+var NOTIFICATION_EVENTS = {
+  // ── Para el EQUIPO ─────────────────────────────────────────────────────────
+  deal_stage_changed: def({
+    audience: "admin",
+    priority: "normal",
+    title: (p) => `"${p.dealName}" pas\xF3 a ${p.stageLabel}`,
+    actionUrl: (p) => `/deals/${p.dealId}`
+  }),
+  onboarding_completed: def({
+    audience: "admin",
+    priority: "high",
+    title: (p) => `Onboarding completado: "${p.dealName}" pas\xF3 a ${p.stageLabel}`,
+    actionUrl: (p) => `/onboarding/${p.dealId}`
+  }),
+  /** Hito de venta más crítico del sistema: hasta ahora no avisaba a nadie. */
+  contract_signed: def({
+    audience: "admin",
+    priority: "urgent",
+    title: (p) => `Contrato firmado: "${p.dealName}"`,
+    body: (p) => p.signerName ? `Firmado por ${p.signerName}.` : "El cliente complet\xF3 la firma.",
+    actionUrl: (p) => `/deals/${p.dealId}`
+  }),
+  contract_declined: def({
+    audience: "admin",
+    priority: "urgent",
+    title: (p) => `Contrato RECHAZADO: "${p.dealName}"`,
+    body: () => "El cliente rechaz\xF3 la firma del documento.",
+    actionUrl: (p) => `/deals/${p.dealId}`
+  }),
+  payment_received: def({
+    audience: "admin",
+    priority: "high",
+    title: (p) => `Cobro registrado: ${p.currency} ${p.amount}`,
+    body: (p) => `Factura #${p.invoiceNumber}.`,
+    actionUrl: (p) => `/invoices/${p.invoiceId}`
+  }),
+  cr_approved: def({
+    audience: "admin",
+    priority: "high",
+    title: (p) => `CR #${p.crNumber} aprobada por el cliente`,
+    body: (p) => p.dealName,
+    actionUrl: (p) => `/change-requests/${p.crId}`
+  }),
+  cr_rejected: def({
+    audience: "admin",
+    priority: "high",
+    title: (p) => `CR #${p.crNumber} rechazada por el cliente`,
+    body: (p) => p.dealName,
+    actionUrl: (p) => `/change-requests/${p.crId}`
+  }),
+  /** Bloquea el avance del proyecto: el equipo tiene que reaccionar. */
+  deliverable_changes_requested: def({
+    audience: "admin",
+    priority: "high",
+    title: (p) => `Cambios pedidos en "${p.deliverableTitle}"`,
+    body: () => "El cliente revis\xF3 el entregable y pidi\xF3 ajustes.",
+    actionUrl: (p) => `/deals/${p.dealId}`
+  }),
+  deliverable_approved: def({
+    audience: "admin",
+    priority: "normal",
+    title: (p) => `"${p.deliverableTitle}" aprobado por el cliente`,
+    actionUrl: (p) => `/deals/${p.dealId}`
+  }),
+  intake_completed: def({
+    audience: "admin",
+    priority: "normal",
+    title: (p) => `Formulario completado: ${p.formName}`,
+    actionUrl: (p) => `/deals/${p.dealId}`
+  }),
+  booking_created: def({
+    audience: "admin",
+    priority: "normal",
+    title: (p) => `Nueva reuni\xF3n agendada por ${p.inviteeName}`,
+    actionUrl: () => `/calendar`
+  }),
+  booking_cancelled: def({
+    audience: "admin",
+    priority: "high",
+    title: (p) => `${p.inviteeName} cancel\xF3 la reuni\xF3n`,
+    actionUrl: () => `/calendar`
+  }),
+  task_due: def({
+    audience: "admin",
+    priority: "high",
+    title: (p) => `Tarea vencida: ${p.taskTitle}`,
+    actionUrl: () => `/tasks`
+  }),
+  deal_stale: def({
+    audience: "admin",
+    priority: "normal",
+    title: (p) => `"${p.dealName}" sin actividad hace ${p.days} d\xEDas`,
+    actionUrl: (p) => `/deals/${p.dealId}`
+  }),
+  meeting_recorded: def({
+    audience: "admin",
+    priority: "low",
+    title: (p) => `Reuni\xF3n grabada: ${p.title}`,
+    actionUrl: (p) => p.dealId ? `/deals/${p.dealId}` : `/calendar`
+  }),
+  proposal_generated: def({
+    audience: "admin",
+    priority: "normal",
+    title: (p) => `Propuesta generada para ${p.contactName}`,
+    actionUrl: (p) => `/proposals/${p.proposalId}`
+  }),
+  proposal_accepted: def({
+    audience: "admin",
+    priority: "high",
+    title: (p) => `Propuesta aceptada por ${p.contactName}`,
+    actionUrl: (p) => `/proposals/${p.proposalId}`
+  }),
+  proposal_viewed: def({
+    audience: "admin",
+    priority: "low",
+    title: (p) => `${p.contactName} abri\xF3 la propuesta`,
+    actionUrl: (p) => `/proposals/${p.proposalId}`
+  }),
+  // ── Para el CLIENTE ────────────────────────────────────────────────────────
+  // Ninguno de estos existía: el cliente no recibía NADA in-app.
+  deliverable_ready: def({
+    audience: "client",
+    priority: "high",
+    title: (p) => `Nuevo entregable para revisar: ${p.deliverableTitle}`,
+    body: () => "Est\xE1 esperando tu revisi\xF3n.",
+    actionUrl: () => `/portal?tab=deliverables`
+  }),
+  intake_assigned: def({
+    audience: "client",
+    priority: "high",
+    title: (p) => `Formulario pendiente: ${p.formName}`,
+    body: () => "Necesitamos que lo completes para avanzar.",
+    actionUrl: () => `/portal?tab=forms`
+  }),
+  cr_sent: def({
+    audience: "client",
+    priority: "high",
+    title: (p) => `Solicitud de cambio #${p.crNumber} para tu aprobaci\xF3n`,
+    body: (p) => p.title,
+    actionUrl: () => `/portal?tab=requests`
+  }),
+  invoice_sent: def({
+    audience: "client",
+    priority: "high",
+    title: (p) => `Nueva factura #${p.invoiceNumber}`,
+    body: (p) => `${p.currency} ${p.amount} pendiente de pago.`,
+    actionUrl: () => `/portal?tab=invoices`
+  }),
+  invoice_paid: def({
+    audience: "client",
+    priority: "normal",
+    title: (p) => `Pago registrado \u2014 factura #${p.invoiceNumber}`,
+    body: () => "Gracias. Ya qued\xF3 saldada.",
+    actionUrl: () => `/portal?tab=invoices`
+  }),
+  document_shared: def({
+    audience: "client",
+    priority: "normal",
+    title: (p) => `Nuevo documento: ${p.documentName}`,
+    actionUrl: () => `/portal?tab=documents`
+  }),
+  project_update: def({
+    audience: "client",
+    priority: "normal",
+    title: (p) => `Novedad del proyecto: ${p.updateTitle}`,
+    actionUrl: () => `/portal`
+  }),
+  cr_commented: def({
+    audience: "client",
+    priority: "normal",
+    title: (p) => `Nuevo comentario en la solicitud #${p.crNumber}`,
+    actionUrl: () => `/portal?tab=requests`
+  }),
+  booking_cancelled_by_admin: def({
+    audience: "client",
+    priority: "high",
+    title: () => "Se cancel\xF3 una reuni\xF3n agendada",
+    body: () => "Te vamos a contactar para reprogramarla.",
+    actionUrl: () => `/portal`
+  })
+};
+var NOTIFICATION_EVENT_TYPES = Object.keys(NOTIFICATION_EVENTS);
+var ADMIN_EVENT_TYPES = NOTIFICATION_EVENT_TYPES.filter(
+  (t) => NOTIFICATION_EVENTS[t].audience === "admin"
+);
+var CLIENT_EVENT_TYPES = NOTIFICATION_EVENT_TYPES.filter(
+  (t) => NOTIFICATION_EVENTS[t].audience === "client"
+);
+
+// src/modules/notifications/notify.ts
+async function insertOne(args) {
+  const [row] = await db.insert(notification).values(args).onConflictDoNothing({
+    target: [notification.portalId, notification.dedupeKey],
+    // Predicado del índice PARCIAL: sin él, Postgres no puede identificar
+    // `uq_notification_dedupe` como el índice del ON CONFLICT y falla con
+    // "no unique or exclusion constraint matching the ON CONFLICT".
+    where: sql25`dedupe_key IS NOT NULL`
   }).returning();
   if (!row) return;
   emitNotification({
@@ -2662,32 +2901,99 @@ async function createNotification(input) {
     createdAt: (row.createdAt instanceof Date ? row.createdAt : /* @__PURE__ */ new Date()).toISOString()
   });
 }
-async function listNotifications(portalId, userId) {
-  return db.select().from(notification).where(and8(eq9(notification.portalId, portalId), eq9(notification.userId, userId))).orderBy(desc5(notification.createdAt)).limit(50);
+function render(type, payload) {
+  const evt = NOTIFICATION_EVENTS[type];
+  return {
+    title: evt.title(payload),
+    body: evt.body?.(payload) ?? null,
+    actionUrl: evt.actionUrl?.(payload) ?? null,
+    priority: evt.priority
+  };
 }
-async function unreadCount(portalId, userId) {
-  const [row] = await db.select({ n: count() }).from(notification).where(and8(eq9(notification.portalId, portalId), eq9(notification.userId, userId), isNull2(notification.readAt)));
-  return row?.n ?? 0;
-}
-async function markRead(portalId, userId, id) {
-  const res = await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and8(eq9(notification.portalId, portalId), eq9(notification.userId, userId), eq9(notification.id, id))).returning({ id: notification.id });
-  if (res.length === 0) throw Errors.notFound("Notificaci\xF3n no encontrada");
-}
-async function markAllRead(portalId, userId) {
-  await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and8(eq9(notification.portalId, portalId), eq9(notification.userId, userId), isNull2(notification.readAt)));
-}
-async function actorName(portalId, userId) {
-  const [u] = await db.select({ firstName: hubUser.firstName, lastName: hubUser.lastName, email: hubUser.email }).from(hubUser).where(and8(eq9(hubUser.id, userId), eq9(hubUser.portalId, portalId))).limit(1);
-  if (!u) return "Alguien";
-  const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
-  return name || u.email || "Alguien";
-}
-async function notifyAdmins(portalId, payload, opts) {
-  const admins = await db.select({ id: hubUser.id }).from(hubUser).where(and8(eq9(hubUser.portalId, portalId), eq9(hubUser.isActive, true)));
-  for (const a of admins) {
-    if (opts?.exceptUserId && a.id === opts.exceptUserId) continue;
-    await createNotification({ portalId, userId: a.id, ...payload });
+async function safely(label, fn) {
+  try {
+    await fn();
+    return true;
+  } catch (err) {
+    console.error(`[notify] no se pudo emitir "${label}":`, err?.message ?? err);
+    return false;
   }
+}
+async function notifyUser(portalId, userId, type, payload, opts = {}) {
+  if (NOTIFICATION_EVENTS[type].audience !== "admin") {
+    console.error(`[notify] "${type}" no es un evento de admin; se descarta`);
+    return false;
+  }
+  return safely(type, async () => {
+    await insertOne({
+      portalId,
+      userId,
+      clientId: null,
+      type,
+      ...render(type, payload),
+      entityType: opts.entity?.type ?? null,
+      entityId: opts.entity?.id ?? null,
+      dedupeKey: opts.dedupeKey ?? null,
+      metadata: opts.metadata ?? {}
+    });
+  });
+}
+async function notifyAdmins(portalId, type, payload, opts = {}) {
+  if (NOTIFICATION_EVENTS[type].audience !== "admin") {
+    console.error(`[notify] "${type}" no es un evento de admin; se descarta`);
+    return false;
+  }
+  return safely(type, async () => {
+    const admins = await db.select({ id: hubUser.id }).from(hubUser).where(and8(eq9(hubUser.portalId, portalId), eq9(hubUser.isActive, true)));
+    const silenced = new Set(
+      (await db.select({ userId: notificationPref.userId }).from(notificationPref).where(
+        and8(
+          eq9(notificationPref.portalId, portalId),
+          eq9(notificationPref.eventType, type),
+          eq9(notificationPref.inApp, false)
+        )
+      )).map((r) => r.userId)
+    );
+    const rendered = render(type, payload);
+    for (const a of admins) {
+      if (opts.exceptUserId && a.id === opts.exceptUserId) continue;
+      if (silenced.has(a.id)) continue;
+      await insertOne({
+        portalId,
+        userId: a.id,
+        clientId: null,
+        type,
+        ...rendered,
+        entityType: opts.entity?.type ?? null,
+        entityId: opts.entity?.id ?? null,
+        dedupeKey: opts.dedupeKey ? `${opts.dedupeKey}:${a.id}` : null,
+        metadata: opts.metadata ?? {}
+      });
+    }
+  });
+}
+async function notifyDealClients(portalId, dealId, type, payload, opts = {}) {
+  if (NOTIFICATION_EVENTS[type].audience !== "client") {
+    console.error(`[notify] "${type}" no es un evento de cliente; se descarta`);
+    return false;
+  }
+  return safely(type, async () => {
+    const clients = await db.select({ id: clientDealAccess.clientId }).from(clientDealAccess).where(eq9(clientDealAccess.dealId, dealId));
+    const rendered = render(type, payload);
+    for (const c of clients) {
+      await insertOne({
+        portalId,
+        userId: null,
+        clientId: c.id,
+        type,
+        ...rendered,
+        entityType: opts.entity?.type ?? null,
+        entityId: opts.entity?.id ?? null,
+        dedupeKey: opts.dedupeKey ? `${opts.dedupeKey}:${c.id}` : null,
+        metadata: opts.metadata ?? {}
+      });
+    }
+  });
 }
 
 // src/lib/clerk-provisioning.ts
@@ -2996,14 +3302,11 @@ async function changeStage(portalId, userId, dealId, newStageId) {
     };
   });
   if (result.notify) {
-    await createNotification({
-      portalId,
-      userId: result.notify.ownerId ?? userId,
-      entityType: ENTITY3,
-      entityId: dealId,
-      type: "deal_stage_changed",
-      title: `El deal "${result.notify.dealName}" pas\xF3 a la etapa "${result.notify.stageLabel}"`
-    });
+    await notifyUser(portalId, result.notify.ownerId ?? userId, "deal_stage_changed", {
+      dealId,
+      dealName: result.notify.dealName,
+      stageLabel: result.notify.stageLabel
+    }, { entity: { type: ENTITY3, id: dealId } });
   }
   if (result.invitation) await sendPortalInvitationEmail(result.invitation);
   return result.deal;
@@ -3071,7 +3374,7 @@ async function listDeals(portalId, query) {
   const cursor = decodeCursor(query.cursor);
   const rows = await db.select().from(deal).where(
     and11(eq12(deal.portalId, portalId), eq12(deal.archived, false), cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
-  ).orderBy(desc6(deal.createdAt), desc6(deal.id)).limit(query.limit + 1);
+  ).orderBy(desc5(deal.createdAt), desc5(deal.id)).limit(query.limit + 1);
   return paginateRows(rows, query.limit);
 }
 async function getDeal(portalId, id) {
@@ -3133,11 +3436,11 @@ async function getDealDetail(portalId, id) {
   for (const l of links) ids.add(l.contactId);
   let contacts = [];
   if (ids.size > 0) {
-    contacts = await db.select().from(contact).where(and11(eq12(contact.portalId, portalId), inArray3(contact.id, [...ids])));
+    contacts = await db.select().from(contact).where(and11(eq12(contact.portalId, portalId), inArray4(contact.id, [...ids])));
   }
-  const notes = await db.select().from(note).where(and11(eq12(note.portalId, portalId), eq12(note.dealId, id))).orderBy(desc6(note.createdAt)).limit(50);
-  const tasks = await db.select().from(task).where(and11(eq12(task.portalId, portalId), eq12(task.dealId, id))).orderBy(desc6(task.createdAt)).limit(50);
-  const history = await db.select().from(recordHistory).where(and11(eq12(recordHistory.entityType, ENTITY4), eq12(recordHistory.entityId, id))).orderBy(desc6(recordHistory.changedAt)).limit(50);
+  const notes = await db.select().from(note).where(and11(eq12(note.portalId, portalId), eq12(note.dealId, id))).orderBy(desc5(note.createdAt)).limit(50);
+  const tasks = await db.select().from(task).where(and11(eq12(task.portalId, portalId), eq12(task.dealId, id))).orderBy(desc5(task.createdAt)).limit(50);
+  const history = await db.select().from(recordHistory).where(and11(eq12(recordHistory.entityType, ENTITY4), eq12(recordHistory.entityId, id))).orderBy(desc5(recordHistory.changedAt)).limit(50);
   let clientPortal = { status: "not_activated", email: null };
   const primaryContact = dealRow.primaryContactId ? contacts.find((c) => c.id === dealRow.primaryContactId) : void 0;
   if (primaryContact?.email) {
@@ -3162,12 +3465,12 @@ async function searchDeals(portalId, body) {
   const cursor = decodeCursor(body.cursor);
   const rows = await db.select().from(deal).where(
     and11(eq12(deal.portalId, portalId), eq12(deal.archived, false), cond, cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
-  ).orderBy(desc6(deal.createdAt), desc6(deal.id)).limit(body.limit + 1);
+  ).orderBy(desc5(deal.createdAt), desc5(deal.id)).limit(body.limit + 1);
   return paginateRows(rows, body.limit);
 }
 
 // src/modules/deals/project-updates.service.ts
-import { and as and13, desc as desc7, eq as eq14 } from "drizzle-orm";
+import { and as and13, desc as desc6, eq as eq14 } from "drizzle-orm";
 
 // src/lib/portal-access.ts
 import { and as and12, eq as eq13 } from "drizzle-orm";
@@ -3281,7 +3584,7 @@ async function listDealUpdates(portalId, dealId) {
     createdById: hubUser.id,
     createdByFirstName: hubUser.firstName,
     createdByEmail: hubUser.email
-  }).from(projectUpdate).innerJoin(hubUser, eq14(hubUser.id, projectUpdate.createdBy)).leftJoin(pipelineStage, eq14(pipelineStage.id, projectUpdate.stageId)).where(and13(eq14(projectUpdate.portalId, portalId), eq14(projectUpdate.dealId, dealId))).orderBy(desc7(projectUpdate.createdAt));
+  }).from(projectUpdate).innerJoin(hubUser, eq14(hubUser.id, projectUpdate.createdBy)).leftJoin(pipelineStage, eq14(pipelineStage.id, projectUpdate.stageId)).where(and13(eq14(projectUpdate.portalId, portalId), eq14(projectUpdate.dealId, dealId))).orderBy(desc6(projectUpdate.createdAt));
   return rows.map((r) => ({
     id: r.id,
     body: r.body,
@@ -3587,7 +3890,7 @@ var UpdateStageSchema = z8.object({
 });
 
 // src/modules/pipelines/pipelines.service.ts
-import { and as and14, asc, count as count2, eq as eq15 } from "drizzle-orm";
+import { and as and14, asc, count, eq as eq15 } from "drizzle-orm";
 async function assertPipeline(portalId, pipelineId) {
   const [pl] = await db.select({ id: pipeline.id }).from(pipeline).where(and14(eq15(pipeline.id, pipelineId), eq15(pipeline.portalId, portalId))).limit(1);
   if (!pl) throw Errors.notFound("Pipeline no encontrado");
@@ -3610,7 +3913,7 @@ async function addStage(portalId, pipelineId, input) {
 }
 async function deleteStage(portalId, pipelineId, stageId) {
   await assertPipeline(portalId, pipelineId);
-  const [used] = await db.select({ n: count2() }).from(deal).where(eq15(deal.stageId, stageId));
+  const [used] = await db.select({ n: count() }).from(deal).where(eq15(deal.stageId, stageId));
   if ((used?.n ?? 0) > 0) throw Errors.badRequest("La etapa tiene deals; movelos antes de eliminarla");
   const res = await db.delete(pipelineStage).where(and14(eq15(pipelineStage.id, stageId), eq15(pipelineStage.pipelineId, pipelineId))).returning({ id: pipelineStage.id });
   if (res.length === 0) throw Errors.notFound("Etapa no encontrada");
@@ -3783,7 +4086,7 @@ async function leadsRoutes(app2) {
 }
 
 // src/modules/clients/clients.service.ts
-import { eq as eq16, inArray as inArray4, desc as desc8 } from "drizzle-orm";
+import { eq as eq16, inArray as inArray5, desc as desc7 } from "drizzle-orm";
 var CLIENT_STAGES = ["customer"];
 function listClients(portalId, query) {
   return listContactsByLifecycle(portalId, CLIENT_STAGES, query);
@@ -3798,10 +4101,10 @@ async function listClientAccounts(portalId) {
     inviteAccepted: clientAccount.inviteAccepted,
     isActive: clientAccount.isActive,
     createdAt: clientAccount.createdAt
-  }).from(clientAccount).where(eq16(clientAccount.portalId, portalId)).orderBy(desc8(clientAccount.createdAt));
+  }).from(clientAccount).where(eq16(clientAccount.portalId, portalId)).orderBy(desc7(clientAccount.createdAt));
   if (accounts.length === 0) return [];
   const accIds = accounts.map((a) => a.id);
-  const accesses = await db.select({ clientId: clientDealAccess.clientId, dealId: clientDealAccess.dealId }).from(clientDealAccess).where(inArray4(clientDealAccess.clientId, accIds));
+  const accesses = await db.select({ clientId: clientDealAccess.clientId, dealId: clientDealAccess.dealId }).from(clientDealAccess).where(inArray5(clientDealAccess.clientId, accIds));
   const dealMap = /* @__PURE__ */ new Map();
   for (const acc of accesses) {
     if (!dealMap.has(acc.clientId)) dealMap.set(acc.clientId, []);
@@ -3909,7 +4212,7 @@ var TaskQuerySchema = z10.object({
 });
 
 // src/modules/activities/activities.service.ts
-import { and as and15, desc as desc9, eq as eq17 } from "drizzle-orm";
+import { and as and15, desc as desc8, eq as eq17 } from "drizzle-orm";
 async function createNote(portalId, userId, input) {
   const [row] = await db.insert(note).values({ ...input, portalId, createdBy: userId }).returning();
   if (!row) throw Errors.internal("No se pudo crear la nota");
@@ -3920,7 +4223,7 @@ async function listNotes(portalId, filters) {
   if (filters.contactId) conds.push(eq17(note.contactId, filters.contactId));
   if (filters.dealId) conds.push(eq17(note.dealId, filters.dealId));
   if (filters.companyId) conds.push(eq17(note.companyId, filters.companyId));
-  return db.select().from(note).where(and15(...conds)).orderBy(desc9(note.createdAt)).limit(100);
+  return db.select().from(note).where(and15(...conds)).orderBy(desc8(note.createdAt)).limit(100);
 }
 async function deleteNote(portalId, id) {
   const res = await db.delete(note).where(and15(eq17(note.portalId, portalId), eq17(note.id, id))).returning({ id: note.id });
@@ -3938,7 +4241,7 @@ async function listTasks(portalId, filters) {
   if (filters.assignedTo) conds.push(eq17(task.assignedTo, filters.assignedTo));
   if (filters.contactId) conds.push(eq17(task.contactId, filters.contactId));
   if (filters.dealId) conds.push(eq17(task.dealId, filters.dealId));
-  return db.select().from(task).where(and15(...conds)).orderBy(desc9(task.createdAt)).limit(200);
+  return db.select().from(task).where(and15(...conds)).orderBy(desc8(task.createdAt)).limit(200);
 }
 async function updateTask(portalId, id, input) {
   const [existing] = await db.select().from(task).where(and15(eq17(task.portalId, portalId), eq17(task.id, id))).limit(1);
@@ -4077,7 +4380,7 @@ async function tasksRoutes(app2) {
 }
 
 // src/modules/dashboard/dashboard.service.ts
-import { and as and16, asc as asc2, count as count3, desc as desc10, eq as eq18, inArray as inArray5, notInArray, sql as sql24 } from "drizzle-orm";
+import { and as and16, asc as asc2, count as count2, desc as desc9, eq as eq18, inArray as inArray6, notInArray, sql as sql26 } from "drizzle-orm";
 var OPEN_TASK_STATUSES = ["completed", "cancelled"];
 async function getDashboard(portalId) {
   const [
@@ -4091,25 +4394,25 @@ async function getDashboard(portalId) {
     recentTasks,
     recentDeals
   ] = await Promise.all([
-    db.select({ n: count3() }).from(contact).where(and16(eq18(contact.portalId, portalId), eq18(contact.archived, false), inArray5(contact.lifecycleStage, LEAD_STAGES))),
-    db.select({ n: count3() }).from(contact).where(and16(eq18(contact.portalId, portalId), eq18(contact.archived, false), eq18(contact.lifecycleStage, "customer"))),
-    db.select({ n: count3() }).from(company).where(and16(eq18(company.portalId, portalId), eq18(company.archived, false))),
-    db.select({ n: count3() }).from(task).where(and16(eq18(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
-    db.select({ openDeals: count3(), openValue: sql24`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and16(eq18(deal.portalId, portalId), eq18(deal.archived, false))),
+    db.select({ n: count2() }).from(contact).where(and16(eq18(contact.portalId, portalId), eq18(contact.archived, false), inArray6(contact.lifecycleStage, LEAD_STAGES))),
+    db.select({ n: count2() }).from(contact).where(and16(eq18(contact.portalId, portalId), eq18(contact.archived, false), eq18(contact.lifecycleStage, "customer"))),
+    db.select({ n: count2() }).from(company).where(and16(eq18(company.portalId, portalId), eq18(company.archived, false))),
+    db.select({ n: count2() }).from(task).where(and16(eq18(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
+    db.select({ openDeals: count2(), openValue: sql26`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and16(eq18(deal.portalId, portalId), eq18(deal.archived, false))),
     db.select({
-      weighted: sql24`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
+      weighted: sql26`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
     }).from(deal).innerJoin(pipelineStage, eq18(deal.stageId, pipelineStage.id)).where(and16(eq18(deal.portalId, portalId), eq18(deal.archived, false))),
     db.select({
       stageId: pipelineStage.id,
       label: pipelineStage.label,
-      deals: count3(deal.id),
-      value: sql24`coalesce(sum(${deal.amount}), 0)`
+      deals: count2(deal.id),
+      value: sql26`coalesce(sum(${deal.amount}), 0)`
     }).from(pipelineStage).innerJoin(
       pipeline,
       and16(eq18(pipelineStage.pipelineId, pipeline.id), eq18(pipeline.portalId, portalId), eq18(pipeline.archived, false))
     ).leftJoin(deal, and16(eq18(deal.stageId, pipelineStage.id), eq18(deal.archived, false))).groupBy(pipelineStage.id, pipelineStage.label, pipelineStage.displayOrder).orderBy(asc2(pipelineStage.displayOrder)),
-    db.select().from(task).where(and16(eq18(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))).orderBy(asc2(task.dueDate), desc10(task.createdAt)).limit(6),
-    db.select().from(deal).where(and16(eq18(deal.portalId, portalId), eq18(deal.archived, false))).orderBy(desc10(deal.createdAt)).limit(6)
+    db.select().from(task).where(and16(eq18(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))).orderBy(asc2(task.dueDate), desc9(task.createdAt)).limit(6),
+    db.select().from(deal).where(and16(eq18(deal.portalId, portalId), eq18(deal.archived, false))).orderBy(desc9(deal.createdAt)).limit(6)
   ]);
   return {
     counts: {
@@ -4283,7 +4586,7 @@ var WeekBookingsQuerySchema = z11.object({
 });
 
 // src/modules/calendar/calendar.service.ts
-import { and as and17, asc as asc3, eq as eq19, gte as gte2, inArray as inArray6, lte as lte2 } from "drizzle-orm";
+import { and as and17, asc as asc3, eq as eq19, gte as gte2, inArray as inArray7, lte as lte2 } from "drizzle-orm";
 import { addMinutes as addMinutes2 } from "date-fns";
 import { format as formatTz2, toZonedTime as toZonedTime2 } from "date-fns-tz";
 import jwt from "jsonwebtoken";
@@ -4770,7 +5073,7 @@ async function getSchedulesForMeetingType(mt) {
 }
 async function getBusyBookings(hostIds, excludeBookingId) {
   if (hostIds.length === 0) return [];
-  const rows = await db.select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status }).from(booking).where(and17(inArray6(booking.ownerId, hostIds), eq19(booking.status, "confirmed")));
+  const rows = await db.select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status }).from(booking).where(and17(inArray7(booking.ownerId, hostIds), eq19(booking.status, "confirmed")));
   return rows.filter((b) => b.id !== excludeBookingId).map((b) => ({
     startsAt: new Date(b.startsAt).toISOString(),
     endsAt: new Date(b.endsAt).toISOString(),
@@ -5056,8 +5359,8 @@ async function listSchedules(portalId) {
   if (schedules.length === 0) return [];
   const scheduleIds = schedules.map((s2) => s2.id);
   const [intervals, overrides] = await Promise.all([
-    db.select().from(availabilityInterval).where(inArray6(availabilityInterval.scheduleId, scheduleIds)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
-    db.select().from(dateOverride).where(inArray6(dateOverride.scheduleId, scheduleIds))
+    db.select().from(availabilityInterval).where(inArray7(availabilityInterval.scheduleId, scheduleIds)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
+    db.select().from(dateOverride).where(inArray7(dateOverride.scheduleId, scheduleIds))
   ]);
   return schedules.map((s2) => ({
     ...s2,
@@ -5220,7 +5523,7 @@ async function listEventTypesV2(portalId) {
   const types = await db.select().from(meetingType).where(eq19(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
   if (types.length === 0) return [];
   const typeIds = types.map((t) => t.id);
-  const memberships = await db.select({ meetingTypeId: eventMembership.meetingTypeId, hostId: eventMembership.hostId }).from(eventMembership).where(inArray6(eventMembership.meetingTypeId, typeIds));
+  const memberships = await db.select({ meetingTypeId: eventMembership.meetingTypeId, hostId: eventMembership.hostId }).from(eventMembership).where(inArray7(eventMembership.meetingTypeId, typeIds));
   return types.map((t) => {
     const hosts = memberships.filter((m) => m.meetingTypeId === t.id).map((m) => m.hostId);
     return toEventTypeV2(t, hosts);
@@ -5634,14 +5937,14 @@ var DeliverableListQuerySchema = z14.object({
 });
 
 // src/modules/deliverables/deliverables.service.ts
-import { and as and19, desc as desc11, eq as eq23 } from "drizzle-orm";
+import { and as and19, desc as desc10, eq as eq23 } from "drizzle-orm";
 async function requireDeliverableInPortal(tx, id, portalId) {
   const [row] = await tx.select({ deliverable }).from(deliverable).innerJoin(deal, and19(eq23(deal.id, deliverable.dealId), eq23(deal.portalId, portalId), eq23(deal.archived, false))).where(eq23(deliverable.id, id)).limit(1);
   if (!row) throw Errors.notFound("Entregable no encontrado");
   return row.deliverable;
 }
 async function listDeliverables(portalId, query) {
-  const rows = await db.select({ deliverable }).from(deliverable).innerJoin(deal, and19(eq23(deal.id, deliverable.dealId), eq23(deal.portalId, portalId), eq23(deal.archived, false))).where(query.dealId ? eq23(deliverable.dealId, query.dealId) : void 0).orderBy(desc11(deliverable.createdAt));
+  const rows = await db.select({ deliverable }).from(deliverable).innerJoin(deal, and19(eq23(deal.id, deliverable.dealId), eq23(deal.portalId, portalId), eq23(deal.archived, false))).where(query.dealId ? eq23(deliverable.dealId, query.dealId) : void 0).orderBy(desc10(deliverable.createdAt));
   return rows.map((r) => r.deliverable);
 }
 async function createDeliverable(portalId, userId, input) {
@@ -5658,6 +5961,14 @@ async function createDeliverable(portalId, userId, input) {
       createdBy: userId
     }).returning();
     if (!row) throw Errors.internal("No se pudo crear el entregable");
+    return row;
+  }).then(async (row) => {
+    if (row.visibleToClient) {
+      await notifyDealClients(portalId, row.dealId, "deliverable_ready", {
+        dealId: row.dealId,
+        deliverableTitle: row.title
+      }, { entity: { type: "deliverable", id: row.id }, dedupeKey: `deliverable_ready:${row.id}` });
+    }
     return row;
   });
 }
@@ -5759,16 +6070,16 @@ async function deliverablesRoutes(app2) {
 import { z as z15 } from "zod";
 
 // src/modules/client/client.service.ts
-import { and as and20, asc as asc5, desc as desc12, eq as eq24, inArray as inArray7, sql as sql25 } from "drizzle-orm";
+import { and as and20, asc as asc5, desc as desc11, eq as eq24, inArray as inArray8, sql as sql27 } from "drizzle-orm";
 async function clientDeals(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select({ id: deal.id, name: deal.name, amount: deal.amount, currency: deal.currency, stageId: deal.stageId, createdAt: deal.createdAt }).from(deal).where(and20(inArray7(deal.id, ids), eq24(deal.archived, false)));
+  return db.select({ id: deal.id, name: deal.name, amount: deal.amount, currency: deal.currency, stageId: deal.stageId, createdAt: deal.createdAt }).from(deal).where(and20(inArray8(deal.id, ids), eq24(deal.archived, false)));
 }
 async function clientDeliverables(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select().from(deliverable).where(and20(inArray7(deliverable.dealId, ids), eq24(deliverable.visibleToClient, true))).orderBy(desc12(deliverable.createdAt));
+  return db.select().from(deliverable).where(and20(inArray8(deliverable.dealId, ids), eq24(deliverable.visibleToClient, true))).orderBy(desc11(deliverable.createdAt));
 }
 async function assertClientDeliverable(clientId, deliverableId) {
   const ids = await clientDealIds(clientId);
@@ -5776,26 +6087,35 @@ async function assertClientDeliverable(clientId, deliverableId) {
   if (!dv || !ids.includes(dv.dealId) || !dv.visibleToClient) {
     throw Errors.notFound("Entregable no encontrado");
   }
-  return dv;
+  const [d] = await db.select({ portalId: deal.portalId }).from(deal).where(eq24(deal.id, dv.dealId)).limit(1);
+  if (!d) throw Errors.notFound("Entregable no encontrado");
+  return { ...dv, portalId: d.portalId };
 }
 async function approveDeliverable(clientId, deliverableId) {
-  await assertClientDeliverable(clientId, deliverableId);
+  const dv = await assertClientDeliverable(clientId, deliverableId);
   await db.update(deliverable).set({ status: "approved", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback: null }).where(eq24(deliverable.id, deliverableId));
+  await notifyAdmins(dv.portalId, "deliverable_approved", { dealId: dv.dealId, deliverableTitle: dv.title }, {
+    entity: { type: "deliverable", id: deliverableId },
+    dedupeKey: `deliverable_approved:${deliverableId}`
+  });
 }
 async function requestChanges(clientId, deliverableId, feedback) {
-  await assertClientDeliverable(clientId, deliverableId);
+  const dv = await assertClientDeliverable(clientId, deliverableId);
   await db.update(deliverable).set({ status: "changes_requested", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback }).where(eq24(deliverable.id, deliverableId));
+  await notifyAdmins(dv.portalId, "deliverable_changes_requested", { dealId: dv.dealId, deliverableTitle: dv.title }, {
+    entity: { type: "deliverable", id: deliverableId }
+  });
 }
 async function listClientInvoices(clientId) {
   const dealIds = await clientDealIds(clientId);
   if (dealIds.length === 0) return [];
-  const invoices = await db.select().from(invoice).where(and20(inArray7(invoice.dealId, dealIds), eq24(invoice.archived, false))).orderBy(desc12(invoice.createdAt));
+  const invoices = await db.select().from(invoice).where(and20(inArray8(invoice.dealId, dealIds), eq24(invoice.archived, false))).orderBy(desc11(invoice.createdAt));
   if (invoices.length === 0) return [];
   const invoiceIds = invoices.map((inv) => inv.id);
   const paymentTotals = await db.select({
     invoiceId: payment.invoiceId,
-    paid: sql25`COALESCE(SUM(${payment.amount}), '0')`
-  }).from(payment).where(inArray7(payment.invoiceId, invoiceIds)).groupBy(payment.invoiceId);
+    paid: sql27`COALESCE(SUM(${payment.amount}), '0')`
+  }).from(payment).where(inArray8(payment.invoiceId, invoiceIds)).groupBy(payment.invoiceId);
   const paidByInvoice = new Map(
     paymentTotals.map((r) => [r.invoiceId, Number(r.paid)])
   );
@@ -5815,7 +6135,7 @@ async function listClientInvoices(clientId) {
   });
 }
 async function resolveActiveClientDeal(clientId) {
-  const [row] = await db.select({ id: deal.id, portalId: deal.portalId, name: deal.name, pipelineId: deal.pipelineId, stageId: deal.stageId }).from(clientDealAccess).innerJoin(deal, eq24(deal.id, clientDealAccess.dealId)).where(and20(eq24(clientDealAccess.clientId, clientId), eq24(deal.archived, false))).orderBy(desc12(deal.createdAt)).limit(1);
+  const [row] = await db.select({ id: deal.id, portalId: deal.portalId, name: deal.name, pipelineId: deal.pipelineId, stageId: deal.stageId }).from(clientDealAccess).innerJoin(deal, eq24(deal.id, clientDealAccess.dealId)).where(and20(eq24(clientDealAccess.clientId, clientId), eq24(deal.archived, false))).orderBy(desc11(deal.createdAt)).limit(1);
   if (!row) throw Errors.notFound("No hay un proyecto activo asociado a esta cuenta");
   return row;
 }
@@ -5846,7 +6166,7 @@ async function getClientProject(clientId) {
       currentPhase = { id: current.id, label: current.label, description: current.description };
     }
   }
-  const updateRows = await db.select({ id: projectUpdate.id, body: projectUpdate.body, createdAt: projectUpdate.createdAt, stageLabel: pipelineStage.label }).from(projectUpdate).leftJoin(pipelineStage, eq24(pipelineStage.id, projectUpdate.stageId)).where(and20(eq24(projectUpdate.dealId, activeDeal.id), eq24(projectUpdate.archived, false))).orderBy(desc12(projectUpdate.createdAt)).limit(20);
+  const updateRows = await db.select({ id: projectUpdate.id, body: projectUpdate.body, createdAt: projectUpdate.createdAt, stageLabel: pipelineStage.label }).from(projectUpdate).leftJoin(pipelineStage, eq24(pipelineStage.id, projectUpdate.stageId)).where(and20(eq24(projectUpdate.dealId, activeDeal.id), eq24(projectUpdate.archived, false))).orderBy(desc11(projectUpdate.createdAt)).limit(20);
   const updates = updateRows.map((u) => ({
     id: u.id,
     body: u.body,
@@ -5863,7 +6183,7 @@ async function getClientProject(clientId) {
 }
 
 // src/modules/documents/documents.service.ts
-import { and as and21, desc as desc13, eq as eq25, inArray as inArray8 } from "drizzle-orm";
+import { and as and21, desc as desc12, eq as eq25, inArray as inArray9 } from "drizzle-orm";
 function toDTO(row) {
   return {
     id: row.id,
@@ -5884,7 +6204,7 @@ async function listDocuments(portalId, query) {
   if (query.dealId) {
     conditions.push(eq25(document.dealId, query.dealId));
   }
-  const rows = await db.select().from(document).where(and21(...conditions)).orderBy(desc13(document.createdAt));
+  const rows = await db.select().from(document).where(and21(...conditions)).orderBy(desc12(document.createdAt));
   return rows.map(toDTO);
 }
 async function createDocument(portalId, userId, input) {
@@ -5910,7 +6230,7 @@ async function deleteDocument(portalId, id) {
 }
 async function listClientDocuments(dealIds) {
   if (dealIds.length === 0) return [];
-  const rows = await db.select().from(document).where(and21(inArray8(document.dealId, dealIds), eq25(document.visibleToClient, true))).orderBy(desc13(document.createdAt));
+  const rows = await db.select().from(document).where(and21(inArray9(document.dealId, dealIds), eq25(document.visibleToClient, true))).orderBy(desc12(document.createdAt));
   return rows.map((row) => ({
     id: row.id,
     dealId: row.dealId,
@@ -6024,7 +6344,7 @@ var RespondIntakeSchema = z16.object({
 });
 
 // src/modules/intake/intake.service.ts
-import { and as and22, asc as asc6, desc as desc14, eq as eq26, inArray as inArray9 } from "drizzle-orm";
+import { and as and22, asc as asc6, desc as desc13, eq as eq26, inArray as inArray10 } from "drizzle-orm";
 async function listIntakeForms(portalId) {
   return db.select().from(intakeForm).where(eq26(intakeForm.portalId, portalId)).orderBy(asc6(intakeForm.name));
 }
@@ -6047,7 +6367,7 @@ async function listDealIntakes(portalId, dealId) {
     dueDate: dealIntake.dueDate,
     completedAt: dealIntake.completedAt,
     formName: intakeForm.name
-  }).from(dealIntake).innerJoin(deal, and22(eq26(deal.id, dealIntake.dealId), eq26(deal.portalId, portalId))).innerJoin(intakeForm, eq26(intakeForm.id, dealIntake.formId)).where(eq26(dealIntake.dealId, dealId)).orderBy(desc14(dealIntake.createdAt));
+  }).from(dealIntake).innerJoin(deal, and22(eq26(deal.id, dealIntake.dealId), eq26(deal.portalId, portalId))).innerJoin(intakeForm, eq26(intakeForm.id, dealIntake.formId)).where(eq26(dealIntake.dealId, dealId)).orderBy(desc13(dealIntake.createdAt));
 }
 async function assignIntake(portalId, input) {
   const [d] = await db.select().from(deal).where(and22(eq26(deal.id, input.dealId), eq26(deal.portalId, portalId))).limit(1);
@@ -6060,6 +6380,10 @@ async function assignIntake(portalId, input) {
     title: input.title ?? f.name,
     dueDate: input.dueDate ? new Date(input.dueDate) : void 0
   }).returning();
+  await notifyDealClients(portalId, input.dealId, "intake_assigned", {
+    dealId: input.dealId,
+    formName: row.title
+  }, { entity: { type: "deal_intake", id: row.id }, dedupeKey: `intake_assigned:${row.id}` });
   return row;
 }
 async function clientIntakes(clientId) {
@@ -6072,7 +6396,7 @@ async function clientIntakes(clientId) {
     dueDate: dealIntake.dueDate,
     fields: intakeForm.fields,
     answers: dealIntakeResponse.answers
-  }).from(dealIntake).innerJoin(intakeForm, eq26(intakeForm.id, dealIntake.formId)).leftJoin(dealIntakeResponse, eq26(dealIntakeResponse.intakeId, dealIntake.id)).where(inArray9(dealIntake.dealId, ids)).orderBy(asc6(dealIntake.status));
+  }).from(dealIntake).innerJoin(intakeForm, eq26(intakeForm.id, dealIntake.formId)).leftJoin(dealIntakeResponse, eq26(dealIntakeResponse.intakeId, dealIntake.id)).where(inArray10(dealIntake.dealId, ids)).orderBy(asc6(dealIntake.status));
 }
 async function respondIntake(clientId, intakeId, answers) {
   const ids = await clientDealIds(clientId);
@@ -6080,6 +6404,13 @@ async function respondIntake(clientId, intakeId, answers) {
   if (!intake || !ids.includes(intake.dealId)) throw Errors.notFound("Formulario no encontrado");
   await db.insert(dealIntakeResponse).values({ intakeId, clientId, answers }).onConflictDoUpdate({ target: dealIntakeResponse.intakeId, set: { answers, clientId, submittedAt: /* @__PURE__ */ new Date() } });
   await db.update(dealIntake).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq26(dealIntake.id, intakeId));
+  const [d] = await db.select({ portalId: deal.portalId }).from(deal).where(eq26(deal.id, intake.dealId)).limit(1);
+  if (d) {
+    await notifyAdmins(d.portalId, "intake_completed", {
+      dealId: intake.dealId,
+      formName: intake.title
+    }, { entity: { type: "deal_intake", id: intakeId } });
+  }
 }
 
 // src/modules/intake/intake.router.ts
@@ -6138,37 +6469,130 @@ async function clientIntakeRoutes(app2) {
 }
 
 // src/modules/notifications/notifications.router.ts
+import { z as z17 } from "zod";
+
+// src/modules/notifications/notifications.service.ts
+import { and as and23, count as count3, desc as desc14, eq as eq27, isNull as isNull2, sql as sql28 } from "drizzle-orm";
+function ownedBy(portalId, to) {
+  return and23(
+    eq27(notification.portalId, portalId),
+    to.kind === "user" ? eq27(notification.userId, to.id) : eq27(notification.clientId, to.id)
+  );
+}
+async function listNotifications(portalId, to, opts = {}) {
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
+  let cursorCond;
+  if (opts.cursor) {
+    const sep = opts.cursor.lastIndexOf("|");
+    const at = new Date(opts.cursor.slice(0, sep));
+    const id = opts.cursor.slice(sep + 1);
+    if (!Number.isNaN(at.getTime()) && id) {
+      cursorCond = sql28`(${notification.createdAt}, ${notification.id}) < (${at}, ${id})`;
+    }
+  }
+  const rows = await db.select().from(notification).where(and23(ownedBy(portalId, to), cursorCond)).orderBy(desc14(notification.createdAt), desc14(notification.id)).limit(limit + 1);
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  const last = items.at(-1);
+  return {
+    items,
+    nextCursor: hasMore && last ? `${last.createdAt.toISOString()}|${last.id}` : null
+  };
+}
+async function unreadCount(portalId, to) {
+  const [row] = await db.select({ n: count3() }).from(notification).where(and23(ownedBy(portalId, to), isNull2(notification.readAt)));
+  return row?.n ?? 0;
+}
+async function markRead(portalId, to, id) {
+  const res = await db.update(notification).set({ readAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and23(ownedBy(portalId, to), eq27(notification.id, id))).returning({ id: notification.id });
+  if (res.length === 0) throw Errors.notFound("Notificaci\xF3n no encontrada");
+}
+async function markAllRead(portalId, to) {
+  await db.update(notification).set({ readAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and23(ownedBy(portalId, to), isNull2(notification.readAt)));
+}
+async function actorName(portalId, userId) {
+  const [u] = await db.select({ firstName: hubUser.firstName, lastName: hubUser.lastName, email: hubUser.email }).from(hubUser).where(and23(eq27(hubUser.id, userId), eq27(hubUser.portalId, portalId))).limit(1);
+  if (!u) return "Alguien";
+  const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+  return name || u.email || "Alguien";
+}
+
+// src/modules/notifications/notifications.router.ts
 var TAG16 = "Notificaciones";
-var security16 = ADMIN_SECURITY;
-async function notificationsRoutes(app2) {
+var ListQuerySchema2 = z17.object({
+  limit: z17.coerce.number().int().min(1).max(50).optional(),
+  cursor: z17.string().min(1).optional()
+});
+function buildNotificationRoutes(app2, opts) {
   const r = app2.withTypeProvider();
-  r.addHook("preHandler", authenticate);
+  r.addHook("preHandler", opts.preHandler);
+  const security28 = opts.security;
   r.get(
     "/",
-    { schema: { tags: [TAG16], summary: "Listar notificaciones del usuario", security: security16 } },
-    async (request) => ok(await listNotifications(request.hubUser.portalId, request.hubUser.sub))
+    {
+      schema: {
+        tags: [TAG16],
+        summary: "Listar notificaciones (paginado por cursor)",
+        description: "Devuelve `{ data, meta: { nextCursor } }`. Mand\xE1 `cursor` con el valor de `meta.nextCursor` para la p\xE1gina siguiente; `nextCursor: null` significa que no hay m\xE1s.",
+        security: security28,
+        querystring: ListQuerySchema2
+      }
+    },
+    async (request) => {
+      const { portalId, to } = opts.resolveRecipient(request);
+      const { items, nextCursor } = await listNotifications(portalId, to, {
+        limit: request.query.limit,
+        cursor: request.query.cursor ?? null
+      });
+      return { data: items, meta: { nextCursor } };
+    }
   );
   r.get(
     "/unread-count",
-    { schema: { tags: [TAG16], summary: "Cantidad de no le\xEDdas", security: security16 } },
-    async (request) => ok({ count: await unreadCount(request.hubUser.portalId, request.hubUser.sub) })
+    { schema: { tags: [TAG16], summary: "Cantidad de no le\xEDdas", security: security28 } },
+    async (request) => {
+      const { portalId, to } = opts.resolveRecipient(request);
+      return ok({ count: await unreadCount(portalId, to) });
+    }
   );
   r.post(
     "/:id/read",
-    { schema: { tags: [TAG16], summary: "Marcar como le\xEDda", security: security16, params: IdParamSchema } },
+    { schema: { tags: [TAG16], summary: "Marcar como le\xEDda", security: security28, params: IdParamSchema } },
     async (request) => {
-      await markRead(request.hubUser.portalId, request.hubUser.sub, request.params.id);
+      const { portalId, to } = opts.resolveRecipient(request);
+      await markRead(portalId, to, request.params.id);
       return ok({ success: true });
     }
   );
   r.post(
     "/read-all",
-    { schema: { tags: [TAG16], summary: "Marcar todas como le\xEDdas", security: security16 } },
+    { schema: { tags: [TAG16], summary: "Marcar todas como le\xEDdas", security: security28 } },
     async (request) => {
-      await markAllRead(request.hubUser.portalId, request.hubUser.sub);
+      const { portalId, to } = opts.resolveRecipient(request);
+      await markAllRead(portalId, to);
       return ok({ success: true });
     }
   );
+}
+async function notificationsRoutes(app2) {
+  buildNotificationRoutes(app2, {
+    security: ADMIN_SECURITY,
+    preHandler: authenticate,
+    resolveRecipient: (request) => ({
+      portalId: request.hubUser.portalId,
+      to: { kind: "user", id: request.hubUser.sub }
+    })
+  });
+}
+async function clientNotificationsRoutes(app2) {
+  buildNotificationRoutes(app2, {
+    security: CLIENT_SECURITY,
+    preHandler: authenticateClient,
+    resolveRecipient: (request) => ({
+      portalId: request.clientAccount.portalId,
+      to: { kind: "client", id: request.clientAccount.sub }
+    })
+  });
 }
 
 // src/modules/notifications/notifications.ws.ts
@@ -6327,42 +6751,42 @@ async function clientFilesRoutes(app2) {
 }
 
 // src/modules/change-requests/cr.router.ts
-import { z as z18 } from "zod";
+import { z as z19 } from "zod";
 
 // src/modules/change-requests/cr.schema.ts
-import { z as z17 } from "zod";
-var ItemSchema = z17.object({
-  description: z17.string().min(1),
-  hours: z17.number().nonnegative().optional(),
-  unitPrice: z17.number().nonnegative(),
-  quantity: z17.number().positive().optional()
+import { z as z18 } from "zod";
+var ItemSchema = z18.object({
+  description: z18.string().min(1),
+  hours: z18.number().nonnegative().optional(),
+  unitPrice: z18.number().nonnegative(),
+  quantity: z18.number().positive().optional()
 });
-var CreateCRSchema = z17.object({
-  dealId: z17.string().min(1),
-  title: z17.string().min(1),
-  description: z17.string().min(1),
-  originalScopeRef: z17.string().optional(),
-  origin: z17.enum(["client", "agency"]).optional(),
-  totalAmount: z17.number().nonnegative().optional(),
-  timelineImpactDays: z17.number().int().optional(),
-  items: z17.array(ItemSchema).optional()
+var CreateCRSchema = z18.object({
+  dealId: z18.string().min(1),
+  title: z18.string().min(1),
+  description: z18.string().min(1),
+  originalScopeRef: z18.string().optional(),
+  origin: z18.enum(["client", "agency"]).optional(),
+  totalAmount: z18.number().nonnegative().optional(),
+  timelineImpactDays: z18.number().int().optional(),
+  items: z18.array(ItemSchema).optional()
 });
-var UpdateCRSchema = z17.object({
-  title: z17.string().min(1),
-  description: z17.string().min(1),
-  originalScopeRef: z17.string(),
-  totalAmount: z17.number().nonnegative(),
-  timelineImpactDays: z17.number().int()
+var UpdateCRSchema = z18.object({
+  title: z18.string().min(1),
+  description: z18.string().min(1),
+  originalScopeRef: z18.string(),
+  totalAmount: z18.number().nonnegative(),
+  timelineImpactDays: z18.number().int()
 }).partial();
 var AddItemSchema = ItemSchema;
-var CRListQuerySchema = z17.object({ dealId: z17.string().min(1).optional() });
+var CRListQuerySchema = z18.object({ dealId: z18.string().min(1).optional() });
 var CR_STATUSES = ["draft", "sent", "approved", "rejected", "negotiating", "approved_verbally", "disputed", "completed"];
-var TransitionSchema = z17.object({ status: z17.enum(CR_STATUSES), comment: z17.string().optional() });
-var CommentSchema = z17.object({ body: z17.string().min(1) });
-var ClientDecisionSchema = z17.object({ comment: z17.string().optional() }).nullish();
+var TransitionSchema = z18.object({ status: z18.enum(CR_STATUSES), comment: z18.string().optional() });
+var CommentSchema = z18.object({ body: z18.string().min(1) });
+var ClientDecisionSchema = z18.object({ comment: z18.string().optional() }).nullish();
 
 // src/modules/change-requests/cr.service.ts
-import { and as and23, asc as asc7, desc as desc15, eq as eq27, getTableColumns, inArray as inArray10, ne as ne3, sql as sql26 } from "drizzle-orm";
+import { and as and24, asc as asc7, desc as desc15, eq as eq28, getTableColumns, inArray as inArray11, ne as ne3, sql as sql29 } from "drizzle-orm";
 
 // src/lib/money.ts
 function toDecimal(n) {
@@ -6371,24 +6795,24 @@ function toDecimal(n) {
 
 // src/modules/change-requests/cr.service.ts
 async function getCRInPortal(portalId, id) {
-  const [cr] = await db.select().from(changeRequest).where(and23(eq27(changeRequest.id, id), eq27(changeRequest.portalId, portalId))).limit(1);
+  const [cr] = await db.select().from(changeRequest).where(and24(eq28(changeRequest.id, id), eq28(changeRequest.portalId, portalId))).limit(1);
   if (!cr) throw Errors.notFound("Change request no encontrada");
   return cr;
 }
 async function listCRs(portalId, dealId) {
-  return db.select({ ...getTableColumns(changeRequest), dealName: deal.name }).from(changeRequest).leftJoin(deal, eq27(deal.id, changeRequest.dealId)).where(dealId ? and23(eq27(changeRequest.portalId, portalId), eq27(changeRequest.dealId, dealId)) : eq27(changeRequest.portalId, portalId)).orderBy(desc15(changeRequest.createdAt));
+  return db.select({ ...getTableColumns(changeRequest), dealName: deal.name }).from(changeRequest).leftJoin(deal, eq28(deal.id, changeRequest.dealId)).where(dealId ? and24(eq28(changeRequest.portalId, portalId), eq28(changeRequest.dealId, dealId)) : eq28(changeRequest.portalId, portalId)).orderBy(desc15(changeRequest.createdAt));
 }
 async function getCRDetail(portalId, id) {
   const cr = await getCRInPortal(portalId, id);
-  const items = await db.select().from(changeRequestItem).where(eq27(changeRequestItem.changeRequestId, id));
-  const comments = await db.select().from(changeRequestComment).where(eq27(changeRequestComment.changeRequestId, id)).orderBy(asc7(changeRequestComment.createdAt));
-  const history = await db.select().from(changeRequestHistory).where(eq27(changeRequestHistory.changeRequestId, id)).orderBy(desc15(changeRequestHistory.changedAt));
+  const items = await db.select().from(changeRequestItem).where(eq28(changeRequestItem.changeRequestId, id));
+  const comments = await db.select().from(changeRequestComment).where(eq28(changeRequestComment.changeRequestId, id)).orderBy(asc7(changeRequestComment.createdAt));
+  const history = await db.select().from(changeRequestHistory).where(eq28(changeRequestHistory.changeRequestId, id)).orderBy(desc15(changeRequestHistory.changedAt));
   return { changeRequest: cr, items, comments, history };
 }
 async function createCR(portalId, userId, input) {
   await assertDealInPortal(portalId, input.dealId);
   return db.transaction(async (tx) => {
-    const numRows = await tx.select({ next: sql26`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq27(changeRequest.dealId, input.dealId));
+    const numRows = await tx.select({ next: sql29`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq28(changeRequest.dealId, input.dealId));
     const next = numRows[0]?.next ?? 1;
     const [cr] = await tx.insert(changeRequest).values({
       portalId,
@@ -6421,7 +6845,7 @@ async function createCR(portalId, userId, input) {
 async function updateCR(portalId, id, input) {
   const cr = await getCRInPortal(portalId, id);
   if (cr.status !== "draft") throw Errors.badRequest("Solo se puede editar una CR en borrador");
-  const [row] = await db.update(changeRequest).set({ ...input, totalAmount: toDecimal(input.totalAmount), updatedAt: /* @__PURE__ */ new Date() }).where(eq27(changeRequest.id, id)).returning();
+  const [row] = await db.update(changeRequest).set({ ...input, totalAmount: toDecimal(input.totalAmount), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(changeRequest.id, id)).returning();
   return row;
 }
 async function addItem(portalId, id, input) {
@@ -6438,31 +6862,41 @@ async function addItem(portalId, id, input) {
 }
 async function deleteItem(portalId, id, itemId) {
   await getCRInPortal(portalId, id);
-  await db.delete(changeRequestItem).where(and23(eq27(changeRequestItem.id, itemId), eq27(changeRequestItem.changeRequestId, id)));
+  await db.delete(changeRequestItem).where(and24(eq28(changeRequestItem.id, itemId), eq28(changeRequestItem.changeRequestId, id)));
 }
 async function transitionCR(portalId, userId, id, status, comment) {
   const cr = await getCRInPortal(portalId, id);
   const patch = { status, updatedAt: /* @__PURE__ */ new Date() };
   if (status === "completed") patch.completedAt = /* @__PURE__ */ new Date();
-  const [row] = await db.update(changeRequest).set(patch).where(eq27(changeRequest.id, id)).returning();
+  const [row] = await db.update(changeRequest).set(patch).where(eq28(changeRequest.id, id)).returning();
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: status, comment, changedByUser: userId });
+  if (status === "sent" && cr.status !== "sent") {
+    await notifyDealClients(portalId, cr.dealId, "cr_sent", {
+      crId: id,
+      crNumber: cr.number,
+      title: cr.title
+    }, { entity: { type: "change_request", id }, dedupeKey: `cr_sent:${id}` });
+  }
   return row;
 }
 async function addComment(portalId, userId, id, body) {
-  await getCRInPortal(portalId, id);
+  const cr = await getCRInPortal(portalId, id);
   const [row] = await db.insert(changeRequestComment).values({ changeRequestId: id, body, authorUser: userId }).returning();
+  await notifyDealClients(portalId, cr.dealId, "cr_commented", { crId: id, crNumber: cr.number }, {
+    entity: { type: "change_request", id }
+  });
   return row;
 }
 async function getClientCR(clientId, id) {
   const ids = await clientDealIds(clientId);
-  const [cr] = await db.select().from(changeRequest).where(eq27(changeRequest.id, id)).limit(1);
+  const [cr] = await db.select().from(changeRequest).where(eq28(changeRequest.id, id)).limit(1);
   if (!cr || !ids.includes(cr.dealId)) throw Errors.notFound("Change request no encontrada");
   return cr;
 }
 async function clientListCRs(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select().from(changeRequest).where(and23(inArray10(changeRequest.dealId, ids), ne3(changeRequest.status, "draft"))).orderBy(desc15(changeRequest.createdAt));
+  return db.select().from(changeRequest).where(and24(inArray11(changeRequest.dealId, ids), ne3(changeRequest.status, "draft"))).orderBy(desc15(changeRequest.createdAt));
 }
 async function clientDecision(clientId, id, decision, comment) {
   const cr = await getClientCR(clientId, id);
@@ -6470,15 +6904,14 @@ async function clientDecision(clientId, id, decision, comment) {
     status: decision,
     updatedAt: /* @__PURE__ */ new Date(),
     ...decision === "approved" ? { approvedAt: /* @__PURE__ */ new Date(), approvedBy: clientId } : {}
-  }).where(eq27(changeRequest.id, id));
+  }).where(eq28(changeRequest.id, id));
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: decision, comment, changedByClient: clientId });
-  await createNotification({
-    portalId: cr.portalId,
-    entityType: "change_request",
-    entityId: id,
-    type: decision === "approved" ? "cr_approved" : "cr_rejected",
-    title: `El cliente ${decision === "approved" ? "aprob\xF3" : "rechaz\xF3"} la CR #${cr.number}`
-  });
+  await notifyAdmins(
+    cr.portalId,
+    decision === "approved" ? "cr_approved" : "cr_rejected",
+    { crId: id, crNumber: cr.number, dealName: cr.title },
+    { entity: { type: "change_request", id }, dedupeKey: `cr_${decision}:${id}` }
+  );
 }
 async function clientComment(clientId, id, body) {
   await getClientCR(clientId, id);
@@ -6488,82 +6921,82 @@ async function clientComment(clientId, id, body) {
 
 // src/modules/change-requests/cr.router.ts
 var TAG18 = "Change Requests";
-var security17 = ADMIN_SECURITY;
+var security16 = ADMIN_SECURITY;
 var mut = { preHandler: [authorize("owner", "member", "collaborator")] };
-var ItemParam = z18.object({ id: z18.string().min(1), itemId: z18.string().min(1) });
+var ItemParam = z19.object({ id: z19.string().min(1), itemId: z19.string().min(1) });
 async function crRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
   r.get(
     "/",
-    { schema: { tags: [TAG18], summary: "Listar change requests", security: security17, querystring: CRListQuerySchema } },
+    { schema: { tags: [TAG18], summary: "Listar change requests", security: security16, querystring: CRListQuerySchema } },
     async (req) => ok(await listCRs(req.hubUser.portalId, req.query.dealId))
   );
   r.get(
     "/:id",
-    { schema: { tags: [TAG18], summary: "Detalle de CR (items, comentarios, historial)", security: security17, params: IdParamSchema } },
+    { schema: { tags: [TAG18], summary: "Detalle de CR (items, comentarios, historial)", security: security16, params: IdParamSchema } },
     async (req) => ok(await getCRDetail(req.hubUser.portalId, req.params.id))
   );
   r.post(
     "/",
-    { schema: { tags: [TAG18], summary: "Crear CR (borrador, number auto por deal)", security: security17, body: CreateCRSchema }, ...mut },
+    { schema: { tags: [TAG18], summary: "Crear CR (borrador, number auto por deal)", security: security16, body: CreateCRSchema }, ...mut },
     async (req, reply) => reply.status(201).send(ok(await createCR(req.hubUser.portalId, req.hubUser.sub, req.body)))
   );
   r.patch(
     "/:id",
-    { schema: { tags: [TAG18], summary: "Editar CR (solo borrador)", security: security17, params: IdParamSchema, body: UpdateCRSchema }, ...mut },
+    { schema: { tags: [TAG18], summary: "Editar CR (solo borrador)", security: security16, params: IdParamSchema, body: UpdateCRSchema }, ...mut },
     async (req) => ok(await updateCR(req.hubUser.portalId, req.params.id, req.body))
   );
   r.post(
     "/:id/items",
-    { schema: { tags: [TAG18], summary: "Agregar \xEDtem", security: security17, params: IdParamSchema, body: AddItemSchema }, ...mut },
+    { schema: { tags: [TAG18], summary: "Agregar \xEDtem", security: security16, params: IdParamSchema, body: AddItemSchema }, ...mut },
     async (req, reply) => reply.status(201).send(ok(await addItem(req.hubUser.portalId, req.params.id, req.body)))
   );
-  r.delete("/:id/items/:itemId", { schema: { tags: [TAG18], summary: "Quitar \xEDtem", security: security17, params: ItemParam }, ...mut }, async (req) => {
+  r.delete("/:id/items/:itemId", { schema: { tags: [TAG18], summary: "Quitar \xEDtem", security: security16, params: ItemParam }, ...mut }, async (req) => {
     await deleteItem(req.hubUser.portalId, req.params.id, req.params.itemId);
     return ok({ success: true });
   });
   r.post(
     "/:id/transition",
-    { schema: { tags: [TAG18], summary: "Cambiar estado (send/approve/reject/\u2026)", security: security17, params: IdParamSchema, body: TransitionSchema }, ...mut },
+    { schema: { tags: [TAG18], summary: "Cambiar estado (send/approve/reject/\u2026)", security: security16, params: IdParamSchema, body: TransitionSchema }, ...mut },
     async (req) => ok(await transitionCR(req.hubUser.portalId, req.hubUser.sub, req.params.id, req.body.status, req.body.comment))
   );
   r.post(
     "/:id/comments",
-    { schema: { tags: [TAG18], summary: "Comentar", security: security17, params: IdParamSchema, body: CommentSchema }, ...mut },
+    { schema: { tags: [TAG18], summary: "Comentar", security: security16, params: IdParamSchema, body: CommentSchema }, ...mut },
     async (req, reply) => reply.status(201).send(ok(await addComment(req.hubUser.portalId, req.hubUser.sub, req.params.id, req.body.body)))
   );
 }
 
 // src/modules/change-requests/client-cr.router.ts
 var TAG19 = "Client Portal";
-var security18 = CLIENT_SECURITY;
+var security17 = CLIENT_SECURITY;
 async function clientCrRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticateClient);
   r.get(
     "/",
-    { schema: { tags: [TAG19], summary: "Change requests del cliente", security: security18 } },
+    { schema: { tags: [TAG19], summary: "Change requests del cliente", security: security17 } },
     async (req) => ok(await clientListCRs(req.clientAccount.sub))
   );
-  r.post("/:id/approve", { schema: { tags: [TAG19], summary: "Aprobar CR", security: security18, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
+  r.post("/:id/approve", { schema: { tags: [TAG19], summary: "Aprobar CR", security: security17, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
     await clientDecision(req.clientAccount.sub, req.params.id, "approved", req.body?.comment);
     return ok({ success: true });
   });
-  r.post("/:id/reject", { schema: { tags: [TAG19], summary: "Rechazar CR", security: security18, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
+  r.post("/:id/reject", { schema: { tags: [TAG19], summary: "Rechazar CR", security: security17, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
     await clientDecision(req.clientAccount.sub, req.params.id, "rejected", req.body?.comment);
     return ok({ success: true });
   });
   r.post(
     "/:id/comments",
-    { schema: { tags: [TAG19], summary: "Comentar CR", security: security18, params: IdParamSchema, body: CommentSchema } },
+    { schema: { tags: [TAG19], summary: "Comentar CR", security: security17, params: IdParamSchema, body: CommentSchema } },
     async (req, reply) => reply.status(201).send(ok(await clientComment(req.clientAccount.sub, req.params.id, req.body.body)))
   );
 }
 
 // src/modules/library/library.schema.ts
-import { z as z19 } from "zod";
-var LibraryItemTypeEnum = z19.enum([
+import { z as z20 } from "zod";
+var LibraryItemTypeEnum = z20.enum([
   "document",
   "sop",
   "template",
@@ -6572,24 +7005,24 @@ var LibraryItemTypeEnum = z19.enum([
   "checklist",
   "tech_doc"
 ]);
-var LibraryKindEnum = z19.enum(["procedure", "checklist"]);
-var LibraryStepSchema = z19.object({
-  title: z19.string().min(1, "El t\xEDtulo del paso es requerido"),
-  body: z19.string().optional()
+var LibraryKindEnum = z20.enum(["procedure", "checklist"]);
+var LibraryStepSchema = z20.object({
+  title: z20.string().min(1, "El t\xEDtulo del paso es requerido"),
+  body: z20.string().optional()
 });
-var CreateLibraryItemSchema = z19.object({
+var CreateLibraryItemSchema = z20.object({
   type: LibraryItemTypeEnum,
-  name: z19.string().min(1),
-  category: z19.string().optional(),
-  description: z19.string().optional(),
-  storageKey: z19.string().optional(),
-  url: z19.string().url().optional(),
+  name: z20.string().min(1),
+  category: z20.string().optional(),
+  description: z20.string().optional(),
+  storageKey: z20.string().optional(),
+  url: z20.string().url().optional(),
   /**
    * Pasos del SOP/procedimiento. Solo aplica cuando type='sop'.
    * Máx 200 pasos por ítem (límite razonable para un SOP operativo).
    * Se REEMPLAZA completo en updates — no hay merge parcial.
    */
-  steps: z19.array(LibraryStepSchema).max(200).optional(),
+  steps: z20.array(LibraryStepSchema).max(200).optional(),
   /**
    * Variante operativa: 'procedure' o 'checklist'.
    * Solo aplica cuando type='sop'. Null para los demás types.
@@ -6600,24 +7033,24 @@ var CreateLibraryItemSchema = z19.object({
    * Solo aplica a ítems operativos (type='sop').
    * Null = sin responsable asignado.
    */
-  ownerId: z19.string().min(1).nullable().optional()
+  ownerId: z20.string().min(1).nullable().optional()
 });
-var UpdateLibraryItemSchema = z19.object({
+var UpdateLibraryItemSchema = z20.object({
   type: LibraryItemTypeEnum,
-  name: z19.string().min(1),
-  category: z19.string(),
-  description: z19.string(),
-  storageKey: z19.string(),
-  url: z19.string().url(),
+  name: z20.string().min(1),
+  category: z20.string(),
+  description: z20.string(),
+  storageKey: z20.string(),
+  url: z20.string().url(),
   /**
    * Lista completa de pasos. Se REEMPLAZA — nunca se hace merge con `||`.
    * El front envía siempre la lista completa reordenada/editada.
    */
-  steps: z19.array(LibraryStepSchema).max(200),
+  steps: z20.array(LibraryStepSchema).max(200),
   kind: LibraryKindEnum.nullable(),
-  ownerId: z19.string().min(1).nullable()
+  ownerId: z20.string().min(1).nullable()
 }).partial();
-var ListLibraryQuerySchema = z19.object({
+var ListLibraryQuerySchema = z20.object({
   type: LibraryItemTypeEnum.optional(),
   /**
    * Filtro por kind. Aplica solo cuando type='sop'.
@@ -6628,20 +7061,20 @@ var ListLibraryQuerySchema = z19.object({
 });
 
 // src/modules/library/library.service.ts
-import { and as and24, desc as desc16, eq as eq28 } from "drizzle-orm";
+import { and as and25, desc as desc16, eq as eq29 } from "drizzle-orm";
 async function requireItemInPortal(portalId, id) {
-  const [row] = await db.select().from(libraryItem).where(and24(eq28(libraryItem.id, id), eq28(libraryItem.portalId, portalId), eq28(libraryItem.archived, false))).limit(1);
+  const [row] = await db.select().from(libraryItem).where(and25(eq29(libraryItem.id, id), eq29(libraryItem.portalId, portalId), eq29(libraryItem.archived, false))).limit(1);
   if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
   return row;
 }
 async function listLibraryItems(portalId, query) {
   const conditions = [
-    eq28(libraryItem.portalId, portalId),
-    eq28(libraryItem.archived, false),
-    ...query.type ? [eq28(libraryItem.type, query.type)] : [],
-    ...query.kind ? [eq28(libraryItem.kind, query.kind)] : []
+    eq29(libraryItem.portalId, portalId),
+    eq29(libraryItem.archived, false),
+    ...query.type ? [eq29(libraryItem.type, query.type)] : [],
+    ...query.kind ? [eq29(libraryItem.kind, query.kind)] : []
   ];
-  return db.select().from(libraryItem).where(and24(...conditions)).orderBy(desc16(libraryItem.createdAt));
+  return db.select().from(libraryItem).where(and25(...conditions)).orderBy(desc16(libraryItem.createdAt));
 }
 async function getLibraryItem(portalId, id) {
   return requireItemInPortal(portalId, id);
@@ -6667,7 +7100,7 @@ async function createLibraryItem(portalId, userId, input) {
 }
 async function updateLibraryItem(portalId, id, input) {
   return db.transaction(async (tx) => {
-    await tx.select({ id: libraryItem.id }).from(libraryItem).where(and24(eq28(libraryItem.id, id), eq28(libraryItem.portalId, portalId), eq28(libraryItem.archived, false))).limit(1).then(([row]) => {
+    await tx.select({ id: libraryItem.id }).from(libraryItem).where(and25(eq29(libraryItem.id, id), eq29(libraryItem.portalId, portalId), eq29(libraryItem.archived, false))).limit(1).then(([row]) => {
       if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
     });
     const patch = { updatedAt: /* @__PURE__ */ new Date() };
@@ -6682,22 +7115,22 @@ async function updateLibraryItem(portalId, id, input) {
     if (input.steps !== void 0) {
       patch.steps = input.steps;
     }
-    const [updated] = await tx.update(libraryItem).set(patch).where(eq28(libraryItem.id, id)).returning();
+    const [updated] = await tx.update(libraryItem).set(patch).where(eq29(libraryItem.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el \xEDtem de biblioteca");
     return updated;
   });
 }
 async function archiveLibraryItem(portalId, id) {
   await db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: libraryItem.id }).from(libraryItem).where(and24(eq28(libraryItem.id, id), eq28(libraryItem.portalId, portalId), eq28(libraryItem.archived, false))).limit(1);
+    const [row] = await tx.select({ id: libraryItem.id }).from(libraryItem).where(and25(eq29(libraryItem.id, id), eq29(libraryItem.portalId, portalId), eq29(libraryItem.archived, false))).limit(1);
     if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
-    await tx.update(libraryItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(libraryItem.id, id));
+    await tx.update(libraryItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq29(libraryItem.id, id));
   });
 }
 
 // src/modules/library/library.router.ts
 var TAG20 = "Biblioteca";
-var security19 = ADMIN_SECURITY;
+var security18 = ADMIN_SECURITY;
 async function libraryRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -6708,7 +7141,7 @@ async function libraryRoutes(app2) {
         tags: [TAG20],
         summary: "Listar \xEDtems de biblioteca",
         description: "Lista \xEDtems del portal. Filtr\xE1 por type y/o kind. kind aplica especialmente para type=sop.",
-        security: security19,
+        security: security18,
         querystring: ListLibraryQuerySchema
       }
     },
@@ -6723,7 +7156,7 @@ async function libraryRoutes(app2) {
         tags: [TAG20],
         summary: "Crear \xEDtem de biblioteca",
         description: "Crea un \xEDtem de biblioteca. Para type=sop incluye steps/kind/ownerId.",
-        security: security19,
+        security: security18,
         body: CreateLibraryItemSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -6744,7 +7177,7 @@ async function libraryRoutes(app2) {
         tags: [TAG20],
         summary: "Detalle de \xEDtem de biblioteca",
         description: "Devuelve un \xEDtem por ID verificando pertenencia al portal.",
-        security: security19,
+        security: security18,
         params: IdParamSchema
       }
     },
@@ -6759,7 +7192,7 @@ async function libraryRoutes(app2) {
         tags: [TAG20],
         summary: "Actualizar \xEDtem de biblioteca",
         description: "Actualiza campos. Para steps: siempre enviar la lista completa (reemplazo, no merge).",
-        security: security19,
+        security: security18,
         params: IdParamSchema,
         body: UpdateLibraryItemSchema
       },
@@ -6776,7 +7209,7 @@ async function libraryRoutes(app2) {
         tags: [TAG20],
         summary: "Archivar \xEDtem de biblioteca",
         description: "Archiva el \xEDtem (soft-delete).",
-        security: security19,
+        security: security18,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -6789,43 +7222,43 @@ async function libraryRoutes(app2) {
 }
 
 // src/modules/work-items/work-items.schema.ts
-import { z as z20 } from "zod";
-var WorkItemTypeEnum = z20.enum(["bug", "improvement", "roadmap", "process"]);
-var WorkItemStatusEnum = z20.enum(["open", "in_progress", "done", "cancelled"]);
-var WorkItemPriorityEnum = z20.enum(["low", "medium", "high"]);
-var CreateWorkItemSchema = z20.object({
+import { z as z21 } from "zod";
+var WorkItemTypeEnum = z21.enum(["bug", "improvement", "roadmap", "process"]);
+var WorkItemStatusEnum = z21.enum(["open", "in_progress", "done", "cancelled"]);
+var WorkItemPriorityEnum = z21.enum(["low", "medium", "high"]);
+var CreateWorkItemSchema = z21.object({
   type: WorkItemTypeEnum,
-  title: z20.string().min(1),
-  description: z20.string().optional(),
+  title: z21.string().min(1),
+  description: z21.string().optional(),
   status: WorkItemStatusEnum.optional(),
   priority: WorkItemPriorityEnum.optional(),
-  dealId: z20.string().min(1).optional(),
-  assignedTo: z20.string().min(1).optional()
+  dealId: z21.string().min(1).optional(),
+  assignedTo: z21.string().min(1).optional()
 });
-var UpdateWorkItemSchema = z20.object({
+var UpdateWorkItemSchema = z21.object({
   type: WorkItemTypeEnum,
-  title: z20.string().min(1),
-  description: z20.string(),
+  title: z21.string().min(1),
+  description: z21.string(),
   status: WorkItemStatusEnum,
   priority: WorkItemPriorityEnum,
-  dealId: z20.string().min(1),
-  assignedTo: z20.string().min(1)
+  dealId: z21.string().min(1),
+  assignedTo: z21.string().min(1)
 }).partial();
-var ListWorkItemsQuerySchema = z20.object({
+var ListWorkItemsQuerySchema = z21.object({
   type: WorkItemTypeEnum.optional(),
   status: WorkItemStatusEnum.optional()
 });
 
 // src/modules/work-items/work-items.service.ts
-import { and as and25, desc as desc17, eq as eq29 } from "drizzle-orm";
+import { and as and26, desc as desc17, eq as eq30 } from "drizzle-orm";
 async function listWorkItems(portalId, query) {
   const conditions = [
-    eq29(workItem.portalId, portalId),
-    eq29(workItem.archived, false),
-    ...query.type ? [eq29(workItem.type, query.type)] : [],
-    ...query.status ? [eq29(workItem.status, query.status)] : []
+    eq30(workItem.portalId, portalId),
+    eq30(workItem.archived, false),
+    ...query.type ? [eq30(workItem.type, query.type)] : [],
+    ...query.status ? [eq30(workItem.status, query.status)] : []
   ];
-  return db.select().from(workItem).where(and25(...conditions)).orderBy(desc17(workItem.createdAt));
+  return db.select().from(workItem).where(and26(...conditions)).orderBy(desc17(workItem.createdAt));
 }
 async function createWorkItem(portalId, userId, input) {
   const [row] = await db.insert(workItem).values({
@@ -6844,25 +7277,25 @@ async function createWorkItem(portalId, userId, input) {
 }
 async function updateWorkItem(portalId, id, input) {
   return db.transaction(async (tx) => {
-    await tx.select({ id: workItem.id }).from(workItem).where(and25(eq29(workItem.id, id), eq29(workItem.portalId, portalId), eq29(workItem.archived, false))).limit(1).then(([row]) => {
+    await tx.select({ id: workItem.id }).from(workItem).where(and26(eq30(workItem.id, id), eq30(workItem.portalId, portalId), eq30(workItem.archived, false))).limit(1).then(([row]) => {
       if (!row) throw Errors.notFound("\xCDtem de operaciones no encontrado");
     });
-    const [updated] = await tx.update(workItem).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq29(workItem.id, id)).returning();
+    const [updated] = await tx.update(workItem).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq30(workItem.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el \xEDtem de operaciones");
     return updated;
   });
 }
 async function archiveWorkItem(portalId, id) {
   await db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: workItem.id }).from(workItem).where(and25(eq29(workItem.id, id), eq29(workItem.portalId, portalId), eq29(workItem.archived, false))).limit(1);
+    const [row] = await tx.select({ id: workItem.id }).from(workItem).where(and26(eq30(workItem.id, id), eq30(workItem.portalId, portalId), eq30(workItem.archived, false))).limit(1);
     if (!row) throw Errors.notFound("\xCDtem de operaciones no encontrado");
-    await tx.update(workItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq29(workItem.id, id));
+    await tx.update(workItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(workItem.id, id));
   });
 }
 
 // src/modules/work-items/work-items.router.ts
 var TAG21 = "Operaciones";
-var security20 = ADMIN_SECURITY;
+var security19 = ADMIN_SECURITY;
 async function workItemsRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -6873,7 +7306,7 @@ async function workItemsRoutes(app2) {
         tags: [TAG21],
         summary: "Listar \xEDtems de operaciones",
         description: "Lista todos los \xEDtems del portal. Filtr\xE1 por type y/o status.",
-        security: security20,
+        security: security19,
         querystring: ListWorkItemsQuerySchema
       }
     },
@@ -6889,7 +7322,7 @@ async function workItemsRoutes(app2) {
         tags: [TAG21],
         summary: "Crear \xEDtem de operaciones",
         description: "Crea un nuevo \xEDtem de operaciones (bug, mejora, roadmap, proceso). Requiere rol owner o member.",
-        security: security20,
+        security: security19,
         body: CreateWorkItemSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -6910,7 +7343,7 @@ async function workItemsRoutes(app2) {
         tags: [TAG21],
         summary: "Actualizar \xEDtem de operaciones",
         description: "Actualiza campos del \xEDtem. Requiere rol owner o member.",
-        security: security20,
+        security: security19,
         params: IdParamSchema,
         body: UpdateWorkItemSchema
       },
@@ -6927,7 +7360,7 @@ async function workItemsRoutes(app2) {
         tags: [TAG21],
         summary: "Archivar \xEDtem de operaciones",
         description: "Archiva el \xEDtem (soft delete). Requiere rol owner o member.",
-        security: security20,
+        security: security19,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -6940,14 +7373,14 @@ async function workItemsRoutes(app2) {
 }
 
 // src/modules/finance/finance.router.ts
-import { z as z22 } from "zod";
+import { z as z23 } from "zod";
 
 // src/modules/finance/finance.schema.ts
-import { z as z21 } from "zod";
-var CurrencyEnum = z21.enum(["USD", "ARS"]);
-var InvoiceStatusEnum = z21.enum(["draft", "sent", "paid", "overdue", "void"]);
-var PaymentMethodEnum = z21.enum(["transfer", "card", "cash", "other"]);
-var ExpenseCategoryEnum = z21.enum([
+import { z as z22 } from "zod";
+var CurrencyEnum = z22.enum(["USD", "ARS"]);
+var InvoiceStatusEnum = z22.enum(["draft", "sent", "paid", "overdue", "void"]);
+var PaymentMethodEnum = z22.enum(["transfer", "card", "cash", "other"]);
+var ExpenseCategoryEnum = z22.enum([
   "software",
   "infraestructura",
   "equipo",
@@ -6956,51 +7389,51 @@ var ExpenseCategoryEnum = z21.enum([
   "marketing",
   "otros"
 ]);
-var RetainerStatusEnum = z21.enum(["active", "paused", "cancelled"]);
-var InvoiceItemInputSchema = z21.object({
-  description: z21.string().min(1),
-  quantity: z21.number().positive().optional(),
-  unitPrice: z21.number().min(0)
+var RetainerStatusEnum = z22.enum(["active", "paused", "cancelled"]);
+var InvoiceItemInputSchema = z22.object({
+  description: z22.string().min(1),
+  quantity: z22.number().positive().optional(),
+  unitPrice: z22.number().min(0)
 });
-var CreateInvoiceSchema = z21.object({
-  dealId: z21.string().min(1).optional(),
-  companyId: z21.string().min(1).optional(),
-  issueDate: z21.string().optional(),
+var CreateInvoiceSchema = z22.object({
+  dealId: z22.string().min(1).optional(),
+  companyId: z22.string().min(1).optional(),
+  issueDate: z22.string().optional(),
   // YYYY-MM-DD
-  dueDate: z21.string().optional(),
+  dueDate: z22.string().optional(),
   /** Moneda de la factura. Default USD. */
   currency: CurrencyEnum.optional(),
   /**
    * Tipo de cambio ARS/USD al momento de emitir (ARS por 1 USD).
    * Requerido cuando currency === 'ARS'; ignorado (se fuerza 1) cuando USD.
    */
-  exchangeRate: z21.number().positive().optional(),
-  notes: z21.string().optional(),
-  tax: z21.number().min(0).optional(),
-  items: z21.array(InvoiceItemInputSchema).min(1),
+  exchangeRate: z22.number().positive().optional(),
+  notes: z22.string().optional(),
+  tax: z22.number().min(0).optional(),
+  items: z22.array(InvoiceItemInputSchema).min(1),
   /** Retainer que origina esta factura (null = factura puntual). */
-  retainerId: z21.string().min(1).optional()
+  retainerId: z22.string().min(1).optional()
 });
 var UpdateInvoiceSchema = CreateInvoiceSchema.omit({ items: true }).partial();
-var TransitionInvoiceSchema = z21.object({
+var TransitionInvoiceSchema = z22.object({
   status: InvoiceStatusEnum
 });
-var CreatePaymentSchema = z21.object({
-  invoiceId: z21.string().min(1),
-  amount: z21.number().positive(),
+var CreatePaymentSchema = z22.object({
+  invoiceId: z22.string().min(1),
+  amount: z22.number().positive(),
   /** Moneda en la que se realiza el pago. Puede diferir de la factura. */
   currency: CurrencyEnum.optional(),
   /**
    * Tipo de cambio ARS/USD al momento del pago.
    * Requerido cuando currency === 'ARS'.
    */
-  exchangeRate: z21.number().positive().optional(),
+  exchangeRate: z22.number().positive().optional(),
   method: PaymentMethodEnum.optional(),
-  paidAt: z21.string().optional(),
+  paidAt: z22.string().optional(),
   // ISO datetime
-  reference: z21.string().optional()
+  reference: z22.string().optional()
 });
-var ListInvoicesQuerySchema = z21.object({
+var ListInvoicesQuerySchema = z22.object({
   /**
    * Tabs de listado:
    * - 'all': todas las facturas no archivadas
@@ -7009,89 +7442,89 @@ var ListInvoicesQuerySchema = z21.object({
    * - 'pagadas': pagadas completamente (saldo 0)
    * - 'borradores': en draft
    */
-  tab: z21.enum(["all", "por_cobrar", "vencidas", "pagadas", "borradores"]).optional(),
+  tab: z22.enum(["all", "por_cobrar", "vencidas", "pagadas", "borradores"]).optional(),
   status: InvoiceStatusEnum.optional()
 });
-var ListPaymentsQuerySchema = z21.object({
+var ListPaymentsQuerySchema = z22.object({
   method: PaymentMethodEnum.optional(),
-  from: z21.string().optional(),
-  to: z21.string().optional(),
-  companyId: z21.string().optional(),
-  invoiceId: z21.string().optional()
+  from: z22.string().optional(),
+  to: z22.string().optional(),
+  companyId: z22.string().optional(),
+  invoiceId: z22.string().optional()
 });
-var CreateExpenseSchema = z21.object({
-  description: z21.string().min(1),
-  amount: z21.number().positive(),
+var CreateExpenseSchema = z22.object({
+  description: z22.string().min(1),
+  amount: z22.number().positive(),
   currency: CurrencyEnum,
   /**
    * Tipo de cambio ARS/USD al momento del gasto.
    * Requerido cuando currency === 'ARS'; se ignora (forzado a 1) para USD.
    */
-  exchangeRate: z21.number().positive().optional(),
+  exchangeRate: z22.number().positive().optional(),
   /** amountBase pre-calculado por el front (evita recalculo); si no viene, se calcula en el service. */
-  amountBase: z21.number().positive().optional(),
+  amountBase: z22.number().positive().optional(),
   category: ExpenseCategoryEnum,
-  expenseDate: z21.string(),
+  expenseDate: z22.string(),
   // YYYY-MM-DD
-  vendor: z21.string().optional(),
-  dealId: z21.string().min(1).optional(),
-  companyId: z21.string().min(1).optional(),
+  vendor: z22.string().optional(),
+  dealId: z22.string().min(1).optional(),
+  companyId: z22.string().min(1).optional(),
   paymentMethod: PaymentMethodEnum.optional(),
-  isRecurring: z21.boolean().optional(),
-  storageKey: z21.string().optional(),
-  notes: z21.string().optional()
+  isRecurring: z22.boolean().optional(),
+  storageKey: z22.string().optional(),
+  notes: z22.string().optional()
 });
 var UpdateExpenseSchema = CreateExpenseSchema.partial();
-var ListExpensesQuerySchema = z21.object({
+var ListExpensesQuerySchema = z22.object({
   category: ExpenseCategoryEnum.optional(),
-  dealId: z21.string().optional(),
-  from: z21.string().optional(),
-  to: z21.string().optional(),
-  isRecurring: z21.string().transform((v) => v === "true").optional()
+  dealId: z22.string().optional(),
+  from: z22.string().optional(),
+  to: z22.string().optional(),
+  isRecurring: z22.string().transform((v) => v === "true").optional()
 });
-var CreateRetainerSchema = z21.object({
-  companyId: z21.string().min(1),
-  amount: z21.number().positive(),
+var CreateRetainerSchema = z22.object({
+  companyId: z22.string().min(1),
+  amount: z22.number().positive(),
   currency: CurrencyEnum,
   /** Tipo de cambio ARS/USD al crear el retainer. Requerido para ARS. */
-  exchangeRate: z21.number().positive().optional(),
+  exchangeRate: z22.number().positive().optional(),
   /** amountBase pre-calculado; si no viene, se calcula en el service. */
-  amountBase: z21.number().positive().optional(),
+  amountBase: z22.number().positive().optional(),
   /** Día del mes (1–28) en que se genera la factura mensual. */
-  billingDay: z21.number().int().min(1).max(28),
-  startDate: z21.string(),
+  billingDay: z22.number().int().min(1).max(28),
+  startDate: z22.string(),
   // YYYY-MM-DD
-  endDate: z21.string().optional(),
-  notes: z21.string().optional()
+  endDate: z22.string().optional(),
+  notes: z22.string().optional()
 });
-var UpdateRetainerSchema = z21.object({
+var UpdateRetainerSchema = z22.object({
   status: RetainerStatusEnum.optional(),
-  amount: z21.number().positive().optional(),
+  amount: z22.number().positive().optional(),
   currency: CurrencyEnum.optional(),
-  exchangeRate: z21.number().positive().optional(),
-  amountBase: z21.number().positive().optional(),
-  billingDay: z21.number().int().min(1).max(28).optional(),
-  endDate: z21.string().optional(),
-  notes: z21.string().optional()
+  exchangeRate: z22.number().positive().optional(),
+  amountBase: z22.number().positive().optional(),
+  billingDay: z22.number().int().min(1).max(28).optional(),
+  endDate: z22.string().optional(),
+  notes: z22.string().optional()
 });
-var ListRetainersQuerySchema = z21.object({
+var ListRetainersQuerySchema = z22.object({
   status: RetainerStatusEnum.optional(),
-  companyId: z21.string().optional()
+  companyId: z22.string().optional()
 });
-var SummaryQuerySchema = z21.object({
-  from: z21.string().optional(),
+var SummaryQuerySchema = z22.object({
+  from: z22.string().optional(),
   // YYYY-MM-DD
-  to: z21.string().optional()
+  to: z22.string().optional()
 });
-var MonthlySummaryQuerySchema = z21.object({
-  months: z21.string().transform((v) => parseInt(v, 10)).pipe(z21.number().int().min(1).max(24)).optional()
+var MonthlySummaryQuerySchema = z22.object({
+  months: z22.string().transform((v) => parseInt(v, 10)).pipe(z22.number().int().min(1).max(24)).optional()
 });
-var DebtorsQuerySchema = z21.object({
-  limit: z21.string().transform((v) => parseInt(v, 10)).pipe(z21.number().int().min(1).max(50)).optional()
+var DebtorsQuerySchema = z22.object({
+  limit: z22.string().transform((v) => parseInt(v, 10)).pipe(z22.number().int().min(1).max(50)).optional()
 });
 
 // src/modules/finance/finance.service.ts
-import { and as and26, asc as asc8, between, desc as desc18, eq as eq30, gte as gte3, inArray as inArray11, lte as lte3, sql as sql27, sum as sum2 } from "drizzle-orm";
+import { and as and27, asc as asc8, between, desc as desc18, eq as eq31, gte as gte3, inArray as inArray12, lte as lte3, sql as sql30, sum as sum2 } from "drizzle-orm";
 
 // src/lib/fx.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
@@ -7145,17 +7578,17 @@ function calcAmountBase(amount, currency, exchangeRate) {
   return amount / exchangeRate;
 }
 async function requireInvoice(portalId, id) {
-  const [row] = await db.select().from(invoice).where(and26(eq30(invoice.id, id), eq30(invoice.portalId, portalId), eq30(invoice.archived, false))).limit(1);
+  const [row] = await db.select().from(invoice).where(and27(eq31(invoice.id, id), eq31(invoice.portalId, portalId), eq31(invoice.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Factura no encontrada");
   return row;
 }
 async function requireExpense(portalId, id) {
-  const [row] = await db.select().from(expense).where(and26(eq30(expense.id, id), eq30(expense.portalId, portalId), eq30(expense.archived, false))).limit(1);
+  const [row] = await db.select().from(expense).where(and27(eq31(expense.id, id), eq31(expense.portalId, portalId), eq31(expense.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Gasto no encontrado");
   return row;
 }
 async function requireRetainer(portalId, id) {
-  const [row] = await db.select().from(retainer).where(and26(eq30(retainer.id, id), eq30(retainer.portalId, portalId), eq30(retainer.archived, false))).limit(1);
+  const [row] = await db.select().from(retainer).where(and27(eq31(retainer.id, id), eq31(retainer.portalId, portalId), eq31(retainer.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Retainer no encontrado");
   return row;
 }
@@ -7170,30 +7603,30 @@ function computeDerivedStatus(inv, balance) {
   return "enviada";
 }
 async function listInvoices(portalId, query) {
-  const conditions = [eq30(invoice.portalId, portalId), eq30(invoice.archived, false)];
+  const conditions = [eq31(invoice.portalId, portalId), eq31(invoice.archived, false)];
   const { tab, status } = query;
   if (status) {
-    conditions.push(eq30(invoice.status, status));
+    conditions.push(eq31(invoice.status, status));
   } else if (tab === "borradores") {
-    conditions.push(eq30(invoice.status, "draft"));
+    conditions.push(eq31(invoice.status, "draft"));
   } else if (tab === "vencidas") {
-    conditions.push(eq30(invoice.status, "overdue"));
+    conditions.push(eq31(invoice.status, "overdue"));
   } else if (tab === "pagadas") {
-    conditions.push(eq30(invoice.status, "paid"));
+    conditions.push(eq31(invoice.status, "paid"));
   } else if (tab === "por_cobrar") {
-    conditions.push(inArray11(invoice.status, ["sent", "overdue"]));
+    conditions.push(inArray12(invoice.status, ["sent", "overdue"]));
   }
-  const invoices = await db.select().from(invoice).where(and26(...conditions)).orderBy(desc18(invoice.createdAt));
+  const invoices = await db.select().from(invoice).where(and27(...conditions)).orderBy(desc18(invoice.createdAt));
   if (invoices.length === 0) return [];
   const ids = invoices.map((i) => i.id);
-  const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray11(payment.invoiceId, ids)).groupBy(payment.invoiceId);
+  const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray12(payment.invoiceId, ids)).groupBy(payment.invoiceId);
   const paidMap = new Map(
     paidByInvoice.map((r) => [r.invoiceId, Number(r.total ?? 0)])
   );
   const companyIds = [...new Set(invoices.map((i) => i.companyId).filter(Boolean))];
   let companyMap = /* @__PURE__ */ new Map();
   if (companyIds.length > 0) {
-    const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray11(company.id, companyIds));
+    const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray12(company.id, companyIds));
     companyMap = new Map(companies.map((c) => [c.id, c.name]));
   }
   return invoices.map((inv) => {
@@ -7209,15 +7642,15 @@ async function listInvoices(portalId, query) {
 }
 async function getInvoiceDetail(portalId, id) {
   const inv = await requireInvoice(portalId, id);
-  const items = await db.select().from(invoiceItem).where(eq30(invoiceItem.invoiceId, id));
-  const payments_ = await db.select().from(payment).where(eq30(payment.invoiceId, id)).orderBy(desc18(payment.paidAt));
+  const items = await db.select().from(invoiceItem).where(eq31(invoiceItem.invoiceId, id));
+  const payments_ = await db.select().from(payment).where(eq31(payment.invoiceId, id)).orderBy(desc18(payment.paidAt));
   const totalPaid = payments_.reduce((acc, p) => acc + Number(p.amountBase), 0);
   const balance = num(Math.max(0, Number(inv.amountBase) - totalPaid));
   return { invoice: inv, items, payments: payments_, balance };
 }
 async function createInvoice(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq30(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql30`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq31(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const subtotal = input.items.reduce((acc, it) => acc + (it.quantity ?? 1) * it.unitPrice, 0);
     const tax = input.tax ?? 0;
@@ -7271,22 +7704,33 @@ async function updateInvoice(portalId, id, input) {
     ...needsRecalc ? { exchangeRate: num(exchangeRate), amountBase: num(amountBase) } : {},
     ...input.notes !== void 0 ? { notes: input.notes } : {},
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq30(invoice.id, id)).returning();
+  }).where(eq31(invoice.id, id)).returning();
   return row;
 }
 async function transitionInvoice(portalId, id, status) {
-  await requireInvoice(portalId, id);
-  const [row] = await db.update(invoice).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq30(invoice.id, id)).returning();
+  const before = await requireInvoice(portalId, id);
+  const [row] = await db.update(invoice).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq31(invoice.id, id)).returning();
+  if (status === "sent" && before.status !== "sent" && row.dealId) {
+    await notifyDealClients(portalId, row.dealId, "invoice_sent", {
+      invoiceId: row.id,
+      invoiceNumber: row.number,
+      amount: row.total,
+      currency: row.currency
+    }, {
+      entity: { type: "invoice", id: row.id },
+      dedupeKey: `invoice_sent:${row.id}`
+    });
+  }
   return row;
 }
 async function archiveInvoice(portalId, id) {
   await requireInvoice(portalId, id);
-  await db.update(invoice).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(invoice.id, id));
+  await db.update(invoice).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq31(invoice.id, id));
 }
 async function listPayments(portalId, query) {
-  const conditions = [eq30(payment.portalId, portalId)];
-  if (query.method) conditions.push(eq30(payment.method, query.method));
-  if (query.invoiceId) conditions.push(eq30(payment.invoiceId, query.invoiceId));
+  const conditions = [eq31(payment.portalId, portalId)];
+  if (query.method) conditions.push(eq31(payment.method, query.method));
+  if (query.invoiceId) conditions.push(eq31(payment.invoiceId, query.invoiceId));
   if (query.from && query.to) {
     conditions.push(between(payment.paidAt, new Date(query.from), /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   } else if (query.from) {
@@ -7294,19 +7738,19 @@ async function listPayments(portalId, query) {
   } else if (query.to) {
     conditions.push(lte3(payment.paidAt, /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   }
-  const payments_ = await db.select().from(payment).where(and26(...conditions)).orderBy(desc18(payment.paidAt));
+  const payments_ = await db.select().from(payment).where(and27(...conditions)).orderBy(desc18(payment.paidAt));
   if (payments_.length === 0) {
     return { payments: [], meta: { totalPeriod: "0.00" } };
   }
   const invoiceIds = [...new Set(payments_.map((p) => p.invoiceId))];
-  const invoiceRows = await db.select({ id: invoice.id, number: invoice.number, currency: invoice.currency, companyId: invoice.companyId }).from(invoice).where(inArray11(invoice.id, invoiceIds));
+  const invoiceRows = await db.select({ id: invoice.id, number: invoice.number, currency: invoice.currency, companyId: invoice.companyId }).from(invoice).where(inArray12(invoice.id, invoiceIds));
   const invoiceMap = new Map(invoiceRows.map((r) => [r.id, r]));
   const companyIds = [
     ...new Set(invoiceRows.map((r) => r.companyId).filter(Boolean))
   ];
   let companyMap = /* @__PURE__ */ new Map();
   if (companyIds.length > 0) {
-    const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray11(company.id, companyIds));
+    const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray12(company.id, companyIds));
     companyMap = new Map(companies.map((c) => [c.id, c.name]));
   }
   let filtered = payments_;
@@ -7330,7 +7774,7 @@ async function listPayments(portalId, query) {
 }
 async function registerPayment(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [inv] = await tx.select().from(invoice).where(and26(eq30(invoice.id, input.invoiceId), eq30(invoice.portalId, portalId), eq30(invoice.archived, false))).limit(1);
+    const [inv] = await tx.select().from(invoice).where(and27(eq31(invoice.id, input.invoiceId), eq31(invoice.portalId, portalId), eq31(invoice.archived, false))).limit(1);
     if (!inv) throw Errors.notFound("Factura no encontrada");
     const currency = input.currency ?? "USD";
     const exchangeRate = currency === "ARS" ? input.exchangeRate ?? 1 : 1;
@@ -7348,19 +7792,41 @@ async function registerPayment(portalId, userId, input) {
       createdBy: userId
     }).returning();
     if (!row) throw Errors.internal("No se pudo registrar el cobro");
-    const [totals] = await tx.select({ total: sum2(payment.amountBase) }).from(payment).where(eq30(payment.invoiceId, input.invoiceId));
+    const [totals] = await tx.select({ total: sum2(payment.amountBase) }).from(payment).where(eq31(payment.invoiceId, input.invoiceId));
     const totalPaid = Number(totals?.total ?? 0);
     if (totalPaid >= Number(inv.amountBase)) {
-      await tx.update(invoice).set({ status: "paid", updatedAt: /* @__PURE__ */ new Date() }).where(eq30(invoice.id, input.invoiceId));
+      await tx.update(invoice).set({ status: "paid", updatedAt: /* @__PURE__ */ new Date() }).where(eq31(invoice.id, input.invoiceId));
+    }
+    return { row, invoice: inv, saldada: totalPaid >= Number(inv.amountBase) };
+  }).then(async ({ row, invoice: inv, saldada }) => {
+    await notifyAdmins(portalId, "payment_received", {
+      invoiceId: inv.id,
+      invoiceNumber: inv.number,
+      amount: row.amount,
+      currency: row.currency
+    }, {
+      entity: { type: "payment", id: row.id },
+      // Un cobro por id es un hecho único: reintentos del mismo insert no
+      // deben duplicar el aviso.
+      dedupeKey: `payment_received:${row.id}`
+    });
+    if (saldada && inv.dealId) {
+      await notifyDealClients(portalId, inv.dealId, "invoice_paid", {
+        invoiceId: inv.id,
+        invoiceNumber: inv.number
+      }, {
+        entity: { type: "invoice", id: inv.id },
+        dedupeKey: `invoice_paid:${inv.id}`
+      });
     }
     return row;
   });
 }
 async function listExpenses(portalId, query) {
-  const conditions = [eq30(expense.portalId, portalId), eq30(expense.archived, false)];
-  if (query.category) conditions.push(eq30(expense.category, query.category));
-  if (query.dealId) conditions.push(eq30(expense.dealId, query.dealId));
-  if (query.isRecurring != null) conditions.push(eq30(expense.isRecurring, query.isRecurring));
+  const conditions = [eq31(expense.portalId, portalId), eq31(expense.archived, false)];
+  if (query.category) conditions.push(eq31(expense.category, query.category));
+  if (query.dealId) conditions.push(eq31(expense.dealId, query.dealId));
+  if (query.isRecurring != null) conditions.push(eq31(expense.isRecurring, query.isRecurring));
   if (query.from && query.to) {
     conditions.push(between(expense.expenseDate, query.from, query.to));
   } else if (query.from) {
@@ -7368,7 +7834,7 @@ async function listExpenses(portalId, query) {
   } else if (query.to) {
     conditions.push(lte3(expense.expenseDate, query.to));
   }
-  return db.select().from(expense).where(and26(...conditions)).orderBy(desc18(expense.expenseDate));
+  return db.select().from(expense).where(and27(...conditions)).orderBy(desc18(expense.expenseDate));
 }
 async function createExpense(portalId, userId, input) {
   return db.transaction(async (tx) => {
@@ -7440,7 +7906,7 @@ async function updateExpense(portalId, id, userId, input) {
     if (input.isRecurring != null) patch.isRecurring = input.isRecurring;
     if (input.notes !== void 0) patch.notes = input.notes ?? null;
     if (input.storageKey !== void 0) patch.storageKey = input.storageKey ?? null;
-    const [updated] = await tx.update(expense).set(patch).where(eq30(expense.id, id)).returning();
+    const [updated] = await tx.update(expense).set(patch).where(eq31(expense.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el gasto");
     await recordFieldChanges({
       tx,
@@ -7457,10 +7923,10 @@ async function updateExpense(portalId, id, userId, input) {
 }
 async function archiveExpense(portalId, id) {
   await requireExpense(portalId, id);
-  await db.update(expense).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(expense.id, id));
+  await db.update(expense).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq31(expense.id, id));
 }
 async function expenseSummary(portalId) {
-  const expenses = await db.select().from(expense).where(and26(eq30(expense.portalId, portalId), eq30(expense.archived, false)));
+  const expenses = await db.select().from(expense).where(and27(eq31(expense.portalId, portalId), eq31(expense.archived, false)));
   let totalUsd = 0;
   let totalArs = 0;
   const byCategory = {};
@@ -7481,20 +7947,20 @@ async function expenseSummary(portalId) {
   };
 }
 async function listRetainers(portalId, query) {
-  const conditions = [eq30(retainer.portalId, portalId), eq30(retainer.archived, false)];
-  if (query.status) conditions.push(eq30(retainer.status, query.status));
-  if (query.companyId) conditions.push(eq30(retainer.companyId, query.companyId));
-  const retainers = await db.select().from(retainer).where(and26(...conditions)).orderBy(asc8(retainer.startDate));
+  const conditions = [eq31(retainer.portalId, portalId), eq31(retainer.archived, false)];
+  if (query.status) conditions.push(eq31(retainer.status, query.status));
+  if (query.companyId) conditions.push(eq31(retainer.companyId, query.companyId));
+  const retainers = await db.select().from(retainer).where(and27(...conditions)).orderBy(asc8(retainer.startDate));
   if (retainers.length === 0) return [];
   const companyIds = [...new Set(retainers.map((r) => r.companyId))];
-  const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray11(company.id, companyIds));
+  const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray12(company.id, companyIds));
   const companyMap = new Map(companies.map((c) => [c.id, c.name]));
   return retainers.map((r) => ({ ...r, companyName: companyMap.get(r.companyId) ?? null }));
 }
 async function getRetainerDetail(portalId, id) {
   const ret = await requireRetainer(portalId, id);
-  const [companyRow] = await db.select({ name: company.name }).from(company).where(eq30(company.id, ret.companyId)).limit(1);
-  const invoices_ = await db.select().from(invoice).where(and26(eq30(invoice.retainerId, id), eq30(invoice.archived, false))).orderBy(desc18(invoice.createdAt));
+  const [companyRow] = await db.select({ name: company.name }).from(company).where(eq31(company.id, ret.companyId)).limit(1);
+  const invoices_ = await db.select().from(invoice).where(and27(eq31(invoice.retainerId, id), eq31(invoice.archived, false))).orderBy(desc18(invoice.createdAt));
   return {
     ...ret,
     companyName: companyRow?.name ?? null,
@@ -7502,7 +7968,7 @@ async function getRetainerDetail(portalId, id) {
   };
 }
 async function createRetainer(portalId, userId, input) {
-  const [companyRow] = await db.select().from(company).where(and26(eq30(company.id, input.companyId), eq30(company.portalId, portalId))).limit(1);
+  const [companyRow] = await db.select().from(company).where(and27(eq31(company.id, input.companyId), eq31(company.portalId, portalId))).limit(1);
   if (!companyRow) throw Errors.notFound("Empresa no encontrada");
   const currency = input.currency;
   const exchangeRate = currency === "ARS" ? input.exchangeRate ?? 1 : 1;
@@ -7544,15 +8010,15 @@ async function updateRetainer(portalId, id, input) {
       ...input.endDate !== void 0 ? { endDate: input.endDate ?? null } : {},
       ...input.notes !== void 0 ? { notes: input.notes ?? null } : {},
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq30(retainer.id, id)).returning();
+    }).where(eq31(retainer.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el retainer");
-    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq30(company.id, updated.companyId)).limit(1);
+    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq31(company.id, updated.companyId)).limit(1);
     return { ...updated, companyName: companyRow?.name ?? null };
   });
 }
 async function archiveRetainer(portalId, id) {
   await requireRetainer(portalId, id);
-  await db.update(retainer).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(retainer.id, id));
+  await db.update(retainer).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq31(retainer.id, id));
 }
 async function generateRetainerInvoice(portalId, retainerId, userId) {
   return db.transaction(async (tx) => {
@@ -7562,15 +8028,15 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
     }
     const currentMonth = (/* @__PURE__ */ new Date()).toISOString().slice(0, 7);
     const [existing] = await tx.select().from(invoice).where(
-      and26(
-        eq30(invoice.retainerId, retainerId),
-        eq30(invoice.archived, false),
+      and27(
+        eq31(invoice.retainerId, retainerId),
+        eq31(invoice.archived, false),
         // issueDate LIKE 'YYYY-MM-%'
-        sql27`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
+        sql30`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
       )
     ).limit(1);
     if (existing) return { invoice: existing, created: false };
-    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq30(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql30`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq31(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const [row] = await tx.insert(invoice).values({
@@ -7602,7 +8068,7 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
   });
 }
 async function financeSummary(portalId, query) {
-  const invoiceConds = [eq30(invoice.portalId, portalId), eq30(invoice.archived, false)];
+  const invoiceConds = [eq31(invoice.portalId, portalId), eq31(invoice.archived, false)];
   if (query.from && query.to) {
     invoiceConds.push(between(invoice.issueDate, query.from, query.to));
   } else if (query.from) {
@@ -7610,13 +8076,13 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     invoiceConds.push(lte3(invoice.issueDate, query.to));
   }
-  const invoicesInPeriod = await db.select().from(invoice).where(and26(...invoiceConds));
+  const invoicesInPeriod = await db.select().from(invoice).where(and27(...invoiceConds));
   const totalInvoiced = invoicesInPeriod.filter((i) => i.status !== "void").reduce((acc, i) => acc + Number(i.amountBase), 0);
   const invoicesByStatus = {};
   for (const inv of invoicesInPeriod) {
     invoicesByStatus[inv.status] = (invoicesByStatus[inv.status] ?? 0) + 1;
   }
-  const paymentConds = [eq30(payment.portalId, portalId)];
+  const paymentConds = [eq31(payment.portalId, portalId)];
   if (query.from && query.to) {
     paymentConds.push(between(payment.paidAt, new Date(query.from), /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   } else if (query.from) {
@@ -7624,9 +8090,9 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     paymentConds.push(lte3(payment.paidAt, /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   }
-  const [payTotals] = await db.select({ total: sum2(payment.amountBase) }).from(payment).where(and26(...paymentConds));
+  const [payTotals] = await db.select({ total: sum2(payment.amountBase) }).from(payment).where(and27(...paymentConds));
   const totalPaid = Number(payTotals?.total ?? 0);
-  const expenseConds = [eq30(expense.portalId, portalId), eq30(expense.archived, false)];
+  const expenseConds = [eq31(expense.portalId, portalId), eq31(expense.archived, false)];
   if (query.from && query.to) {
     expenseConds.push(between(expense.expenseDate, query.from, query.to));
   } else if (query.from) {
@@ -7634,20 +8100,20 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     expenseConds.push(lte3(expense.expenseDate, query.to));
   }
-  const [expTotals] = await db.select({ total: sum2(expense.amountBase) }).from(expense).where(and26(...expenseConds));
+  const [expTotals] = await db.select({ total: sum2(expense.amountBase) }).from(expense).where(and27(...expenseConds));
   const totalExpenses = Number(expTotals?.total ?? 0);
   const netProfit = totalPaid - totalExpenses;
   const openInvoices = await db.select().from(invoice).where(
-    and26(
-      eq30(invoice.portalId, portalId),
-      eq30(invoice.archived, false),
-      inArray11(invoice.status, ["sent", "overdue"])
+    and27(
+      eq31(invoice.portalId, portalId),
+      eq31(invoice.archived, false),
+      inArray12(invoice.status, ["sent", "overdue"])
     )
   );
   let outstanding = 0;
   if (openInvoices.length > 0) {
     const openIds = openInvoices.map((i) => i.id);
-    const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray11(payment.invoiceId, openIds)).groupBy(payment.invoiceId);
+    const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray12(payment.invoiceId, openIds)).groupBy(payment.invoiceId);
     const paidMap = new Map(
       paidByInvoice.map((r) => [r.invoiceId, Number(r.total ?? 0)])
     );
@@ -7655,7 +8121,7 @@ async function financeSummary(portalId, query) {
       outstanding += Math.max(0, Number(inv.amountBase) - (paidMap.get(inv.id) ?? 0));
     }
   }
-  const [mrrRow] = await db.select({ total: sum2(retainer.amountBase) }).from(retainer).where(and26(eq30(retainer.portalId, portalId), eq30(retainer.status, "active"), eq30(retainer.archived, false)));
+  const [mrrRow] = await db.select({ total: sum2(retainer.amountBase) }).from(retainer).where(and27(eq31(retainer.portalId, portalId), eq31(retainer.status, "active"), eq31(retainer.archived, false)));
   const mrr = Number(mrrRow?.total ?? 0);
   return {
     totalInvoiced: num(totalInvoiced),
@@ -7678,19 +8144,19 @@ async function monthlySummary(portalId, months = 6) {
   const from = points[0].month + "-01";
   const to = now.toISOString().slice(0, 10);
   const incomeRows = await db.select({
-    month: sql27`to_char(${payment.paidAt}, 'YYYY-MM')`,
+    month: sql30`to_char(${payment.paidAt}, 'YYYY-MM')`,
     total: sum2(payment.amountBase)
-  }).from(payment).where(and26(eq30(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql27`to_char(${payment.paidAt}, 'YYYY-MM')`);
+  }).from(payment).where(and27(eq31(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql30`to_char(${payment.paidAt}, 'YYYY-MM')`);
   const expenseRows = await db.select({
-    month: sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
+    month: sql30`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
     total: sum2(expense.amountBase)
   }).from(expense).where(
-    and26(
-      eq30(expense.portalId, portalId),
-      eq30(expense.archived, false),
+    and27(
+      eq31(expense.portalId, portalId),
+      eq31(expense.archived, false),
       between(expense.expenseDate, from, to)
     )
-  ).groupBy(sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
+  ).groupBy(sql30`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
   const incomeMap = new Map(incomeRows.map((r) => [r.month, Number(r.total ?? 0)]));
   const expenseMap = new Map(expenseRows.map((r) => [r.month, Number(r.total ?? 0)]));
   return points.map((p) => {
@@ -7701,15 +8167,15 @@ async function monthlySummary(portalId, months = 6) {
 }
 async function topDebtors(portalId, limit = 5) {
   const openInvoices = await db.select().from(invoice).where(
-    and26(
-      eq30(invoice.portalId, portalId),
-      eq30(invoice.archived, false),
-      inArray11(invoice.status, ["sent", "overdue"])
+    and27(
+      eq31(invoice.portalId, portalId),
+      eq31(invoice.archived, false),
+      inArray12(invoice.status, ["sent", "overdue"])
     )
   );
   if (openInvoices.length === 0) return [];
   const openIds = openInvoices.map((i) => i.id);
-  const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray11(payment.invoiceId, openIds)).groupBy(payment.invoiceId);
+  const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray12(payment.invoiceId, openIds)).groupBy(payment.invoiceId);
   const paidMap = new Map(
     paidByInvoice.map((r) => [r.invoiceId, Number(r.total ?? 0)])
   );
@@ -7721,7 +8187,7 @@ async function topDebtors(portalId, limit = 5) {
   }
   if (debtorMap.size === 0) return [];
   const companyIds = [...debtorMap.keys()].slice(0, 50);
-  const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray11(company.id, companyIds));
+  const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray12(company.id, companyIds));
   const companyMap = new Map(companies.map((c) => [c.id, c.name]));
   return [...debtorMap.entries()].sort(([, a], [, b]) => b - a).slice(0, limit).map(([companyId, outstanding]) => ({
     companyId,
@@ -7731,11 +8197,11 @@ async function topDebtors(portalId, limit = 5) {
 }
 async function generateInvoicePdf(portalId, id) {
   const { invoice: inv, items } = await getInvoiceDetail(portalId, id);
-  const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq30(portal.id, portalId)).limit(1);
+  const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq31(portal.id, portalId)).limit(1);
   const portalName = portalRow?.name ?? "Synous";
   let companyName = "\u2014";
   if (inv.companyId) {
-    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq30(company.id, inv.companyId)).limit(1);
+    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq31(company.id, inv.companyId)).limit(1);
     companyName = companyRow?.name ?? "\u2014";
   }
   const easyinvoice = (await import("easyinvoice")).default;
@@ -7761,7 +8227,7 @@ async function generateInvoicePdf(portalId, id) {
 
 // src/modules/finance/finance.router.ts
 var TAG22 = "Finanzas";
-var security21 = ADMIN_SECURITY;
+var security20 = ADMIN_SECURITY;
 var financeAuth = [authorize("owner", "member")];
 async function financeRoutes(app2) {
   const r = app2.withTypeProvider();
@@ -7773,7 +8239,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Listar facturas",
         description: "Lista facturas con derivedStatus y balance. Soporta tabs: all|por_cobrar|vencidas|pagadas|borradores.",
-        security: security21,
+        security: security20,
         querystring: ListInvoicesQuerySchema
       },
       preHandler: financeAuth
@@ -7790,7 +8256,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Crear factura",
         description: "Crea una factura con multimoneda. Calcula amountBase autom\xE1ticamente.",
-        security: security21,
+        security: security20,
         body: CreateInvoiceSchema
       },
       preHandler: financeAuth
@@ -7807,7 +8273,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Detalle de factura",
         description: "Devuelve la factura con \xEDtems, cobros y balance pendiente en USD.",
-        security: security21,
+        security: security20,
         params: IdParamSchema
       },
       preHandler: financeAuth
@@ -7823,7 +8289,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "PDF de factura",
         description: "Genera el PDF en el servidor y devuelve el base64 para descarga en el cliente.",
-        security: security21,
+        security: security20,
         params: IdParamSchema
       },
       preHandler: financeAuth
@@ -7839,7 +8305,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Actualizar factura",
         description: "Actualiza campos de una factura en borrador. Recalcula amountBase si cambia moneda/TC.",
-        security: security21,
+        security: security20,
         params: IdParamSchema,
         body: UpdateInvoiceSchema
       },
@@ -7856,7 +8322,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Cambiar estado de factura",
         description: "Transiciona el estado manual (draft\u2192sent, sent\u2192overdue, etc.).",
-        security: security21,
+        security: security20,
         params: IdParamSchema,
         body: TransitionInvoiceSchema
       },
@@ -7873,7 +8339,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Archivar factura",
         description: "Archiva la factura (soft-delete). No elimina datos de cobros asociados.",
-        security: security21,
+        security: security20,
         params: IdParamSchema
       },
       preHandler: financeAuth
@@ -7890,7 +8356,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Listar cobros",
         description: "Lista cobros enriquecidos (n\xFAmero de factura, moneda, empresa). Soporta filtros method/from/to/companyId/invoiceId.",
-        security: security21,
+        security: security20,
         querystring: ListPaymentsQuerySchema
       },
       preHandler: financeAuth
@@ -7907,7 +8373,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Registrar cobro",
         description: "Registra un cobro. El TC se congela al momento del pago. Si cubre el amountBase, marca la factura como pagada.",
-        security: security21,
+        security: security20,
         body: CreatePaymentSchema
       },
       preHandler: financeAuth
@@ -7924,7 +8390,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Listar gastos",
         description: "Lista gastos con filtros por categor\xEDa, deal, per\xEDodo y recurrencia.",
-        security: security21,
+        security: security20,
         querystring: ListExpensesQuerySchema
       },
       preHandler: financeAuth
@@ -7940,7 +8406,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Resumen de gastos",
         description: "Total de gastos en USD y ARS, m\xE1s desglose por categor\xEDa.",
-        security: security21
+        security: security20
       },
       preHandler: financeAuth
     },
@@ -7955,7 +8421,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Crear gasto",
         description: "Crea un gasto con multimoneda. Calcula amountBase autom\xE1ticamente. Registra en record_history.",
-        security: security21,
+        security: security20,
         body: CreateExpenseSchema
       },
       preHandler: financeAuth
@@ -7972,7 +8438,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Actualizar gasto",
         description: "Actualiza campos del gasto. Recalcula amountBase si cambia monto/moneda/TC.",
-        security: security21,
+        security: security20,
         params: IdParamSchema,
         body: UpdateExpenseSchema
       },
@@ -7989,7 +8455,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Archivar gasto",
         description: "Archiva el gasto (soft-delete).",
-        security: security21,
+        security: security20,
         params: IdParamSchema
       },
       preHandler: financeAuth
@@ -8006,7 +8472,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Listar retainers",
         description: "Lista retainers con companyName. Filtr\xE1 por status o companyId.",
-        security: security21,
+        security: security20,
         querystring: ListRetainersQuerySchema
       },
       preHandler: financeAuth
@@ -8022,7 +8488,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Crear retainer",
         description: "Crea un contrato de honorarios mensuales. billingDay controla cu\xE1ndo se genera la factura (1\u201328).",
-        security: security21,
+        security: security20,
         body: CreateRetainerSchema
       },
       preHandler: financeAuth
@@ -8039,7 +8505,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Detalle de retainer",
         description: "Devuelve el retainer con sus facturas vinculadas.",
-        security: security21,
+        security: security20,
         params: IdParamSchema
       },
       preHandler: financeAuth
@@ -8055,7 +8521,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Actualizar retainer",
         description: "Actualiza estado, monto o configuraci\xF3n. Un retainer cancelado no puede reactivarse.",
-        security: security21,
+        security: security20,
         params: IdParamSchema,
         body: UpdateRetainerSchema
       },
@@ -8072,7 +8538,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Archivar retainer",
         description: "Archiva el retainer (soft-delete). Las facturas ya generadas se mantienen.",
-        security: security21,
+        security: security20,
         params: IdParamSchema
       },
       preHandler: financeAuth
@@ -8089,9 +8555,9 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Generar factura de retainer",
         description: "Genera la factura del per\xEDodo actual (idempotente: no duplica si ya existe en el mes).",
-        security: security21,
+        security: security20,
         params: IdParamSchema,
-        body: z22.object({})
+        body: z23.object({})
       },
       preHandler: financeAuth
     },
@@ -8112,7 +8578,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Resumen financiero",
         description: "KPIs: totalInvoiced/totalPaid/outstanding/totalExpenses/netProfit/mrr/invoicesByStatus. Filtrable por per\xEDodo from/to.",
-        security: security21,
+        security: security20,
         querystring: SummaryQuerySchema
       },
       preHandler: financeAuth
@@ -8128,7 +8594,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Resumen mensual",
         description: "Ingresos vs gastos por mes para el gr\xE1fico de barras. months=6 por default (m\xE1x 24).",
-        security: security21,
+        security: security20,
         querystring: MonthlySummaryQuerySchema
       },
       preHandler: financeAuth
@@ -8145,7 +8611,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Top deudores",
         description: "Empresas con mayor saldo pendiente de CxC. limit=5 por default.",
-        security: security21,
+        security: security20,
         querystring: DebtorsQuerySchema
       },
       preHandler: financeAuth
@@ -8162,7 +8628,7 @@ async function financeRoutes(app2) {
         tags: [TAG22],
         summary: "Tipo de cambio ARS/USD",
         description: "Cotizaciones blue y tarjeta de dolarapi.com (cach\xE9 10 min). El front usa blue.venta como TC por defecto.",
-        security: security21
+        security: security20
       },
       preHandler: financeAuth
     },
@@ -8174,26 +8640,19 @@ async function financeRoutes(app2) {
 }
 
 // src/modules/notification-prefs/notification-prefs.schema.ts
-import { z as z23 } from "zod";
-var KNOWN_EVENT_TYPES = [
-  "deal_stage_changed",
-  "cr_approved",
-  "cr_rejected",
-  "task_due",
-  "deal_stale",
-  "client_message"
-];
-var UpsertPrefSchema = z23.object({
-  eventType: z23.string().min(1),
-  inApp: z23.boolean(),
-  email: z23.boolean()
+import { z as z24 } from "zod";
+var KNOWN_EVENT_TYPES = ADMIN_EVENT_TYPES;
+var UpsertPrefSchema = z24.object({
+  eventType: z24.string().min(1),
+  inApp: z24.boolean(),
+  email: z24.boolean()
 });
-var BulkUpsertPrefSchema = z23.object({
-  prefs: z23.array(UpsertPrefSchema).min(1)
+var BulkUpsertPrefSchema = z24.object({
+  prefs: z24.array(UpsertPrefSchema).min(1)
 });
 
 // src/modules/notification-prefs/notification-prefs.service.ts
-import { and as and27, eq as eq31 } from "drizzle-orm";
+import { and as and28, eq as eq32 } from "drizzle-orm";
 function defaultPref(portalId, userId, eventType) {
   return {
     id: "",
@@ -8207,7 +8666,7 @@ function defaultPref(portalId, userId, eventType) {
   };
 }
 async function listPrefs(portalId, userId) {
-  const rows = await db.select().from(notificationPref).where(and27(eq31(notificationPref.portalId, portalId), eq31(notificationPref.userId, userId)));
+  const rows = await db.select().from(notificationPref).where(and28(eq32(notificationPref.portalId, portalId), eq32(notificationPref.userId, userId)));
   const rowsByType = new Map(rows.map((r) => [r.eventType, r]));
   return KNOWN_EVENT_TYPES.map(
     (et) => rowsByType.get(et) ?? defaultPref(portalId, userId, et)
@@ -8233,7 +8692,7 @@ async function upsertPref(portalId, userId, input) {
 
 // src/modules/notification-prefs/notification-prefs.router.ts
 var TAG23 = "Notificaciones";
-var security22 = ADMIN_SECURITY;
+var security21 = ADMIN_SECURITY;
 async function notificationPrefsRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -8244,7 +8703,7 @@ async function notificationPrefsRoutes(app2) {
         tags: [TAG23],
         summary: "Listar preferencias de notificaci\xF3n",
         description: "Devuelve las preferencias del usuario autenticado para todos los eventTypes conocidos. Si no hay filas guardadas se devuelven los defaults sin persistirlos.",
-        security: security22
+        security: security21
       }
     },
     async (request) => {
@@ -8259,7 +8718,7 @@ async function notificationPrefsRoutes(app2) {
         tags: [TAG23],
         summary: "Actualizar preferencia de notificaci\xF3n",
         description: "Upsert de una preferencia (inApp / email) para el eventType indicado.",
-        security: security22,
+        security: security21,
         body: UpsertPrefSchema.omit({ eventType: true })
       }
     },
@@ -8275,47 +8734,47 @@ async function notificationPrefsRoutes(app2) {
 }
 
 // src/modules/custom-fields/custom-fields.schema.ts
-import { z as z24 } from "zod";
-var EntityTypeEnum = z24.enum(["contact", "deal", "company"]);
-var FieldTypeEnum = z24.enum(["text", "number", "date", "select", "boolean"]);
-var keySchema = z24.string().regex(/^[a-z][a-z0-9_]*$/, {
+import { z as z25 } from "zod";
+var EntityTypeEnum = z25.enum(["contact", "deal", "company"]);
+var FieldTypeEnum = z25.enum(["text", "number", "date", "select", "boolean"]);
+var keySchema = z25.string().regex(/^[a-z][a-z0-9_]*$/, {
   message: "La clave debe comenzar con una letra min\xFAscula y contener solo letras, n\xFAmeros y guion bajo"
 });
-var CreateCustomFieldSchema = z24.object({
+var CreateCustomFieldSchema = z25.object({
   entityType: EntityTypeEnum,
   key: keySchema,
-  label: z24.string().min(1),
+  label: z25.string().min(1),
   fieldType: FieldTypeEnum,
-  options: z24.array(z24.string().min(1)).optional(),
-  displayOrder: z24.number().int().min(0).optional()
+  options: z25.array(z25.string().min(1)).optional(),
+  displayOrder: z25.number().int().min(0).optional()
 });
-var UpdateCustomFieldSchema = z24.object({
-  label: z24.string().min(1),
+var UpdateCustomFieldSchema = z25.object({
+  label: z25.string().min(1),
   fieldType: FieldTypeEnum,
-  options: z24.array(z24.string().min(1)).nullable(),
-  displayOrder: z24.number().int().min(0)
+  options: z25.array(z25.string().min(1)).nullable(),
+  displayOrder: z25.number().int().min(0)
 }).partial();
-var ListCustomFieldsQuerySchema = z24.object({
+var ListCustomFieldsQuerySchema = z25.object({
   entityType: EntityTypeEnum.optional()
 });
 
 // src/modules/custom-fields/custom-fields.service.ts
-import { and as and28, asc as asc9, eq as eq32 } from "drizzle-orm";
+import { and as and29, asc as asc9, eq as eq33 } from "drizzle-orm";
 async function listCustomFields(portalId, query) {
   const conditions = [
-    eq32(customField.portalId, portalId),
-    eq32(customField.archived, false),
-    ...query.entityType ? [eq32(customField.entityType, query.entityType)] : []
+    eq33(customField.portalId, portalId),
+    eq33(customField.archived, false),
+    ...query.entityType ? [eq33(customField.entityType, query.entityType)] : []
   ];
-  return db.select().from(customField).where(and28(...conditions)).orderBy(asc9(customField.displayOrder), asc9(customField.createdAt));
+  return db.select().from(customField).where(and29(...conditions)).orderBy(asc9(customField.displayOrder), asc9(customField.createdAt));
 }
 async function createCustomField(portalId, input) {
   const [existing] = await db.select({ id: customField.id }).from(customField).where(
-    and28(
-      eq32(customField.portalId, portalId),
-      eq32(customField.entityType, input.entityType),
-      eq32(customField.key, input.key),
-      eq32(customField.archived, false)
+    and29(
+      eq33(customField.portalId, portalId),
+      eq33(customField.entityType, input.entityType),
+      eq33(customField.key, input.key),
+      eq33(customField.archived, false)
     )
   ).limit(1);
   if (existing) {
@@ -8347,14 +8806,14 @@ async function createCustomField(portalId, input) {
 async function updateCustomField(portalId, id, input) {
   return db.transaction(async (tx) => {
     const [existing] = await tx.select({ id: customField.id }).from(customField).where(
-      and28(
-        eq32(customField.id, id),
-        eq32(customField.portalId, portalId),
-        eq32(customField.archived, false)
+      and29(
+        eq33(customField.id, id),
+        eq33(customField.portalId, portalId),
+        eq33(customField.archived, false)
       )
     ).limit(1);
     if (!existing) throw Errors.notFound("Campo personalizado no encontrado");
-    const [updated] = await tx.update(customField).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq32(customField.id, id)).returning();
+    const [updated] = await tx.update(customField).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq33(customField.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el campo personalizado");
     return updated;
   });
@@ -8362,20 +8821,20 @@ async function updateCustomField(portalId, id, input) {
 async function archiveCustomField(portalId, id) {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({ id: customField.id }).from(customField).where(
-      and28(
-        eq32(customField.id, id),
-        eq32(customField.portalId, portalId),
-        eq32(customField.archived, false)
+      and29(
+        eq33(customField.id, id),
+        eq33(customField.portalId, portalId),
+        eq33(customField.archived, false)
       )
     ).limit(1);
     if (!row) throw Errors.notFound("Campo personalizado no encontrado");
-    await tx.update(customField).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq32(customField.id, id));
+    await tx.update(customField).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq33(customField.id, id));
   });
 }
 
 // src/modules/custom-fields/custom-fields.router.ts
 var TAG24 = "Configuraci\xF3n";
-var security23 = ADMIN_SECURITY;
+var security22 = ADMIN_SECURITY;
 async function customFieldsRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -8386,7 +8845,7 @@ async function customFieldsRoutes(app2) {
         tags: [TAG24],
         summary: "Listar campos personalizados",
         description: "Lista las definiciones de campos personalizados del portal. Los valores reales viven en el jsonb `custom` de cada entidad.",
-        security: security23,
+        security: security22,
         querystring: ListCustomFieldsQuerySchema
       }
     },
@@ -8402,7 +8861,7 @@ async function customFieldsRoutes(app2) {
         tags: [TAG24],
         summary: "Crear campo personalizado",
         description: "Crea una nueva definici\xF3n de campo personalizado. La clave (key) debe ser \xFAnica por portal + entidad. Requiere rol owner o member.",
-        security: security23,
+        security: security22,
         body: CreateCustomFieldSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -8419,7 +8878,7 @@ async function customFieldsRoutes(app2) {
         tags: [TAG24],
         summary: "Actualizar campo personalizado",
         description: "Actualiza label, fieldType, options o displayOrder. La entityType y key no se pueden cambiar. Requiere rol owner o member.",
-        security: security23,
+        security: security22,
         params: IdParamSchema,
         body: UpdateCustomFieldSchema
       },
@@ -8436,7 +8895,7 @@ async function customFieldsRoutes(app2) {
         tags: [TAG24],
         summary: "Archivar campo personalizado",
         description: "Archiva el campo (soft delete). Los valores ya guardados en el jsonb `custom` de las entidades no se borran. Requiere rol owner o member.",
-        security: security23,
+        security: security22,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -8449,57 +8908,57 @@ async function customFieldsRoutes(app2) {
 }
 
 // src/modules/timeline/timeline.schema.ts
-import { z as z25 } from "zod";
-var LogCallSchema = z25.object({
-  title: z25.string().min(1).optional(),
-  body: z25.string().optional(),
-  direction: z25.enum(["inbound", "outbound"]).optional(),
-  durationSec: z25.number().int().nonnegative().optional(),
-  occurredAt: z25.string().datetime().optional(),
-  dealId: z25.string().min(1).optional(),
-  contactId: z25.string().min(1).optional()
+import { z as z26 } from "zod";
+var LogCallSchema = z26.object({
+  title: z26.string().min(1).optional(),
+  body: z26.string().optional(),
+  direction: z26.enum(["inbound", "outbound"]).optional(),
+  durationSec: z26.number().int().nonnegative().optional(),
+  occurredAt: z26.string().datetime().optional(),
+  dealId: z26.string().min(1).optional(),
+  contactId: z26.string().min(1).optional()
 }).refine((v) => v.dealId != null || v.contactId != null, {
   message: "Se requiere al menos dealId o contactId"
 });
-var LogMeetingSchema = z25.object({
-  title: z25.string().min(1),
-  startsAt: z25.string().datetime().optional(),
-  endsAt: z25.string().datetime().optional(),
-  location: z25.string().optional(),
-  dealId: z25.string().min(1).optional(),
-  contactId: z25.string().min(1).optional()
+var LogMeetingSchema = z26.object({
+  title: z26.string().min(1),
+  startsAt: z26.string().datetime().optional(),
+  endsAt: z26.string().datetime().optional(),
+  location: z26.string().optional(),
+  dealId: z26.string().min(1).optional(),
+  contactId: z26.string().min(1).optional()
 }).refine((v) => v.dealId != null || v.contactId != null, {
   message: "Se requiere al menos dealId o contactId"
 });
-var LogEmailSchema = z25.object({
-  fromEmail: z25.string().email(),
-  toEmail: z25.string().email(),
-  subject: z25.string().min(1),
-  bodyHtml: z25.string().optional(),
-  dealId: z25.string().min(1).optional(),
-  contactId: z25.string().min(1).optional()
+var LogEmailSchema = z26.object({
+  fromEmail: z26.string().email(),
+  toEmail: z26.string().email(),
+  subject: z26.string().min(1),
+  bodyHtml: z26.string().optional(),
+  dealId: z26.string().min(1).optional(),
+  contactId: z26.string().min(1).optional()
 }).refine((v) => v.dealId != null || v.contactId != null, {
   message: "Se requiere al menos dealId o contactId"
 });
-var TimelineQuerySchema = z25.object({
-  dealId: z25.string().min(1).optional(),
-  contactId: z25.string().min(1).optional(),
-  companyId: z25.string().min(1).optional()
+var TimelineQuerySchema = z26.object({
+  dealId: z26.string().min(1).optional(),
+  contactId: z26.string().min(1).optional(),
+  companyId: z26.string().min(1).optional()
 }).refine((v) => [v.dealId, v.contactId, v.companyId].filter(Boolean).length === 1, {
   message: "Se requiere exactamente uno de: dealId, contactId, companyId"
 });
 
 // src/modules/timeline/timeline.service.ts
-import { and as and29, desc as desc19, eq as eq34, inArray as inArray12 } from "drizzle-orm";
+import { and as and30, desc as desc19, eq as eq35, inArray as inArray13 } from "drizzle-orm";
 
 // src/modules/email-tracking/email-tracking.service.ts
-import { eq as eq33 } from "drizzle-orm";
+import { eq as eq34 } from "drizzle-orm";
 var TRACKING_PIXEL_GIF = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
   "base64"
 );
 async function recordOpen(trackingId, userAgent, ip) {
-  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq33(emailSend.trackingId, trackingId)).limit(1);
+  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq34(emailSend.trackingId, trackingId)).limit(1);
   if (!send) return;
   await db.insert(emailEvent).values({
     emailId: send.id,
@@ -8509,7 +8968,7 @@ async function recordOpen(trackingId, userAgent, ip) {
   });
 }
 async function recordClick(trackingId, url, userAgent, ip) {
-  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq33(emailSend.trackingId, trackingId)).limit(1);
+  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq34(emailSend.trackingId, trackingId)).limit(1);
   if (!send) return;
   await db.insert(emailEvent).values({
     emailId: send.id,
@@ -8586,7 +9045,7 @@ async function logEmail(portalId, _userId, input) {
   if (!row) throw Errors.internal("No se pudo registrar el email");
   if (input.bodyHtml) {
     const htmlWithPixel = injectTrackingPixel(input.bodyHtml, row.trackingId);
-    const [updated] = await db.update(emailSend).set({ bodyHtml: htmlWithPixel }).where(eq34(emailSend.id, row.id)).returning();
+    const [updated] = await db.update(emailSend).set({ bodyHtml: htmlWithPixel }).where(eq35(emailSend.id, row.id)).returning();
     if (updated) return updated;
   }
   return row;
@@ -8595,10 +9054,10 @@ async function getTimeline(portalId, query) {
   const { dealId, contactId, companyId } = query;
   const items = [];
   if (dealId != null || contactId != null) {
-    const callConds = [eq34(call.portalId, portalId)];
-    if (dealId != null) callConds.push(eq34(call.dealId, dealId));
-    else if (contactId != null) callConds.push(eq34(call.contactId, contactId));
-    const calls = await db.select().from(call).where(and29(...callConds)).orderBy(desc19(call.occurredAt)).limit(100);
+    const callConds = [eq35(call.portalId, portalId)];
+    if (dealId != null) callConds.push(eq35(call.dealId, dealId));
+    else if (contactId != null) callConds.push(eq35(call.contactId, contactId));
+    const calls = await db.select().from(call).where(and30(...callConds)).orderBy(desc19(call.occurredAt)).limit(100);
     for (const c of calls) {
       items.push({
         kind: "call",
@@ -8614,10 +9073,10 @@ async function getTimeline(portalId, query) {
     }
   }
   if (dealId != null || contactId != null) {
-    const meetConds = [eq34(meeting.portalId, portalId)];
-    if (dealId != null) meetConds.push(eq34(meeting.dealId, dealId));
-    else if (contactId != null) meetConds.push(eq34(meeting.contactId, contactId));
-    const meetings = await db.select().from(meeting).where(and29(...meetConds)).orderBy(desc19(meeting.createdAt)).limit(100);
+    const meetConds = [eq35(meeting.portalId, portalId)];
+    if (dealId != null) meetConds.push(eq35(meeting.dealId, dealId));
+    else if (contactId != null) meetConds.push(eq35(meeting.contactId, contactId));
+    const meetings = await db.select().from(meeting).where(and30(...meetConds)).orderBy(desc19(meeting.createdAt)).limit(100);
     for (const m of meetings) {
       items.push({
         kind: "meeting",
@@ -8634,12 +9093,12 @@ async function getTimeline(portalId, query) {
     }
   }
   if (dealId != null || contactId != null) {
-    const emailConds = [eq34(emailSend.portalId, portalId)];
-    if (dealId != null) emailConds.push(eq34(emailSend.dealId, dealId));
-    else if (contactId != null) emailConds.push(eq34(emailSend.contactId, contactId));
-    const emails = await db.select().from(emailSend).where(and29(...emailConds)).orderBy(desc19(emailSend.sentAt)).limit(100);
+    const emailConds = [eq35(emailSend.portalId, portalId)];
+    if (dealId != null) emailConds.push(eq35(emailSend.dealId, dealId));
+    else if (contactId != null) emailConds.push(eq35(emailSend.contactId, contactId));
+    const emails = await db.select().from(emailSend).where(and30(...emailConds)).orderBy(desc19(emailSend.sentAt)).limit(100);
     const emailIds = emails.map((e) => e.id);
-    const eventRows = emailIds.length ? await db.select({ emailId: emailEvent.emailId, type: emailEvent.type }).from(emailEvent).where(inArray12(emailEvent.emailId, emailIds)) : [];
+    const eventRows = emailIds.length ? await db.select({ emailId: emailEvent.emailId, type: emailEvent.type }).from(emailEvent).where(inArray13(emailEvent.emailId, emailIds)) : [];
     const openedSet = /* @__PURE__ */ new Set();
     const clickedSet = /* @__PURE__ */ new Set();
     for (const ev of eventRows) {
@@ -8665,11 +9124,11 @@ async function getTimeline(portalId, query) {
     }
   }
   {
-    const noteConds = [eq34(note.portalId, portalId)];
-    if (dealId != null) noteConds.push(eq34(note.dealId, dealId));
-    else if (contactId != null) noteConds.push(eq34(note.contactId, contactId));
-    else if (companyId != null) noteConds.push(eq34(note.companyId, companyId));
-    const notes = await db.select().from(note).where(and29(...noteConds)).orderBy(desc19(note.createdAt)).limit(100);
+    const noteConds = [eq35(note.portalId, portalId)];
+    if (dealId != null) noteConds.push(eq35(note.dealId, dealId));
+    else if (contactId != null) noteConds.push(eq35(note.contactId, contactId));
+    else if (companyId != null) noteConds.push(eq35(note.companyId, companyId));
+    const notes = await db.select().from(note).where(and30(...noteConds)).orderBy(desc19(note.createdAt)).limit(100);
     for (const n of notes) {
       items.push({
         kind: "note",
@@ -8681,11 +9140,11 @@ async function getTimeline(portalId, query) {
     }
   }
   {
-    const taskConds = [eq34(task.portalId, portalId)];
-    if (dealId != null) taskConds.push(eq34(task.dealId, dealId));
-    else if (contactId != null) taskConds.push(eq34(task.contactId, contactId));
-    else if (companyId != null) taskConds.push(eq34(task.companyId, companyId));
-    const tasks = await db.select().from(task).where(and29(...taskConds)).orderBy(desc19(task.createdAt)).limit(100);
+    const taskConds = [eq35(task.portalId, portalId)];
+    if (dealId != null) taskConds.push(eq35(task.dealId, dealId));
+    else if (contactId != null) taskConds.push(eq35(task.contactId, contactId));
+    else if (companyId != null) taskConds.push(eq35(task.companyId, companyId));
+    const tasks = await db.select().from(task).where(and30(...taskConds)).orderBy(desc19(task.createdAt)).limit(100);
     for (const t of tasks) {
       items.push({
         kind: "task",
@@ -8716,10 +9175,10 @@ async function getTimeline(portalId, query) {
       entityId = companyId;
     }
     const history = await db.select().from(recordHistory).where(
-      and29(
-        eq34(recordHistory.portalId, portalId),
-        eq34(recordHistory.entityType, entityType),
-        eq34(recordHistory.entityId, entityId)
+      and30(
+        eq35(recordHistory.portalId, portalId),
+        eq35(recordHistory.entityType, entityType),
+        eq35(recordHistory.entityId, entityId)
       )
     ).orderBy(desc19(recordHistory.changedAt)).limit(100);
     for (const h of history) {
@@ -8739,7 +9198,7 @@ async function getTimeline(portalId, query) {
 
 // src/modules/timeline/timeline.router.ts
 var TAG25 = "Actividades";
-var security24 = ADMIN_SECURITY;
+var security23 = ADMIN_SECURITY;
 async function timelineRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -8750,7 +9209,7 @@ async function timelineRoutes(app2) {
         tags: [TAG25],
         summary: "Timeline unificado",
         description: "Devuelve el timeline unificado (llamadas, reuniones, emails, notas, tareas, historial de cambios) para un deal, contacto o empresa. Exactamente uno de los tres filtros es requerido.",
-        security: security24,
+        security: security23,
         querystring: TimelineQuerySchema
       }
     },
@@ -8766,7 +9225,7 @@ async function timelineRoutes(app2) {
         tags: [TAG25],
         summary: "Registrar llamada",
         description: "Registra manualmente una llamada (entrante o saliente) asociada a un deal o contacto.",
-        security: security24,
+        security: security23,
         body: LogCallSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -8787,7 +9246,7 @@ async function timelineRoutes(app2) {
         tags: [TAG25],
         summary: "Registrar reuni\xF3n",
         description: "Registra manualmente una reuni\xF3n asociada a un deal o contacto.",
-        security: security24,
+        security: security23,
         body: LogMeetingSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -8808,7 +9267,7 @@ async function timelineRoutes(app2) {
         tags: [TAG25],
         summary: "Registrar email enviado",
         description: "Registra manualmente un email enviado (for logging purposes). El trackingId se genera autom\xE1ticamente en la base de datos.",
-        security: security24,
+        security: security23,
         body: LogEmailSchema
       },
       preHandler: [authorize("owner", "member", "collaborator")]
@@ -8825,13 +9284,13 @@ async function timelineRoutes(app2) {
 }
 
 // src/modules/focus/focus.schema.ts
-import { z as z26 } from "zod";
-var FocusQuerySchema = z26.object({
-  mine: z26.string().optional().transform((v) => v === "true").describe("Si es true, filtra follow-ups asignados al usuario autenticado")
+import { z as z27 } from "zod";
+var FocusQuerySchema = z27.object({
+  mine: z27.string().optional().transform((v) => v === "true").describe("Si es true, filtra follow-ups asignados al usuario autenticado")
 });
 
 // src/modules/focus/focus.service.ts
-import { and as and30, asc as asc10, eq as eq35, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql28 } from "drizzle-orm";
+import { and as and31, asc as asc10, eq as eq36, inArray as inArray14, lte as lte4, isNotNull as isNotNull2, sql as sql31 } from "drizzle-orm";
 
 // src/lib/dates.ts
 function startOfDay2(d) {
@@ -8854,21 +9313,21 @@ async function getFollowUps(portalId, userId) {
   const todayStart = startOfDay2(now);
   const sevenDaysEnd = endOfDay(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1e3));
   const baseConds = [
-    eq35(task.portalId, portalId),
-    inArray13(task.status, ["pending", "in_progress"]),
+    eq36(task.portalId, portalId),
+    inArray14(task.status, ["pending", "in_progress"]),
     isNotNull2(task.dueDate),
     lte4(task.dueDate, sevenDaysEnd)
     // only up to 7 days out
   ];
-  if (userId != null) baseConds.push(eq35(task.assignedTo, userId));
-  const openTasks = await db.select().from(task).where(and30(...baseConds)).orderBy(asc10(task.dueDate));
+  if (userId != null) baseConds.push(eq36(task.assignedTo, userId));
+  const openTasks = await db.select().from(task).where(and31(...baseConds)).orderBy(asc10(task.dueDate));
   const dealIds = [...new Set(openTasks.filter((t) => t.dealId != null).map((t) => t.dealId))];
   const contactIds = [...new Set(openTasks.filter((t) => t.contactId != null).map((t) => t.contactId))];
   const companyIds = [...new Set(openTasks.filter((t) => t.companyId != null).map((t) => t.companyId))];
   const [dealRows, contactRows, companyRows] = await Promise.all([
-    dealIds.length ? db.select({ id: deal.id, name: deal.name }).from(deal).where(inArray13(deal.id, dealIds)) : Promise.resolve([]),
-    contactIds.length ? db.select({ id: contact.id, firstName: contact.firstName, lastName: contact.lastName, email: contact.email }).from(contact).where(inArray13(contact.id, contactIds)) : Promise.resolve([]),
-    companyIds.length ? db.select({ id: company.id, name: company.name }).from(company).where(inArray13(company.id, companyIds)) : Promise.resolve([])
+    dealIds.length ? db.select({ id: deal.id, name: deal.name }).from(deal).where(inArray14(deal.id, dealIds)) : Promise.resolve([]),
+    contactIds.length ? db.select({ id: contact.id, firstName: contact.firstName, lastName: contact.lastName, email: contact.email }).from(contact).where(inArray14(contact.id, contactIds)) : Promise.resolve([]),
+    companyIds.length ? db.select({ id: company.id, name: company.name }).from(company).where(inArray14(company.id, companyIds)) : Promise.resolve([])
   ]);
   const dealLabelMap = new Map(dealRows.map((r) => [r.id, r.name]));
   const contactLabelMap = new Map(
@@ -8921,40 +9380,40 @@ async function getDealsNeedingAttention(portalId) {
     ownerId: deal.ownerId,
     createdAt: deal.createdAt,
     stageLabel: pipelineStage.label
-  }).from(deal).innerJoin(pipelineStage, eq35(deal.stageId, pipelineStage.id)).where(
-    and30(
-      eq35(deal.portalId, portalId),
-      eq35(deal.archived, false),
-      eq35(pipelineStage.isClosed, false)
+  }).from(deal).innerJoin(pipelineStage, eq36(deal.stageId, pipelineStage.id)).where(
+    and31(
+      eq36(deal.portalId, portalId),
+      eq36(deal.archived, false),
+      eq36(pipelineStage.isClosed, false)
     )
   );
   if (openDeals.length === 0) return { noNextAction: [], stale: [] };
   const dealIds = openDeals.map((d) => d.id);
   const openTaskRows = await db.select({ dealId: task.dealId, id: task.id, dueDate: task.dueDate }).from(task).where(
-    and30(
-      eq35(task.portalId, portalId),
-      inArray13(task.status, ["pending", "in_progress"]),
-      inArray13(task.dealId, dealIds)
+    and31(
+      eq36(task.portalId, portalId),
+      inArray14(task.status, ["pending", "in_progress"]),
+      inArray14(task.dealId, dealIds)
     )
   );
   const dealsWithTask = new Set(openTaskRows.map((t) => t.dealId).filter((id) => id != null));
   const [callAgg, meetingAgg, emailAgg, noteAgg, taskAgg] = await Promise.all([
     // calls: max(occurredAt)
-    db.select({ dealId: call.dealId, maxDate: sql28`max(${call.occurredAt})` }).from(call).where(and30(eq35(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
+    db.select({ dealId: call.dealId, maxDate: sql31`max(${call.occurredAt})` }).from(call).where(and31(eq36(call.portalId, portalId), inArray14(call.dealId, dealIds))).groupBy(call.dealId),
     // meetings: max(coalesce(starts_at, created_at))
     db.select({
       dealId: meeting.dealId,
-      maxDate: sql28`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
-    }).from(meeting).where(and30(eq35(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
+      maxDate: sql31`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
+    }).from(meeting).where(and31(eq36(meeting.portalId, portalId), inArray14(meeting.dealId, dealIds))).groupBy(meeting.dealId),
     // emails: max(sentAt)
-    db.select({ dealId: emailSend.dealId, maxDate: sql28`max(${emailSend.sentAt})` }).from(emailSend).where(and30(eq35(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
+    db.select({ dealId: emailSend.dealId, maxDate: sql31`max(${emailSend.sentAt})` }).from(emailSend).where(and31(eq36(emailSend.portalId, portalId), inArray14(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
     // notes: max(createdAt)
-    db.select({ dealId: note.dealId, maxDate: sql28`max(${note.createdAt})` }).from(note).where(and30(eq35(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
+    db.select({ dealId: note.dealId, maxDate: sql31`max(${note.createdAt})` }).from(note).where(and31(eq36(note.portalId, portalId), inArray14(note.dealId, dealIds))).groupBy(note.dealId),
     // tasks (any task, completed too): max(completedAt ?? createdAt)
     db.select({
       dealId: task.dealId,
-      maxDate: sql28`max(coalesce(${task.completedAt}, ${task.createdAt}))`
-    }).from(task).where(and30(eq35(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
+      maxDate: sql31`max(coalesce(${task.completedAt}, ${task.createdAt}))`
+    }).from(task).where(and31(eq36(task.portalId, portalId), inArray14(task.dealId, dealIds))).groupBy(task.dealId)
   ]);
   const lastActivityMap = /* @__PURE__ */ new Map();
   function applyAgg(rows) {
@@ -9002,7 +9461,7 @@ async function getFocus(portalId, userId) {
 
 // src/modules/focus/focus.router.ts
 var TAG26 = "Seguimientos";
-var security25 = ADMIN_SECURITY;
+var security24 = ADMIN_SECURITY;
 async function focusRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -9013,7 +9472,7 @@ async function focusRoutes(app2) {
         tags: [TAG26],
         summary: "Seguimientos + deals que necesitan atenci\xF3n",
         description: "Devuelve las tareas abiertas bucketizadas (vencidas / hoy / pr\xF3ximos 7 d\xEDas) y los deals abiertos sin pr\xF3xima acci\xF3n o sin actividad reciente (>14 d\xEDas). Usa ?mine=true para filtrar follow-ups al usuario autenticado.",
-        security: security25,
+        security: security24,
         querystring: FocusQuerySchema
       }
     },
@@ -9025,14 +9484,14 @@ async function focusRoutes(app2) {
 }
 
 // src/modules/reports/reports.schema.ts
-import { z as z27 } from "zod";
-var ReportsQuerySchema = z27.object({
-  from: z27.string().datetime({ offset: true, message: "from debe ser ISO 8601" }).optional().transform((v) => v ? new Date(v) : void 0),
-  to: z27.string().datetime({ offset: true, message: "to debe ser ISO 8601" }).optional().transform((v) => v ? new Date(v) : void 0)
+import { z as z28 } from "zod";
+var ReportsQuerySchema = z28.object({
+  from: z28.string().datetime({ offset: true, message: "from debe ser ISO 8601" }).optional().transform((v) => v ? new Date(v) : void 0),
+  to: z28.string().datetime({ offset: true, message: "to debe ser ISO 8601" }).optional().transform((v) => v ? new Date(v) : void 0)
 });
 
 // src/modules/reports/reports.service.ts
-import { and as and31, asc as asc11, count as count4, eq as eq36, gte as gte5, inArray as inArray14, lte as lte5, sql as sql29 } from "drizzle-orm";
+import { and as and32, asc as asc11, count as count4, eq as eq37, gte as gte5, inArray as inArray15, lte as lte5, sql as sql32 } from "drizzle-orm";
 async function getReports(portalId, params) {
   const now = /* @__PURE__ */ new Date();
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -9066,15 +9525,15 @@ async function fetchPipelineFunnel(portalId) {
     isClosed: pipelineStage.isClosed,
     isWon: pipelineStage.isWon,
     currentDeals: count4(deal.id),
-    currentValue: sql29`coalesce(sum(${deal.amount}), 0)`
+    currentValue: sql32`coalesce(sum(${deal.amount}), 0)`
   }).from(pipelineStage).innerJoin(
     pipeline,
-    and31(
-      eq36(pipelineStage.pipelineId, pipeline.id),
-      eq36(pipeline.portalId, portalId),
-      eq36(pipeline.archived, false)
+    and32(
+      eq37(pipelineStage.pipelineId, pipeline.id),
+      eq37(pipeline.portalId, portalId),
+      eq37(pipeline.archived, false)
     )
-  ).leftJoin(deal, and31(eq36(deal.stageId, pipelineStage.id), eq36(deal.archived, false))).where(eq36(pipelineStage.archived, false)).groupBy(
+  ).leftJoin(deal, and32(eq37(deal.stageId, pipelineStage.id), eq37(deal.archived, false))).where(eq37(pipelineStage.archived, false)).groupBy(
     pipelineStage.id,
     pipelineStage.label,
     pipelineStage.displayOrder,
@@ -9082,12 +9541,12 @@ async function fetchPipelineFunnel(portalId) {
     pipelineStage.isWon
   ).orderBy(asc11(pipelineStage.displayOrder));
   const [winRateRow] = await db.select({
-    won: sql29`count(*) filter (where ${pipelineStage.isWon} = true)`,
-    closed: sql29`count(*) filter (where ${pipelineStage.isClosed} = true)`
-  }).from(deal).innerJoin(pipelineStage, eq36(deal.stageId, pipelineStage.id)).innerJoin(
+    won: sql32`count(*) filter (where ${pipelineStage.isWon} = true)`,
+    closed: sql32`count(*) filter (where ${pipelineStage.isClosed} = true)`
+  }).from(deal).innerJoin(pipelineStage, eq37(deal.stageId, pipelineStage.id)).innerJoin(
     pipeline,
-    and31(eq36(pipelineStage.pipelineId, pipeline.id), eq36(pipeline.portalId, portalId))
-  ).where(and31(eq36(deal.portalId, portalId), eq36(deal.archived, false)));
+    and32(eq37(pipelineStage.pipelineId, pipeline.id), eq37(pipeline.portalId, portalId))
+  ).where(and32(eq37(deal.portalId, portalId), eq37(deal.archived, false)));
   const won = Number(winRateRow?.won ?? 0);
   const closed = Number(winRateRow?.closed ?? 0);
   const winRate = closed > 0 ? Math.round(won / closed * 100) : null;
@@ -9105,10 +9564,10 @@ async function fetchPipelineFunnel(portalId) {
 }
 async function fetchConversionBySource(portalId) {
   const rows = await db.select({
-    source: sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
+    source: sql32`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
     total: count4(),
-    customers: sql29`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
-  }).from(contact).where(and31(eq36(contact.portalId, portalId), eq36(contact.archived, false))).groupBy(sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql29`count(*) desc`);
+    customers: sql32`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
+  }).from(contact).where(and32(eq37(contact.portalId, portalId), eq37(contact.archived, false))).groupBy(sql32`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql32`count(*) desc`);
   return rows.map((r) => {
     const leads = Number(r.total);
     const customers = Number(r.customers);
@@ -9126,52 +9585,52 @@ async function fetchActivityByUser(portalId, from, to) {
     firstName: hubUser.firstName,
     lastName: hubUser.lastName,
     email: hubUser.email
-  }).from(hubUser).where(and31(eq36(hubUser.portalId, portalId), eq36(hubUser.isActive, true)));
+  }).from(hubUser).where(and32(eq37(hubUser.portalId, portalId), eq37(hubUser.isActive, true)));
   if (users.length === 0) return [];
   const userIds = users.map((u) => u.id);
   const [callRows, meetingRows, noteRows, taskCreatedRows, taskCompletedRows] = await Promise.all([
     // calls by createdBy
     db.select({ userId: call.createdBy, n: count4() }).from(call).where(
-      and31(
-        eq36(call.portalId, portalId),
-        inArray14(call.createdBy, userIds),
+      and32(
+        eq37(call.portalId, portalId),
+        inArray15(call.createdBy, userIds),
         gte5(call.createdAt, from),
         lte5(call.createdAt, to)
       )
     ).groupBy(call.createdBy),
     // meetings by createdBy
     db.select({ userId: meeting.createdBy, n: count4() }).from(meeting).where(
-      and31(
-        eq36(meeting.portalId, portalId),
-        inArray14(meeting.createdBy, userIds),
+      and32(
+        eq37(meeting.portalId, portalId),
+        inArray15(meeting.createdBy, userIds),
         gte5(meeting.createdAt, from),
         lte5(meeting.createdAt, to)
       )
     ).groupBy(meeting.createdBy),
     // notes by createdBy
     db.select({ userId: note.createdBy, n: count4() }).from(note).where(
-      and31(
-        eq36(note.portalId, portalId),
-        inArray14(note.createdBy, userIds),
+      and32(
+        eq37(note.portalId, portalId),
+        inArray15(note.createdBy, userIds),
         gte5(note.createdAt, from),
         lte5(note.createdAt, to)
       )
     ).groupBy(note.createdBy),
     // tasks created by user
     db.select({ userId: task.createdBy, n: count4() }).from(task).where(
-      and31(
-        eq36(task.portalId, portalId),
-        inArray14(task.createdBy, userIds),
+      and32(
+        eq37(task.portalId, portalId),
+        inArray15(task.createdBy, userIds),
         gte5(task.createdAt, from),
         lte5(task.createdAt, to)
       )
     ).groupBy(task.createdBy),
     // tasks completed by assignedTo (in period)
     db.select({ userId: task.assignedTo, n: count4() }).from(task).where(
-      and31(
-        eq36(task.portalId, portalId),
-        inArray14(task.assignedTo, userIds),
-        eq36(task.status, "completed"),
+      and32(
+        eq37(task.portalId, portalId),
+        inArray15(task.assignedTo, userIds),
+        eq37(task.status, "completed"),
         gte5(task.completedAt, from),
         lte5(task.completedAt, to)
       )
@@ -9196,16 +9655,16 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
   async function fetchPeriod(start, end) {
     const [row] = await db.select({
       n: count4(),
-      value: sql29`coalesce(sum(${deal.amount}), 0)`
-    }).from(deal).innerJoin(pipelineStage, eq36(deal.stageId, pipelineStage.id)).innerJoin(
+      value: sql32`coalesce(sum(${deal.amount}), 0)`
+    }).from(deal).innerJoin(pipelineStage, eq37(deal.stageId, pipelineStage.id)).innerJoin(
       pipeline,
-      and31(eq36(pipelineStage.pipelineId, pipeline.id), eq36(pipeline.portalId, portalId))
+      and32(eq37(pipelineStage.pipelineId, pipeline.id), eq37(pipeline.portalId, portalId))
     ).where(
-      and31(
-        eq36(deal.portalId, portalId),
-        eq36(pipelineStage.isWon, true),
-        gte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
-        lte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
+      and32(
+        eq37(deal.portalId, portalId),
+        eq37(pipelineStage.isWon, true),
+        gte5(sql32`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
+        lte5(sql32`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
       )
     );
     return { count: Number(row?.n ?? 0), value: String(row?.value ?? "0") };
@@ -9219,7 +9678,7 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
 
 // src/modules/reports/reports.router.ts
 var TAG27 = "Reportes";
-var security26 = ADMIN_SECURITY;
+var security25 = ADMIN_SECURITY;
 async function reportsRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -9230,7 +9689,7 @@ async function reportsRoutes(app2) {
         tags: [TAG27],
         summary: "Reportes de gesti\xF3n \u2014 pilar de visibilidad del negocio",
         description: "Devuelve: embudo del pipeline (deals por etapa + win rate), deals en riesgo (sin actividad >14d), conversi\xF3n por fuente de leads, actividad del equipo por usuario y resumen de deals cerrados/ganados para el per\xEDodo actual vs el anterior. Los par\xE1metros `from`/`to` delimitan el per\xEDodo de actividad y cerrados (default: mes en curso). El embudo, riesgo y conversi\xF3n usan el estado actual.",
-        security: security26,
+        security: security25,
         querystring: ReportsQuerySchema
       }
     },
@@ -9242,11 +9701,11 @@ async function reportsRoutes(app2) {
 }
 
 // src/modules/webhooks/webhooks.router.ts
-import { z as z28 } from "zod";
+import { z as z29 } from "zod";
 
 // src/modules/webhooks/webhooks.service.ts
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq as eq37, and as and32, asc as asc12 } from "drizzle-orm";
+import { eq as eq38, and as and33, asc as asc12 } from "drizzle-orm";
 function verifyFathomSignature(rawBody, signature) {
   if (!env.FATHOM_WEBHOOK_SECRET || !signature) return false;
   const bodyStr = typeof rawBody === "string" ? rawBody : rawBody.toString("utf8");
@@ -9273,13 +9732,13 @@ async function resolvePortalId() {
   return row?.id ?? null;
 }
 async function findContactByEmail(portalId, email) {
-  const [row] = await db.select({ id: contact.id }).from(contact).where(and32(eq37(contact.portalId, portalId), eq37(contact.email, email))).limit(1);
+  const [row] = await db.select({ id: contact.id }).from(contact).where(and33(eq38(contact.portalId, portalId), eq38(contact.email, email))).limit(1);
   if (!row) return null;
   const [dealRow] = await db.select({ id: deal.id }).from(deal).where(
-    and32(
-      eq37(deal.portalId, portalId),
-      eq37(deal.primaryContactId, row.id),
-      eq37(deal.archived, false)
+    and33(
+      eq38(deal.portalId, portalId),
+      eq38(deal.primaryContactId, row.id),
+      eq38(deal.archived, false)
     )
   ).limit(1);
   return { id: row.id, primaryDealId: dealRow?.id ?? null };
@@ -9307,9 +9766,9 @@ async function handleFathomMeeting(portalId, payload) {
   }
   if (fathomTranscriptUrl) {
     const [existing] = await db.select({ id: meeting.id }).from(meeting).where(
-      and32(
-        eq37(meeting.portalId, portalId),
-        eq37(meeting.fathomTranscriptUrl, fathomTranscriptUrl)
+      and33(
+        eq38(meeting.portalId, portalId),
+        eq38(meeting.fathomTranscriptUrl, fathomTranscriptUrl)
       )
     ).limit(1);
     if (existing) {
@@ -9322,7 +9781,7 @@ async function handleFathomMeeting(portalId, payload) {
         fathomParticipants,
         contactId: contactId ?? void 0,
         dealId: dealId ?? void 0
-      }).where(eq37(meeting.id, existing.id));
+      }).where(eq38(meeting.id, existing.id));
       return;
     }
   }
@@ -9339,12 +9798,9 @@ async function handleFathomMeeting(portalId, payload) {
     dealId: dealId ?? void 0
   }).returning({ id: meeting.id });
   if (contactId && newMeeting) {
-    await createNotification({
-      portalId,
-      type: "meeting_recorded",
-      title: `Reuni\xF3n grabada: ${title}`,
-      entityType: dealId ? "deal" : "contact",
-      entityId: dealId ?? contactId
+    await notifyAdmins(portalId, "meeting_recorded", { dealId: dealId ?? null, title }, {
+      entity: { type: dealId ? "deal" : "contact", id: dealId ?? contactId },
+      dedupeKey: `meeting_recorded:${newMeeting.id}`
     });
   }
 }
@@ -9355,7 +9811,7 @@ async function handleFathomWebhook(payload) {
 }
 
 // src/modules/documents/docuseal.service.ts
-import { and as and33, eq as eq38 } from "drizzle-orm";
+import { and as and34, eq as eq39 } from "drizzle-orm";
 
 // src/modules/documents/docuseal.client.ts
 function isDocusealConfigured() {
@@ -9456,10 +9912,10 @@ async function sendForSignature(portalId, dealId, userId, input) {
   if (!isDocusealConfigured()) {
     throw Errors.badRequest("DocuSeal no est\xE1 configurado (falta DOCUSEAL_API_KEY)");
   }
-  const [d] = await db.select({ id: deal.id, name: deal.name, primaryContactId: deal.primaryContactId }).from(deal).where(and33(eq38(deal.id, dealId), eq38(deal.portalId, portalId), eq38(deal.archived, false))).limit(1);
+  const [d] = await db.select({ id: deal.id, name: deal.name, primaryContactId: deal.primaryContactId }).from(deal).where(and34(eq39(deal.id, dealId), eq39(deal.portalId, portalId), eq39(deal.archived, false))).limit(1);
   if (!d) throw Errors.notFound("Deal no encontrado");
   if (!d.primaryContactId) throw Errors.badRequest("El deal no tiene contacto principal a qui\xE9n enviarle el documento");
-  const [c] = await db.select({ email: contact.email, firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq38(contact.id, d.primaryContactId)).limit(1);
+  const [c] = await db.select({ email: contact.email, firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq39(contact.id, d.primaryContactId)).limit(1);
   if (!c?.email) throw Errors.badRequest("El contacto principal no tiene email");
   const fullName = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || void 0;
   const submitters = await createSubmission(input.templateId, [{ email: c.email, name: fullName }]);
@@ -9496,7 +9952,7 @@ async function sendForSignature(portalId, dealId, userId, input) {
   return { documentId: row.id, submissionId: first.submission_id, signingUrl: url };
 }
 async function getSignedDocuments(portalId, documentId) {
-  const [row] = await db.select({ submissionId: document.docusealSubmissionId, status: document.docusealStatus }).from(document).where(and33(eq38(document.id, documentId), eq38(document.portalId, portalId))).limit(1);
+  const [row] = await db.select({ submissionId: document.docusealSubmissionId, status: document.docusealStatus }).from(document).where(and34(eq39(document.id, documentId), eq39(document.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Documento no encontrado");
   if (!row.submissionId) throw Errors.badRequest("El documento no tiene una submission de DocuSeal asociada");
   if (row.status !== "completed") throw Errors.badRequest("El documento todav\xEDa no est\xE1 firmado");
@@ -9517,7 +9973,7 @@ async function handleDocusealWebhook(payload) {
     dealId: document.dealId,
     type: document.type,
     status: document.docusealStatus
-  }).from(document).where(eq38(document.docusealExternalId, slug)).limit(1);
+  }).from(document).where(eq39(document.docusealExternalId, slug)).limit(1);
   if (!row) {
     console.error("[docuseal] No hay documento para el slug recibido", { slug, eventType });
     return;
@@ -9529,7 +9985,7 @@ async function handleDocusealWebhook(payload) {
     await tx.update(document).set({
       docusealStatus: newStatus,
       signedAt: newStatus === "completed" ? /* @__PURE__ */ new Date() : null
-    }).where(eq38(document.id, row.id));
+    }).where(eq39(document.id, row.id));
     await recordFieldChanges({
       tx,
       portalId: row.portalId,
@@ -9544,20 +10000,36 @@ async function handleDocusealWebhook(payload) {
     return shouldActivate ? activateClientPortal(tx, row.portalId, row.dealId) : null;
   });
   if (invitation) await sendPortalInvitationEmail(invitation);
+  if (row.dealId) {
+    const [d] = await db.select({ name: deal.name }).from(deal).where(eq39(deal.id, row.dealId)).limit(1);
+    const dealName = d?.name ?? "el proyecto";
+    if (newStatus === "completed") {
+      await notifyAdmins(row.portalId, "contract_signed", {
+        dealId: row.dealId,
+        dealName,
+        signerName: null
+      }, { entity: { type: "document", id: row.id }, dedupeKey: `contract_signed:${row.id}` });
+    } else {
+      await notifyAdmins(row.portalId, "contract_declined", { dealId: row.dealId, dealName }, {
+        entity: { type: "document", id: row.id },
+        dedupeKey: `contract_declined:${row.id}`
+      });
+    }
+  }
 }
 
 // src/modules/webhooks/webhooks.router.ts
-var FathomWebhookSchema = z28.object({
-  title: z28.string().optional(),
-  starts_at: z28.string().optional(),
-  ends_at: z28.string().optional(),
-  summary: z28.string().optional(),
-  transcript_url: z28.string().optional(),
-  action_items: z28.array(z28.unknown()).optional(),
-  participants: z28.array(
-    z28.object({
-      email: z28.string().optional(),
-      name: z28.string().optional()
+var FathomWebhookSchema = z29.object({
+  title: z29.string().optional(),
+  starts_at: z29.string().optional(),
+  ends_at: z29.string().optional(),
+  summary: z29.string().optional(),
+  transcript_url: z29.string().optional(),
+  action_items: z29.array(z29.unknown()).optional(),
+  participants: z29.array(
+    z29.object({
+      email: z29.string().optional(),
+      name: z29.string().optional()
     })
   ).optional()
 });
@@ -9619,7 +10091,7 @@ async function webhooksRoutes(app2) {
 }
 
 // src/modules/email-tracking/email-tracking.router.ts
-import { z as z29 } from "zod";
+import { z as z30 } from "zod";
 async function emailTrackingRoutes(app2) {
   const r = app2.withTypeProvider();
   r.get(
@@ -9629,7 +10101,7 @@ async function emailTrackingRoutes(app2) {
         tags: ["Tracking"],
         summary: "Pixel de apertura de email",
         description: "Registra la apertura del email identificado por trackingId y devuelve un GIF transparente 1\xD71. Nunca devuelve error visible (dise\xF1ado para ser embebido en emails).",
-        params: z29.object({ trackingId: z29.string().uuid() }),
+        params: z30.object({ trackingId: z30.string().uuid() }),
         response: {}
       }
     },
@@ -9648,8 +10120,8 @@ async function emailTrackingRoutes(app2) {
         tags: ["Tracking"],
         summary: "Redirect de click en email",
         description: "Registra el click en un link de email y redirige al destino (?url=...). Si la URL es inv\xE1lida o ausente, redirige a la base de la API.",
-        params: z29.object({ trackingId: z29.string().uuid() }),
-        querystring: z29.object({ url: z29.string().optional() }),
+        params: z30.object({ trackingId: z30.string().uuid() }),
+        querystring: z30.object({ url: z30.string().optional() }),
         response: {}
       }
     },
@@ -9668,34 +10140,34 @@ async function emailTrackingRoutes(app2) {
 }
 
 // src/modules/documents/documents.schema.ts
-import { z as z30 } from "zod";
-var DocumentTypeEnum = z30.enum(["contract", "proposal", "invoice", "other"]);
-var CreateDocumentSchema = z30.object({
-  dealId: z30.string().min(1),
-  crId: z30.string().min(1).optional(),
-  name: z30.string().min(1, "El nombre es requerido"),
+import { z as z31 } from "zod";
+var DocumentTypeEnum = z31.enum(["contract", "proposal", "invoice", "other"]);
+var CreateDocumentSchema = z31.object({
+  dealId: z31.string().min(1),
+  crId: z31.string().min(1).optional(),
+  name: z31.string().min(1, "El nombre es requerido"),
   type: DocumentTypeEnum,
-  storageKey: z30.string().min(1).optional(),
+  storageKey: z31.string().min(1).optional(),
   /**
    * ¿Se muestra en el Portal del cliente? Default true, para no cambiar lo que
    * los clientes ya veían (contratos, propuestas, facturas). Se manda false
    * para documentos internos del proceso de entrega.
    */
-  visibleToClient: z30.boolean().optional()
+  visibleToClient: z31.boolean().optional()
 });
-var ListDocumentsQuerySchema = z30.object({
-  dealId: z30.string().min(1).optional()
+var ListDocumentsQuerySchema = z31.object({
+  dealId: z31.string().min(1).optional()
 });
-var SendForSignatureSchema = z30.object({
+var SendForSignatureSchema = z31.object({
   /** ID numérico del template en DocuSeal. */
-  templateId: z30.number().int().positive(),
-  documentType: z30.enum(["contract", "proposal"]),
-  name: z30.string().min(1).max(200).optional()
+  templateId: z31.number().int().positive(),
+  documentType: z31.enum(["contract", "proposal"]),
+  name: z31.string().min(1).max(200).optional()
 });
 
 // src/modules/documents/documents.router.ts
 var TAG28 = "Documentos";
-var security27 = ADMIN_SECURITY;
+var security26 = ADMIN_SECURITY;
 async function documentsRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -9706,7 +10178,7 @@ async function documentsRoutes(app2) {
         tags: [TAG28],
         summary: "Listar documentos",
         description: "Lista los documentos del portal, opcionalmente filtrados por deal.",
-        security: security27,
+        security: security26,
         querystring: ListDocumentsQuerySchema
       }
     },
@@ -9721,7 +10193,7 @@ async function documentsRoutes(app2) {
       schema: {
         tags: [TAG28],
         summary: "Crear documento",
-        security: security27,
+        security: security26,
         body: CreateDocumentSchema
       }
     },
@@ -9740,7 +10212,7 @@ async function documentsRoutes(app2) {
       schema: {
         tags: [TAG28],
         summary: "Eliminar documento",
-        security: security27,
+        security: security26,
         params: IdParamSchema
       }
     },
@@ -9756,7 +10228,7 @@ async function documentsRoutes(app2) {
         tags: [TAG28],
         summary: "Enviar un documento a firmar (DocuSeal)",
         description: "Crea una submission en DocuSeal para el contacto principal del deal, deja el documento en estado `pending` y le manda el pedido de firma por email con la marca de la agencia. Devuelve la URL de firma.",
-        security: security27,
+        security: security26,
         params: IdParamSchema,
         body: SendForSignatureSchema
       }
@@ -9778,7 +10250,7 @@ async function documentsRoutes(app2) {
         tags: [TAG28],
         summary: "URLs del documento firmado (ef\xEDmeras)",
         description: "Pide a DocuSeal las URLs del PDF firmado EN EL MOMENTO. Caducan a los 40 minutos, por eso no se guardan en la base: hay que pedirlas cada vez que se necesitan.",
-        security: security27,
+        security: security26,
         params: IdParamSchema
       }
     },
@@ -9787,56 +10259,56 @@ async function documentsRoutes(app2) {
 }
 
 // src/modules/proposals/proposals.schema.ts
-import { z as z31 } from "zod";
-var ProposalScopeItemSchema = z31.object({
-  title: z31.string().max(160),
-  description: z31.string().max(1e3)
+import { z as z32 } from "zod";
+var ProposalScopeItemSchema = z32.object({
+  title: z32.string().max(160),
+  description: z32.string().max(1e3)
 });
-var ProposalPhaseSchema = z31.object({
-  phase: z31.string().max(160),
-  duration: z31.string().max(80),
-  detail: z31.string().max(1e3)
+var ProposalPhaseSchema = z32.object({
+  phase: z32.string().max(160),
+  duration: z32.string().max(80),
+  detail: z32.string().max(1e3)
 });
-var ProposalPricingItemSchema = z31.object({
-  label: z31.string().max(200),
-  amount: z31.number().nonnegative()
+var ProposalPricingItemSchema = z32.object({
+  label: z32.string().max(200),
+  amount: z32.number().nonnegative()
 });
-var ProposalPricingSchema = z31.object({
-  items: z31.array(ProposalPricingItemSchema).max(30),
-  total: z31.number().nonnegative(),
-  currency: z31.string().min(1).max(3),
-  note: z31.string().max(400).optional()
+var ProposalPricingSchema = z32.object({
+  items: z32.array(ProposalPricingItemSchema).max(30),
+  total: z32.number().nonnegative(),
+  currency: z32.string().min(1).max(3),
+  note: z32.string().max(400).optional()
 });
-var ProposalContentSchema = z31.object({
-  title: z31.string().max(200),
-  clientName: z31.string().max(160),
-  companyName: z31.string().max(160).optional(),
-  logoUrl: z31.string().max(500).optional(),
-  tagline: z31.string().max(200).optional(),
-  summary: z31.string().max(2e3),
-  understanding: z31.string().max(2e3),
-  objectives: z31.array(z31.string().max(400)).max(12),
-  solution: z31.string().max(3e3),
-  scope: z31.array(ProposalScopeItemSchema).max(20),
-  timeline: z31.array(ProposalPhaseSchema).max(12),
+var ProposalContentSchema = z32.object({
+  title: z32.string().max(200),
+  clientName: z32.string().max(160),
+  companyName: z32.string().max(160).optional(),
+  logoUrl: z32.string().max(500).optional(),
+  tagline: z32.string().max(200).optional(),
+  summary: z32.string().max(2e3),
+  understanding: z32.string().max(2e3),
+  objectives: z32.array(z32.string().max(400)).max(12),
+  solution: z32.string().max(3e3),
+  scope: z32.array(ProposalScopeItemSchema).max(20),
+  timeline: z32.array(ProposalPhaseSchema).max(12),
   pricing: ProposalPricingSchema,
-  whyUs: z31.array(z31.string().max(400)).max(10),
-  nextSteps: z31.string().max(2e3),
-  terms: z31.string().max(3e3).optional()
+  whyUs: z32.array(z32.string().max(400)).max(10),
+  nextSteps: z32.string().max(2e3),
+  terms: z32.string().max(3e3).optional()
 });
-var GenerateProposalSchema = z31.object({
-  dealId: z31.string().min(1, "dealId requerido").max(60)
+var GenerateProposalSchema = z32.object({
+  dealId: z32.string().min(1, "dealId requerido").max(60)
 });
-var UpdateProposalSchema = z31.object({
-  title: z31.string().min(1).max(200).optional(),
+var UpdateProposalSchema = z32.object({
+  title: z32.string().min(1).max(200).optional(),
   content: ProposalContentSchema.optional()
 });
-var ProposalTokenParamSchema = z31.object({
-  token: z31.string().min(1).max(60)
+var ProposalTokenParamSchema = z32.object({
+  token: z32.string().min(1).max(60)
 });
 
 // src/modules/proposals/proposals.service.ts
-import { and as and34, desc as desc20, eq as eq39 } from "drizzle-orm";
+import { and as and35, desc as desc20, eq as eq40 } from "drizzle-orm";
 
 // src/modules/proposals/proposals.ai.ts
 var PROJECT_TYPE_LABEL = {
@@ -10140,19 +10612,19 @@ async function generateProposal(portalId, dealId, actorId) {
     id: deal.id,
     primaryContactId: deal.primaryContactId,
     companyId: deal.companyId
-  }).from(deal).where(and34(eq39(deal.id, dealId), eq39(deal.portalId, portalId), eq39(deal.archived, false))).limit(1);
+  }).from(deal).where(and35(eq40(deal.id, dealId), eq40(deal.portalId, portalId), eq40(deal.archived, false))).limit(1);
   if (!d) throw Errors.notFound("Deal no encontrado");
   let contactName = "Cliente";
   if (d.primaryContactId) {
-    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq39(contact.id, d.primaryContactId)).limit(1);
+    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq40(contact.id, d.primaryContactId)).limit(1);
     if (c) contactName = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || contactName;
   }
   let companyName;
   if (d.companyId) {
-    const [co] = await db.select({ name: company.name }).from(company).where(eq39(company.id, d.companyId)).limit(1);
+    const [co] = await db.select({ name: company.name }).from(company).where(eq40(company.id, d.companyId)).limit(1);
     companyName = co?.name;
   }
-  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and34(eq39(onboardingSubmission.portalId, portalId), eq39(onboardingSubmission.dealId, dealId))).orderBy(desc20(onboardingSubmission.createdAt)).limit(1);
+  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and35(eq40(onboardingSubmission.portalId, portalId), eq40(onboardingSubmission.dealId, dealId))).orderBy(desc20(onboardingSubmission.createdAt)).limit(1);
   const a = sub?.answers ?? {};
   const input = {
     contactName,
@@ -10195,24 +10667,24 @@ async function generateProposal(portalId, dealId, actorId) {
   const amount = money(content.pricing.total, content.pricing.currency);
   await notifyAdmins(
     portalId,
+    "proposal_generated",
+    { proposalId: row.id, contactName: content.companyName || content.clientName },
     {
-      entityType: "proposal",
-      entityId: row.id,
-      type: "proposal_generated",
-      title: `${who} gener\xF3 una propuesta para \xAB${content.companyName || content.clientName}\xBB`,
-      body: amount ? `Valor estimado: ${amount}` : null,
-      actionUrl: `/admin/proposals/${row.id}`
-    },
-    { exceptUserId: actorId }
+      entity: { type: "proposal", id: row.id },
+      exceptUserId: actorId,
+      // El actor y el monto viajan en metadata: el título del catálogo es
+      // deliberadamente corto (es lo único que entra en la fila de la campana).
+      metadata: { actor: who, amount: amount ?? null }
+    }
   );
   return toDTO2(row);
 }
 async function listProposals(portalId) {
-  const rows = await db.select().from(proposal).where(eq39(proposal.portalId, portalId)).orderBy(desc20(proposal.createdAt)).limit(500);
+  const rows = await db.select().from(proposal).where(eq40(proposal.portalId, portalId)).orderBy(desc20(proposal.createdAt)).limit(500);
   return rows.map(toDTO2);
 }
 async function getProposal(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and35(eq40(proposal.id, id), eq40(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
@@ -10225,57 +10697,47 @@ async function updateProposal(portalId, id, input) {
     patch.currency = input.content.pricing.currency || "USD";
   }
   if (Object.keys(patch).length === 0) return getProposal(portalId, id);
-  const [row] = await db.update(proposal).set(patch).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set(patch).where(and35(eq40(proposal.id, id), eq40(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
 async function acceptProposal(portalId, id, actorId) {
-  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and35(eq40(proposal.id, id), eq40(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   const who = await actorName(portalId, actorId);
   await notifyAdmins(
     portalId,
-    {
-      entityType: "proposal",
-      entityId: row.id,
-      type: "proposal_accepted",
-      title: `${who} aprob\xF3 la propuesta \xAB${row.title}\xBB`,
-      body: "Lista para enviar al cliente.",
-      actionUrl: `/admin/proposals/${row.id}`
-    },
-    { exceptUserId: actorId }
+    "proposal_accepted",
+    { proposalId: row.id, contactName: row.title },
+    { entity: { type: "proposal", id: row.id }, exceptUserId: actorId, metadata: { actor: who } }
   );
   return toDTO2(row);
 }
 async function markProposalSent(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and35(eq40(proposal.id, id), eq40(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   if (!row.sentAt) {
-    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).returning();
+    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and35(eq40(proposal.id, id), eq40(proposal.portalId, portalId))).returning();
     if (updated) return toDTO2(updated);
   }
   return toDTO2(row);
 }
 async function markProposalCompleted(token) {
-  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq39(proposal.token, token)).limit(1);
+  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq40(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") return;
   if (!row.completedAt) {
-    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq39(proposal.id, row.id));
+    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq40(proposal.id, row.id));
   }
 }
 async function getPublicProposal(token) {
-  const [row] = await db.select().from(proposal).where(eq39(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq40(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   if (!row.viewedAt) {
-    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq39(proposal.id, row.id));
+    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq40(proposal.id, row.id));
     const cliente = row.content.companyName || row.content.clientName;
-    await notifyAdmins(row.portalId, {
-      entityType: "proposal",
-      entityId: row.id,
-      type: "proposal_viewed",
-      title: `\u{1F389} \xAB${cliente}\xBB abri\xF3 tu propuesta`,
-      body: "Buen momento para hacer seguimiento.",
-      actionUrl: `/admin/proposals/${row.id}`
+    await notifyAdmins(row.portalId, "proposal_viewed", { proposalId: row.id, contactName: cliente }, {
+      entity: { type: "proposal", id: row.id },
+      dedupeKey: `proposal_viewed:${row.id}`
     });
   }
   return {
@@ -10289,7 +10751,7 @@ function slugify2(s2) {
   return slugify(s2).slice(0, 60) || "propuesta";
 }
 async function getPublicProposalPdf(token) {
-  const [row] = await db.select().from(proposal).where(eq39(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq40(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   const buffer = await buildProposalPdf(row.content);
   return { filename: `${slugify2(row.title)}.pdf`, buffer };
@@ -10414,28 +10876,28 @@ async function proposalAdminRoutes(app2) {
 }
 
 // src/modules/branding/branding.schema.ts
-import { z as z32 } from "zod";
+import { z as z33 } from "zod";
 var SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var HEX_RE = /^#[0-9a-fA-F]{6}$/;
-var UpdateBrandingSchema = z32.object({
-  brandSlug: z32.string().regex(SLUG_RE, "Slug inv\xE1lido (solo min\xFAsculas, n\xFAmeros y guiones)").max(40).nullable().optional(),
-  brandName: z32.string().max(60).nullable().optional(),
-  brandLogoKey: z32.string().max(200).nullable().optional(),
-  brandPrimary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
-  brandSecondary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
+var UpdateBrandingSchema = z33.object({
+  brandSlug: z33.string().regex(SLUG_RE, "Slug inv\xE1lido (solo min\xFAsculas, n\xFAmeros y guiones)").max(40).nullable().optional(),
+  brandName: z33.string().max(60).nullable().optional(),
+  brandLogoKey: z33.string().max(200).nullable().optional(),
+  brandPrimary: z33.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
+  brandSecondary: z33.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
 });
-var ClientUpdateBrandingSchema = z32.object({
-  brandName: z32.string().max(60).nullable().optional(),
-  brandLogoKey: z32.string().max(200).nullable().optional(),
-  brandPrimary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
-  brandSecondary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
+var ClientUpdateBrandingSchema = z33.object({
+  brandName: z33.string().max(60).nullable().optional(),
+  brandLogoKey: z33.string().max(200).nullable().optional(),
+  brandPrimary: z33.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
+  brandSecondary: z33.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
 });
-var SlugParamSchema = z32.object({
-  slug: z32.string().min(1).max(40)
+var SlugParamSchema = z33.object({
+  slug: z33.string().min(1).max(40)
 });
 
 // src/modules/branding/branding.service.ts
-import { and as and35, asc as asc13, eq as eq40 } from "drizzle-orm";
+import { and as and36, asc as asc13, eq as eq41 } from "drizzle-orm";
 function logoUrl(key) {
   return key ? `${env.PUBLIC_API_URL}/api/files/${key}` : null;
 }
@@ -10455,14 +10917,14 @@ var companyBrandCols = {
   brandSecondary: company.brandSecondary
 };
 async function getBrandingBySlug(slug) {
-  const [companyRow] = await db.select(companyBrandCols).from(company).where(and35(eq40(company.slug, slug), eq40(company.archived, false))).limit(1);
+  const [companyRow] = await db.select(companyBrandCols).from(company).where(and36(eq41(company.slug, slug), eq41(company.archived, false))).limit(1);
   if (companyRow) return toPublicBranding(companyRow);
   const [legacyRow] = await db.select({
     brandName: clientAccount.brandName,
     brandLogoKey: clientAccount.brandLogoKey,
     brandPrimary: clientAccount.brandPrimary,
     brandSecondary: clientAccount.brandSecondary
-  }).from(clientAccount).where(eq40(clientAccount.brandSlug, slug)).limit(1);
+  }).from(clientAccount).where(eq41(clientAccount.brandSlug, slug)).limit(1);
   if (!legacyRow) return null;
   return toPublicBranding(legacyRow);
 }
@@ -10487,11 +10949,11 @@ function toClientBrandingRow(identity, brand) {
   };
 }
 async function listClientBranding(portalId) {
-  const rows = await db.select(brandingCols).from(clientAccount).where(eq40(clientAccount.portalId, portalId)).orderBy(asc13(clientAccount.email));
+  const rows = await db.select(brandingCols).from(clientAccount).where(eq41(clientAccount.portalId, portalId)).orderBy(asc13(clientAccount.email));
   return rows.map((r) => toClientBrandingRow(r, r));
 }
 async function updateClientBranding(portalId, accountId, input) {
-  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and35(eq40(clientAccount.id, accountId), eq40(clientAccount.portalId, portalId))).limit(1);
+  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and36(eq41(clientAccount.id, accountId), eq41(clientAccount.portalId, portalId))).limit(1);
   if (!exists) throw Errors.notFound("Cuenta de cliente no encontrada");
   let row;
   try {
@@ -10502,7 +10964,7 @@ async function updateClientBranding(portalId, accountId, input) {
       brandLogoKey: input.brandLogoKey ?? null,
       brandPrimary: input.brandPrimary ?? null,
       brandSecondary: input.brandSecondary ?? null
-    }).where(eq40(clientAccount.id, accountId)).returning(brandingCols);
+    }).where(eq41(clientAccount.id, accountId)).returning(brandingCols);
   } catch {
     throw new AppError("SLUG_TAKEN", "Ese slug ya est\xE1 en uso por otro cliente", 409);
   }
@@ -10510,23 +10972,23 @@ async function updateClientBranding(portalId, accountId, input) {
   return toClientBrandingRow(row, row);
 }
 async function resolveClientCompanyId(clientId) {
-  const [row] = await db.select({ companyId: contact.companyId }).from(clientAccount).innerJoin(contact, eq40(contact.id, clientAccount.contactId)).where(eq40(clientAccount.id, clientId)).limit(1);
+  const [row] = await db.select({ companyId: contact.companyId }).from(clientAccount).innerJoin(contact, eq41(contact.id, clientAccount.contactId)).where(eq41(clientAccount.id, clientId)).limit(1);
   return row?.companyId ?? null;
 }
 async function resolveClientCompanyBranding(clientId) {
   const companyId = await resolveClientCompanyId(clientId);
   if (!companyId) return null;
-  const [companyRow] = await db.select(companyBrandCols).from(company).where(and35(eq40(company.id, companyId), eq40(company.archived, false))).limit(1);
+  const [companyRow] = await db.select(companyBrandCols).from(company).where(and36(eq41(company.id, companyId), eq41(company.archived, false))).limit(1);
   return companyRow ?? null;
 }
 async function getOwnBranding(clientId) {
-  const [row] = await db.select(brandingCols).from(clientAccount).where(eq40(clientAccount.id, clientId)).limit(1);
+  const [row] = await db.select(brandingCols).from(clientAccount).where(eq41(clientAccount.id, clientId)).limit(1);
   if (!row) throw Errors.notFound("Cuenta no encontrada");
   const companyBranding = await resolveClientCompanyBranding(clientId);
   return toClientBrandingRow(row, companyBranding ?? row);
 }
 async function updateOwnBranding(clientId, input) {
-  const [identity] = await db.select({ id: clientAccount.id, email: clientAccount.email, brandSlug: clientAccount.brandSlug }).from(clientAccount).where(eq40(clientAccount.id, clientId)).limit(1);
+  const [identity] = await db.select({ id: clientAccount.id, email: clientAccount.email, brandSlug: clientAccount.brandSlug }).from(clientAccount).where(eq41(clientAccount.id, clientId)).limit(1);
   if (!identity) throw Errors.notFound("Cuenta no encontrada");
   const patch = {
     brandName: input.brandName ?? null,
@@ -10536,11 +10998,11 @@ async function updateOwnBranding(clientId, input) {
   };
   const companyId = await resolveClientCompanyId(clientId);
   if (companyId) {
-    const [companyRow] = await db.update(company).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq40(company.id, companyId)).returning(companyBrandCols);
+    const [companyRow] = await db.update(company).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq41(company.id, companyId)).returning(companyBrandCols);
     if (!companyRow) throw Errors.internal("No se pudo actualizar el branding de la empresa");
     return toClientBrandingRow(identity, companyRow);
   }
-  const [row] = await db.update(clientAccount).set(patch).where(eq40(clientAccount.id, clientId)).returning(brandingCols);
+  const [row] = await db.update(clientAccount).set(patch).where(eq41(clientAccount.id, clientId)).returning(brandingCols);
   if (!row) throw Errors.internal("No se pudo actualizar el branding");
   return toClientBrandingRow(row, row);
 }
@@ -10607,7 +11069,7 @@ async function brandingClientRoutes(app2) {
 }
 
 // src/modules/onboarding/onboarding.service.ts
-import { and as and36, desc as desc21, eq as eq41, inArray as inArray15, isNull as isNull4, sql as sql31 } from "drizzle-orm";
+import { and as and37, desc as desc21, eq as eq42, inArray as inArray16, isNull as isNull4, sql as sql34 } from "drizzle-orm";
 
 // src/modules/onboarding/emails/onboarding-completed.ts
 function onboardingCompletedHtml(p) {
@@ -10657,17 +11119,17 @@ function escAttr5(s2) {
 }
 
 // src/modules/onboarding/onboarding.schema.ts
-import { z as z33 } from "zod";
+import { z as z34 } from "zod";
 var ONBOARDING_STATUS = {
   IN_PROGRESS: "in_progress",
   COMPLETED: "completed"
 };
-var OnboardingProgressSchema = z33.object({
-  step: z33.number().int().min(1, "Paso inv\xE1lido").max(4, "Paso inv\xE1lido")
+var OnboardingProgressSchema = z34.object({
+  step: z34.number().int().min(1, "Paso inv\xE1lido").max(4, "Paso inv\xE1lido")
 });
-var OnboardingSignatureSchema = z33.object({
-  fullName: z33.string({ required_error: "El nombre completo es requerido." }).min(3, "El nombre completo es requerido.").max(200, "Nombre demasiado largo."),
-  accepted: z33.literal(true, { errorMap: () => ({ message: "Deb\xE9s aceptar los t\xE9rminos para firmar." }) })
+var OnboardingSignatureSchema = z34.object({
+  fullName: z34.string({ required_error: "El nombre completo es requerido." }).min(3, "El nombre completo es requerido.").max(200, "Nombre demasiado largo."),
+  accepted: z34.literal(true, { errorMap: () => ({ message: "Deb\xE9s aceptar los t\xE9rminos para firmar." }) })
 });
 var DELIVERY_CHANNELS = [
   "whatsapp",
@@ -10683,23 +11145,23 @@ var stripControl = (s2) => s2.split("").filter((c) => {
   const code = c.charCodeAt(0);
   return code > 31 && code !== 127;
 }).join("");
-var freeText = (max) => z33.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).pipe(z33.string().min(1, "Requerido"));
-var freeTextOptional = (max) => z33.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).optional();
+var freeText = (max) => z34.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).pipe(z34.string().min(1, "Requerido"));
+var freeTextOptional = (max) => z34.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).optional();
 var requireOtherChannelDetail = (value, ctx) => {
   if (value.deliveryChannels.includes("otro") && !value.deliveryChannelsOther) {
     ctx.addIssue({
-      code: z33.ZodIssueCode.custom,
+      code: z34.ZodIssueCode.custom,
       path: ["deliveryChannelsOther"],
       message: "Contanos cu\xE1l es el otro canal."
     });
   }
 };
-var BriefFieldsSchema = z33.object({
+var BriefFieldsSchema = z34.object({
   businessProgram: freeText(2e3),
   // q1
   activeClients: freeText(500),
   // q2
-  deliveryChannels: z33.array(z33.enum(DELIVERY_CHANNELS)).min(1, "Eleg\xED al menos un canal"),
+  deliveryChannels: z34.array(z34.enum(DELIVERY_CHANNELS)).min(1, "Eleg\xED al menos un canal"),
   // q3
   deliveryChannelsOther: freeTextOptional(200),
   worstChannel: freeText(2e3),
@@ -10748,12 +11210,12 @@ var OnboardingBriefDraftSchema = BriefFieldsSchema.partial().extend({
   doubtsBeforeBuying: freeTextOptional(2e3),
   // Sin el `.min(1)` del submit final: un borrador puede tener el selector
   // de canales todavía vacío.
-  deliveryChannels: z33.array(z33.enum(DELIVERY_CHANNELS)).optional()
+  deliveryChannels: z34.array(z34.enum(DELIVERY_CHANNELS)).optional()
 }).strict().refine((v) => Object.keys(v).length > 0, { message: "El borrador no puede estar vac\xEDo." });
-var MaterialItemSchema = z33.object({
-  done: z33.boolean(),
-  assetIds: z33.array(z33.string().min(1)).max(50, "M\xE1ximo 50 archivos por categor\xEDa.").optional(),
-  note: z33.string().max(500).optional()
+var MaterialItemSchema = z34.object({
+  done: z34.boolean(),
+  assetIds: z34.array(z34.string().min(1)).max(50, "M\xE1ximo 50 archivos por categor\xEDa.").optional(),
+  note: z34.string().max(500).optional()
 });
 var ONBOARDING_MATERIAL_CATEGORIES = [
   "logoBrand",
@@ -10761,30 +11223,30 @@ var ONBOARDING_MATERIAL_CATEGORIES = [
   "clientBase",
   "toolAccess"
 ];
-var OnboardingMaterialsSchema = z33.object({
-  materials: z33.object({
+var OnboardingMaterialsSchema = z34.object({
+  materials: z34.object({
     logoBrand: MaterialItemSchema,
     programContent: MaterialItemSchema,
     clientBase: MaterialItemSchema,
     toolAccess: MaterialItemSchema
   })
 });
-var OnboardingMaterialsDraftSchema = z33.object({
-  materials: z33.object({
+var OnboardingMaterialsDraftSchema = z34.object({
+  materials: z34.object({
     logoBrand: MaterialItemSchema.optional(),
     programContent: MaterialItemSchema.optional(),
     clientBase: MaterialItemSchema.optional(),
     toolAccess: MaterialItemSchema.optional()
   }).strict().refine((v) => Object.keys(v).length > 0, { message: "No hay materiales para guardar." })
 });
-var OnboardingMaterialUploadQuerySchema = z33.object({
-  category: z33.enum(ONBOARDING_MATERIAL_CATEGORIES, {
+var OnboardingMaterialUploadQuerySchema = z34.object({
+  category: z34.enum(ONBOARDING_MATERIAL_CATEGORIES, {
     errorMap: () => ({ message: "Categor\xEDa de material inv\xE1lida" })
   })
 });
 
 // src/modules/onboarding/steps.ts
-import { sql as sql30 } from "drizzle-orm";
+import { sql as sql33 } from "drizzle-orm";
 var ONBOARDING_TOTAL_STEPS = 8;
 var STEP_LABELS = {
   1: "bienvenida",
@@ -10806,10 +11268,10 @@ function assertStepPrerequisites(stepsCompleted, step) {
 }
 function stepsCompletedMerge(step) {
   const patch = JSON.stringify({ [String(step)]: (/* @__PURE__ */ new Date()).toISOString() });
-  return sql30`${patch}::jsonb || ${clientOnboarding.stepsCompleted}`;
+  return sql33`${patch}::jsonb || ${clientOnboarding.stepsCompleted}`;
 }
 function derivedCurrentStep(merged) {
-  return sql30`(
+  return sql33`(
     SELECT COALESCE(MIN(s), ${ONBOARDING_TOTAL_STEPS})
     FROM generate_series(1, ${ONBOARDING_TOTAL_STEPS}) AS s
     WHERE NOT jsonb_exists(${merged}, s::text)
@@ -10824,16 +11286,16 @@ var CATEGORY_TO_ASSET_TYPE = {
   toolAccess: "acceso"
 };
 async function resolveActiveDeal(clientId) {
-  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq41(deal.id, clientDealAccess.dealId)).where(and36(eq41(clientDealAccess.clientId, clientId), eq41(deal.archived, false))).orderBy(desc21(deal.createdAt)).limit(1);
+  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq42(deal.id, clientDealAccess.dealId)).where(and37(eq42(clientDealAccess.clientId, clientId), eq42(deal.archived, false))).orderBy(desc21(deal.createdAt)).limit(1);
   if (!row) throw Errors.notFound("No hay un proyecto activo asociado a esta cuenta");
   return row;
 }
 async function getOrCreateOnboarding(dbOrTx, portalId, dealId, clientId) {
-  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq41(clientOnboarding.dealId, dealId)).limit(1);
+  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq42(clientOnboarding.dealId, dealId)).limit(1);
   if (existing) return existing;
   const [created] = await dbOrTx.insert(clientOnboarding).values({ portalId, dealId, clientId }).onConflictDoNothing({ target: clientOnboarding.dealId }).returning();
   if (created) return created;
-  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq41(clientOnboarding.dealId, dealId)).limit(1);
+  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq42(clientOnboarding.dealId, dealId)).limit(1);
   if (!row) throw Errors.internal("No se pudo crear el onboarding");
   return row;
 }
@@ -10844,7 +11306,7 @@ async function getOnboardingState(clientId) {
   const activeDeal = await resolveActiveDeal(clientId);
   const [onboarding, assets] = await Promise.all([
     getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId),
-    db.select().from(clientAsset).where(and36(eq41(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
+    db.select().from(clientAsset).where(and37(eq42(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
   ]);
   return { onboarding, assets };
 }
@@ -10858,7 +11320,7 @@ async function markStepProgress(clientId, step) {
     stepsCompleted: merged,
     currentStep: derivedCurrentStep(merged),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq41(clientOnboarding.id, row.id)).returning();
+  }).where(eq42(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo actualizar el progreso");
   return updated;
 }
@@ -10876,7 +11338,7 @@ async function submitSignature(clientId, fullName, ip) {
     stepsCompleted: merged,
     currentStep: derivedCurrentStep(merged),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(and36(eq41(clientOnboarding.id, row.id), isNull4(clientOnboarding.signatureAcceptedAt))).returning();
+  }).where(and37(eq42(clientOnboarding.id, row.id), isNull4(clientOnboarding.signatureAcceptedAt))).returning();
   if (!updated) throw Errors.conflict("El onboarding ya fue firmado");
   return updated;
 }
@@ -10887,9 +11349,9 @@ async function saveBriefDraft(clientId, partial) {
   assertStepPrerequisites(row.stepsCompleted, 6);
   const [updated] = await db.update(clientOnboarding).set({
     // COALESCE: `brief_draft` arranca en NULL y `NULL || '{...}'` es NULL.
-    briefDraft: sql31`COALESCE(${clientOnboarding.briefDraft}, '{}'::jsonb) || ${JSON.stringify(partial)}::jsonb`,
+    briefDraft: sql34`COALESCE(${clientOnboarding.briefDraft}, '{}'::jsonb) || ${JSON.stringify(partial)}::jsonb`,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq41(clientOnboarding.id, row.id)).returning();
+  }).where(eq42(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar el borrador del brief");
   return updated;
 }
@@ -10908,7 +11370,7 @@ async function submitBrief(clientId, answers) {
     stepsCompleted: merged,
     currentStep: derivedCurrentStep(merged),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq41(clientOnboarding.id, row.id)).returning();
+  }).where(eq42(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar el brief");
   return updated;
 }
@@ -10932,7 +11394,7 @@ async function uploadMaterialAsset(clientId, category, saved) {
 async function assertOwnedAssets(dealId, materials) {
   const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? []);
   if (allAssetIds.length === 0) return;
-  const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and36(eq41(clientAsset.dealId, dealId), inArray15(clientAsset.id, allAssetIds)));
+  const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and37(eq42(clientAsset.dealId, dealId), inArray16(clientAsset.id, allAssetIds)));
   const ownedSet = new Set(owned.map((o) => o.id));
   const invalid = allAssetIds.filter((id) => !ownedSet.has(id));
   if (invalid.length > 0) {
@@ -10946,9 +11408,9 @@ async function saveMaterialsDraft(clientId, materials) {
   assertStepPrerequisites(row.stepsCompleted, 7);
   await assertOwnedAssets(activeDeal.id, materials);
   const [updated] = await db.update(clientOnboarding).set({
-    materials: sql31`${clientOnboarding.materials} || ${JSON.stringify(materials)}::jsonb`,
+    materials: sql34`${clientOnboarding.materials} || ${JSON.stringify(materials)}::jsonb`,
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq41(clientOnboarding.id, row.id)).returning();
+  }).where(eq42(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar el borrador de materiales");
   return updated;
 }
@@ -10964,7 +11426,7 @@ async function submitMaterials(clientId, materials) {
     stepsCompleted: merged,
     currentStep: derivedCurrentStep(merged),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq41(clientOnboarding.id, row.id)).returning();
+  }).where(eq42(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar los materiales");
   return updated;
 }
@@ -10982,25 +11444,24 @@ async function completeOnboarding(token) {
       stepsCompleted: merged,
       currentStep: ONBOARDING_TOTAL_STEPS,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(and36(eq41(clientOnboarding.id, row.id), eq41(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
+    }).where(and37(eq42(clientOnboarding.id, row.id), eq42(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
     if (!updatedOnboarding) {
       throw Errors.conflict("El onboarding ya est\xE1 completo");
     }
     const move = await moveDealToProduction(tx, activeDeal.portalId, activeDeal.id, { clientId });
     return { onboarding: updatedOnboarding, ...move };
   });
-  const notifyPayload = {
-    entityType: "deal",
-    entityId: activeDeal.id,
-    type: "onboarding_completed",
-    title: `Onboarding completado: "${result.dealName}" pas\xF3 a ${result.stageLabel}`
+  const payload = { dealId: activeDeal.id, dealName: result.dealName, stageLabel: result.stageLabel };
+  const opts = {
+    entity: { type: "deal", id: activeDeal.id },
+    dedupeKey: `onboarding_completed:${activeDeal.id}`
   };
   if (result.ownerId) {
-    await createNotification({ portalId: activeDeal.portalId, userId: result.ownerId, ...notifyPayload });
+    await notifyUser(activeDeal.portalId, result.ownerId, "onboarding_completed", payload, opts);
   } else {
-    await notifyAdmins(activeDeal.portalId, notifyPayload);
+    await notifyAdmins(activeDeal.portalId, "onboarding_completed", payload, opts);
   }
-  const [c] = await db.select({ email: contact.email, firstName: contact.firstName }).from(contact).where(eq41(contact.id, token.contactId)).limit(1);
+  const [c] = await db.select({ email: contact.email, firstName: contact.firstName }).from(contact).where(eq42(contact.id, token.contactId)).limit(1);
   if (c?.email) {
     await sendEmail({
       to: c.email,
@@ -11028,13 +11489,13 @@ function toAdminListItem(onboarding, dealName, clientEmail) {
   };
 }
 async function listOnboardings(portalId) {
-  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and36(eq41(deal.id, clientOnboarding.dealId), eq41(deal.archived, false))).innerJoin(clientAccount, eq41(clientAccount.id, clientOnboarding.clientId)).where(eq41(clientOnboarding.portalId, portalId)).orderBy(sql31`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc21(clientOnboarding.updatedAt));
+  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and37(eq42(deal.id, clientOnboarding.dealId), eq42(deal.archived, false))).innerJoin(clientAccount, eq42(clientAccount.id, clientOnboarding.clientId)).where(eq42(clientOnboarding.portalId, portalId)).orderBy(sql34`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc21(clientOnboarding.updatedAt));
   return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail));
 }
 async function getOnboardingByDeal(portalId, dealId) {
   const [[row], assets] = await Promise.all([
-    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq41(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq41(clientAccount.id, clientOnboarding.clientId)).where(and36(eq41(clientOnboarding.portalId, portalId), eq41(clientOnboarding.dealId, dealId))).limit(1),
-    db.select().from(clientAsset).where(and36(eq41(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
+    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq42(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq42(clientAccount.id, clientOnboarding.clientId)).where(and37(eq42(clientOnboarding.portalId, portalId), eq42(clientOnboarding.dealId, dealId))).limit(1),
+    db.select().from(clientAsset).where(and37(eq42(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
   ]);
   if (!row) throw Errors.notFound("Onboarding no encontrado para este deal");
   return { onboarding: row.onboarding, assets, dealName: row.dealName, clientEmail: row.clientEmail };
@@ -11199,9 +11660,9 @@ async function clientOnboardingRoutes(app2) {
 }
 
 // src/modules/calendar/calendar.public.router.ts
-import { z as z34 } from "zod";
+import { z as z35 } from "zod";
 var TAG33 = "Calendario P\xFAblico";
-var ianaTimezone2 = z34.string().refine(
+var ianaTimezone2 = z35.string().refine(
   (tz) => {
     try {
       Intl.DateTimeFormat(void 0, { timeZone: tz });
@@ -11212,9 +11673,9 @@ var ianaTimezone2 = z34.string().refine(
   },
   { message: "Zona horaria IANA inv\xE1lida (ej. America/Bogota, Europe/Madrid)" }
 );
-var EventTypeParamsSchema = z34.object({
-  portalId: z34.string().min(1, "portalId requerido"),
-  eventSlug: z34.string().min(1, "eventSlug requerido")
+var EventTypeParamsSchema = z35.object({
+  portalId: z35.string().min(1, "portalId requerido"),
+  eventSlug: z35.string().min(1, "eventSlug requerido")
 });
 async function calendarPublicRoutes(app2) {
   const r = app2.withTypeProvider();
@@ -11243,9 +11704,9 @@ async function calendarPublicRoutes(app2) {
         summary: "Slots disponibles de un event type (sin auth)",
         description: "Calcula los slots libres del event type en el rango de fechas dado. Devuelve startUtc (UTC), endUtc (UTC) y startLocal (en la TZ del invitado).",
         params: EventTypeParamsSchema,
-        querystring: z34.object({
-          from: z34.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from debe ser YYYY-MM-DD"),
-          to: z34.string().regex(/^\d{4}-\d{2}-\d{2}$/, "to debe ser YYYY-MM-DD"),
+        querystring: z35.object({
+          from: z35.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from debe ser YYYY-MM-DD"),
+          to: z35.string().regex(/^\d{4}-\d{2}-\d{2}$/, "to debe ser YYYY-MM-DD"),
           tz: ianaTimezone2
         })
       },
@@ -11331,7 +11792,7 @@ async function calendarPublicRoutes(app2) {
 
 // src/modules/calendar/calendar.admin.router.ts
 var TAG34 = "Calendario Admin V2";
-var security28 = ADMIN_SECURITY;
+var security27 = ADMIN_SECURITY;
 async function calendarAdminRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -11341,7 +11802,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Listar schedules de disponibilidad del portal",
-        security: security28
+        security: security27
       }
     },
     async (request) => ok(await listSchedules(request.hubUser.portalId))
@@ -11352,7 +11813,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Obtener un schedule por ID",
-        security: security28,
+        security: security27,
         params: IdParamSchema
       }
     },
@@ -11364,7 +11825,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Crear schedule de disponibilidad",
-        security: security28,
+        security: security27,
         body: CreateScheduleSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -11384,7 +11845,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Actualizar schedule",
-        security: security28,
+        security: security27,
         params: IdParamSchema,
         body: UpdateScheduleSchema
       },
@@ -11398,7 +11859,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Eliminar schedule",
-        security: security28,
+        security: security27,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -11414,7 +11875,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Agregar intervalo a un schedule",
-        security: security28,
+        security: security27,
         params: ScheduleParamSchema,
         body: CreateIntervalSchema
       },
@@ -11435,7 +11896,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Reemplazar todos los intervalos de un schedule (at\xF3mico)",
-        security: security28,
+        security: security27,
         params: ScheduleParamSchema,
         body: ReplaceIntervalsSchema
       },
@@ -11455,7 +11916,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Eliminar un intervalo de un schedule",
-        security: security28,
+        security: security27,
         params: ScheduleIntervalParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -11475,7 +11936,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Upsert de date override en un schedule",
-        security: security28,
+        security: security27,
         params: ScheduleParamSchema,
         body: DateOverrideInputSchema
       },
@@ -11495,7 +11956,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Eliminar un date override de un schedule",
-        security: security28,
+        security: security27,
         params: ScheduleOverrideParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -11515,7 +11976,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Listar event types V2 del portal",
-        security: security28
+        security: security27
       }
     },
     async (request) => ok(await listEventTypesV2(request.hubUser.portalId))
@@ -11526,7 +11987,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Obtener event type V2 por ID",
-        security: security28,
+        security: security27,
         params: IdParamSchema
       }
     },
@@ -11538,7 +11999,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Crear event type V2",
-        security: security28,
+        security: security27,
         body: CreateEventTypeV2Schema
       },
       preHandler: [authorize("owner", "member")]
@@ -11558,7 +12019,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Actualizar event type V2",
-        security: security28,
+        security: security27,
         params: IdParamSchema,
         body: UpdateEventTypeV2Schema
       },
@@ -11572,7 +12033,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Eliminar event type V2",
-        security: security28,
+        security: security27,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -11588,7 +12049,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Bookings del portal en rango de fechas (vista semanal admin)",
-        security: security28,
+        security: security27,
         querystring: WeekBookingsQuerySchema
       }
     },
@@ -11603,7 +12064,7 @@ async function calendarAdminRoutes(app2) {
       schema: {
         tags: [TAG34],
         summary: "Cancelar booking desde el admin",
-        security: security28,
+        security: security27,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -11738,6 +12199,7 @@ function buildApp() {
   app2.register(intakeRoutes, { prefix: "/api/intake" });
   app2.register(clientIntakeRoutes, { prefix: "/api/client/intakes" });
   app2.register(notificationsRoutes, { prefix: "/api/notifications" });
+  app2.register(clientNotificationsRoutes, { prefix: "/api/client/notifications" });
   app2.register(notificationsWsRoutes);
   app2.register(filesRoutes, { prefix: "/api/files" });
   app2.register(clientFilesRoutes, { prefix: "/api/client/files" });

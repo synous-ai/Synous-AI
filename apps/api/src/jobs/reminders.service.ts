@@ -3,8 +3,8 @@ import { db } from '../db'
 import { portal, notification } from '../db/schema'
 import { getFollowUps } from '../modules/focus/focus.service'
 import { getDealsNeedingAttention } from '../modules/focus/focus.service'
-import { createNotification } from '../modules/notifications/notifications.service'
 import { sendDueBookingReminders } from '../modules/calendar/booking-reminders.service'
+import { notifyAdmins } from '../modules/notifications/notify'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -15,33 +15,6 @@ function startOfToday(): Date {
   return d
 }
 
-/**
- * Checks whether a notification for the same (portalId, entityType, entityId, type)
- * was already created today (createdAt >= start-of-today).
- * Keeps us idempotent across repeated scans within the same day.
- */
-async function notificationExistsToday(
-  portalId: string,
-  entityType: string,
-  entityId: string,
-  type: string,
-): Promise<boolean> {
-  const today = startOfToday()
-  const rows = await db
-    .select({ id: notification.id })
-    .from(notification)
-    .where(
-      and(
-        eq(notification.portalId, portalId),
-        eq(notification.entityType, entityType),
-        eq(notification.entityId, entityId),
-        eq(notification.type, type),
-        gte(notification.createdAt, today),
-      ),
-    )
-    .limit(1)
-  return rows.length > 0
-}
 
 // ── Scan result ───────────────────────────────────────────────────────────────
 
@@ -89,19 +62,17 @@ export async function runReminderScan(): Promise<ReminderScanResult> {
 
       const actionUrl = buildTaskActionUrl(item.entity, item.id)
 
-      const alreadySent = await notificationExistsToday(portalId, entityType, entityId, 'task_due')
-      if (alreadySent) continue
-
-      await createNotification({
-        portalId,
-        entityType,
-        entityId,
-        type: 'task_due',
-        title: taskTitle,
-        body: item.dueDate ? `Vence: ${new Date(item.dueDate).toLocaleDateString()}` : undefined,
-        actionUrl,
+      // El dedupe ya no es un SELECT previo (sujeto a carrera: dos corridas
+      // simultáneas leían "no existe" y ambas insertaban) sino la dedupeKey,
+      // que absorbe el índice único. La fecha entra en la clave para que el
+      // recordatorio vuelva a salir al día siguiente.
+      const hoy = new Date().toISOString().slice(0, 10)
+      const emitted = await notifyAdmins(portalId, 'task_due', { taskId: entityId, taskTitle }, {
+        entity: { type: entityType, id: entityId },
+        dedupeKey: `task_due:${entityId}:${hoy}`,
+        metadata: { dueDate: item.dueDate ?? null, actionUrl },
       })
-      created++
+      if (emitted) created++
     }
 
     // ── 2. Deal stale reminders ──────────────────────────────────────────────
@@ -109,19 +80,13 @@ export async function runReminderScan(): Promise<ReminderScanResult> {
 
     for (const deal of stale) {
       const days = deal.daysSinceActivity ?? 0
-      const alreadySent = await notificationExistsToday(portalId, 'deal', deal.id, 'deal_stale')
-      if (alreadySent) continue
-
-      await createNotification({
-        portalId,
-        entityType: 'deal',
-        entityId: deal.id,
-        type: 'deal_stale',
-        title: `Deal sin actividad hace ${days} días: ${deal.name}`,
-        body: deal.stageLabel ? `Etapa: ${deal.stageLabel}` : undefined,
-        actionUrl: `/deals/${deal.id}`,
+      const hoy = new Date().toISOString().slice(0, 10)
+      const emitted = await notifyAdmins(portalId, 'deal_stale', { dealId: deal.id, dealName: deal.name, days }, {
+        entity: { type: 'deal', id: deal.id },
+        dedupeKey: `deal_stale:${deal.id}:${hoy}`,
+        metadata: { stageLabel: deal.stageLabel ?? null },
       })
-      created++
+      if (emitted) created++
     }
   }
 

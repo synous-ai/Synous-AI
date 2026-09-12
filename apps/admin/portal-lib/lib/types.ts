@@ -274,3 +274,23 @@ export interface AdminOnboardingDetailDTO {
   dealName: string
   clientEmail: string
 }
+
+// ─── Notificaciones del cliente ──────────────────────────────────────────────
+// Ver apps/api/src/modules/notifications (prefix /api/client/notifications).
+
+export type NotificationPriority = 'low' | 'normal' | 'high' | 'urgent'
+
+/** Fila de `notification` dirigida a un client_account. */
+export interface ClientNotification {
+  id: string
+  type: string
+  title: string
+  body: string | null
+  actionUrl: string | null
+  priority: NotificationPriority
+  entityType: string | null
+  entityId: string | null
+  metadata: Record<string, unknown>
+  readAt: string | null
+  createdAt: string
+}
