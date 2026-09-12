@@ -132,7 +132,7 @@ export default function CompanyDetailPage() {
     return (
       <div className="p-6">
         <p className="text-sm text-muted-foreground">No se encontró la empresa.</p>
-        <Link href="/admin/companies" className="mt-2 inline-block text-sm text-primary underline">
+        <Link href="/companies" className="mt-2 inline-block text-sm text-primary underline">
           ← Volver a Empresas
         </Link>
       </div>
@@ -144,7 +144,7 @@ export default function CompanyDetailPage() {
       {/* Breadcrumb */}
       <nav className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
         <Link
-          href="/admin/companies"
+          href="/companies"
           className="flex items-center gap-1 transition-colors hover:text-foreground"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -234,7 +234,7 @@ export default function CompanyDetailPage() {
                         <div
                           key={c.id}
                           className="flex cursor-pointer items-center gap-3 rounded-xl border bg-background/60 px-3 py-2.5 transition-colors hover:bg-accent/60"
-                          onClick={() => router.push(`/admin/contacts/${c.id}`)}
+                          onClick={() => router.push(`/contacts/${c.id}`)}
                         >
                           <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
                             {initials(c.firstName ?? undefined, c.lastName ?? undefined)}
@@ -269,7 +269,7 @@ export default function CompanyDetailPage() {
                       <div
                         key={d.id}
                         className="flex cursor-pointer items-center justify-between rounded-xl border bg-background/60 px-4 py-3 transition-colors hover:bg-accent/60"
-                        onClick={() => router.push(`/admin/deals/${d.id}`)}
+                        onClick={() => router.push(`/deals/${d.id}`)}
                       >
                         <span className="text-sm font-medium">{d.name}</span>
                         <span className="font-mono text-sm text-muted-foreground">

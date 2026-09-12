@@ -1,0 +1,1 @@
+ALTER TABLE "client_onboarding" ADD COLUMN "brief_draft" jsonb;

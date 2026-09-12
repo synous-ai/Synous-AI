@@ -12,10 +12,12 @@ import {
   eventMembership,
   hubUser,
   booking,
+  portal,
 } from '../../db/schema'
 import { Errors, AppError } from '../../lib/errors'
 import { env } from '../../config/env'
 import { sendEmail } from '../../lib/mailer'
+import { slugify } from '../../lib/slug'
 import { computeSlots, toInviteeDisplay } from './slots.service'
 import type { ScheduleWithIntervals, WeeklyInterval, DateOverrideItem, BookingBusy, EventTypeConfig } from './slots.service'
 import type {
@@ -37,15 +39,6 @@ import { bookingHostNotifyHtml } from './emails/booking-host-notify'
 
 type MeetingTypeRow = typeof meetingType.$inferSelect
 type AvailabilityRow = typeof availabilityRule.$inferSelect
-
-function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
 
 // ── Tipos de reunión ───────────────────────────────────
 export async function listMeetingTypes(portalId: string): Promise<MeetingTypeRow[]> {
@@ -284,7 +277,30 @@ function verifyBookingToken(
  * @param portalId  ID del portal que contiene el event type
  * @param eventSlug Slug del event type
  */
-export async function getPublicEventType(portalId: string, eventSlug: string) {
+/**
+ * Resuelve el segmento de portal de una URL pública de reservas a su `portal.id`.
+ *
+ * Acepta las DOS formas a propósito:
+ *  - el `slug` legible (`/book/synous/...`) — la forma nueva y la que se le
+ *    manda a un lead;
+ *  - el `id` crudo (`/book/clx7a.../...`) — porque los links que ya salieron
+ *    llevan el cuid y romperlos sería peor que la URL fea.
+ *
+ * Busca primero por slug: es el caso esperado, y un slug jamás va a coincidir
+ * con un id (los ids son cuids, no strings elegidos por una persona).
+ */
+export async function resolvePortalRef(ref: string): Promise<string> {
+  const [bySlug] = await db.select({ id: portal.id }).from(portal).where(eq(portal.slug, ref)).limit(1)
+  if (bySlug) return bySlug.id
+
+  const [byId] = await db.select({ id: portal.id }).from(portal).where(eq(portal.id, ref)).limit(1)
+  if (byId) return byId.id
+
+  throw Errors.notFound('Portal no encontrado')
+}
+
+export async function getPublicEventType(portalRef: string, eventSlug: string) {
+  const portalId = await resolvePortalRef(portalRef)
   const [mt] = await db
     .select()
     .from(meetingType)
@@ -443,12 +459,13 @@ async function assertSlotAvailable(
  * @param tz         Zona horaria IANA del invitado (para display)
  */
 export async function getPublicSlots(
-  portalId: string,
+  portalRef: string,
   eventSlug: string,
   from: string,
   to: string,
   tz: string,
 ) {
+  const portalId = await resolvePortalRef(portalRef)
   // Verificar que el event type existe y está activo
   const [mt] = await db
     .select()
@@ -515,11 +532,12 @@ export async function getPublicSlots(
  * @param baseUrl    Raíz del frontend (para construir las URLs de cancel/reschedule)
  */
 export async function createPublicBooking(
-  portalId: string,
+  portalRef: string,
   eventSlug: string,
   input: CreateBookingDTO,
   baseUrl: string,
 ) {
+  const portalId = await resolvePortalRef(portalRef)
   // Verificar que el event type existe y está activo
   const [mt] = await db
     .select()

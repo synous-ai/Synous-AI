@@ -1,5 +1,5 @@
 /**
- * finance.service.ts — Módulo de Finanzas del CRM NOUS.
+ * finance.service.ts — Módulo de Finanzas del CRM Synous.
  *
  * Cubre: Facturas (multimoneda), Cobros (Payments), Gastos (Expenses),
  * Retainers (MRR) y Resúmenes financieros con filtro de período.
@@ -1250,7 +1250,7 @@ export async function generateInvoicePdf(
     .from(portal)
     .where(eq(portal.id, portalId))
     .limit(1)
-  const portalName = portalRow?.name ?? 'NOUS'
+  const portalName = portalRow?.name ?? 'Synous'
 
   let companyName = '—'
   if (inv.companyId) {

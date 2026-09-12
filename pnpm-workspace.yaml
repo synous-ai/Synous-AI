@@ -1,6 +1,22 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# @hookform/resolvers@3.x no declara `zod` en su manifest — ni como dependency
+# ni como peer (solo react-hook-form). Su `zod/dist/types.d.ts` hace
+# `import { z } from 'zod'` sin pin, así que resuelve por hoisting.
+#
+# Cuando @vercel/blob (apps/api) entró al árbol, arrastró
+# @vercel/oidc → @vercel/cli-config → zod@4, pnpm lo hoisteó, y el resolver
+# empezó a ver los tipos de Zod v4 mientras las apps usan v3 → TS2345 en todos
+# los zodResolver() del admin y el build de Next roto.
+#
+# Declarándole el peer que le falta, pnpm le enlaza el zod v3 de la app que lo
+# consume, sin tocar el zod v4 que necesita @vercel/cli-config.
+packageExtensions:
+  "@hookform/resolvers":
+    peerDependencies:
+      zod: "^3.25.76"
 allowBuilds:
   '@google/genai': true
   canvas: true

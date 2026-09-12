@@ -10,5 +10,5 @@ import { redirect } from 'next/navigation'
  * /admin/dashboard y rebota a /admin/login automáticamente.
  */
 export default function AdminIndexPage(): never {
-  redirect('/admin/dashboard')
+  redirect('/dashboard')
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { API_URL } from '@nous/shared'
+import { API_URL } from '@synous/shared'
 import { apiGet, apiPatch } from '../api'
 import type { ClientBranding, UpdateBrandingInput } from '../types'
 

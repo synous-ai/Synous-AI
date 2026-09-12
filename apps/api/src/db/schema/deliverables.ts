@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, index, check } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, boolean, timestamp, index, check } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { deal } from './deals'
 import { clientAccount } from './client-portal'
@@ -15,6 +15,20 @@ export const deliverable = pgTable('deliverable', {
   version: integer('version').notNull().default(1),
   status: text('status').notNull().default('pending_review'),
   feedback: text('feedback'),
+  /**
+   * ¿El cliente ve este entregable en su Portal?
+   *
+   * Default `true` porque un "entregable" es, por definición, algo que se le
+   * entrega al cliente — y porque así las filas que ya existían mantienen
+   * exactamente el comportamiento anterior (antes NO había filtro: el cliente
+   * veía todo lo adjuntado al deal).
+   *
+   * Se marca en `false` para el material interno que el proceso de entrega
+   * define como no compartible: Blueprint técnico, Diagnóstico de negocio,
+   * checklist de QA crudo. Lo consumen `clientDeliverables` y
+   * `assertClientDeliverable` en modules/client.
+   */
+  visibleToClient: boolean('visible_to_client').notNull().default(true),
   reviewedBy: text('reviewed_by').references(() => clientAccount.id),
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   createdBy: text('created_by').references(() => hubUser.id),

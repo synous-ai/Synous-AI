@@ -1,4 +1,4 @@
-import { getProvider, type ModelProvider } from '../setter/agent/providers'
+import { getProvider, type ModelProvider } from '../../lib/ai'
 
 /**
  * "Próxima acción" sugerida por IA para avanzar un lead.
@@ -33,7 +33,7 @@ const LIFECYCLE_LABEL: Record<string, string> = {
   other: 'otro',
 }
 
-const SYSTEM_INSTRUCTION = `Sos el asistente comercial de NOUS (agencia de software a medida). Tu trabajo es sugerir la PRÓXIMA ACCIÓN concreta para avanzar un lead hacia el cierre.
+const SYSTEM_INSTRUCTION = `Sos el asistente comercial de Synous (agencia de software a medida). Tu trabajo es sugerir la PRÓXIMA ACCIÓN concreta para avanzar un lead hacia el cierre.
 
 Reglas:
 - Respondé SOLO la acción, en UNA frase corta, imperativa y accionable (máx ~120 caracteres).
@@ -80,7 +80,7 @@ export async function suggestNextActionAI(
   const generate = getProvider(provider)
   const result = await generate({
     systemInstruction: SYSTEM_INSTRUCTION,
-    contents: [{ role: 'user', parts: [{ text: buildPrompt(ctx) }] }],
+    prompt: buildPrompt(ctx),
     temperature: 0.6,
     maxOutputTokens: 256,
   })

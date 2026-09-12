@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '../../db'
-import { deal, pipeline, pipelineStage, contact, company, dealContact, note, task, recordHistory } from '../../db/schema'
+import { deal, pipeline, pipelineStage, contact, company, dealContact, note, task, recordHistory, clientAccount } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
 import { decodeCursor, paginateRows, cursorWhere } from '../../lib/pagination'
@@ -9,7 +9,8 @@ import { buildFilter, type FieldMap, type SearchBody } from '../../lib/filter'
 import type { CreateDealDTO, UpdateDealDTO } from './deals.schema'
 
 // Re-export stage functions so existing imports from 'deals.service' continue to work.
-export { changeStage, activateClientPortal } from './stage.service'
+export { changeStage, activateClientPortal, activateClientPortalManually } from './stage.service'
+export type { ActivatePortalResultDTO, ActivatePortalStatus } from './stage.service'
 
 const ENTITY = 'deal'
 type DealRow = typeof deal.$inferSelect
@@ -125,6 +126,13 @@ export async function removeDealContact(portalId: string, dealId: string, contac
   await db.delete(dealContact).where(and(eq(dealContact.dealId, dealId), eq(dealContact.contactId, contactId)))
 }
 
+/** Estado del Client Portal para el contacto principal del deal (alimenta el botón "Invitar" en el admin). */
+export interface DealClientPortalStatus {
+  status: 'active' | 'not_activated'
+  /** Email del contacto principal, o `null` si el deal no tiene uno (o sin email). */
+  email: string | null
+}
+
 export interface DealDetail {
   deal: DealRow
   company: typeof company.$inferSelect | null
@@ -132,6 +140,7 @@ export interface DealDetail {
   notes: (typeof note.$inferSelect)[]
   tasks: (typeof task.$inferSelect)[]
   history: (typeof recordHistory.$inferSelect)[]
+  clientPortal: DealClientPortalStatus
 }
 
 /** Detalle completo del deal: empresa, contactos asociados, notas, tareas e historial. */
@@ -176,7 +185,23 @@ export async function getDealDetail(portalId: string, id: string): Promise<DealD
     .orderBy(desc(recordHistory.changedAt))
     .limit(50)
 
-  return { deal: dealRow, company: companyRow, contacts, notes, tasks, history }
+  // El estado del portal se define igual que `activateClientPortalManually`:
+  // ¿existe un client_account para el email del contacto principal? No se
+  // busca por acceso al deal puntual — es el mismo criterio de idempotencia
+  // que ya usa `activateClientPortal` (portalId + email), para que el admin
+  // vea exactamente lo que el botón "Invitar" va a resolver antes de tocarlo.
+  let clientPortal: DealClientPortalStatus = { status: 'not_activated', email: null }
+  const primaryContact = dealRow.primaryContactId ? contacts.find((c) => c.id === dealRow.primaryContactId) : undefined
+  if (primaryContact?.email) {
+    const [acc] = await db
+      .select({ id: clientAccount.id })
+      .from(clientAccount)
+      .where(and(eq(clientAccount.portalId, portalId), eq(clientAccount.email, primaryContact.email)))
+      .limit(1)
+    clientPortal = { status: acc ? 'active' : 'not_activated', email: primaryContact.email }
+  }
+
+  return { deal: dealRow, company: companyRow, contacts, notes, tasks, history, clientPortal }
 }
 
 /** Campos permitidos para búsqueda avanzada de deals. */

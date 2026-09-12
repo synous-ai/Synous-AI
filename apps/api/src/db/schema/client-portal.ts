@@ -17,15 +17,22 @@ export const clientAccount = pgTable('client_account', {
   isActive: boolean('is_active').notNull().default(true),
   /** ID del usuario en Clerk (auth externo). Null si aún no se vinculó con Clerk. */
   clerkUserId: text('clerk_user_id').unique(),
-  /** Slug único del portal del cliente (usado en URLs personalizadas). */
+  /**
+   * LEGACY (Fase A multi-tenant por empresa): la fuente de verdad del
+   * branding/tenant pasó a `company.slug` + `company.brand*`. Estas columnas
+   * quedan por compatibilidad — links de portal ya repartidos con el slug
+   * viejo siguen resolviendo vía fallback en `getBrandingBySlug()` — hasta
+   * que se confirme el backfill (`scripts/backfill-company-slugs.ts`) y se
+   * decida si se pueden dropear. NO borrar datos: convención del proyecto.
+   */
   brandSlug: text('brand_slug').unique(),
-  /** Nombre de marca visible en el portal del cliente. */
+  /** LEGACY — ver comentario de `brandSlug` arriba. */
   brandName: text('brand_name'),
-  /** Clave del logo de marca en R2 (sin URL; se genera on-demand). */
+  /** LEGACY — ver comentario de `brandSlug` arriba. */
   brandLogoKey: text('brand_logo_key'),
-  /** Color primario de la marca en formato hex (#rrggbb). */
+  /** LEGACY — ver comentario de `brandSlug` arriba. */
   brandPrimary: text('brand_primary'),
-  /** Color secundario de la marca en formato hex (#rrggbb). */
+  /** LEGACY — ver comentario de `brandSlug` arriba. */
   brandSecondary: text('brand_secondary'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

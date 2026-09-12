@@ -133,7 +133,7 @@ function buildSlides(c: ProposalContent): Slide[] {
             className="mb-8 h-16 w-auto max-w-[180px] object-contain"
           />
         )}
-        <p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">NOUS</p>
+        <p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Synous</p>
         <h1 className="mt-6 max-w-3xl text-4xl font-bold tracking-tight sm:text-6xl">{c.title}</h1>
         {c.tagline && <p className="mt-5 max-w-xl text-lg text-muted-foreground">{c.tagline}</p>}
         <p className="mt-10 text-sm text-muted-foreground">
@@ -245,7 +245,7 @@ function buildSlides(c: ProposalContent): Slide[] {
   // 9 · Por qué nosotros
   if (c.whyUs.length)
     slides.push({
-      eyebrow: 'NOUS',
+      eyebrow: 'Synous',
       node: (
         <SlideBody title="Por qué nosotros">
           <ul className="space-y-4">

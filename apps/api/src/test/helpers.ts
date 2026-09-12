@@ -14,10 +14,25 @@ export interface TestContext {
   clerkUserId: string
 }
 
-/** Crea (o reutiliza) un portal y un usuario owner para los tests. Idempotente. */
+/** Nombre del portal de tests. Se busca POR NOMBRE, nunca "el primero que haya". */
+const TEST_PORTAL_NAME = 'Test Portal'
+
+/**
+ * Crea (o reutiliza) un portal y un usuario owner para los tests. Idempotente.
+ *
+ * OJO con el lookup: antes era `select().from(portal).limit(1)` — "cualquier
+ * portal". Como varias suites crean portales propios ("Portal B", "Otro
+ * Portal"…) y quedan en la DB entre corridas, ese LIMIT 1 sin ORDER BY devolvía
+ * una fila arbitraria: Postgres no garantiza orden sin ORDER BY, y basta un
+ * ALTER TABLE que reescriba el heap para que cambie. Cuando eso pasó, media
+ * suite empezó a fallar con 400/404 porque el portal resuelto no era el que
+ * tenía los pipelines y stages que los tests esperaban.
+ *
+ * Buscar por nombre lo vuelve determinista e inmune a la basura acumulada.
+ */
 export async function ensurePortalAndUser(): Promise<TestContext> {
-  let [p] = await db.select().from(portal).limit(1)
-  if (!p) [p] = await db.insert(portal).values({ name: 'Test Portal' }).returning()
+  let [p] = await db.select().from(portal).where(eq(portal.name, TEST_PORTAL_NAME)).limit(1)
+  if (!p) [p] = await db.insert(portal).values({ name: TEST_PORTAL_NAME }).returning()
 
   const email = 'owner@test.com'
   // `password` se conserva por compatibilidad de firma; la auth real es Clerk.

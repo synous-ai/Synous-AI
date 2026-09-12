@@ -66,6 +66,18 @@ export interface ContactDetail {
   tasks: Task[]
 }
 
+/**
+ * Estado del Client Portal para el contacto principal del deal.
+ * OJO: `active` significa que el contacto YA ES cliente del portal (por
+ * email, a nivel cuenta) — no necesariamente que tenga acceso a ESTE deal
+ * puntual (si el mismo contacto es cliente por otro deal, igual da `active`).
+ * Para la UI alcanza con no volver a ofrecer "invitar" en ese caso.
+ */
+export interface DealClientPortalStatus {
+  status: 'active' | 'not_activated'
+  email: string | null
+}
+
 export interface DealDetail {
   deal: Deal
   company: Company | null
@@ -73,6 +85,7 @@ export interface DealDetail {
   notes: Note[]
   tasks: Task[]
   history: RecordHistoryEntry[]
+  clientPortal: DealClientPortalStatus
 }
 
 export interface CompanyDetail {

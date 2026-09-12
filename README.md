@@ -1,4 +1,4 @@
-# NOUS CRM
+# Synous CRM
 
 CRM propio para una agencia de desarrollo web, construido **desde cero** sobre PostgreSQL.
 No usa ninguna librería externa de CRM: toda la lógica de negocio (pipeline, deals, portal
@@ -46,7 +46,7 @@ El producto cubre el ciclo completo de la agencia, de lead frío a cliente factu
 - **Email tracking** — pixel de apertura + redirect de clicks.
 - **Integraciones de reuniones** — webhook de Fathom (summary, transcript, action items).
 
-> El detalle funcional completo está en [`CRM_DEVDUO_DOCS.md`](./CRM_DEVDUO_DOCS.md).
+> El detalle funcional completo está en [`CRM_SYNOUS_DOCS.md`](./CRM_SYNOUS_DOCS.md).
 > Las convenciones de código y reglas de negocio críticas están en [`CLAUDE.md`](./CLAUDE.md).
 
 ---
@@ -91,8 +91,8 @@ apps/
                            · wizard de onboarding      → /onboarding (público)
                            · vista pública de propuesta → /p/[token]
 packages/
-  shared/              → @nous/shared — tipos y utilidades compartidas
-  api-client/          → @nous/api-client — cliente HTTP tipado (auth + auto-refresh)
+  shared/              → @synous/shared — tipos y utilidades compartidas
+  api-client/          → @synous/api-client — cliente HTTP tipado (auth + auto-refresh)
 services/
   whatsapp-gateway/    → Gateway open-wa (NO está en el workspace pnpm — servicio aislado)
 docs/
@@ -140,7 +140,7 @@ apps/api/src/
 ```
 apps/admin/
   app/            → rutas Next.js App Router
-    page.tsx           → landing pública de NOUS
+    page.tsx           → landing pública de Synous
     onboarding/        → wizard público pre-venta
     p/[token]/         → vista pública de propuesta (link tokenizado)
     book/              → reserva pública del calendario (slug del event type + cancel/reschedule)
@@ -218,8 +218,8 @@ docker compose -f docker-compose.dev.yml up -d
 
 | Servicio   | Contenedor        | Puerto host |
 | ---------- | ----------------- | ----------- |
-| PostgreSQL | `nous_postgres` | `5433`      |
-| Redis      | `nous_redis`    | `6379`      |
+| PostgreSQL | `devduo_postgres` | `5433`      |
+| Redis      | `devduo_redis`    | `6379`      |
 
 > Postgres se mapea al **5433** del host (contenedor 5432) para evitar conflictos con un Postgres local.
 
@@ -455,7 +455,7 @@ Resumen — el detalle completo está en [`CLAUDE.md`](./CLAUDE.md):
 ## Documentación adicional
 
 - [`CLAUDE.md`](./CLAUDE.md) — convenciones de código, reglas de negocio críticas y arquitectura.
-- [`CRM_DEVDUO_DOCS.md`](./CRM_DEVDUO_DOCS.md) — documentación funcional completa del producto.
+- [`CRM_SYNOUS_DOCS.md`](./CRM_SYNOUS_DOCS.md) — documentación funcional completa del producto.
 - [`docs/schema.sql`](./docs/schema.sql) — referencia del esquema de base de datos.
 - [`services/whatsapp-gateway/README.md`](./services/whatsapp-gateway/README.md) — gateway de WhatsApp.
 </content>

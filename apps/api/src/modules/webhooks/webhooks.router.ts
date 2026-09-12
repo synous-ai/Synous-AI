@@ -13,6 +13,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 import { verifyFathomSignature, handleFathomWebhook } from './webhooks.service'
+import { verifyDocusealToken } from './webhooks.service'
+import { handleDocusealWebhook, type DocusealWebhookPayload } from '../documents/docuseal.service'
 
 // Esquema permisivo para el payload de Fathom (estructura abierta)
 const FathomWebhookSchema = z.object({
@@ -84,5 +86,38 @@ export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     fathomHandler,
+  )
+
+  // ── POST /webhooks/docuseal ──────────────────────────────────────────────
+  // DocuSeal no firma el payload: manda un token fijo en un header, que se
+  // compara contra DOCUSEAL_WEBHOOK_SECRET en tiempo constante.
+  async function docusealHandler(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const token =
+      (request.headers['x-docuseal-signature'] as string | undefined) ??
+      (request.headers['x-webhook-secret'] as string | undefined)
+
+    if (!verifyDocusealToken(token)) {
+      // 401 sin body: no revelar que el endpoint existe ni por qué falló.
+      await reply.code(401).send()
+      return
+    }
+
+    // Se responde 200 aunque el evento no nos interese o el documento no exista:
+    // un 4xx haría que DocuSeal reintente para siempre algo que nunca va a andar.
+    await handleDocusealWebhook(request.body as DocusealWebhookPayload)
+    await reply.code(200).send({ ok: true })
+  }
+
+  app.post(
+    '/docuseal',
+    {
+      schema: {
+        tags: ['Webhooks'],
+        summary: 'Webhook de DocuSeal',
+        description:
+          'Recibe eventos de firma (form.completed / form.declined). Protegido por token fijo en el header X-Docuseal-Signature comparado contra DOCUSEAL_WEBHOOK_SECRET. Responde 401 sin detalle si no valida. Al completarse un CONTRATO, activa el Client Portal.',
+      },
+    },
+    docusealHandler,
   )
 }

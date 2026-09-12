@@ -17,7 +17,7 @@
  * El appearance se resuelve dinámicamente:
  *  - Si hay cookie `dd_tenant` → fetch público a /api/public/branding/:slug
  *  - Si el cliente tiene branding configurado → se aplica su paleta y logo
- *  - Fallback: PORTAL_APPEARANCE (verde NOUS genérico) en cualquier caso de error
+ *  - Fallback: PORTAL_APPEARANCE (verde Synous genérico) en cualquier caso de error
  *    o ausencia de tenant
  */
 
@@ -25,7 +25,7 @@ import { SignIn, useAuth } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
-import { API_URL } from '@nous/shared'
+import { API_URL } from '@synous/shared'
 import { apiGet } from '@portal/lib/api'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ interface PublicBranding {
   secondaryColor: string | null
 }
 
-// ─── Appearance genérico NOUS ─────────────────────────────────────────────────
+// ─── Appearance genérico Synous ─────────────────────────────────────────────────
 
 /**
  * Paleta verde del portal (refleja las variables de portal-theme.css).
@@ -131,7 +131,7 @@ function buildBrandedAppearance(primaryColor: string): PortalAppearance {
     },
     elements: {
       ...PORTAL_APPEARANCE.elements,
-      // El botón usa el color primario del cliente en lugar del verde NOUS.
+      // El botón usa el color primario del cliente en lugar del verde Synous.
       // Dejamos la clase vacía para que Clerk aplique el colorPrimary de variables
       // en lugar de la clase utilitaria verde fija.
       formButtonPrimary: '',
@@ -194,7 +194,7 @@ export default function PortalLoginPage() {
         if (json.data) setBranding(json.data)
       })
       .catch(() => {
-        // Fetch falló (red, CORS, servidor caído) → fallback silencioso al genérico NOUS.
+        // Fetch falló (red, CORS, servidor caído) → fallback silencioso al genérico Synous.
       })
       .finally(() => {
         setBrandingResolved(true)
@@ -244,7 +244,7 @@ export default function PortalLoginPage() {
                 <span className="flex h-9 w-9 rounded-md bg-white/10" />
               )
             ) : (
-              /* Sin branding o branding sin logo → monograma NOUS genérico */
+              /* Sin branding o branding sin logo → monograma Synous genérico */
               <span className="flex h-9 w-9 items-center justify-center rounded-md bg-signal font-display text-lg font-bold text-signal-foreground">
                 N
               </span>
@@ -253,7 +253,7 @@ export default function PortalLoginPage() {
             <span className="eyebrow text-background/70">
               {brandingResolved && branding?.brandName != null
                 ? branding.brandName
-                : 'NOUS · Portal de clientes'}
+                : 'Synous · Portal de clientes'}
             </span>
           </div>
 
@@ -271,7 +271,7 @@ export default function PortalLoginPage() {
           </div>
 
           <p className="relative font-mono text-xs text-background/40">
-            {brandingResolved && branding?.brandName != null ? branding.brandName : 'portal.nous.com'}
+            {brandingResolved && branding?.brandName != null ? branding.brandName : 'synousai.com'}
           </p>
         </div>
 
@@ -281,7 +281,7 @@ export default function PortalLoginPage() {
             {/*
              * Encabezado de marca en mobile / por encima del form.
              * En desktop lo ocupa el panel izquierdo; en mobile mostramos
-             * logo + nombre del cliente (o el genérico NOUS) aquí.
+             * logo + nombre del cliente (o el genérico Synous) aquí.
              */}
             <div className="mb-4 flex items-center gap-2 lg:hidden">
               {branding?.logoUrl != null && brandingResolved ? (
@@ -299,7 +299,7 @@ export default function PortalLoginPage() {
               <span className="eyebrow">
                 {brandingResolved && branding?.brandName != null
                   ? branding.brandName
-                  : 'NOUS'}
+                  : 'Synous'}
               </span>
             </div>
 

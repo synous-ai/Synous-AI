@@ -12,6 +12,8 @@ export interface Document {
   source: string | null
   storageKey: string | null
   signedAt: string | null
+  /** false = documento interno del equipo; el cliente no lo ve en su Portal. */
+  visibleToClient: boolean
   createdBy: string | null
   createdAt: string
 }
@@ -54,6 +56,8 @@ export interface Deliverable {
   version: number
   status: 'pending_review' | 'approved' | 'changes_requested'
   feedback: string | null
+  /** false = material interno del equipo; el cliente no lo ve en su Portal. */
+  visibleToClient: boolean
   createdAt: string
 }
 
@@ -84,6 +88,14 @@ export interface ChangeRequest {
   totalAmount: string | null
   timelineImpactDays: number
   createdAt: string
+}
+
+/**
+ * Fila del listado de CRs. En la cola global (sin filtrar por deal) hace falta
+ * saber a qué deal pertenece cada CR — el listado lo devuelve con un join.
+ */
+export interface ChangeRequestListItem extends ChangeRequest {
+  dealName: string | null
 }
 
 export interface IntakeFormField {

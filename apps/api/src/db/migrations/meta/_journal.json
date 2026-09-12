@@ -218,6 +218,48 @@
       "when": 1788207749884,
       "tag": "0030_spooky_timeslip",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788296246793,
+      "tag": "0031_dusty_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788296873836,
+      "tag": "0032_wakeful_enchantress",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788723519487,
+      "tag": "0033_mushy_mindworm",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789079178549,
+      "tag": "0034_careful_war_machine",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789080335190,
+      "tag": "0035_motionless_blue_shield",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789086803104,
+      "tag": "0036_famous_scarecrow",
+      "breakpoints": true
     }
   ]
 }

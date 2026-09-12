@@ -15,7 +15,9 @@ import {
   AlertCircle,
   X,
   ExternalLink,
+  Globe,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   useDealDetail,
   usePipelines,
@@ -46,6 +48,7 @@ import {
   useDealUpdates,
   useCreateDealUpdate,
   useArchiveDealUpdate,
+  useActivatePortal,
 } from '@/lib/hooks'
 import { uploadFile } from '@/lib/hooks/misc'
 import { API_URL } from '@/lib/config'
@@ -70,7 +73,7 @@ import { PillTabs } from '@/components/ui/pill-tabs'
 import { DetailViewSkeleton, ListSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
-import { StickyNote, ListTodo, Users, PackageCheck, GitPullRequest, History, FolderOpen, Download, Megaphone, Archive } from 'lucide-react'
+import { StickyNote, ListTodo, Users, PackageCheck, GitPullRequest, History, FolderOpen, Download, Megaphone, Archive, EyeOff } from 'lucide-react'
 
 type DetailTab =
   | 'activity'
@@ -142,6 +145,7 @@ export default function DealDetailPage(): React.JSX.Element {
   const updatesQ = useDealUpdates(id)
   const createDealUpdate = useCreateDealUpdate()
   const archiveDealUpdate = useArchiveDealUpdate()
+  const activatePortal = useActivatePortal()
 
   const [detailTab, setDetailTab] = useState<DetailTab>('activity')
   const [editOpen, setEditOpen] = useState(false)
@@ -153,6 +157,9 @@ export default function DealDetailPage(): React.JSX.Element {
   const [delivTitle, setDelivTitle] = useState('')
   const [delivType, setDelivType] = useState<'design' | 'prototype' | 'staging' | 'final'>('design')
   const [delivUrl, setDelivUrl] = useState('')
+  // Visibilidad del entregable a crear. Default true = se comparte con el cliente;
+  // false para material interno del proceso (Blueprint, Diagnóstico).
+  const [delivVisible, setDelivVisible] = useState(true)
   const [assignFormId, setAssignFormId] = useState('')
   const [crOpen, setCrOpen] = useState(false)
   const [crForm, setCrForm] = useState({ title: '', description: '' })
@@ -197,6 +204,19 @@ export default function DealDetailPage(): React.JSX.Element {
     [contacts, associatedIds],
   )
 
+  // Contacto principal del deal (siempre incluido en data.contacts por el backend,
+  // ver deals.service.ts getDealDetail). Se usa para explicar por qué el botón de
+  // invitar al Portal puede estar deshabilitado, sin esperar el intento de submit.
+  const primaryContact = useMemo(
+    () => data?.contacts.find((c) => c.id === d?.primaryContactId) ?? null,
+    [data?.contacts, d?.primaryContactId],
+  )
+  const portalInviteBlockedReason = !primaryContact
+    ? 'Asigná un contacto principal para poder invitarlo al Portal'
+    : !primaryContact.email
+      ? 'El contacto principal no tiene un email cargado'
+      : null
+
   // Next open task
   const nextTask = useMemo((): Task | null => {
     if (!data) return null
@@ -226,12 +246,33 @@ export default function DealDetailPage(): React.JSX.Element {
     if (!d) return
     if (!window.confirm(`¿Archivar el deal "${d.name}"? Esta acción no se puede deshacer.`)) return
     await archiveDeal.mutateAsync(id)
-    router.push('/admin/deals')
+    router.push('/deals')
   }
 
   async function handleStageChange(stageId: string): Promise<void> {
     await changeStage.mutateAsync({ dealId: id, stageId })
     setStagePicker(false)
+  }
+
+  // Invita al contacto principal del deal al Client Portal. El endpoint es idempotente
+  // y siempre devuelve 200 con un `status` — los casos de negocio (sin contacto/email,
+  // ya activo) NO son errores HTTP, así que se resuelven todos en el .then, y el catch
+  // queda solo para fallas inesperadas (red, 500).
+  async function handleActivatePortal(): Promise<void> {
+    try {
+      const result = await activatePortal.mutateAsync(id)
+      if (result.status === 'activated') {
+        toast.success(`Invitación enviada a ${result.clientEmail}`)
+      } else if (result.status === 'already_active') {
+        toast.success('El cliente ya tenía acceso al portal')
+      } else if (result.status === 'missing_contact') {
+        toast.error('El deal no tiene un contacto principal asignado')
+      } else {
+        toast.error('El contacto principal no tiene un email cargado')
+      }
+    } catch {
+      toast.error('No se pudo enviar la invitación — intentá de nuevo')
+    }
   }
 
   async function addNote(): Promise<void> {
@@ -258,9 +299,16 @@ export default function DealDetailPage(): React.JSX.Element {
 
   async function addDeliverable(): Promise<void> {
     if (!delivTitle.trim()) return
-    await createDeliverable.mutateAsync({ dealId: id, title: delivTitle.trim(), type: delivType, url: delivUrl || undefined })
+    await createDeliverable.mutateAsync({
+      dealId: id,
+      title: delivTitle.trim(),
+      type: delivType,
+      url: delivUrl || undefined,
+      visibleToClient: delivVisible,
+    })
     setDelivTitle('')
     setDelivUrl('')
+    setDelivVisible(true)
   }
 
   async function submitCR(): Promise<void> {
@@ -332,7 +380,7 @@ export default function DealDetailPage(): React.JSX.Element {
     return (
       <div className="p-6">
         <p className="text-sm text-muted-foreground">No se encontró el deal.</p>
-        <Link href="/admin/deals" className="mt-2 text-sm text-primary underline">
+        <Link href="/deals" className="mt-2 text-sm text-primary underline">
           ← Volver a Deals
         </Link>
       </div>
@@ -343,7 +391,7 @@ export default function DealDetailPage(): React.JSX.Element {
     <div className="p-6">
       {/* Breadcrumb */}
       <nav className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href="/admin/deals" className="flex items-center gap-1 hover:text-foreground transition-colors">
+        <Link href="/deals" className="flex items-center gap-1 hover:text-foreground transition-colors">
           <ChevronLeft className="h-4 w-4" />
           Deals
         </Link>
@@ -474,6 +522,46 @@ export default function DealDetailPage(): React.JSX.Element {
                     label="Fecha de cierre"
                     value={new Date(d.closeDate).toLocaleDateString('es')}
                   />
+                )}
+              </div>
+
+              {/* Client Portal: invitar al contacto principal o mostrar que ya tiene acceso.
+                  Va acá (junto al resto de la info del deal) porque depende directamente del
+                  contacto principal mostrado arriba, y no es una acción destructiva/edición
+                  del deal como Archivar/Editar — es más un dato de estado con una acción asociada. */}
+              <div className="mt-4">
+                {data?.clientPortal.status === 'active' ? (
+                  <div className="flex items-start gap-2 rounded-lg bg-signal/10 px-3 py-2">
+                    <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-signal" />
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Portal del cliente
+                      </p>
+                      <p className="truncate text-xs font-medium text-foreground">
+                        Cliente con acceso{data.clientPortal.email ? ` · ${data.clientPortal.email}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full gap-1.5"
+                      onClick={() => void handleActivatePortal()}
+                      disabled={!!portalInviteBlockedReason || activatePortal.isPending}
+                      title={portalInviteBlockedReason ?? undefined}
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      {activatePortal.isPending ? 'Invitando…' : 'Invitar al Portal'}
+                    </Button>
+                    {portalInviteBlockedReason && (
+                      <p className="flex items-start gap-1 text-[11px] text-muted-foreground">
+                        <AlertCircle className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                        {portalInviteBlockedReason}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             </CardContent>
@@ -756,6 +844,18 @@ export default function DealDetailPage(): React.JSX.Element {
                           placeholder="URL (opcional)"
                           className="h-9 w-44 rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         />
+                        <Select
+                          value={delivVisible ? 'client' : 'internal'}
+                          onValueChange={(v) => setDelivVisible(v === 'client')}
+                        >
+                          <SelectTrigger className="h-9 w-36">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="client">Visible al cliente</SelectItem>
+                            <SelectItem value="internal">Solo interno</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Button size="sm" onClick={() => void addDeliverable()} disabled={!delivTitle.trim() || createDeliverable.isPending}>
                           <Plus className="h-4 w-4" />
                         </Button>
@@ -773,6 +873,14 @@ export default function DealDetailPage(): React.JSX.Element {
                             <div key={dv.id} className="group rounded-xl border bg-background/60 px-3 py-2.5">
                               <div className="flex items-center gap-2">
                                 <span className="flex-1 text-sm font-medium">{dv.title}</span>
+                                {!dv.visibleToClient && (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                    title="El cliente no ve este entregable en su Portal"
+                                  >
+                                    <EyeOff className="h-3 w-3" /> Interno
+                                  </span>
+                                )}
                                 {(() => {
                                   const { kind, label } = deliverableStatus(dv.status)
                                   return <StatusBadge kind={kind}>{label}</StatusBadge>
@@ -793,6 +901,20 @@ export default function DealDetailPage(): React.JSX.Element {
                                     <ExternalLink className="h-3 w-3" /> Ver
                                   </a>
                                 )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    updateDeliverable.mutate({
+                                      id: dv.id,
+                                      input: { visibleToClient: !dv.visibleToClient },
+                                    })
+                                  }
+                                  className="h-auto px-0 text-xs hover:text-foreground"
+                                  title={dv.visibleToClient ? 'Ocultar del Portal del cliente' : 'Compartir en el Portal del cliente'}
+                                >
+                                  {dv.visibleToClient ? 'Marcar interno' : 'Compartir'}
+                                </Button>
                                 {dv.status !== 'approved' && (
                                   <Button
                                     variant="ghost"
@@ -1059,7 +1181,7 @@ export default function DealDetailPage(): React.JSX.Element {
                             <div
                               key={cr.id}
                               className="cursor-pointer rounded-xl border bg-background/60 px-3 py-2.5 transition-colors hover:bg-accent/50"
-                              onClick={() => router.push(`/admin/change-requests/${cr.id}`)}
+                              onClick={() => router.push(`/change-requests/${cr.id}`)}
                             >
                               <div className="flex items-center gap-2">
                                 <span className="font-mono text-xs text-muted-foreground">CR#{cr.number}</span>

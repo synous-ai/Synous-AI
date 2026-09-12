@@ -1,8 +1,8 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../../db'
-import { contact, deal, pipelineStage, onboardingSubmission, proposal, setterTenant } from '../../db/schema'
+import { contact, deal, pipelineStage, onboardingSubmission, proposal } from '../../db/schema'
 import { Errors } from '../../lib/errors'
-import type { ModelProvider } from '../setter/agent/providers'
+import type { ModelProvider } from '../../lib/ai'
 import { env } from '../../config/env'
 import {
   suggestNextActionAI,
@@ -10,14 +10,9 @@ import {
   type NextActionContext,
 } from './next-action.ai'
 
-/** Provider de IA configurado para el portal (Model Switcher del setter). */
-async function getModelProvider(portalId: string): Promise<ModelProvider> {
-  const [t] = await db
-    .select({ p: setterTenant.modelProvider })
-    .from(setterTenant)
-    .where(eq(setterTenant.portalId, portalId))
-    .limit(1)
-  return t?.p === 'claude' ? 'claude' : 'gemini'
+/** Provider de IA configurado para la instancia (env MODEL_PROVIDER, default gemini). */
+function getModelProvider(): ModelProvider {
+  return env.MODEL_PROVIDER
 }
 
 function s(v: unknown): string | undefined {
@@ -98,7 +93,7 @@ export async function suggestNextAction(portalId: string, contactId: string): Pr
   // Intentamos IA; si hay cualquier problema, reglas. Siempre devolvemos algo.
   if (env.GOOGLE_SERVICE_ACCOUNT_JSON || env.ANTHROPIC_API_KEY) {
     try {
-      const provider = await getModelProvider(portalId)
+      const provider = getModelProvider()
       const action = await suggestNextActionAI(ctx, provider)
       return { action, source: 'ai' }
     } catch {

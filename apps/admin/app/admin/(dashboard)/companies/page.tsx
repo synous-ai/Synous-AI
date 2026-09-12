@@ -142,7 +142,7 @@ export default function CompaniesPage() {
                   <TableRow
                     key={row.id}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => router.push(`/admin/companies/${row.original.id}`)}
+                    onClick={() => router.push(`/companies/${row.original.id}`)}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id} className="px-4 py-3">

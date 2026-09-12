@@ -1,10 +1,10 @@
-import { getProvider, type ModelProvider } from '../setter/agent/providers'
+import { getProvider, type ModelProvider } from '../../lib/ai'
 import type { ProposalContent } from './proposals.types'
 
 /**
  * Generación de propuestas con IA.
  *
- * Reusa el abstraction de providers del Setter (Model Switcher Gemini/Claude):
+ * Usa el abstractor de providers de LLM (lib/ai, Gemini/Claude):
  * arma un prompt con la data del onboarding + deal y pide al LLM una propuesta
  * estructurada en JSON, que parseamos a `ProposalContent`. Si el LLM falla o
  * devuelve algo no parseable, se cae a una propuesta base (fallback) para que el
@@ -53,9 +53,9 @@ const PRIORITY_LABEL: Record<string, string> = {
   escalabilidad: 'la escalabilidad',
 }
 
-// Instrucción de sistema: la voz de NOUS (agencia rioplatense de software a
+// Instrucción de sistema: la voz de Synous (agencia rioplatense de software a
 // medida, 2 personas). Directa, profesional, sin buzzwords vacíos.
-const SYSTEM_INSTRUCTION = `Sos el redactor comercial de NOUS, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escribís propuestas claras, concretas y profesionales, en español rioplatense (voseo), sin relleno ni buzzwords vacíos. Hablás de valor de negocio, no de tecnología por la tecnología. Sos honesto y específico: nada de promesas genéricas.
+const SYSTEM_INSTRUCTION = `Sos el redactor comercial de Synous, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escribís propuestas claras, concretas y profesionales, en español rioplatense (voseo), sin relleno ni buzzwords vacíos. Hablás de valor de negocio, no de tecnología por la tecnología. Sos honesto y específico: nada de promesas genéricas.
 
 Devolvés SIEMPRE y ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del JSON) con esta forma exacta:
 {
@@ -75,7 +75,7 @@ Devolvés SIEMPRE y ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto 
     "currency": "USD",
     "note": string            // condiciones de pago, ej "50% al inicio, 50% a la entrega"
   },
-  "whyUs": string[],          // 3-4 diferenciales de NOUS
+  "whyUs": string[],          // 3-4 diferenciales de Synous
   "nextSteps": string,        // cierre / próximos pasos
   "terms": string             // términos breves (validez, revisiones, etc.)
 }`
@@ -131,7 +131,7 @@ export async function generateProposalContent(
   const generate = getProvider(provider)
   const result = await generate({
     systemInstruction: SYSTEM_INSTRUCTION,
-    contents: [{ role: 'user', parts: [{ text: buildPrompt(input) }] }],
+    prompt: buildPrompt(input),
     temperature: 0.8,
     maxOutputTokens: 8192,
   })

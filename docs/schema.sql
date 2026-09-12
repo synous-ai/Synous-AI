@@ -1,5 +1,5 @@
 -- =============================================================
--- DevDúo CRM — Schema PostgreSQL (modelo TIPADO, sin EAV)
+-- Synous AI CRM — Schema PostgreSQL (modelo TIPADO, sin EAV)
 -- =============================================================
 -- Reemplaza el modelo unificado crm_object/property por tablas
 -- tipadas reales (contact, company, deal, actividades). Drizzle

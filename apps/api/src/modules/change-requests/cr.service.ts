@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, getTableColumns, inArray, ne, sql } from 'drizzle-orm'
 import { db } from '../../db'
 import {
   changeRequest,
   changeRequestItem,
   changeRequestComment,
   changeRequestHistory,
+  deal,
 } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { toDecimal } from '../../lib/money'
@@ -25,10 +26,20 @@ async function getCRInPortal(portalId: string, id: string): Promise<CRRow> {
 }
 
 // ── Admin ───────────────────────────────────────────────
-export async function listCRs(portalId: string, dealId?: string): Promise<CRRow[]> {
+
+/**
+ * CR + el nombre de su deal. Sin `dealId` el listado es global (cola de trabajo
+ * de todas las CRs del portal), y ahí saber a qué deal pertenece cada una es
+ * imprescindible. `dealName` se agrega SIN quitar ninguna columna de la tabla,
+ * así los consumidores que ya existían siguen viendo lo mismo.
+ */
+export type CRListRow = CRRow & { dealName: string | null }
+
+export async function listCRs(portalId: string, dealId?: string): Promise<CRListRow[]> {
   return db
-    .select()
+    .select({ ...getTableColumns(changeRequest), dealName: deal.name })
     .from(changeRequest)
+    .leftJoin(deal, eq(deal.id, changeRequest.dealId))
     .where(dealId ? and(eq(changeRequest.portalId, portalId), eq(changeRequest.dealId, dealId)) : eq(changeRequest.portalId, portalId))
     .orderBy(desc(changeRequest.createdAt))
 }

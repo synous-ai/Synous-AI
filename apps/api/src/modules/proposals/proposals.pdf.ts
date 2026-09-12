@@ -59,7 +59,7 @@ export function buildProposalPdf(content: ProposalContent): Promise<Buffer> {
   }
 
   // ── Portada ───────────────────────────────────────────────────────────────
-  doc.font('Helvetica-Bold').fontSize(10).fillColor(MUTED).text('NOUS', { characterSpacing: 2 })
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(MUTED).text('Synous', { characterSpacing: 2 })
   doc.moveDown(2)
   doc.font('Helvetica-Bold').fontSize(28).fillColor(INK).text(content.title, { width })
   if (content.tagline) {
@@ -153,7 +153,7 @@ export function buildProposalPdf(content: ProposalContent): Promise<Buffer> {
   }
 
   if (content.whyUs.length) {
-    heading('Por qué NOUS')
+    heading('Por qué Synous')
     bullets(content.whyUs)
   }
   if (content.nextSteps) {

@@ -42,6 +42,13 @@ export interface PortalInvitationPayload {
   dealName: string
   /** Link de Clerk con ticket; `null` si no se pudo invitar (ver abajo). */
   invitationUrl: string | null
+  /**
+   * Id de la cuenta recién creada. No lo usa `changeStage`, pero
+   * `activateClientPortalManually` lo necesita para sellar `inviteSentAt`
+   * DESPUÉS de que el envío ocurre de verdad (ver `sendPortalInvitationEmail`)
+   * — sin esto tendría que volver a consultar la cuenta por email.
+   */
+  clientAccountId: string
 }
 
 /**
@@ -72,7 +79,10 @@ export async function activateClientPortal(
   if (!account) {
     ;[account] = await tx
       .insert(clientAccount)
-      .values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID(), inviteSentAt: new Date() })
+      // `inviteSentAt` se setea recién cuando el email se manda de verdad (lo hace
+      // el caller). Antes se seteaba acá, con lo cual la columna afirmaba haber
+      // mandado una invitación que nunca salía.
+      .values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID() })
       .returning()
   }
 
@@ -111,7 +121,119 @@ export async function activateClientPortal(
   // TODO: asignar intake forms por defecto cuando estén configurados.
 
   if (existing) return null
-  return { email: c.email, firstName: c.firstName, dealName: d.name, invitationUrl }
+  return { email: c.email, firstName: c.firstName, dealName: d.name, invitationUrl, clientAccountId: account!.id }
+}
+
+/**
+ * Manda el email de invitación al portal y, si el envío ocurrió de verdad,
+ * recién ahí marca `inviteSentAt`.
+ *
+ * Best-effort y SIEMPRE fuera de la transacción de activación: si algo falla
+ * acá, el cliente ya tiene la cuenta y el acceso creados — se loguea y sigue
+ * (mismo criterio que ya usaba el flujo viejo de bienvenida).
+ *
+ * Si Clerk no devolvió link de invitación (usuario preexistente, Clerk caído,
+ * sin secret key) no se manda nada: un email cuyo botón no lleva a ningún
+ * lado es peor que no mandarlo (mismo razonamiento que ya aplica `changeStage`
+ * para su propio envío).
+ */
+export async function sendPortalInvitationEmail(invitation: PortalInvitationPayload): Promise<void> {
+  if (!invitation.invitationUrl) return
+  try {
+    await sendEmail({
+      to: invitation.email,
+      subject: `Tu portal de ${invitation.dealName} ya está listo`,
+      html: portalInvitationHtml({
+        firstName: invitation.firstName,
+        dealName: invitation.dealName,
+        portalUrl: invitation.invitationUrl,
+      }),
+    })
+    await db.update(clientAccount).set({ inviteSentAt: new Date() }).where(eq(clientAccount.id, invitation.clientAccountId))
+  } catch (err) {
+    console.error('[stage.service] No se pudo enviar el email de invitación al portal', {
+      clientAccountId: invitation.clientAccountId,
+      error: (err as Error)?.message ?? err,
+    })
+  }
+}
+
+/** Estados de negocio posibles al invitar manualmente a un deal al Client Portal. */
+export type ActivatePortalStatus = 'activated' | 'already_active' | 'missing_contact' | 'missing_email'
+
+export interface ActivatePortalResultDTO {
+  status: ActivatePortalStatus
+  /** Email del contacto principal, o `null` si todavía no hay a quién invitar. */
+  clientEmail: string | null
+}
+
+/**
+ * Invitación MANUAL al Client Portal desde el detalle del deal (Fase B del
+ * multi-tenant). A diferencia de `changeStage` (stage `is_won`) y del webhook
+ * de DocuSeal (`form.completed`), acá el disparador es un admin apretando un
+ * botón — no hay stage de por medio.
+ *
+ * `missing_contact` / `missing_email` / `already_active` son resultados de
+ * negocio ESPERABLES (no hay nada roto), por eso la función nunca lanza
+ * AppError para esos casos — solo si el deal no existe en el portal.
+ *
+ * Para distinguir `already_active` de `activated`: como acá YA validamos que
+ * el deal tiene `primaryContactId` y que el contacto tiene `email` (los dos
+ * únicos motivos por los que `activateClientPortal` devolvería `null` sin
+ * haber hecho nada), si igual devuelve `null` solo puede ser porque el
+ * `client_account` ya existía — la misma idempotencia que ya usa
+ * `changeStage`/DocuSeal para no reinvitar. No hace falta un chequeo previo
+ * aparte: el propio contrato de `activateClientPortal` alcanza.
+ */
+export async function activateClientPortalManually(
+  portalId: string,
+  userId: string,
+  dealId: string,
+): Promise<ActivatePortalResultDTO> {
+  const result = await db.transaction(async (tx) => {
+    const [d] = await tx
+      .select()
+      .from(deal)
+      .where(and(eq(deal.portalId, portalId), eq(deal.id, dealId), eq(deal.archived, false)))
+      .limit(1)
+    if (!d) throw Errors.notFound('Deal no encontrado')
+
+    if (!d.primaryContactId) {
+      return { status: 'missing_contact' as const, clientEmail: null, invitation: null }
+    }
+    const [c] = await tx.select().from(contact).where(eq(contact.id, d.primaryContactId)).limit(1)
+    if (!c?.email) {
+      return { status: 'missing_email' as const, clientEmail: null, invitation: null }
+    }
+
+    const invitation = await activateClientPortal(tx, portalId, dealId)
+    if (!invitation) {
+      // Ya validamos contacto + email arriba: si igual no hay invitación
+      // pendiente, es porque la cuenta ya existía (ver comentario del JSDoc).
+      return { status: 'already_active' as const, clientEmail: c.email, invitation: null }
+    }
+
+    // Auditar la activación manual solo cuando efectivamente activa algo nuevo
+    // (no en cada click sobre un deal ya activado) — mismo criterio que evita
+    // re-mandar la invitación.
+    await writeAudit({
+      tx,
+      portalId,
+      userId,
+      entityType: ENTITY,
+      entityId: dealId,
+      action: 'CLIENT_PORTAL_ACTIVATED',
+      payload: { clientEmail: c.email },
+    })
+
+    return { status: 'activated' as const, clientEmail: c.email, invitation }
+  })
+
+  // Igual que en changeStage: el email sale DESPUÉS del commit. Si la tx
+  // hubiera hecho rollback, no queremos haber mandado ya la invitación.
+  if (result.invitation) await sendPortalInvitationEmail(result.invitation)
+
+  return { status: result.status, clientEmail: result.clientEmail }
 }
 
 /**
@@ -225,6 +347,7 @@ export async function changeStage(
     }
 
     // Si la etapa es ganada, activar el portal del cliente automáticamente.
+    // El email de invitación NO se manda acá: sale después del commit.
     const invitation = stage.isWon ? await activateClientPortal(tx, portalId, dealId) : null
     // Notificar al owner FINAL (el reasignado si lo hubo; si no, sigue siendo
     // el mismo que ya tenía el deal — nunca al viejo owner pre-reasignación).
@@ -247,21 +370,10 @@ export async function changeStage(
     })
   }
 
-  // Email de invitación al portal, ya con la transacción commiteada. Si Clerk no
-  // devolvió link de invitación (usuario preexistente, Clerk caído, sin secret
-  // key), no mandamos un email cuyo botón no llevaría a ningún lado: el cliente
-  // recibiría "activá tu cuenta" sin poder hacerlo.
-  if (result.invitation?.invitationUrl) {
-    await sendEmail({
-      to: result.invitation.email,
-      subject: `Tu portal de ${result.invitation.dealName} ya está listo`,
-      html: portalInvitationHtml({
-        firstName: result.invitation.firstName,
-        dealName: result.invitation.dealName,
-        portalUrl: result.invitation.invitationUrl,
-      }),
-    })
-  }
+  // Invitación al portal, ya con la transacción commiteada y best-effort (ver
+  // `sendPortalInvitationEmail`: sin link de Clerk no manda nada, y si manda,
+  // sella `inviteSentAt`).
+  if (result.invitation) await sendPortalInvitationEmail(result.invitation)
   return result.deal
 }
 

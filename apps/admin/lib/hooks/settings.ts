@@ -27,7 +27,7 @@ export function usePortal() {
 export function useUpdatePortal() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: Partial<Pick<PortalSettings, 'name' | 'timeZone' | 'currency' | 'prospectingServices'>>) =>
+    mutationFn: (input: Partial<Pick<PortalSettings, 'name' | 'timeZone' | 'currency'>>) =>
       apiPatch<PortalSettings>('/api/settings/portal', input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portal'] }),
   })
@@ -50,6 +50,23 @@ export function useCreateUser() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: UserInput) => apiPost<TeamUser>('/api/users', input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  })
+}
+
+/** Campos editables de un miembro del equipo (PATCH /api/users/:id — solo owner). */
+export interface UpdateUserInput {
+  firstName?: string
+  lastName?: string
+  role?: HubUserRole
+  isActive?: boolean
+}
+
+export function useUpdateUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...input }: UpdateUserInput & { id: string }) =>
+      apiPatch<TeamUser>(`/api/users/${id}`, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   })
 }

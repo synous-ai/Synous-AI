@@ -79,17 +79,33 @@ export function ClientOnboardingWizard({ onFinish }: { onFinish: () => void }) {
     setActiveStep(step)
   }
 
+  /**
+   * Avanza un paso de orientación (1-4) SOLO si el backend confirmó que quedó
+   * registrado.
+   *
+   * Antes se avanzaba igual y el error se descartaba en silencio. Eso dejaba
+   * al cliente viendo el paso siguiente con el progreso real congelado en el
+   * anterior: al recargar volvía atrás sin explicación y, ahora que el backend
+   * exige los pasos en orden, el siguiente request fallaría también. Si la
+   * persistencia falla, la pantalla no miente: se queda donde está y muestra
+   * el error.
+   */
   async function advanceOrientation(step: number) {
     try {
       await markProgress.mutateAsync(step)
     } catch {
-      /* si falla el PATCH igual dejamos avanzar localmente — no es bloqueante */
+      return // el error se muestra vía markProgress.isError
     }
     goTo(step + 1, 1)
   }
 
   return (
     <WizardFrame step={activeStep}>
+      {markProgress.isError && (
+        <p role="alert" className="mb-4 text-center text-sm text-destructive">
+          No pudimos guardar tu avance. Revisá tu conexión y probá de nuevo.
+        </p>
+      )}
       <StepStage step={activeStep} direction={direction}>
         {activeStep === 1 && <Step1Welcome onContinue={() => void advanceOrientation(1)} loading={markProgress.isPending} />}
         {activeStep === 2 && (
@@ -117,7 +133,12 @@ export function ClientOnboardingWizard({ onFinish }: { onFinish: () => void }) {
           <Step5Signature onboarding={onboarding} onContinue={() => goTo(6, 1)} onBack={() => goTo(4, -1)} />
         )}
         {activeStep === 6 && (
-          <Step6Brief briefAnswers={onboarding.briefAnswers} onContinue={() => goTo(7, 1)} onBack={() => goTo(5, -1)} />
+          <Step6Brief
+            briefAnswers={onboarding.briefAnswers}
+            briefDraft={onboarding.briefDraft}
+            onContinue={() => goTo(7, 1)}
+            onBack={() => goTo(5, -1)}
+          />
         )}
         {activeStep === 7 && (
           <Step7Materials

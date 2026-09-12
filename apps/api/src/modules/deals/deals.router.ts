@@ -16,6 +16,7 @@ import {
   updateDeal,
   archiveDeal,
   changeStage,
+  activateClientPortalManually,
   addDealContact,
   removeDealContact,
 } from './deals.service'
@@ -188,6 +189,24 @@ export async function dealsRoutes(app: FastifyInstance): Promise<void> {
     { schema: { tags: [TAG], summary: 'Cambiar etapa del deal', description: 'Mueve el deal de etapa. Registra STAGE_CHANGE en record_history + audit_log y crea una notificación. Requiere owner o member.', security, params: IdParamSchema, body: ChangeStageSchema }, preHandler: [authorize('owner', 'member', 'collaborator')] },
     async (request) => {
       return ok(await changeStage(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body.stageId))
+    },
+  )
+
+  r.post(
+    '/:id/activate-portal',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Invitar manualmente al Client Portal',
+        description:
+          'Activa el Client Portal para el contacto principal del deal sin esperar a que gane o a DocuSeal. Idempotente: no duplica la cuenta ni reenvía el email si ya estaba activa. `missing_contact` / `missing_email` / `already_active` son resultados de negocio válidos, no errores — siempre 200.',
+        security,
+        params: IdParamSchema,
+      },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
+    },
+    async (request) => {
+      return ok(await activateClientPortalManually(request.hubUser!.portalId, request.hubUser!.sub, request.params.id))
     },
   )
 

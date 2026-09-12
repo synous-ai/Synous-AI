@@ -46,7 +46,7 @@ export function CobrarSection() {
                 invoice={inv}
                 companies={companies}
                 onRegisterPayment={handleRegisterPayment}
-                onOpen={(id) => router.push(`/admin/invoices/${id}`)}
+                onOpen={(id) => router.push(`/invoices/${id}`)}
               />
             ))}
           </div>

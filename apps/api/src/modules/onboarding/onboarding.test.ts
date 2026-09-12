@@ -121,16 +121,46 @@ describe('client onboarding — GET / (lazy-create)', () => {
 })
 
 describe('client onboarding — progreso (pasos 1-4)', () => {
-  it('PATCH /progress marca el paso y sube current_step', async () => {
+  it('PATCH /progress marca el paso y current_step queda en el siguiente incompleto', async () => {
     const res = await request(app.server).patch('/api/client/onboarding/progress').set(clientAuth()).send({ step: 1 })
     expect(res.status).toBe(200)
     expect(res.body.data.stepsCompleted['1']).toBeTruthy()
-    expect(res.body.data.currentStep).toBeGreaterThanOrEqual(2)
+    expect(res.body.data.currentStep).toBe(2)
+  })
+
+  it('saltear un paso (marcar el 3 sin el 2) es rechazado por el backend', async () => {
+    const res = await request(app.server).patch('/api/client/onboarding/progress').set(clientAuth()).send({ step: 3 })
+    expect(res.status).toBe(400)
+    expect(res.body.error.details.missing).toContain('cómo funciona')
+
+    // Y no dejó rastro: el paso 3 NO quedó marcado.
+    const state = await request(app.server).get('/api/client/onboarding').set(clientAuth())
+    expect(state.body.data.onboarding.stepsCompleted['3']).toBeUndefined()
+    expect(state.body.data.onboarding.currentStep).toBe(2)
+  })
+
+  it('re-marcar un paso ya completo es idempotente (conserva el timestamp original)', async () => {
+    const before = await request(app.server).get('/api/client/onboarding').set(clientAuth())
+    const firstTimestamp = before.body.data.onboarding.stepsCompleted['1']
+
+    const res = await request(app.server).patch('/api/client/onboarding/progress').set(clientAuth()).send({ step: 1 })
+    expect(res.status).toBe(200)
+    expect(res.body.data.stepsCompleted['1']).toBe(firstTimestamp)
+    expect(res.body.data.currentStep).toBe(2)
   })
 
   it('step fuera de rango (5) es rechazado por Zod (400)', async () => {
     const res = await request(app.server).patch('/api/client/onboarding/progress').set(clientAuth()).send({ step: 5 })
     expect(res.status).toBe(400)
+  })
+
+  it('completar la orientación en orden (2, 3, 4) deja current_step en 5', async () => {
+    for (const step of [2, 3, 4]) {
+      const res = await request(app.server).patch('/api/client/onboarding/progress').set(clientAuth()).send({ step })
+      expect(res.status).toBe(200)
+    }
+    const state = await request(app.server).get('/api/client/onboarding').set(clientAuth())
+    expect(state.body.data.onboarding.currentStep).toBe(5)
   })
 })
 
@@ -168,7 +198,7 @@ describe('client onboarding — gate del paso 8 (complete)', () => {
   it('POST /complete falla con 400 y detalla qué falta (brief + materiales, la firma ya está)', async () => {
     const res = await request(app.server).post('/api/client/onboarding/complete').set(clientAuth())
     expect(res.status).toBe(400)
-    expect(res.body.error.details.missing).toEqual(expect.arrayContaining(['brief', 'materiales']))
+    expect(res.body.error.details.missing).toEqual(['brief', 'materiales'])
     expect(res.body.error.details.missing).not.toContain('firma')
   })
 

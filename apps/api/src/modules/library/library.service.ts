@@ -1,5 +1,5 @@
 /**
- * library.service.ts — Módulo de Biblioteca del CRM NOUS.
+ * library.service.ts — Módulo de Biblioteca del CRM Synous.
  *
  * Gestiona ítems de referencia del equipo: documentos, SOPs (procedimientos
  * y checklists), plantillas, contratos base, propuestas base y docs técnicos.

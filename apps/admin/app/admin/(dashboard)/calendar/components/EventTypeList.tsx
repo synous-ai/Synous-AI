@@ -39,11 +39,20 @@ interface Props {
   portalId: string
 }
 
-/** Construye la URL pública del booking page para un event type */
+/**
+ * Construye la URL pública del booking page para un event type.
+ *
+ * La ruta es `/book/:portalId/:slug` — el segmento es `book`, que es como se
+ * llama el directorio en app/. Antes esta función devolvía `/booking/...`, que
+ * no existe: el link que se mostraba (y que copiaba el botón) daba 404.
+ *
+ * Además se devuelve ABSOLUTA: es un link para mandarle a un lead por fuera de
+ * la app, así que una ruta relativa no le sirve a nadie. En el server render no
+ * hay `window`, así que ahí se cae a la ruta relativa hasta que hidrata.
+ */
 function buildPublicUrl(portalId: string, slug: string): string {
-  // Ruta pública: /booking/:portalId/:slug
-  // En producción tendrá el dominio del cliente; en dev es una ruta del portal.
-  return `/booking/${portalId}/${slug}`
+  const path = `/book/${portalId}/${slug}`
+  return typeof window === 'undefined' ? path : `${window.location.origin}${path}`
 }
 
 /** Formatea el tipo de evento para mostrar al admin */

@@ -12,8 +12,15 @@ let portalId: string
 let userId: string
 let dealId: string
 
-// Fechas fijas para tests deterministas (relativas a "now" en UTC)
-const now = new Date('2026-06-01T12:00:00.000Z')
+// Fechas RELATIVAS al reloj real, no fijas.
+//
+// Antes esto era `new Date('2026-06-01T12:00:00.000Z')` buscando determinismo,
+// pero fijaba las fechas del test sin fijar el reloj del sistema: el servicio
+// bucketiza contra `now` real, así que en cuanto esa fecha quedó en el pasado,
+// `fiveDaysOut` cayó en `overdue` en vez de `upcoming` y el test empezó a
+// fallar solo. Los márgenes (25h, 5 días) son lo bastante amplios como para
+// que la hora de ejecución no cambie el bucket.
+const now = new Date()
 const yesterday = new Date(now.getTime() - 25 * 60 * 60 * 1000)  // 25h atrás = ayer
 const tomorrow = new Date(now.getTime() + 25 * 60 * 60 * 1000)   // 25h adelante = mañana
 const fiveDaysOut = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000)

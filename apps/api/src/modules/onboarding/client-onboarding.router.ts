@@ -11,13 +11,17 @@ import {
   OnboardingBriefSchema,
   OnboardingMaterialsSchema,
   OnboardingMaterialUploadQuerySchema,
+  OnboardingBriefDraftSchema,
+  OnboardingMaterialsDraftSchema,
 } from './onboarding.schema'
 import {
   getOnboardingState,
   markStepProgress,
   submitSignature,
   submitBrief,
+  saveBriefDraft,
   submitMaterials,
+  saveMaterialsDraft,
   uploadMaterialAsset,
   completeOnboarding,
 } from './onboarding.service'
@@ -87,6 +91,20 @@ export async function clientOnboardingRoutes(app: FastifyInstance): Promise<void
     async (request) => ok(await submitBrief(request.clientAccount!.sub, request.body)),
   )
 
+  r.patch(
+    '/brief/draft',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Guardar un borrador parcial del brief (paso 6)',
+        description: 'Se llama al avanzar cada bloque del paso 6 para que lo tipeado no se pierda en un reload. No valida las 16 respuestas ni marca el paso como completo — eso lo hace POST /brief.',
+        security: CLIENT_SECURITY,
+        body: OnboardingBriefDraftSchema,
+      },
+    },
+    async (request) => ok(await saveBriefDraft(request.clientAccount!.sub, request.body)),
+  )
+
   r.post(
     '/materials',
     {
@@ -99,6 +117,20 @@ export async function clientOnboardingRoutes(app: FastifyInstance): Promise<void
       },
     },
     async (request) => ok(await submitMaterials(request.clientAccount!.sub, request.body.materials)),
+  )
+
+  r.patch(
+    '/materials/draft',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Guardar un borrador parcial del checklist de materiales (paso 7)',
+        description: 'Se llama al tildar una categoría, escribir una nota o terminar una subida, para que ese estado no viva solo en memoria hasta "Continuar". Acepta solo las categorías que cambiaron y NO marca el paso como completo — eso lo hace POST /materials.',
+        security: CLIENT_SECURITY,
+        body: OnboardingMaterialsDraftSchema,
+      },
+    },
+    async (request) => ok(await saveMaterialsDraft(request.clientAccount!.sub, request.body.materials)),
   )
 
   // Multipart: sube un archivo de materiales y crea el client_asset vinculado

@@ -4,6 +4,7 @@ import { portal, notification } from '../db/schema'
 import { getFollowUps } from '../modules/focus/focus.service'
 import { getDealsNeedingAttention } from '../modules/focus/focus.service'
 import { createNotification } from '../modules/notifications/notifications.service'
+import { sendDueBookingReminders } from '../modules/calendar/booking-reminders.service'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ async function notificationExistsToday(
 export interface ReminderScanResult {
   /** Total notifications created across all portals in this run. */
   created: number
+  /** Emails de recordatorio de reunión enviados en esta corrida. */
+  bookingRemindersSent: number
 }
 
 // ── Main scan ─────────────────────────────────────────────────────────────────
@@ -122,7 +125,18 @@ export async function runReminderScan(): Promise<ReminderScanResult> {
     }
   }
 
-  return { created }
+  // ── 3. Recordatorios de reunión (24h / 1h antes) ──────────────────────────
+  // No es por portal: la query filtra por ventana de tiempo sobre todos los
+  // bookings confirmados. Best-effort — si falla, las notificaciones de arriba
+  // ya quedaron creadas y el scan no debe darse por perdido.
+  let bookingRemindersSent = 0
+  try {
+    bookingRemindersSent = await sendDueBookingReminders()
+  } catch (err) {
+    console.error('[reminders] falló el envío de recordatorios de reunión:', err)
+  }
+
+  return { created, bookingRemindersSent }
 }
 
 // ── URL helpers ───────────────────────────────────────────────────────────────

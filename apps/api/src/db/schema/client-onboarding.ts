@@ -40,6 +40,18 @@ export const clientOnboarding = pgTable('client_onboarding', {
 
   // ── Paso 6 — Brief del proyecto (16 preguntas, ver OnboardingBriefSchema).
   briefAnswers: jsonb('brief_answers').$type<Record<string, unknown> | null>(),
+  /**
+   * Borrador PARCIAL del brief. El paso 6 son 5 bloques en pantallas separadas:
+   * sin esto, los bloques 1-4 vivirían solo en memoria de React Hook Form y un
+   * reload (o cerrar la pestaña) perdería todo lo tipeado hasta el último
+   * bloque. El wizard hace PATCH /brief/draft al avanzar cada bloque y se
+   * mergea con `||` (atómico, nunca borra claves previas).
+   *
+   * NO es el brief válido: puede estar incompleto y no marca el paso 6. El
+   * paso 6 solo se completa con POST /brief (las 16 respuestas validadas),
+   * que además limpia este borrador.
+   */
+  briefDraft: jsonb('brief_draft').$type<Record<string, unknown> | null>(),
 
   // ── Paso 7 — Materiales. Estado por categoría fija (logoBrand, programContent,
   // clientBase, toolAccess) + IDs de client_asset vinculados por cada una.

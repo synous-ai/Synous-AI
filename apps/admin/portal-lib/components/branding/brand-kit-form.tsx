@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Loader2, Upload, Check, Palette } from 'lucide-react'
 import { API_URL } from '@portal/lib/config'
 import { apiGet, apiPatch } from '@portal/lib/api'
+import { useAuthedImageUrl } from '@portal/lib/hooks'
 import { useBranding } from '@portal/components/branding/branding-provider'
 import { Card, CardContent } from '@portal/components/ui/card'
 import { Button } from '@portal/components/ui/button'
@@ -65,6 +66,9 @@ export function BrandKitForm() {
   const [secondary, setSecondary] = useState<string | null>(null)
   const [logoKey, setLogoKey] = useState<string | null>(null)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  // El preview no puede usar logoUrl directo: apunta a /api/files/:key, que
+  // exige token, y un <img src> pelado devolvía 401 (logo siempre roto).
+  const logoPreview = useAuthedImageUrl(logoUrl)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -210,9 +214,9 @@ export function BrandKitForm() {
         <div className="space-y-1.5">
           <Label>Logo</Label>
           <div className="flex items-center gap-3">
-            {logoUrl ? (
+            {logoPreview ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt="logo" className="h-12 w-12 rounded-lg border object-contain" />
+              <img src={logoPreview} alt="logo" className="h-12 w-12 rounded-lg border object-contain" />
             ) : (
               <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-dashed text-xs text-muted-foreground">
                 —

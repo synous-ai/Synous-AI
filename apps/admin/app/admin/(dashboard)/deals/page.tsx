@@ -67,7 +67,7 @@ export default function DealsPage(): React.JSX.Element {
               renderRow={(d) => (
                 <tr
                   key={d.id}
-                  onClick={() => router.push(`/admin/deals/${d.id}`)}
+                  onClick={() => router.push(`/deals/${d.id}`)}
                   className="cursor-pointer border-b last:border-0 transition-colors hover:bg-muted/50"
                 >
                   <td className="px-4 py-3 font-medium">{d.name}</td>

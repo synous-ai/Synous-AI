@@ -170,3 +170,26 @@ export const booking = pgTable('booking', {
   index('idx_booking_deal').on(table.dealId),
   // NOTE: EXCLUDE USING gist (booking_no_overlap) omitted — ver migraciones manuales
 ])
+
+/**
+ * Recordatorios de reunión ya enviados.
+ *
+ * Existe SOLO para garantizar que cada recordatorio salga una vez. El worker de
+ * reminders corre cada 15 minutos, así que sin esto un booking a 20 horas vista
+ * recibiría el mismo email en cada tick.
+ *
+ * El mecanismo es el UNIQUE (booking_id, kind): el scan hace el INSERT primero
+ * con ON CONFLICT DO NOTHING y solo manda el email si la fila la insertó ÉL.
+ * Así la garantía la da la base, no una lectura previa — que sería una condición
+ * de carrera si algún día corre más de un worker.
+ */
+export const bookingReminder = pgTable('booking_reminder', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  bookingId: text('booking_id').notNull().references(() => booking.id, { onDelete: 'cascade' }),
+  /** Antelación del recordatorio: '24h' o '1h'. */
+  kind: text('kind').notNull(),
+  sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique('booking_reminder_booking_kind_unique').on(table.bookingId, table.kind),
+  check('booking_reminder_kind_check', sql`${table.kind} IN ('24h','1h')`),
+])

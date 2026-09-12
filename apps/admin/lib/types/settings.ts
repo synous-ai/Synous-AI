@@ -4,11 +4,6 @@ export interface PortalSettings {
   domain: string | null
   timeZone: string
   currency: string
-  /**
-   * Descripción de los servicios de la agencia para pre-cargar en búsquedas de
-   * prospección. La IA lo usa como contexto para generar propuestas personalizadas.
-   */
-  prospectingServices: string | null
 }
 
 /** Orden de permisos de mayor a menor: owner > member > collaborator > viewer */
@@ -30,6 +25,8 @@ export interface User {
   lastName: string | null
   role: HubUserRole
   portalId: string
+  /** Slug legible del portal, para la URL pública de reservas. Null si no se seteó. */
+  portalSlug: string | null
 }
 
 export interface ClientAccountSummary {

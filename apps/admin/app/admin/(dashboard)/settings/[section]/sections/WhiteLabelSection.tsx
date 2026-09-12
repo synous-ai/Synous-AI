@@ -164,7 +164,7 @@ export function WhiteLabelSection() {
       <p className="text-sm text-muted-foreground">
         Personalizá la identidad del portal por cliente. Cada uno entra por su URL{' '}
         <code className="rounded bg-muted px-1 py-0.5 text-xs">/c/&lt;slug&gt;</code> y ve su propio
-        logo, nombre y colores. El admin siempre queda con la marca NOUS.
+        logo, nombre y colores. El admin siempre queda con la marca Synous.
       </p>
 
       {isLoading ? (

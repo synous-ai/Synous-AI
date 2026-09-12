@@ -2,7 +2,7 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * Brand mark estilo Resend: squircle tinta con glow de marca (verde DevDúo),
+ * Brand mark estilo Resend: squircle tinta con glow de marca (verde Synous AI),
  * sheen vidrioso arriba y borde hairline. Pop sobre el sidebar negro en dark,
  * sobrio sobre blanco en light. Decorativo salvo la inicial.
  */

@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Download,
   Trash2,
+  Pencil,
   Plus,
   FileText,
   Loader2,
@@ -21,6 +22,8 @@ import {
 } from 'lucide-react'
 import { ApiError } from '@/lib/api'
 import { API_URL } from '@/lib/config'
+import { cn } from '@/lib/utils'
+import { Markdown } from '@/components/ui/markdown'
 import {
   useLibrary,
   useCreateLibraryItem,
@@ -300,13 +303,18 @@ function AddItemDialog({
   onClose,
   type,
   hasSteps,
+  item,
 }: {
   open: boolean
   onClose: () => void
   type: LibraryItemType
   hasSteps: boolean
+  /** Ítem a editar. Si viene null/undefined el diálogo crea uno nuevo. */
+  item?: LibraryItem | null
 }) {
   const create = useCreateLibraryItem()
+  const update = useUpdateLibraryItem()
+  const isEdit = !!item
   const { data: users } = useUsers()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -328,14 +336,28 @@ function AddItemDialog({
   } = useForm<FormValues>({ resolver: zodResolver(FormSchema) })
 
   useEffect(() => {
-    if (open) {
+    if (!open) return
+    setSelectedFile(null)
+    setError(null)
+    if (item) {
+      // Modo edición: precargamos el ítem existente. El adjunto (archivo) no se
+      // precarga — subir uno nuevo lo reemplaza; dejarlo vacío conserva el actual.
+      reset({
+        name: item.name,
+        category: item.category ?? '',
+        description: item.description ?? '',
+        linkUrl: item.url ?? '',
+        ownerId: item.ownerId ?? '',
+        kind: item.kind ?? 'procedure',
+      })
+      setSteps(Array.isArray(item.steps) ? item.steps : [])
+      setSelectedKind(item.kind ?? 'procedure')
+    } else {
       reset({ name: '', category: '', description: '', linkUrl: '', ownerId: '', kind: 'procedure' })
-      setSelectedFile(null)
-      setError(null)
       setSteps([])
       setSelectedKind('procedure')
     }
-  }, [open, reset])
+  }, [open, item, reset])
 
   async function onSubmit(values: FormValues) {
     setError(null)
@@ -370,20 +392,52 @@ function AddItemDialog({
         url = values.linkUrl
       }
 
-      await create.mutateAsync({
-        type,
-        name: values.name,
-        category: values.category || undefined,
-        description: values.description || undefined,
-        storageKey,
-        url,
-        // Pasos: solo se envían para la sección operativa; para otros tipos se omite.
-        steps: hasSteps ? steps.filter((s) => s.title.trim()).map((s) => ({ title: s.title.trim(), body: s.body?.trim() || undefined })) : undefined,
-        // kind: solo para ítems de tipo sop. Define si es procedimiento o checklist.
-        kind: hasSteps ? selectedKind : undefined,
-        // Owner: solo para SOPs (habilitado cuando hasSteps=true).
-        ownerId: hasSteps && values.ownerId ? values.ownerId : undefined,
-      })
+      const cleanSteps = hasSteps
+        ? steps
+            .filter((s) => s.title.trim())
+            .map((s) => ({ title: s.title.trim(), body: s.body?.trim() || undefined }))
+        : undefined
+
+      // 'none-placeholder' es el valor del SelectItem "Sin responsable": no es un
+      // id real, así que se traduce a null (limpiar owner) y nunca se manda tal cual.
+      const ownerId =
+        !hasSteps || !values.ownerId || values.ownerId === 'none-placeholder'
+          ? null
+          : values.ownerId
+
+      if (item) {
+        await update.mutateAsync({
+          id: item.id,
+          input: {
+            // En edición solo mandamos el adjunto si el usuario eligió uno nuevo:
+            // omitirlo conserva el que ya tenía.
+            ...(storageKey ? { storageKey } : {}),
+            ...(url ? { url } : {}),
+            type,
+            name: values.name,
+            category: values.category || undefined,
+            description: values.description || undefined,
+            steps: cleanSteps,
+            kind: hasSteps ? selectedKind : undefined,
+            ownerId: hasSteps ? ownerId : undefined,
+          },
+        })
+      } else {
+        await create.mutateAsync({
+          type,
+          name: values.name,
+          category: values.category || undefined,
+          description: values.description || undefined,
+          storageKey,
+          url,
+          // Pasos: solo se envían para la sección operativa; para otros tipos se omite.
+          steps: cleanSteps,
+          // kind: solo para ítems de tipo sop. Define si es procedimiento o checklist.
+          kind: hasSteps ? selectedKind : undefined,
+          // Owner: solo para SOPs (habilitado cuando hasSteps=true).
+          ownerId: hasSteps ? ownerId ?? undefined : undefined,
+        })
+      }
       onClose()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'No se pudo guardar')
@@ -394,9 +448,11 @@ function AddItemDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Agregar {hasSteps ? 'Proceso o Checklist' : 'Ítem'}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? 'Editar' : 'Agregar'} {hasSteps ? 'Proceso o Checklist' : 'Ítem'}
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Formulario para agregar un ítem a la biblioteca.
+            Formulario para {isEdit ? 'editar un ítem de' : 'agregar un ítem a'} la biblioteca.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -582,9 +638,7 @@ function StepsViewer({ steps, kind = 'procedure' }: { steps: LibraryStep[]; kind
             <Square className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" aria-hidden />
             <div className="min-w-0">
               <p className="font-medium text-foreground leading-snug">{step.title}</p>
-              {step.body && (
-                <p className="mt-0.5 text-muted-foreground whitespace-pre-wrap leading-relaxed">{step.body}</p>
-              )}
+              {step.body && <Markdown className="mt-1 text-muted-foreground">{step.body}</Markdown>}
             </div>
           </li>
         ))}
@@ -602,9 +656,7 @@ function StepsViewer({ steps, kind = 'procedure' }: { steps: LibraryStep[]; kind
           </span>
           <div className="min-w-0">
             <p className="font-medium text-foreground leading-snug">{step.title}</p>
-            {step.body && (
-              <p className="mt-0.5 text-muted-foreground whitespace-pre-wrap leading-relaxed">{step.body}</p>
-            )}
+            {step.body && <Markdown className="mt-1 text-muted-foreground">{step.body}</Markdown>}
           </div>
         </li>
       ))}
@@ -625,10 +677,12 @@ function StepsViewer({ steps, kind = 'procedure' }: { steps: LibraryStep[]; kind
 function SopCard({
   item,
   users,
+  onEdit,
   onDelete,
 }: {
   item: LibraryItem
   users: ReturnType<typeof useUsers>['data']
+  onEdit: (item: LibraryItem) => void
   onDelete: (id: string, name: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -674,16 +728,28 @@ function SopCard({
             )}
           </div>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(item.id, item.name)}
-          className="shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-          title="Eliminar"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <div className="flex shrink-0 items-center">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => onEdit(item)}
+            className="text-muted-foreground hover:text-foreground"
+            title="Editar"
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => onDelete(item.id, item.name)}
+            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            title="Eliminar"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {item.description && (
@@ -703,18 +769,30 @@ function SopCard({
                 ? `Ocultar ${item.kind === 'checklist' ? 'ítems' : 'pasos'}`
                 : `Ver ${item.kind === 'checklist' ? 'ítems' : 'pasos'}`}
             </span>
-            {expanded ? (
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            )}
+            {/* Un solo chevron que rota: cambiar de ícono cortaba la transición. */}
+            <ChevronDown
+              className={cn(
+                'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-300 ease-out',
+                expanded && 'rotate-180',
+              )}
+            />
           </button>
-          {expanded && (
-            <div className="px-5 pb-4">
-              {/* StepsViewer recibe el kind para adaptar la presentación */}
-              <StepsViewer steps={item.steps} kind={item.kind} />
+          {/* Expandido/colapsado animado: el truco de grid-rows 0fr→1fr anima la
+              altura sin conocerla de antemano y sin JS. Mismo patrón que usan
+              los grupos del sidebar, para que la sensación sea consistente. */}
+          <div
+            className={cn(
+              'grid transition-[grid-template-rows] duration-300 ease-out',
+              expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+            )}
+          >
+            <div className="overflow-hidden">
+              <div className="px-5 pb-4">
+                {/* StepsViewer recibe el kind para adaptar la presentación */}
+                <StepsViewer steps={item.steps} kind={item.kind} />
+              </div>
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>
@@ -728,9 +806,11 @@ function SopCard({
  */
 function GenericItemCard({
   item,
+  onEdit,
   onDelete,
 }: {
   item: LibraryItem
+  onEdit: (item: LibraryItem) => void
   onDelete: (id: string, name: string) => void
 }) {
   const fileUrl = item.storageKey ? `${API_URL}/api/files/${item.storageKey}` : null
@@ -786,16 +866,28 @@ function GenericItemCard({
           <span className="text-xs text-muted-foreground/60">Sin adjunto</span>
         )}
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(item.id, item.name)}
-          className="ml-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-          title="Eliminar"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <div className="ml-auto flex items-center">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => onEdit(item)}
+            className="text-muted-foreground hover:text-foreground"
+            title="Editar"
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => onDelete(item.id, item.name)}
+            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            title="Eliminar"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -816,8 +908,20 @@ export default function LibrarySectionPage() {
   const config = SECTIONS[section]
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  /** Ítem en edición. null = el diálogo está en modo "crear". */
+  const [editingItem, setEditingItem] = useState<LibraryItem | null>(null)
   const deleteItem = useDeleteLibraryItem()
   const { data: users } = useUsers()
+
+  function openEdit(item: LibraryItem) {
+    setEditingItem(item)
+    setDialogOpen(true)
+  }
+
+  function closeDialog() {
+    setDialogOpen(false)
+    setEditingItem(null)
+  }
 
   // Filtro de kind: solo activo en la sección operativa (hasSteps=true).
   // El fetch trae todos los ítems de type='sop'; el filtro es client-side.
@@ -934,10 +1038,10 @@ export default function LibrarySectionPage() {
             {pageItems.map((item) =>
               isSop ? (
                 // Card especializada: muestra badge de kind, pasos y owner
-                <SopCard key={item.id} item={item} users={users} onDelete={handleDelete} />
+                <SopCard key={item.id} item={item} users={users} onEdit={openEdit} onDelete={handleDelete} />
               ) : (
                 // Card genérica para el resto de tipos
-                <GenericItemCard key={item.id} item={item} onDelete={handleDelete} />
+                <GenericItemCard key={item.id} item={item} onEdit={openEdit} onDelete={handleDelete} />
               ),
             )}
           </div>
@@ -947,9 +1051,10 @@ export default function LibrarySectionPage() {
 
       <AddItemDialog
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        onClose={closeDialog}
         type={config.type}
         hasSteps={config.hasSteps}
+        item={editingItem}
       />
     </div>
   )

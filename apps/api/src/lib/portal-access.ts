@@ -4,14 +4,24 @@ import { clientDealAccess, deal } from '../db/schema'
 import { Errors } from './errors'
 
 /**
- * Devuelve los IDs de los deals a los que el cliente tiene acceso
+ * Devuelve los IDs de los deals ACTIVOS a los que el cliente tiene acceso
  * según la tabla client_deal_access.
+ *
+ * El join contra `deal` con `archived = false` no es cosmético: archivar es el
+ * mecanismo de borrado del CRM (nunca se borran filas). Sin este filtro, un
+ * deal archivado desaparecía de GET /api/client/deals pero el cliente seguía
+ * pudiendo listar y ACTUAR sobre sus entregables, facturas, formularios y
+ * change requests — porque todos esos endpoints se apoyan en este helper.
+ *
+ * Mismo criterio que `resolveActiveClientDeal` (client.service.ts) y
+ * `resolveActiveDeal` (onboarding.service.ts), que ya filtraban bien.
  */
 export async function clientDealIds(clientId: string): Promise<string[]> {
   const rows = await db
     .select({ dealId: clientDealAccess.dealId })
     .from(clientDealAccess)
-    .where(eq(clientDealAccess.clientId, clientId))
+    .innerJoin(deal, eq(deal.id, clientDealAccess.dealId))
+    .where(and(eq(clientDealAccess.clientId, clientId), eq(deal.archived, false)))
   return rows.map((r) => r.dealId)
 }
 

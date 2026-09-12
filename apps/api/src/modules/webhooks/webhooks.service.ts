@@ -5,14 +5,14 @@
  *
  * Decisión de portal (MVP):
  *   Fathom no envía ningún identificador de portal en su payload.
- *   En esta instalación single-tenant se resuelve el portal tomando el primero
- *   disponible en la base de datos (1 portal = 1 agencia).
- *   Para multi-tenant futuro: rotatar un secret por portal y derivar portalId
+ *   En esta instalación single-tenant se resuelve tomando el portal MÁS ANTIGUO
+ *   (1 portal = 1 agencia). Ver `resolvePortalId` para por qué el orden importa.
+ *   Para multi-tenant futuro: rotar un secret por portal y derivar portalId
  *   del header o del path de la ruta.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, asc } from 'drizzle-orm'
 import { db } from '../../db'
 import { meeting, contact, deal, portal } from '../../db/schema'
 import { env } from '../../config/env'
@@ -52,6 +52,27 @@ export function verifyFathomSignature(
   }
 }
 
+// ── DocuSeal ──────────────────────────────────────────────────────────────────
+
+/**
+ * Valida el token del webhook de DocuSeal.
+ *
+ * A diferencia de Fathom, DocuSeal NO firma el payload: manda un valor fijo en
+ * un header. Igual se compara con `timingSafeEqual` — es un secreto compartido y
+ * una comparación con `===` filtra información por tiempo.
+ *
+ * Si el secret no está configurado devuelve SIEMPRE false: sin poder verificar
+ * el origen no se procesa nada, porque este endpoint activa portales de cliente.
+ */
+export function verifyDocusealToken(token: string | undefined): boolean {
+  if (!env.DOCUSEAL_WEBHOOK_SECRET || !token) return false
+
+  const expected = Buffer.from(env.DOCUSEAL_WEBHOOK_SECRET, 'utf8')
+  const received = Buffer.from(token, 'utf8')
+  if (expected.length !== received.length) return false
+  return timingSafeEqual(expected, received)
+}
+
 // ── Fathom payload type ───────────────────────────────────────────────────────
 
 export interface FathomParticipant {
@@ -77,8 +98,24 @@ export interface FathomMeetingPayload {
 
 // ── Portal resolver ───────────────────────────────────────────────────────────
 
+/**
+ * Resuelve a qué portal pertenece un evento de Fathom.
+ *
+ * Fathom no manda ningún identificador de tenant, así que no hay forma de
+ * derivarlo del payload: se asume despliegue de un solo portal y se toma el
+ * ORIGINAL, es decir el más antiguo.
+ *
+ * El `ORDER BY created_at` no es decorativo. Antes era `limit(1)` a secas y
+ * Postgres no garantiza orden sin ORDER BY: con más de una fila en `portal`, la
+ * elegida podía cambiar sola (basta un ALTER TABLE que reescriba el heap) y las
+ * reuniones se cargaban en un portal distinto de un día para el otro.
+ */
 async function resolvePortalId(): Promise<string | null> {
-  const [row] = await db.select({ id: portal.id }).from(portal).limit(1)
+  const [row] = await db
+    .select({ id: portal.id })
+    .from(portal)
+    .orderBy(asc(portal.createdAt))
+    .limit(1)
   return row?.id ?? null
 }
 

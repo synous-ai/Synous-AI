@@ -47,19 +47,30 @@ var envSchema = z.object({
   // Requerido en prod: sin esto el verifyToken de Clerk falla y nadie autentica.
   // default '' para no romper boot/tests cuando no está configurado (auth devuelve 401).
   CLERK_SECRET_KEY: z.string().default(""),
-  // ── IA: Anthropic (setter) y Vertex/Gemini ────────────────
+  // ── IA: Anthropic y Vertex/Gemini ────────────────
+  // Qué modelo usan las funciones con IA (propuestas, próxima acción).
+  // Antes lo decidía `setter_tenant.model_provider`, que se fue con el setter;
+  // el default sigue siendo gemini, que era el fallback histórico.
+  MODEL_PROVIDER: z.enum(["gemini", "claude"]).default("gemini"),
   ANTHROPIC_API_KEY: z.string().default(""),
   ANTHROPIC_MODEL: z.string().default(""),
   VERTEX_LOCATION: z.string().default(""),
   VERTEX_MODEL: z.string().default(""),
-  // ── Google (Places/Maps + service account) ────────────────
-  GOOGLE_MAPS_API_KEY: z.string().default(""),
+  // ── Google service account (auth de Vertex/Gemini) ────────
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().default(""),
-  // ── Evolution API (WhatsApp del setter) ───────────────────
-  EVOLUTION_API_URL: z.string().default(""),
-  EVOLUTION_API_KEY: z.string().default(""),
-  EVOLUTION_INSTANCE: z.string().default(""),
-  EVOLUTION_WEBHOOK_SECRET: z.string().default(""),
+  // ── DocuSeal (firma de contratos y propuestas) ────────────
+  // Sin DOCUSEAL_API_KEY la integración queda inactiva: los endpoints responden
+  // 503 en vez de fallar de forma rara. El webhook rechaza todo si falta el
+  // secret (no se procesa nada sin poder verificar el origen).
+  // OJO: son DOS bases distintas y confundirlas manda al cliente a un link roto.
+  //  - DOCUSEAL_URL     → app pública, de donde sale el link de firma (/s/<slug>)
+  //  - DOCUSEAL_API_URL → API REST
+  // En cloud son hosts distintos (docuseal.com vs api.docuseal.com); en
+  // self-hosted es el mismo host y la API cuelga de /api.
+  DOCUSEAL_URL: z.string().url().default("https://docuseal.com"),
+  DOCUSEAL_API_URL: z.string().url().default("https://api.docuseal.com"),
+  DOCUSEAL_API_KEY: z.string().default(""),
+  DOCUSEAL_WEBHOOK_SECRET: z.string().default(""),
   // ── Onboarding post-venta: asignación automática de responsable por fase del
   // pipeline "Producción" (ver modules/onboarding/assignees.ts). Opcionales con
   // default — si el hub_user no existe (email no seedeado), el helper devuelve
@@ -116,6 +127,7 @@ __export(schema_exports, {
   availabilityRule: () => availabilityRule,
   availabilitySchedule: () => availabilitySchedule,
   booking: () => booking,
+  bookingReminder: () => bookingReminder,
   call: () => call,
   changeRequest: () => changeRequest,
   changeRequestAttachment: () => changeRequestAttachment,
@@ -191,7 +203,7 @@ var inet = customType({
 });
 
 // src/db/schema/portal.ts
-import { pgTable, text, char, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, char, timestamp, unique } from "drizzle-orm/pg-core";
 
 // src/lib/id.ts
 import { createId } from "@paralleldrive/cuid2";
@@ -200,18 +212,37 @@ import { createId } from "@paralleldrive/cuid2";
 var portal = pgTable("portal", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   name: text("name").notNull(),
+  /**
+   * Identificador legible del portal, para URLs públicas.
+   *
+   * Existe por la página pública de reservas: la ruta es
+   * `/book/:portal/:eventSlug` y necesita desambiguar el portal porque el slug
+   * del meeting type solo es único DENTRO de un portal (unique portal_id+slug).
+   * Antes ese segmento era el `id` — un cuid interno expuesto en un link que se
+   * le manda a un lead. Con el slug queda `/book/synous/consulta-inicial`.
+   *
+   * Nullable: los portales viejos no lo tienen y la ruta pública sigue
+   * aceptando el id como fallback.
+   */
+  slug: text("slug"),
   domain: text("domain"),
   // Default actualizado en migración 0017: la agencia opera en Argentina.
   timeZone: text("time_zone").notNull().default("America/Argentina/Buenos_Aires"),
   currency: char("currency", { length: 3 }).notNull().default("USD"),
-  /** Servicios de prospección habilitados para el módulo setter (null = no configurado). */
+  /**
+   * LEGACY — pertenecía al módulo de prospecting, que se eliminó. La columna se
+   * mantiene declarada a propósito: si se borra de acá, el próximo `db:generate`
+   * emite un DROP COLUMN sobre datos que decidimos conservar. Nadie la lee.
+   */
   prospectingServices: text("prospecting_services"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
-});
+}, (table) => [
+  unique("portal_slug_unique").on(table.slug)
+]);
 
 // src/db/schema/users.ts
-import { pgTable as pgTable2, text as text2, boolean, timestamp as timestamp2, unique, check } from "drizzle-orm/pg-core";
+import { pgTable as pgTable2, text as text2, boolean, timestamp as timestamp2, unique as unique2, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 var hubUser = pgTable2("hub_user", {
   id: text2("id").primaryKey().$defaultFn(() => createId()),
@@ -228,7 +259,7 @@ var hubUser = pgTable2("hub_user", {
   createdAt: timestamp2("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp2("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique("hub_user_portal_id_email_unique").on(table.portalId, table.email),
+  unique2("hub_user_portal_id_email_unique").on(table.portalId, table.email),
   // Roles del sistema:
   //   owner       → acceso total
   //   member      → opera CRM + finanzas, no puede borrar ni gestionar usuarios
@@ -268,7 +299,7 @@ var pipelineStage = pgTable3("pipeline_stage", {
 ]);
 
 // src/db/schema/companies.ts
-import { pgTable as pgTable4, text as text4, boolean as boolean3, jsonb, timestamp as timestamp4, index as index2 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable4, text as text4, boolean as boolean3, jsonb, timestamp as timestamp4, index as index2, unique as unique3 } from "drizzle-orm/pg-core";
 import { sql as sql3 } from "drizzle-orm";
 var company = pgTable4("company", {
   id: text4("id").primaryKey().$defaultFn(() => createId()),
@@ -279,6 +310,29 @@ var company = pgTable4("company", {
   industry: text4("industry"),
   phone: text4("phone"),
   website: text4("website"),
+  /**
+   * Slug del tenant (Fase A multi-tenant por empresa): identifica a la
+   * empresa en subdominios (`<slug>.synousai.com`) y en `/c/<slug>`. Único
+   * GLOBAL, NO por portal: a diferencia de `meeting_type.slug` (que se
+   * resuelve siempre junto con el portal en la ruta `/book/:portal/:slug`),
+   * un subdominio como `uirtus.synousai.com` no transporta ningún dato de
+   * portal. `getBrandingBySlug()` (branding.service.ts) resuelve por
+   * `company.slug` solo, con `.limit(1)` — si dos portales tuvieran
+   * compañías con el mismo slug, ese lookup elegiría una fila arbitraria. El
+   * constraint tiene que contar la misma historia que la resolución: por eso
+   * es global. Se asigna una sola vez al crear la empresa
+   * (`uniqueCompanySlug`) y NO se regenera al renombrar, para no romper URLs
+   * ya repartidas.
+   */
+  slug: text4("slug"),
+  /** Nombre de marca visible en el portal del cliente (blanco/white-label). */
+  brandName: text4("brand_name"),
+  /** Clave del logo de marca en R2 (sin URL; se genera on-demand). */
+  brandLogoKey: text4("brand_logo_key"),
+  /** Color primario de la marca en formato hex (#rrggbb). */
+  brandPrimary: text4("brand_primary"),
+  /** Color secundario de la marca en formato hex (#rrggbb). */
+  brandSecondary: text4("brand_secondary"),
   custom: jsonb("custom").notNull().default({}),
   archived: boolean3("archived").notNull().default(false),
   archivedAt: timestamp4("archived_at", { withTimezone: true }),
@@ -286,12 +340,14 @@ var company = pgTable4("company", {
   updatedAt: timestamp4("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   index2("idx_company_portal").on(table.portalId).where(sql3`archived = false`),
-  index2("idx_company_owner").on(table.ownerId)
+  index2("idx_company_owner").on(table.ownerId),
+  // Global (no compuesto con portalId) — ver comentario en la columna `slug` arriba.
+  unique3("company_slug_unique").on(table.slug)
   // NOTE: idx_company_name_trgm uses gin_trgm_ops — omitted, see manual migrations
 ]);
 
 // src/db/schema/contacts.ts
-import { pgTable as pgTable5, text as text5, boolean as boolean4, jsonb as jsonb2, timestamp as timestamp5, index as index3, unique as unique2, check as check3 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable5, text as text5, boolean as boolean4, jsonb as jsonb2, timestamp as timestamp5, index as index3, unique as unique4, check as check3 } from "drizzle-orm/pg-core";
 import { sql as sql4 } from "drizzle-orm";
 var contact = pgTable5("contact", {
   id: text5("id").primaryKey().$defaultFn(() => createId()),
@@ -310,7 +366,7 @@ var contact = pgTable5("contact", {
   createdAt: timestamp5("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp5("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique2("contact_portal_id_email_unique").on(table.portalId, table.email),
+  unique4("contact_portal_id_email_unique").on(table.portalId, table.email),
   check3("contact_lifecycle_stage_check", sql4`${table.lifecycleStage} IN ('lead','mql','sql','opportunity','customer','other')`),
   // Compuesto para el listado paginado por cursor (created_at DESC, id DESC).
   index3("idx_contact_portal_created").on(table.portalId, table.createdAt, table.id).where(sql4`archived = false`),
@@ -359,7 +415,7 @@ var dealContact = pgTable6("deal_contact", {
 ]);
 
 // src/db/schema/calendar.ts
-import { pgTable as pgTable7, text as text7, integer as integer2, boolean as boolean6, jsonb as jsonb4, time, timestamp as timestamp7, date as date2, index as index5, unique as unique3, check as check4 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable7, text as text7, integer as integer2, boolean as boolean6, jsonb as jsonb4, time, timestamp as timestamp7, date as date2, index as index5, unique as unique5, check as check4 } from "drizzle-orm/pg-core";
 import { sql as sql6 } from "drizzle-orm";
 var availabilitySchedule = pgTable7("availability_schedule", {
   id: text7("id").primaryKey().$defaultFn(() => createId()),
@@ -391,7 +447,7 @@ var dateOverride = pgTable7("date_override", {
   intervals: jsonb4("intervals").notNull().default([])
 }, (table) => [
   // Un solo override por fecha por schedule.
-  unique3("date_override_schedule_date_unique").on(table.scheduleId, table.date)
+  unique5("date_override_schedule_date_unique").on(table.scheduleId, table.date)
 ]);
 var availabilityRule = pgTable7("availability_rule", {
   id: text7("id").primaryKey().$defaultFn(() => createId()),
@@ -450,7 +506,7 @@ var meetingType = pgTable7("meeting_type", {
   /** Schedule de disponibilidad vinculado. Null = usa availability_rule del owner. */
   availabilityScheduleId: text7("availability_schedule_id").references(() => availabilitySchedule.id, { onDelete: "set null" })
 }, (table) => [
-  unique3("meeting_type_portal_id_slug_unique").on(table.portalId, table.slug),
+  unique5("meeting_type_portal_id_slug_unique").on(table.portalId, table.slug),
   check4("meeting_type_duration_min_check", sql6`${table.durationMin} > 0`),
   check4("meeting_type_kind_check", sql6`${table.kind} IN ('solo', 'group')`),
   check4("meeting_type_pooling_check", sql6`${table.poolingType} IS NULL OR ${table.poolingType} = 'collective'`),
@@ -461,7 +517,7 @@ var eventMembership = pgTable7("event_membership", {
   meetingTypeId: text7("meeting_type_id").notNull().references(() => meetingType.id, { onDelete: "cascade" }),
   hostId: text7("host_id").notNull().references(() => hubUser.id, { onDelete: "cascade" })
 }, (table) => [
-  unique3("event_membership_meeting_host_unique").on(table.meetingTypeId, table.hostId)
+  unique5("event_membership_meeting_host_unique").on(table.meetingTypeId, table.hostId)
 ]);
 var booking = pgTable7("booking", {
   id: text7("id").primaryKey().$defaultFn(() => createId()),
@@ -497,960 +553,1002 @@ var booking = pgTable7("booking", {
   index5("idx_booking_deal").on(table.dealId)
   // NOTE: EXCLUDE USING gist (booking_no_overlap) omitted — ver migraciones manuales
 ]);
+var bookingReminder = pgTable7("booking_reminder", {
+  id: text7("id").primaryKey().$defaultFn(() => createId()),
+  bookingId: text7("booking_id").notNull().references(() => booking.id, { onDelete: "cascade" }),
+  /** Antelación del recordatorio: '24h' o '1h'. */
+  kind: text7("kind").notNull(),
+  sentAt: timestamp7("sent_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  unique5("booking_reminder_booking_kind_unique").on(table.bookingId, table.kind),
+  check4("booking_reminder_kind_check", sql6`${table.kind} IN ('24h','1h')`)
+]);
+
+// src/db/schema/prospecting.ts
+import { pgTable as pgTable8, text as text8, integer as integer3, numeric as numeric3, jsonb as jsonb5, timestamp as timestamp8, index as index6, check as check5 } from "drizzle-orm/pg-core";
+import { sql as sql7 } from "drizzle-orm";
+var prospectSearch = pgTable8("prospect_search", {
+  id: text8("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  query: text8("query").notNull(),
+  ourServices: text8("our_services"),
+  requestedLimit: integer3("requested_limit").notNull().default(5),
+  resultCount: integer3("result_count").notNull().default(0),
+  status: text8("status").notNull().default("running"),
+  error: text8("error"),
+  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check5("prospect_search_status_check", sql7`${table.status} IN ('running','completed','failed')`),
+  index6("idx_prospect_search_portal").on(table.portalId)
+]);
+var prospect = pgTable8("prospect", {
+  id: text8("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  searchId: text8("search_id").notNull().references(() => prospectSearch.id, { onDelete: "cascade" }),
+  // ── Datos del negocio (Google Places + scraping) ──
+  name: text8("name").notNull(),
+  address: text8("address"),
+  phone: text8("phone"),
+  website: text8("website"),
+  email: text8("email"),
+  rating: numeric3("rating", { precision: 2, scale: 1 }),
+  userRatingsTotal: integer3("user_ratings_total"),
+  googlePlaceId: text8("google_place_id"),
+  types: jsonb5("types").$type().notNull().default([]),
+  // ── Análisis IA (Vertex / Gemini) ──
+  aiAnalysis: text8("ai_analysis"),
+  aiProposal: jsonb5("ai_proposal").$type(),
+  // ── Estado en el flujo de prospección ──
+  status: text8("status").notNull().default("new"),
+  importedContactId: text8("imported_contact_id").references(() => contact.id, { onDelete: "set null" }),
+  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check5("prospect_status_check", sql7`${table.status} IN ('new','imported','discarded')`),
+  index6("idx_prospect_portal").on(table.portalId),
+  index6("idx_prospect_search").on(table.searchId)
+]);
+
+// src/db/schema/setter.ts
+import {
+  pgTable as pgTable9,
+  text as text9,
+  boolean as boolean7,
+  integer as integer4,
+  jsonb as jsonb6,
+  timestamp as timestamp9,
+  uniqueIndex as uniqueIndex2,
+  index as index7,
+  check as check6
+} from "drizzle-orm/pg-core";
+import { sql as sql8 } from "drizzle-orm";
+var setterTenant = pgTable9("setter_tenant", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  // El setter es interno del CRM: su config cuelga del portal (la org admin).
+  portalId: text9("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  name: text9("name").notNull(),
+  // Lo que el agente "conoce": qué vende, ICP, qué califica, oferta, FAQs, precios.
+  businessBrief: text9("business_brief").notNull(),
+  agentName: text9("agent_name").notNull(),
+  ownerName: text9("owner_name").notNull(),
+  timezone: text9("timezone").notNull().default("America/Argentina/Buenos_Aires"),
+  // shadow global en Sprint 0; el campo existe para el salto a híbrido/autopilot.
+  operationMode: text9("operation_mode").notNull().default("shadow"),
+  // Model Switcher: qué LLM genera los mensajes ('gemini' | 'claude').
+  modelProvider: text9("model_provider").notNull().default("gemini"),
+  // Prospección automática desde la oferta: qué ofrecemos (contexto para la IA)
+  // y los nichos/ICP sugeridos para buscar leads sin tipear nada.
+  prospectingServices: text9("prospecting_services"),
+  prospectingNiches: jsonb6("prospecting_niches").$type().notNull().default([]),
+  // Autopilot de prospección (loop nicho×ciudad cada 1h).
+  prospectingCities: jsonb6("prospecting_cities").$type().notNull().default([]),
+  prospectingAutopilot: boolean7("prospecting_autopilot").notNull().default(false),
+  prospectingAutopilotCursor: integer4("prospecting_autopilot_cursor").notNull().default(0),
+  // Nombre de la instancia de Evolution para este tenant (puede venir de env).
+  evolutionInstance: text9("evolution_instance"),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp9("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+}, (table) => [
+  check6(
+    "setter_tenant_operation_mode_check",
+    sql8`${table.operationMode} IN ('shadow','hybrid','autopilot')`
+  ),
+  check6("setter_tenant_model_provider_check", sql8`${table.modelProvider} IN ('gemini','claude')`)
+]);
+var setterPerson = pgTable9("setter_person", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  name: text9("name"),
+  // E.164 (+549...). En Sprint 0 (solo WhatsApp) es la clave de identidad.
+  phone: text9("phone"),
+  // Guardrail no negociable: si opta por salir, nunca más se le genera ni envía.
+  optedOut: boolean7("opted_out").notNull().default(false),
+  optedOutAt: timestamp9("opted_out_at", { withTimezone: true }),
+  // Sync con el CRM: este Person es también un contact del CRM (lead/cliente).
+  crmContactId: text9("crm_contact_id").references(() => contact.id, { onDelete: "set null" }),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  uniqueIndex2("uq_setter_person_tenant_phone").on(table.tenantId, table.phone)
+]);
+var setterLead = pgTable9("setter_lead", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  personId: text9("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
+  status: text9("status").notNull().default("NEW"),
+  // { pain, fit, authority, timing, score, notes } — lo llena save_qualification.
+  qualification: jsonb6("qualification").$type(),
+  source: text9("source"),
+  // Cuándo cierra la ventana de servicio (último msg del lead + 24h).
+  windowExpiresAt: timestamp9("window_expires_at", { withTimezone: true }),
+  // Sync con el CRM: el deal generado para este lead (al calificar).
+  crmDealId: text9("crm_deal_id").references(() => deal.id, { onDelete: "set null" }),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp9("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+}, (table) => [
+  check6(
+    "setter_lead_status_check",
+    sql8`${table.status} IN ('NEW','CONTACTED','ENGAGED','QUALIFYING','QUALIFIED','BOOKING','BOOKED','NOT_INTERESTED','HANDED_OFF','OPTED_OUT')`
+  ),
+  index7("idx_setter_lead_person").on(table.personId),
+  index7("idx_setter_lead_status").on(table.status),
+  index7("idx_setter_lead_window").on(table.windowExpiresAt)
+]);
+var setterConversation = pgTable9("setter_conversation", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  personId: text9("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
+  channel: text9("channel").notNull().default("whatsapp"),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  // Una conversación por persona en Sprint 0 (memoria única cross-canal).
+  uniqueIndex2("uq_setter_conversation_person").on(table.personId)
+]);
+var setterMessage = pgTable9("setter_message", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  conversationId: text9("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
+  role: text9("role").notNull(),
+  content: text9("content").notNull(),
+  // Idempotencia: id del mensaje en el canal (unique; admite múltiples NULL en PG).
+  messageId: text9("message_id"),
+  // Etiqueta de momento (apertura/calificación/objeción/booking…). Reusada por híbrido.
+  beat: text9("beat"),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check6(
+    "setter_message_role_check",
+    sql8`${table.role} IN ('user','assistant','system','tool')`
+  ),
+  uniqueIndex2("uq_setter_message_message_id").on(table.messageId),
+  index7("idx_setter_message_conversation").on(table.conversationId, table.createdAt)
+]);
+var setterAppointment = pgTable9("setter_appointment", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  leadId: text9("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
+  startsAt: timestamp9("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp9("ends_at", { withTimezone: true }).notNull(),
+  // Event id de Google Calendar (no guardamos URLs que expiran).
+  calendarRef: text9("calendar_ref"),
+  status: text9("status").notNull().default("confirmed"),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check6(
+    "setter_appointment_status_check",
+    sql8`${table.status} IN ('confirmed','cancelled','no_show','rescheduled')`
+  ),
+  uniqueIndex2("uq_setter_appointment_lead").on(table.leadId)
+]);
+var setterDraft = pgTable9("setter_draft", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  conversationId: text9("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
+  leadId: text9("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
+  // Texto propuesto por la IA (lo que se enviaría al aprobar).
+  content: text9("content").notNull(),
+  // Versión editada por el humano antes de enviar (si la hubo).
+  editedContent: text9("edited_content"),
+  beat: text9("beat"),
+  // beatPolicy: text en Sprint 0; voice llega en Sprint 2.
+  format: text9("format").notNull().default("text"),
+  status: text9("status").notNull().default("pending"),
+  // "Por qué dijo esto": tool calls + datos capturados (transparencia de la Bandeja).
+  toolCalls: jsonb6("tool_calls").$type(),
+  // Mensaje saliente generado al aprobar y enviar.
+  sentMessageId: text9("sent_message_id").references(() => setterMessage.id, {
+    onDelete: "set null"
+  }),
+  // Quién aprobó/editó (integra con los usuarios del CRM).
+  approvedBy: text9("approved_by").references(() => hubUser.id, { onDelete: "set null" }),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp9("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
+}, (table) => [
+  check6("setter_draft_format_check", sql8`${table.format} IN ('text','voice')`),
+  check6(
+    "setter_draft_status_check",
+    sql8`${table.status} IN ('pending','approved','edited','rejected','sent')`
+  ),
+  index7("idx_setter_draft_status").on(table.status),
+  index7("idx_setter_draft_conversation").on(table.conversationId),
+  index7("idx_setter_draft_tenant").on(table.tenantId)
+]);
+var setterEvent = pgTable9("setter_event", {
+  id: text9("id").primaryKey().$defaultFn(() => createId()),
+  tenantId: text9("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
+  level: text9("level").notNull().default("info"),
+  // inbound | agent | draft | approval | sync | autopilot | optout | error
+  type: text9("type").notNull(),
+  message: text9("message").notNull(),
+  leadId: text9("lead_id"),
+  meta: jsonb6("meta").$type(),
+  createdAt: timestamp9("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check6("setter_event_level_check", sql8`${table.level} IN ('info','success','warn','error')`),
+  index7("idx_setter_event_tenant_time").on(table.tenantId, table.createdAt)
+]);
 
 // src/db/schema/activities.ts
-import { pgTable as pgTable8, text as text8, integer as integer3, jsonb as jsonb5, timestamp as timestamp8, index as index6, check as check5 } from "drizzle-orm/pg-core";
-import { sql as sql7 } from "drizzle-orm";
-var note = pgTable8("note", {
-  id: text8("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  body: text8("body").notNull(),
-  dealId: text8("deal_id").references(() => deal.id, { onDelete: "cascade" }),
-  contactId: text8("contact_id").references(() => contact.id, { onDelete: "cascade" }),
-  companyId: text8("company_id").references(() => company.id, { onDelete: "cascade" }),
-  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable10, text as text10, integer as integer5, jsonb as jsonb7, timestamp as timestamp10, index as index8, check as check7 } from "drizzle-orm/pg-core";
+import { sql as sql9 } from "drizzle-orm";
+var note = pgTable10("note", {
+  id: text10("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  createdBy: text10("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  body: text10("body").notNull(),
+  dealId: text10("deal_id").references(() => deal.id, { onDelete: "cascade" }),
+  contactId: text10("contact_id").references(() => contact.id, { onDelete: "cascade" }),
+  companyId: text10("company_id").references(() => company.id, { onDelete: "cascade" }),
+  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index6("idx_note_deal").on(table.dealId),
-  index6("idx_note_contact").on(table.contactId),
-  index6("idx_note_company").on(table.companyId)
+  index8("idx_note_deal").on(table.dealId),
+  index8("idx_note_contact").on(table.contactId),
+  index8("idx_note_company").on(table.companyId)
 ]);
-var task = pgTable8("task", {
-  id: text8("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  assignedTo: text8("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
-  title: text8("title").notNull(),
-  body: text8("body"),
-  status: text8("status").notNull().default("pending"),
-  priority: text8("priority").notNull().default("medium"),
-  dueDate: timestamp8("due_date", { withTimezone: true }),
-  completedAt: timestamp8("completed_at", { withTimezone: true }),
-  dealId: text8("deal_id").references(() => deal.id, { onDelete: "cascade" }),
-  contactId: text8("contact_id").references(() => contact.id, { onDelete: "cascade" }),
-  companyId: text8("company_id").references(() => company.id, { onDelete: "cascade" }),
-  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+var task = pgTable10("task", {
+  id: text10("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  createdBy: text10("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  assignedTo: text10("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
+  title: text10("title").notNull(),
+  body: text10("body"),
+  status: text10("status").notNull().default("pending"),
+  priority: text10("priority").notNull().default("medium"),
+  dueDate: timestamp10("due_date", { withTimezone: true }),
+  completedAt: timestamp10("completed_at", { withTimezone: true }),
+  dealId: text10("deal_id").references(() => deal.id, { onDelete: "cascade" }),
+  contactId: text10("contact_id").references(() => contact.id, { onDelete: "cascade" }),
+  companyId: text10("company_id").references(() => company.id, { onDelete: "cascade" }),
+  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   // 'blocked' agregado en migración 0020: tarea bloqueada por dependencia externa.
-  check5("task_status_check", sql7`${table.status} IN ('pending','in_progress','completed','cancelled','blocked')`),
-  check5("task_priority_check", sql7`${table.priority} IN ('low','medium','high')`),
-  index6("idx_task_assignee").on(table.assignedTo, table.status),
-  index6("idx_task_due").on(table.dueDate).where(sql7`status <> 'completed'`),
-  index6("idx_task_deal").on(table.dealId),
-  index6("idx_task_contact").on(table.contactId),
-  index6("idx_task_company").on(table.companyId),
+  check7("task_status_check", sql9`${table.status} IN ('pending','in_progress','completed','cancelled','blocked')`),
+  check7("task_priority_check", sql9`${table.priority} IN ('low','medium','high')`),
+  index8("idx_task_assignee").on(table.assignedTo, table.status),
+  index8("idx_task_due").on(table.dueDate).where(sql9`status <> 'completed'`),
+  index8("idx_task_deal").on(table.dealId),
+  index8("idx_task_contact").on(table.contactId),
+  index8("idx_task_company").on(table.companyId),
   // Compuesto para el listado (WHERE portal ORDER BY created_at DESC); portal_id sigue de columna líder.
-  index6("idx_task_portal_created").on(table.portalId, table.createdAt, table.id)
+  index8("idx_task_portal_created").on(table.portalId, table.createdAt, table.id)
 ]);
-var call = pgTable8("call", {
-  id: text8("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  title: text8("title"),
-  body: text8("body"),
-  direction: text8("direction"),
-  durationSec: integer3("duration_sec"),
-  occurredAt: timestamp8("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-  dealId: text8("deal_id").references(() => deal.id, { onDelete: "cascade" }),
-  contactId: text8("contact_id").references(() => contact.id, { onDelete: "cascade" }),
-  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+var call = pgTable10("call", {
+  id: text10("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  createdBy: text10("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  title: text10("title"),
+  body: text10("body"),
+  direction: text10("direction"),
+  durationSec: integer5("duration_sec"),
+  occurredAt: timestamp10("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  dealId: text10("deal_id").references(() => deal.id, { onDelete: "cascade" }),
+  contactId: text10("contact_id").references(() => contact.id, { onDelete: "cascade" }),
+  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check5("call_direction_check", sql7`${table.direction} IN ('inbound','outbound')`),
-  index6("idx_call_deal").on(table.dealId),
-  index6("idx_call_contact").on(table.contactId)
+  check7("call_direction_check", sql9`${table.direction} IN ('inbound','outbound')`),
+  index8("idx_call_deal").on(table.dealId),
+  index8("idx_call_contact").on(table.contactId)
 ]);
-var meeting = pgTable8("meeting", {
-  id: text8("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text8("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  createdBy: text8("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  bookingId: text8("booking_id").references(() => booking.id, { onDelete: "set null" }),
-  title: text8("title").notNull(),
-  startsAt: timestamp8("starts_at", { withTimezone: true }),
-  endsAt: timestamp8("ends_at", { withTimezone: true }),
-  location: text8("location"),
-  dealId: text8("deal_id").references(() => deal.id, { onDelete: "cascade" }),
-  contactId: text8("contact_id").references(() => contact.id, { onDelete: "cascade" }),
-  fathomSummary: text8("fathom_summary"),
-  fathomTranscriptUrl: text8("fathom_transcript_url"),
-  fathomActionItems: jsonb5("fathom_action_items"),
-  fathomParticipants: jsonb5("fathom_participants"),
-  createdAt: timestamp8("created_at", { withTimezone: true }).notNull().defaultNow()
+var meeting = pgTable10("meeting", {
+  id: text10("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  createdBy: text10("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  bookingId: text10("booking_id").references(() => booking.id, { onDelete: "set null" }),
+  title: text10("title").notNull(),
+  startsAt: timestamp10("starts_at", { withTimezone: true }),
+  endsAt: timestamp10("ends_at", { withTimezone: true }),
+  location: text10("location"),
+  dealId: text10("deal_id").references(() => deal.id, { onDelete: "cascade" }),
+  contactId: text10("contact_id").references(() => contact.id, { onDelete: "cascade" }),
+  fathomSummary: text10("fathom_summary"),
+  fathomTranscriptUrl: text10("fathom_transcript_url"),
+  fathomActionItems: jsonb7("fathom_action_items"),
+  fathomParticipants: jsonb7("fathom_participants"),
+  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index6("idx_meeting_deal").on(table.dealId),
-  index6("idx_meeting_booking").on(table.bookingId)
+  index8("idx_meeting_deal").on(table.dealId),
+  index8("idx_meeting_booking").on(table.bookingId)
 ]);
 
 // src/db/schema/history.ts
-import { pgTable as pgTable9, text as text9, timestamp as timestamp9, index as index7 } from "drizzle-orm/pg-core";
-var recordHistory = pgTable9("record_history", {
-  id: text9("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text9("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  entityType: text9("entity_type").notNull(),
-  entityId: text9("entity_id").notNull(),
-  fieldName: text9("field_name").notNull(),
-  oldValue: text9("old_value"),
-  newValue: text9("new_value"),
-  sourceType: text9("source_type"),
-  sourceId: text9("source_id"),
-  changedBy: text9("changed_by").references(() => hubUser.id, { onDelete: "set null" }),
-  changedAt: timestamp9("changed_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable11, text as text11, timestamp as timestamp11, index as index9 } from "drizzle-orm/pg-core";
+var recordHistory = pgTable11("record_history", {
+  id: text11("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text11("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  entityType: text11("entity_type").notNull(),
+  entityId: text11("entity_id").notNull(),
+  fieldName: text11("field_name").notNull(),
+  oldValue: text11("old_value"),
+  newValue: text11("new_value"),
+  sourceType: text11("source_type"),
+  sourceId: text11("source_id"),
+  changedBy: text11("changed_by").references(() => hubUser.id, { onDelete: "set null" }),
+  changedAt: timestamp11("changed_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index7("idx_record_history_entity").on(table.entityType, table.entityId, table.fieldName, table.changedAt)
+  index9("idx_record_history_entity").on(table.entityType, table.entityId, table.fieldName, table.changedAt)
 ]);
 
 // src/db/schema/lists.ts
-import { pgTable as pgTable10, text as text10, jsonb as jsonb6, timestamp as timestamp10, primaryKey as primaryKey2, check as check6 } from "drizzle-orm/pg-core";
-import { sql as sql8 } from "drizzle-orm";
-var crmList = pgTable10("crm_list", {
-  id: text10("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text10("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  entityType: text10("entity_type").notNull(),
-  name: text10("name").notNull(),
-  processingType: text10("processing_type").notNull().default("MANUAL"),
-  filterBranch: jsonb6("filter_branch"),
-  createdAt: timestamp10("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp10("updated_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable12, text as text12, jsonb as jsonb8, timestamp as timestamp12, primaryKey as primaryKey2, check as check8 } from "drizzle-orm/pg-core";
+import { sql as sql10 } from "drizzle-orm";
+var crmList = pgTable12("crm_list", {
+  id: text12("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text12("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  entityType: text12("entity_type").notNull(),
+  name: text12("name").notNull(),
+  processingType: text12("processing_type").notNull().default("MANUAL"),
+  filterBranch: jsonb8("filter_branch"),
+  createdAt: timestamp12("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp12("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check6("crm_list_entity_type_check", sql8`${table.entityType} IN ('contact','company','deal')`),
-  check6("crm_list_processing_type_check", sql8`${table.processingType} IN ('MANUAL','DYNAMIC')`)
+  check8("crm_list_entity_type_check", sql10`${table.entityType} IN ('contact','company','deal')`),
+  check8("crm_list_processing_type_check", sql10`${table.processingType} IN ('MANUAL','DYNAMIC')`)
 ]);
-var listMembership = pgTable10("list_membership", {
-  listId: text10("list_id").notNull().references(() => crmList.id, { onDelete: "cascade" }),
+var listMembership = pgTable12("list_membership", {
+  listId: text12("list_id").notNull().references(() => crmList.id, { onDelete: "cascade" }),
   // entityId is a polymorphic reference (not a declared FK) — kept as text (CUID2)
-  entityId: text10("entity_id").notNull(),
-  addedAt: timestamp10("added_at", { withTimezone: true }).notNull().defaultNow()
+  entityId: text12("entity_id").notNull(),
+  addedAt: timestamp12("added_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
   primaryKey2({ columns: [table.listId, table.entityId] })
 ]);
 
 // src/db/schema/client-portal.ts
-import { pgTable as pgTable11, text as text11, boolean as boolean8, timestamp as timestamp11, unique as unique4, primaryKey as primaryKey3 } from "drizzle-orm/pg-core";
-var clientAccount = pgTable11("client_account", {
-  id: text11("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text11("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  contactId: text11("contact_id").notNull().references(() => contact.id),
+import { pgTable as pgTable13, text as text13, boolean as boolean9, timestamp as timestamp13, unique as unique6, primaryKey as primaryKey3 } from "drizzle-orm/pg-core";
+var clientAccount = pgTable13("client_account", {
+  id: text13("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text13("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  contactId: text13("contact_id").notNull().references(() => contact.id),
   email: citext("email").notNull(),
-  inviteToken: text11("invite_token").unique(),
-  inviteSentAt: timestamp11("invite_sent_at", { withTimezone: true }),
-  inviteAccepted: boolean8("invite_accepted").notNull().default(false),
-  lastLoginAt: timestamp11("last_login_at", { withTimezone: true }),
-  isActive: boolean8("is_active").notNull().default(true),
+  inviteToken: text13("invite_token").unique(),
+  inviteSentAt: timestamp13("invite_sent_at", { withTimezone: true }),
+  inviteAccepted: boolean9("invite_accepted").notNull().default(false),
+  lastLoginAt: timestamp13("last_login_at", { withTimezone: true }),
+  isActive: boolean9("is_active").notNull().default(true),
   /** ID del usuario en Clerk (auth externo). Null si aún no se vinculó con Clerk. */
-  clerkUserId: text11("clerk_user_id").unique(),
-  /** Slug único del portal del cliente (usado en URLs personalizadas). */
-  brandSlug: text11("brand_slug").unique(),
-  /** Nombre de marca visible en el portal del cliente. */
-  brandName: text11("brand_name"),
-  /** Clave del logo de marca en R2 (sin URL; se genera on-demand). */
-  brandLogoKey: text11("brand_logo_key"),
-  /** Color primario de la marca en formato hex (#rrggbb). */
-  brandPrimary: text11("brand_primary"),
-  /** Color secundario de la marca en formato hex (#rrggbb). */
-  brandSecondary: text11("brand_secondary"),
-  createdAt: timestamp11("created_at", { withTimezone: true }).notNull().defaultNow()
+  clerkUserId: text13("clerk_user_id").unique(),
+  /**
+   * LEGACY (Fase A multi-tenant por empresa): la fuente de verdad del
+   * branding/tenant pasó a `company.slug` + `company.brand*`. Estas columnas
+   * quedan por compatibilidad — links de portal ya repartidos con el slug
+   * viejo siguen resolviendo vía fallback en `getBrandingBySlug()` — hasta
+   * que se confirme el backfill (`scripts/backfill-company-slugs.ts`) y se
+   * decida si se pueden dropear. NO borrar datos: convención del proyecto.
+   */
+  brandSlug: text13("brand_slug").unique(),
+  /** LEGACY — ver comentario de `brandSlug` arriba. */
+  brandName: text13("brand_name"),
+  /** LEGACY — ver comentario de `brandSlug` arriba. */
+  brandLogoKey: text13("brand_logo_key"),
+  /** LEGACY — ver comentario de `brandSlug` arriba. */
+  brandPrimary: text13("brand_primary"),
+  /** LEGACY — ver comentario de `brandSlug` arriba. */
+  brandSecondary: text13("brand_secondary"),
+  createdAt: timestamp13("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique4("client_account_portal_id_email_unique").on(table.portalId, table.email)
+  unique6("client_account_portal_id_email_unique").on(table.portalId, table.email)
 ]);
-var clientDealAccess = pgTable11("client_deal_access", {
-  clientId: text11("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
-  dealId: text11("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" })
+var clientDealAccess = pgTable13("client_deal_access", {
+  clientId: text13("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
+  dealId: text13("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" })
 }, (table) => [
   primaryKey3({ columns: [table.clientId, table.dealId] })
 ]);
 
 // src/db/schema/intake.ts
-import { pgTable as pgTable12, text as text12, jsonb as jsonb7, timestamp as timestamp12, unique as unique5, index as index8, check as check7, bigint } from "drizzle-orm/pg-core";
-import { sql as sql9 } from "drizzle-orm";
-var intakeForm = pgTable12("intake_form", {
-  id: text12("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text12("portal_id").notNull().references(() => portal.id),
-  name: text12("name").notNull(),
-  description: text12("description"),
-  slug: text12("slug").notNull(),
-  fields: jsonb7("fields").notNull().default([]),
-  createdAt: timestamp12("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  unique5("intake_form_portal_id_slug_unique").on(table.portalId, table.slug)
-]);
-var dealIntake = pgTable12("deal_intake", {
-  id: text12("id").primaryKey().$defaultFn(() => createId()),
-  dealId: text12("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
-  formId: text12("form_id").notNull().references(() => intakeForm.id),
-  title: text12("title").notNull(),
-  status: text12("status").notNull().default("pending"),
-  dueDate: timestamp12("due_date", { withTimezone: true }),
-  completedAt: timestamp12("completed_at", { withTimezone: true }),
-  createdAt: timestamp12("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check7("deal_intake_status_check", sql9`${table.status} IN ('pending','in_progress','completed')`),
-  index8("idx_deal_intake_deal").on(table.dealId)
-]);
-var dealIntakeResponse = pgTable12("deal_intake_response", {
-  id: text12("id").primaryKey().$defaultFn(() => createId()),
-  intakeId: text12("intake_id").notNull().references(() => dealIntake.id, { onDelete: "cascade" }),
-  clientId: text12("client_id").notNull().references(() => clientAccount.id),
-  answers: jsonb7("answers").notNull().default({}),
-  submittedAt: timestamp12("submitted_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  unique5("deal_intake_response_intake_id_unique").on(table.intakeId)
-]);
-var clientAsset = pgTable12("client_asset", {
-  id: text12("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text12("portal_id").notNull().references(() => portal.id),
-  dealId: text12("deal_id").notNull().references(() => deal.id),
-  clientId: text12("client_id").notNull().references(() => clientAccount.id),
-  intakeId: text12("intake_id").references(() => dealIntake.id),
-  fieldName: text12("field_name"),
-  name: text12("name").notNull(),
-  type: text12("type").notNull(),
-  mimeType: text12("mime_type"),
-  storageKey: text12("storage_key").notNull(),
-  // sizeBytes is a real size in bytes — kept as bigint (not an ID)
-  sizeBytes: bigint("size_bytes", { mode: "number" }),
-  uploadedAt: timestamp12("uploaded_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check7("client_asset_type_check", sql9`${table.type} IN ('logo','foto','documento','acceso','otro')`),
-  index8("idx_client_asset_deal").on(table.dealId)
-]);
-
-// src/db/schema/deliverables.ts
-import { pgTable as pgTable13, text as text13, integer as integer4, timestamp as timestamp13, index as index9, check as check8 } from "drizzle-orm/pg-core";
-import { sql as sql10 } from "drizzle-orm";
-var deliverable = pgTable13("deliverable", {
-  id: text13("id").primaryKey().$defaultFn(() => createId()),
-  dealId: text13("deal_id").notNull().references(() => deal.id),
-  title: text13("title").notNull(),
-  description: text13("description"),
-  type: text13("type").notNull(),
-  url: text13("url"),
-  version: integer4("version").notNull().default(1),
-  status: text13("status").notNull().default("pending_review"),
-  feedback: text13("feedback"),
-  reviewedBy: text13("reviewed_by").references(() => clientAccount.id),
-  reviewedAt: timestamp13("reviewed_at", { withTimezone: true }),
-  createdBy: text13("created_by").references(() => hubUser.id),
-  createdAt: timestamp13("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check8("deliverable_type_check", sql10`${table.type} IN ('design','prototype','staging','final')`),
-  check8("deliverable_status_check", sql10`${table.status} IN ('pending_review','approved','changes_requested')`),
-  index9("idx_deliverable_deal").on(table.dealId)
-]);
-
-// src/db/schema/change-requests.ts
-import { pgTable as pgTable14, text as text14, integer as integer5, numeric as numeric3, date as date3, timestamp as timestamp14, index as index10, unique as unique6, check as check9 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable14, text as text14, jsonb as jsonb9, timestamp as timestamp14, unique as unique7, index as index10, check as check9, bigint } from "drizzle-orm/pg-core";
 import { sql as sql11 } from "drizzle-orm";
-var changeRequest = pgTable14("change_request", {
+var intakeForm = pgTable14("intake_form", {
+  id: text14("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text14("portal_id").notNull().references(() => portal.id),
+  name: text14("name").notNull(),
+  description: text14("description"),
+  slug: text14("slug").notNull(),
+  fields: jsonb9("fields").notNull().default([]),
+  createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  unique7("intake_form_portal_id_slug_unique").on(table.portalId, table.slug)
+]);
+var dealIntake = pgTable14("deal_intake", {
+  id: text14("id").primaryKey().$defaultFn(() => createId()),
+  dealId: text14("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
+  formId: text14("form_id").notNull().references(() => intakeForm.id),
+  title: text14("title").notNull(),
+  status: text14("status").notNull().default("pending"),
+  dueDate: timestamp14("due_date", { withTimezone: true }),
+  completedAt: timestamp14("completed_at", { withTimezone: true }),
+  createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check9("deal_intake_status_check", sql11`${table.status} IN ('pending','in_progress','completed')`),
+  index10("idx_deal_intake_deal").on(table.dealId)
+]);
+var dealIntakeResponse = pgTable14("deal_intake_response", {
+  id: text14("id").primaryKey().$defaultFn(() => createId()),
+  intakeId: text14("intake_id").notNull().references(() => dealIntake.id, { onDelete: "cascade" }),
+  clientId: text14("client_id").notNull().references(() => clientAccount.id),
+  answers: jsonb9("answers").notNull().default({}),
+  submittedAt: timestamp14("submitted_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  unique7("deal_intake_response_intake_id_unique").on(table.intakeId)
+]);
+var clientAsset = pgTable14("client_asset", {
   id: text14("id").primaryKey().$defaultFn(() => createId()),
   portalId: text14("portal_id").notNull().references(() => portal.id),
   dealId: text14("deal_id").notNull().references(() => deal.id),
-  number: integer5("number").notNull(),
-  title: text14("title").notNull(),
-  description: text14("description").notNull(),
-  originalScopeRef: text14("original_scope_ref"),
-  origin: text14("origin").notNull().default("client"),
-  status: text14("status").notNull().default("draft"),
-  version: integer5("version").notNull().default(1),
-  totalAmount: numeric3("total_amount", { precision: 12, scale: 2 }),
-  timelineImpactDays: integer5("timeline_impact_days").notNull().default(0),
-  newDeliveryDate: date3("new_delivery_date"),
-  approvedAt: timestamp14("approved_at", { withTimezone: true }),
-  approvedBy: text14("approved_by").references(() => clientAccount.id),
-  completedAt: timestamp14("completed_at", { withTimezone: true }),
-  createdBy: text14("created_by").references(() => hubUser.id),
-  createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp14("updated_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  unique6("change_request_deal_id_number_unique").on(table.dealId, table.number),
-  check9("change_request_origin_check", sql11`${table.origin} IN ('client','agency')`),
-  check9("change_request_status_check", sql11`${table.status} IN ('draft','sent','approved','rejected','negotiating','approved_verbally','disputed','completed')`),
-  index10("idx_cr_deal").on(table.dealId, table.status)
-]);
-var changeRequestItem = pgTable14("change_request_item", {
-  id: text14("id").primaryKey().$defaultFn(() => createId()),
-  changeRequestId: text14("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
-  description: text14("description").notNull(),
-  hours: numeric3("hours", { precision: 6, scale: 2 }),
-  unitPrice: numeric3("unit_price", { precision: 12, scale: 2 }).notNull(),
-  quantity: numeric3("quantity", { precision: 8, scale: 2 }).notNull().default("1"),
-  subtotal: numeric3("subtotal", { precision: 12, scale: 2 }).generatedAlwaysAs(sql11`unit_price * quantity`)
-}, (table) => [
-  index10("idx_cr_item_cr").on(table.changeRequestId)
-]);
-var changeRequestAttachment = pgTable14("change_request_attachment", {
-  id: text14("id").primaryKey().$defaultFn(() => createId()),
-  changeRequestId: text14("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  clientId: text14("client_id").notNull().references(() => clientAccount.id),
+  intakeId: text14("intake_id").references(() => dealIntake.id),
+  fieldName: text14("field_name"),
   name: text14("name").notNull(),
-  storageKey: text14("storage_key").notNull(),
+  type: text14("type").notNull(),
   mimeType: text14("mime_type"),
-  uploadedBy: text14("uploaded_by").references(() => hubUser.id),
+  storageKey: text14("storage_key").notNull(),
+  // sizeBytes is a real size in bytes — kept as bigint (not an ID)
+  sizeBytes: bigint("size_bytes", { mode: "number" }),
   uploadedAt: timestamp14("uploaded_at", { withTimezone: true }).notNull().defaultNow()
-});
-var changeRequestHistory = pgTable14("change_request_history", {
-  id: text14("id").primaryKey().$defaultFn(() => createId()),
-  changeRequestId: text14("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
-  fromStatus: text14("from_status"),
-  toStatus: text14("to_status").notNull(),
-  comment: text14("comment"),
-  changedByUser: text14("changed_by_user").references(() => hubUser.id),
-  changedByClient: text14("changed_by_client").references(() => clientAccount.id),
-  changedAt: timestamp14("changed_at", { withTimezone: true }).notNull().defaultNow()
-});
-var changeRequestComment = pgTable14("change_request_comment", {
-  id: text14("id").primaryKey().$defaultFn(() => createId()),
-  changeRequestId: text14("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
-  body: text14("body").notNull(),
-  authorUser: text14("author_user").references(() => hubUser.id),
-  authorClient: text14("author_client").references(() => clientAccount.id),
-  createdAt: timestamp14("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check9("change_request_comment_author_check", sql11`(${table.authorUser} IS NOT NULL AND ${table.authorClient} IS NULL) OR (${table.authorUser} IS NULL AND ${table.authorClient} IS NOT NULL)`),
-  index10("idx_cr_comment_cr").on(table.changeRequestId, table.createdAt)
+  check9("client_asset_type_check", sql11`${table.type} IN ('logo','foto','documento','acceso','otro')`),
+  index10("idx_client_asset_deal").on(table.dealId)
 ]);
 
-// src/db/schema/documents.ts
-import { pgTable as pgTable15, text as text15, integer as integer6, timestamp as timestamp15, index as index11, check as check10 } from "drizzle-orm/pg-core";
+// src/db/schema/deliverables.ts
+import { pgTable as pgTable15, text as text15, integer as integer6, boolean as boolean10, timestamp as timestamp15, index as index11, check as check10 } from "drizzle-orm/pg-core";
 import { sql as sql12 } from "drizzle-orm";
-var document = pgTable15("document", {
+var deliverable = pgTable15("deliverable", {
   id: text15("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text15("portal_id").notNull().references(() => portal.id),
-  dealId: text15("deal_id").references(() => deal.id),
-  crId: text15("cr_id").references(() => changeRequest.id),
-  name: text15("name").notNull(),
+  dealId: text15("deal_id").notNull().references(() => deal.id),
+  title: text15("title").notNull(),
+  description: text15("description"),
   type: text15("type").notNull(),
-  source: text15("source"),
-  // docuseal IDs are external numeric IDs — kept as integer (not FKs)
-  docusealSubmissionId: integer6("docuseal_submission_id"),
-  docusealTemplateId: integer6("docuseal_template_id"),
-  docusealStatus: text15("docuseal_status"),
-  docusealExternalId: text15("docuseal_external_id").unique(),
-  storageKey: text15("storage_key"),
-  signedAt: timestamp15("signed_at", { withTimezone: true }),
-  signedBy: text15("signed_by").references(() => clientAccount.id),
+  url: text15("url"),
+  version: integer6("version").notNull().default(1),
+  status: text15("status").notNull().default("pending_review"),
+  feedback: text15("feedback"),
+  /**
+   * ¿El cliente ve este entregable en su Portal?
+   *
+   * Default `true` porque un "entregable" es, por definición, algo que se le
+   * entrega al cliente — y porque así las filas que ya existían mantienen
+   * exactamente el comportamiento anterior (antes NO había filtro: el cliente
+   * veía todo lo adjuntado al deal).
+   *
+   * Se marca en `false` para el material interno que el proceso de entrega
+   * define como no compartible: Blueprint técnico, Diagnóstico de negocio,
+   * checklist de QA crudo. Lo consumen `clientDeliverables` y
+   * `assertClientDeliverable` en modules/client.
+   */
+  visibleToClient: boolean10("visible_to_client").notNull().default(true),
+  reviewedBy: text15("reviewed_by").references(() => clientAccount.id),
+  reviewedAt: timestamp15("reviewed_at", { withTimezone: true }),
   createdBy: text15("created_by").references(() => hubUser.id),
   createdAt: timestamp15("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check10("document_type_check", sql12`${table.type} IN ('contract','proposal','invoice','other')`),
-  check10("document_source_check", sql12`${table.source} IN ('docuseal','manual','generated')`),
-  check10("document_docuseal_status_check", sql12`${table.docusealStatus} IN ('pending','completed','declined','expired')`),
-  index11("idx_document_deal").on(table.dealId)
+  check10("deliverable_type_check", sql12`${table.type} IN ('design','prototype','staging','final')`),
+  check10("deliverable_status_check", sql12`${table.status} IN ('pending_review','approved','changes_requested')`),
+  index11("idx_deliverable_deal").on(table.dealId)
+]);
+
+// src/db/schema/change-requests.ts
+import { pgTable as pgTable16, text as text16, integer as integer7, numeric as numeric4, date as date3, timestamp as timestamp16, index as index12, unique as unique8, check as check11 } from "drizzle-orm/pg-core";
+import { sql as sql13 } from "drizzle-orm";
+var changeRequest = pgTable16("change_request", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text16("portal_id").notNull().references(() => portal.id),
+  dealId: text16("deal_id").notNull().references(() => deal.id),
+  number: integer7("number").notNull(),
+  title: text16("title").notNull(),
+  description: text16("description").notNull(),
+  originalScopeRef: text16("original_scope_ref"),
+  origin: text16("origin").notNull().default("client"),
+  status: text16("status").notNull().default("draft"),
+  version: integer7("version").notNull().default(1),
+  totalAmount: numeric4("total_amount", { precision: 12, scale: 2 }),
+  timelineImpactDays: integer7("timeline_impact_days").notNull().default(0),
+  newDeliveryDate: date3("new_delivery_date"),
+  approvedAt: timestamp16("approved_at", { withTimezone: true }),
+  approvedBy: text16("approved_by").references(() => clientAccount.id),
+  completedAt: timestamp16("completed_at", { withTimezone: true }),
+  createdBy: text16("created_by").references(() => hubUser.id),
+  createdAt: timestamp16("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp16("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  unique8("change_request_deal_id_number_unique").on(table.dealId, table.number),
+  check11("change_request_origin_check", sql13`${table.origin} IN ('client','agency')`),
+  check11("change_request_status_check", sql13`${table.status} IN ('draft','sent','approved','rejected','negotiating','approved_verbally','disputed','completed')`),
+  index12("idx_cr_deal").on(table.dealId, table.status)
+]);
+var changeRequestItem = pgTable16("change_request_item", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  changeRequestId: text16("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  description: text16("description").notNull(),
+  hours: numeric4("hours", { precision: 6, scale: 2 }),
+  unitPrice: numeric4("unit_price", { precision: 12, scale: 2 }).notNull(),
+  quantity: numeric4("quantity", { precision: 8, scale: 2 }).notNull().default("1"),
+  subtotal: numeric4("subtotal", { precision: 12, scale: 2 }).generatedAlwaysAs(sql13`unit_price * quantity`)
+}, (table) => [
+  index12("idx_cr_item_cr").on(table.changeRequestId)
+]);
+var changeRequestAttachment = pgTable16("change_request_attachment", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  changeRequestId: text16("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  name: text16("name").notNull(),
+  storageKey: text16("storage_key").notNull(),
+  mimeType: text16("mime_type"),
+  uploadedBy: text16("uploaded_by").references(() => hubUser.id),
+  uploadedAt: timestamp16("uploaded_at", { withTimezone: true }).notNull().defaultNow()
+});
+var changeRequestHistory = pgTable16("change_request_history", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  changeRequestId: text16("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  fromStatus: text16("from_status"),
+  toStatus: text16("to_status").notNull(),
+  comment: text16("comment"),
+  changedByUser: text16("changed_by_user").references(() => hubUser.id),
+  changedByClient: text16("changed_by_client").references(() => clientAccount.id),
+  changedAt: timestamp16("changed_at", { withTimezone: true }).notNull().defaultNow()
+});
+var changeRequestComment = pgTable16("change_request_comment", {
+  id: text16("id").primaryKey().$defaultFn(() => createId()),
+  changeRequestId: text16("change_request_id").notNull().references(() => changeRequest.id, { onDelete: "cascade" }),
+  body: text16("body").notNull(),
+  authorUser: text16("author_user").references(() => hubUser.id),
+  authorClient: text16("author_client").references(() => clientAccount.id),
+  createdAt: timestamp16("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check11("change_request_comment_author_check", sql13`(${table.authorUser} IS NOT NULL AND ${table.authorClient} IS NULL) OR (${table.authorUser} IS NULL AND ${table.authorClient} IS NOT NULL)`),
+  index12("idx_cr_comment_cr").on(table.changeRequestId, table.createdAt)
+]);
+
+// src/db/schema/documents.ts
+import { pgTable as pgTable17, text as text17, integer as integer8, boolean as boolean11, timestamp as timestamp17, index as index13, check as check12 } from "drizzle-orm/pg-core";
+import { sql as sql14 } from "drizzle-orm";
+var document = pgTable17("document", {
+  id: text17("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text17("portal_id").notNull().references(() => portal.id),
+  dealId: text17("deal_id").references(() => deal.id),
+  crId: text17("cr_id").references(() => changeRequest.id),
+  name: text17("name").notNull(),
+  type: text17("type").notNull(),
+  source: text17("source"),
+  // docuseal IDs are external numeric IDs — kept as integer (not FKs)
+  docusealSubmissionId: integer8("docuseal_submission_id"),
+  docusealTemplateId: integer8("docuseal_template_id"),
+  docusealStatus: text17("docuseal_status"),
+  docusealExternalId: text17("docuseal_external_id").unique(),
+  storageKey: text17("storage_key"),
+  /**
+   * ¿El cliente ve este documento en su Portal?
+   *
+   * Default `true` para no cambiar lo que los clientes ya venían viendo
+   * (contratos firmados, propuestas, facturas). Se marca `false` para los
+   * documentos internos del proceso de entrega — Diagnóstico y Blueprint,
+   * que hoy son `type='other'` y por eso terminaban guardándose fuera del CRM.
+   *
+   * Lo consume `listClientDocuments`.
+   */
+  visibleToClient: boolean11("visible_to_client").notNull().default(true),
+  signedAt: timestamp17("signed_at", { withTimezone: true }),
+  signedBy: text17("signed_by").references(() => clientAccount.id),
+  createdBy: text17("created_by").references(() => hubUser.id),
+  createdAt: timestamp17("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => [
+  check12("document_type_check", sql14`${table.type} IN ('contract','proposal','invoice','other')`),
+  check12("document_source_check", sql14`${table.source} IN ('docuseal','manual','generated')`),
+  check12("document_docuseal_status_check", sql14`${table.docusealStatus} IN ('pending','completed','declined','expired')`),
+  index13("idx_document_deal").on(table.dealId)
 ]);
 
 // src/db/schema/email.ts
-import { pgTable as pgTable16, text as text16, uuid, timestamp as timestamp16, index as index12, check as check11 } from "drizzle-orm/pg-core";
-import { sql as sql13 } from "drizzle-orm";
-var emailSend = pgTable16("email_send", {
-  id: text16("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text16("portal_id").notNull().references(() => portal.id),
-  contactId: text16("contact_id").references(() => contact.id, { onDelete: "set null" }),
-  dealId: text16("deal_id").references(() => deal.id, { onDelete: "set null" }),
+import { pgTable as pgTable18, text as text18, uuid, timestamp as timestamp18, index as index14, check as check13 } from "drizzle-orm/pg-core";
+import { sql as sql15 } from "drizzle-orm";
+var emailSend = pgTable18("email_send", {
+  id: text18("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text18("portal_id").notNull().references(() => portal.id),
+  contactId: text18("contact_id").references(() => contact.id, { onDelete: "set null" }),
+  dealId: text18("deal_id").references(() => deal.id, { onDelete: "set null" }),
   fromEmail: citext("from_email").notNull(),
   toEmail: citext("to_email").notNull(),
-  subject: text16("subject").notNull(),
-  bodyHtml: text16("body_html"),
+  subject: text18("subject").notNull(),
+  bodyHtml: text18("body_html"),
   trackingId: uuid("tracking_id").notNull().defaultRandom(),
-  sentAt: timestamp16("sent_at", { withTimezone: true }).notNull().defaultNow()
+  sentAt: timestamp18("sent_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index12("idx_email_send_contact").on(table.contactId),
-  index12("idx_email_send_tracking").on(table.trackingId),
+  index14("idx_email_send_contact").on(table.contactId),
+  index14("idx_email_send_tracking").on(table.trackingId),
   // Timeline filtra por deal_id y ordena por sent_at DESC → compuesto evita el Seq Scan.
-  index12("idx_email_send_deal").on(table.dealId, table.sentAt)
+  index14("idx_email_send_deal").on(table.dealId, table.sentAt)
 ]);
-var emailEvent = pgTable16("email_event", {
-  id: text16("id").primaryKey().$defaultFn(() => createId()),
-  emailId: text16("email_id").notNull().references(() => emailSend.id, { onDelete: "cascade" }),
-  type: text16("type").notNull(),
-  linkUrl: text16("link_url"),
-  userAgent: text16("user_agent"),
+var emailEvent = pgTable18("email_event", {
+  id: text18("id").primaryKey().$defaultFn(() => createId()),
+  emailId: text18("email_id").notNull().references(() => emailSend.id, { onDelete: "cascade" }),
+  type: text18("type").notNull(),
+  linkUrl: text18("link_url"),
+  userAgent: text18("user_agent"),
   ipAddress: inet("ip_address"),
-  occurredAt: timestamp16("occurred_at", { withTimezone: true }).notNull().defaultNow()
+  occurredAt: timestamp18("occurred_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check11("email_event_type_check", sql13`${table.type} IN ('opened','clicked','bounced','unsubscribed')`),
-  index12("idx_email_event_email").on(table.emailId, table.type)
+  check13("email_event_type_check", sql15`${table.type} IN ('opened','clicked','bounced','unsubscribed')`),
+  index14("idx_email_event_email").on(table.emailId, table.type)
 ]);
 
 // src/db/schema/notifications.ts
-import { pgTable as pgTable17, text as text17, timestamp as timestamp17, index as index13 } from "drizzle-orm/pg-core";
-var notification = pgTable17("notification", {
-  id: text17("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text17("portal_id").notNull().references(() => portal.id),
-  userId: text17("user_id").references(() => hubUser.id),
-  clientId: text17("client_id").references(() => clientAccount.id),
-  entityType: text17("entity_type"),
-  entityId: text17("entity_id"),
-  type: text17("type").notNull(),
-  title: text17("title").notNull(),
-  body: text17("body"),
-  actionUrl: text17("action_url"),
-  readAt: timestamp17("read_at", { withTimezone: true }),
-  createdAt: timestamp17("created_at", { withTimezone: true }).notNull().defaultNow()
+import { pgTable as pgTable19, text as text19, timestamp as timestamp19, index as index15 } from "drizzle-orm/pg-core";
+var notification = pgTable19("notification", {
+  id: text19("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text19("portal_id").notNull().references(() => portal.id),
+  userId: text19("user_id").references(() => hubUser.id),
+  clientId: text19("client_id").references(() => clientAccount.id),
+  entityType: text19("entity_type"),
+  entityId: text19("entity_id"),
+  type: text19("type").notNull(),
+  title: text19("title").notNull(),
+  body: text19("body"),
+  actionUrl: text19("action_url"),
+  readAt: timestamp19("read_at", { withTimezone: true }),
+  createdAt: timestamp19("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index13("idx_notification_user").on(table.userId, table.readAt),
-  index13("idx_notification_client").on(table.clientId, table.readAt),
-  index13("idx_notification_portal_user").on(table.portalId, table.userId, table.readAt)
+  index15("idx_notification_user").on(table.userId, table.readAt),
+  index15("idx_notification_client").on(table.clientId, table.readAt),
+  index15("idx_notification_portal_user").on(table.portalId, table.userId, table.readAt)
 ]);
 
 // src/db/schema/audit.ts
-import { pgTable as pgTable18, text as text18, jsonb as jsonb8, timestamp as timestamp18, index as index14 } from "drizzle-orm/pg-core";
-var auditLog = pgTable18("audit_log", {
-  id: text18("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text18("portal_id").notNull().references(() => portal.id),
-  userId: text18("user_id").references(() => hubUser.id),
-  clientId: text18("client_id").references(() => clientAccount.id),
-  entityType: text18("entity_type"),
-  entityId: text18("entity_id"),
-  action: text18("action").notNull(),
-  payload: jsonb8("payload"),
+import { pgTable as pgTable20, text as text20, jsonb as jsonb10, timestamp as timestamp20, index as index16 } from "drizzle-orm/pg-core";
+var auditLog = pgTable20("audit_log", {
+  id: text20("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text20("portal_id").notNull().references(() => portal.id),
+  userId: text20("user_id").references(() => hubUser.id),
+  clientId: text20("client_id").references(() => clientAccount.id),
+  entityType: text20("entity_type"),
+  entityId: text20("entity_id"),
+  action: text20("action").notNull(),
+  payload: jsonb10("payload"),
   ipAddress: inet("ip_address"),
-  createdAt: timestamp18("created_at", { withTimezone: true }).notNull().defaultNow()
+  createdAt: timestamp20("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  index14("idx_audit_entity").on(table.entityType, table.entityId, table.createdAt)
+  index16("idx_audit_entity").on(table.entityType, table.entityId, table.createdAt)
 ]);
 
 // src/db/schema/library.ts
-import { pgTable as pgTable19, text as text19, boolean as boolean9, jsonb as jsonb9, timestamp as timestamp19, index as index15, check as check12 } from "drizzle-orm/pg-core";
-import { sql as sql14 } from "drizzle-orm";
-var libraryItem = pgTable19("library_item", {
-  id: text19("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text19("portal_id").notNull().references(() => portal.id),
-  type: text19("type").notNull(),
-  category: text19("category"),
-  name: text19("name").notNull(),
-  description: text19("description"),
-  storageKey: text19("storage_key"),
-  url: text19("url"),
+import { pgTable as pgTable21, text as text21, boolean as boolean12, jsonb as jsonb11, timestamp as timestamp21, index as index17, check as check14 } from "drizzle-orm/pg-core";
+import { sql as sql16 } from "drizzle-orm";
+var libraryItem = pgTable21("library_item", {
+  id: text21("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text21("portal_id").notNull().references(() => portal.id),
+  type: text21("type").notNull(),
+  category: text21("category"),
+  name: text21("name").notNull(),
+  description: text21("description"),
+  storageKey: text21("storage_key"),
+  url: text21("url"),
   /**
    * Pasos/contenido de la entidad operativa sin estado.
    * Para 'procedure': lista ordenada de pasos. Para 'checklist': lista de ítems.
    * Se almacena como JSONB para permitir estructura flexible por variante.
    */
-  steps: jsonb9("steps").default([]),
+  steps: jsonb11("steps").default([]),
   /** Variante operativa: 'procedure' (SOP ordenado) o 'checklist' (lista de verificación). */
-  kind: text19("kind"),
-  createdBy: text19("created_by").references(() => hubUser.id),
+  kind: text21("kind"),
+  createdBy: text21("created_by").references(() => hubUser.id),
   /** Responsable del contenido. null = sin dueño asignado. */
-  ownerId: text19("owner_id").references(() => hubUser.id, { onDelete: "set null" }),
-  archived: boolean9("archived").notNull().default(false),
-  archivedAt: timestamp19("archived_at", { withTimezone: true }),
-  createdAt: timestamp19("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp19("updated_at", { withTimezone: true }).notNull().defaultNow()
+  ownerId: text21("owner_id").references(() => hubUser.id, { onDelete: "set null" }),
+  archived: boolean12("archived").notNull().default(false),
+  archivedAt: timestamp21("archived_at", { withTimezone: true }),
+  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check12(
+  check14(
     "library_item_type_check",
-    sql14`${table.type} IN ('document','sop','template','contract_base','proposal_base','checklist','tech_doc')`
+    sql16`${table.type} IN ('document','sop','template','contract_base','proposal_base','checklist','tech_doc')`
   ),
   // kind aplica solo a entidades operativas (type='sop' tras la migración 0023).
-  check12(
+  check14(
     "library_item_kind_check",
-    sql14`${table.kind} IS NULL OR ${table.kind} IN ('procedure','checklist')`
+    sql16`${table.kind} IS NULL OR ${table.kind} IN ('procedure','checklist')`
   ),
-  index15("idx_library_item_portal_type").on(table.portalId, table.type)
+  index17("idx_library_item_portal_type").on(table.portalId, table.type)
 ]);
 
 // src/db/schema/work-items.ts
-import { pgTable as pgTable20, text as text20, boolean as boolean10, timestamp as timestamp20, index as index16, check as check13 } from "drizzle-orm/pg-core";
-import { sql as sql15 } from "drizzle-orm";
-var workItem = pgTable20("work_item", {
-  id: text20("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text20("portal_id").notNull().references(() => portal.id),
-  type: text20("type").notNull(),
-  title: text20("title").notNull(),
-  description: text20("description"),
-  status: text20("status").notNull().default("open"),
-  priority: text20("priority").notNull().default("medium"),
+import { pgTable as pgTable22, text as text22, boolean as boolean13, timestamp as timestamp22, index as index18, check as check15 } from "drizzle-orm/pg-core";
+import { sql as sql17 } from "drizzle-orm";
+var workItem = pgTable22("work_item", {
+  id: text22("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text22("portal_id").notNull().references(() => portal.id),
+  type: text22("type").notNull(),
+  title: text22("title").notNull(),
+  description: text22("description"),
+  status: text22("status").notNull().default("open"),
+  priority: text22("priority").notNull().default("medium"),
   /** Horizonte de planificación: now = esta semana, next = próxima iteración, later = backlog. */
-  timeframe: text20("timeframe"),
-  dealId: text20("deal_id").references(() => deal.id, { onDelete: "set null" }),
-  assignedTo: text20("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
-  createdBy: text20("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  archived: boolean10("archived").notNull().default(false),
-  archivedAt: timestamp20("archived_at", { withTimezone: true }),
-  createdAt: timestamp20("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp20("updated_at", { withTimezone: true }).notNull().defaultNow()
+  timeframe: text22("timeframe"),
+  dealId: text22("deal_id").references(() => deal.id, { onDelete: "set null" }),
+  assignedTo: text22("assigned_to").references(() => hubUser.id, { onDelete: "set null" }),
+  createdBy: text22("created_by").references(() => hubUser.id, { onDelete: "set null" }),
+  archived: boolean13("archived").notNull().default(false),
+  archivedAt: timestamp22("archived_at", { withTimezone: true }),
+  createdAt: timestamp22("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp22("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check13(
+  check15(
     "work_item_type_check",
-    sql15`${table.type} IN ('bug','improvement','roadmap','process')`
+    sql17`${table.type} IN ('bug','improvement','roadmap','process')`
   ),
-  check13(
+  check15(
     "work_item_status_check",
-    sql15`${table.status} IN ('open','in_progress','done','cancelled')`
+    sql17`${table.status} IN ('open','in_progress','done','cancelled')`
   ),
-  check13(
+  check15(
     "work_item_priority_check",
-    sql15`${table.priority} IN ('low','medium','high')`
+    sql17`${table.priority} IN ('low','medium','high')`
   ),
   // timeframe es opcional; si se setea, debe ser uno de los tres horizontes conocidos.
-  check13(
+  check15(
     "work_item_timeframe_check",
-    sql15`${table.timeframe} IS NULL OR ${table.timeframe} IN ('now','next','later')`
+    sql17`${table.timeframe} IS NULL OR ${table.timeframe} IN ('now','next','later')`
   ),
-  index16("idx_work_item_portal_type").on(table.portalId, table.type),
-  index16("idx_work_item_portal").on(table.portalId)
+  index18("idx_work_item_portal_type").on(table.portalId, table.type),
+  index18("idx_work_item_portal").on(table.portalId)
 ]);
 
 // src/db/schema/finance.ts
-import { pgTable as pgTable21, text as text21, integer as integer7, numeric as numeric4, date as date4, timestamp as timestamp21, boolean as boolean11, index as index17, check as check14 } from "drizzle-orm/pg-core";
-import { sql as sql16 } from "drizzle-orm";
-var retainer = pgTable21("retainer", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text21("portal_id").notNull().references(() => portal.id),
-  companyId: text21("company_id").notNull().references(() => company.id),
-  amount: numeric4("amount", { precision: 14, scale: 2 }).notNull(),
-  currency: text21("currency").notNull(),
+import { pgTable as pgTable23, text as text23, integer as integer9, numeric as numeric5, date as date4, timestamp as timestamp23, boolean as boolean14, index as index19, check as check16 } from "drizzle-orm/pg-core";
+import { sql as sql18 } from "drizzle-orm";
+var retainer = pgTable23("retainer", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text23("portal_id").notNull().references(() => portal.id),
+  companyId: text23("company_id").notNull().references(() => company.id),
+  amount: numeric5("amount", { precision: 14, scale: 2 }).notNull(),
+  currency: text23("currency").notNull(),
   /** Tipo de cambio al momento de emitir (1 si la moneda base == currency). */
-  exchangeRate: numeric4("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
+  exchangeRate: numeric5("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
   /** Monto en moneda base del portal (siempre USD, calculado en el service). */
-  amountBase: numeric4("amount_base", { precision: 14, scale: 2 }).notNull(),
+  amountBase: numeric5("amount_base", { precision: 14, scale: 2 }).notNull(),
   /** Día del mes en que se genera la factura automáticamente (1–28). */
-  billingDay: integer7("billing_day").notNull(),
-  status: text21("status").notNull().default("active"),
+  billingDay: integer9("billing_day").notNull(),
+  status: text23("status").notNull().default("active"),
   startDate: date4("start_date").notNull(),
   endDate: date4("end_date"),
-  notes: text21("notes"),
-  createdBy: text21("created_by").references(() => hubUser.id),
-  archived: boolean11("archived").notNull().default(false),
-  archivedAt: timestamp21("archived_at", { withTimezone: true }),
-  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
+  notes: text23("notes"),
+  createdBy: text23("created_by").references(() => hubUser.id),
+  archived: boolean14("archived").notNull().default(false),
+  archivedAt: timestamp23("archived_at", { withTimezone: true }),
+  createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14("retainer_currency_check", sql16`${table.currency} IN ('USD','ARS')`),
-  check14("retainer_status_check", sql16`${table.status} IN ('active','paused','cancelled')`),
+  check16("retainer_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  check16("retainer_status_check", sql18`${table.status} IN ('active','paused','cancelled')`),
   // El día de corte se limita al 28 para evitar ambigüedades en meses cortos.
-  check14("retainer_billing_day_check", sql16`${table.billingDay} BETWEEN 1 AND 28`),
-  index17("idx_retainer_portal_status").on(table.portalId, table.status)
+  check16("retainer_billing_day_check", sql18`${table.billingDay} BETWEEN 1 AND 28`),
+  index19("idx_retainer_portal_status").on(table.portalId, table.status)
 ]);
-var invoice = pgTable21("invoice", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text21("portal_id").notNull().references(() => portal.id),
-  number: integer7("number").notNull(),
-  dealId: text21("deal_id").references(() => deal.id),
-  companyId: text21("company_id").references(() => company.id),
-  status: text21("status").notNull().default("draft"),
+var invoice = pgTable23("invoice", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text23("portal_id").notNull().references(() => portal.id),
+  number: integer9("number").notNull(),
+  dealId: text23("deal_id").references(() => deal.id),
+  companyId: text23("company_id").references(() => company.id),
+  status: text23("status").notNull().default("draft"),
   issueDate: date4("issue_date"),
   dueDate: date4("due_date"),
-  subtotal: numeric4("subtotal", { precision: 14, scale: 2 }).notNull().default("0"),
-  tax: numeric4("tax", { precision: 14, scale: 2 }).notNull().default("0"),
-  total: numeric4("total", { precision: 14, scale: 2 }).notNull().default("0"),
-  currency: text21("currency").notNull().default("USD"),
+  subtotal: numeric5("subtotal", { precision: 14, scale: 2 }).notNull().default("0"),
+  tax: numeric5("tax", { precision: 14, scale: 2 }).notNull().default("0"),
+  total: numeric5("total", { precision: 14, scale: 2 }).notNull().default("0"),
+  currency: text23("currency").notNull().default("USD"),
   /** Tipo de cambio USD/ARS al momento de emitir (1 si currency == 'USD'). */
-  exchangeRate: numeric4("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
+  exchangeRate: numeric5("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
   /** total × exchange_rate → monto en USD para comparaciones y reportes. */
-  amountBase: numeric4("amount_base", { precision: 14, scale: 2 }).notNull().default("0"),
-  notes: text21("notes"),
+  amountBase: numeric5("amount_base", { precision: 14, scale: 2 }).notNull().default("0"),
+  notes: text23("notes"),
   /** Retainer que generó esta factura (null si es una factura puntual). */
-  retainerId: text21("retainer_id").references(() => retainer.id),
-  createdBy: text21("created_by").references(() => hubUser.id),
-  archived: boolean11("archived").notNull().default(false),
-  archivedAt: timestamp21("archived_at", { withTimezone: true }),
-  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
+  retainerId: text23("retainer_id").references(() => retainer.id),
+  createdBy: text23("created_by").references(() => hubUser.id),
+  archived: boolean14("archived").notNull().default(false),
+  archivedAt: timestamp23("archived_at", { withTimezone: true }),
+  createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14("invoice_status_check", sql16`${table.status} IN ('draft','sent','paid','overdue','void')`),
-  check14("invoice_currency_check", sql16`${table.currency} IN ('USD','ARS')`),
-  index17("idx_invoice_portal_status").on(table.portalId, table.status),
-  index17("idx_invoice_retainer").on(table.retainerId),
-  index17("idx_invoice_deal").on(table.dealId),
-  index17("idx_invoice_company").on(table.companyId)
+  check16("invoice_status_check", sql18`${table.status} IN ('draft','sent','paid','overdue','void')`),
+  check16("invoice_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  index19("idx_invoice_portal_status").on(table.portalId, table.status),
+  index19("idx_invoice_retainer").on(table.retainerId),
+  index19("idx_invoice_deal").on(table.dealId),
+  index19("idx_invoice_company").on(table.companyId)
 ]);
-var invoiceItem = pgTable21("invoice_item", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  invoiceId: text21("invoice_id").notNull().references(() => invoice.id, { onDelete: "cascade" }),
-  description: text21("description").notNull(),
-  quantity: numeric4("quantity", { precision: 12, scale: 2 }).notNull().default("1"),
-  unitPrice: numeric4("unit_price", { precision: 14, scale: 2 }).notNull().default("0")
+var invoiceItem = pgTable23("invoice_item", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  invoiceId: text23("invoice_id").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  description: text23("description").notNull(),
+  quantity: numeric5("quantity", { precision: 12, scale: 2 }).notNull().default("1"),
+  unitPrice: numeric5("unit_price", { precision: 14, scale: 2 }).notNull().default("0")
 }, (table) => [
-  index17("idx_invoice_item_invoice").on(table.invoiceId)
+  index19("idx_invoice_item_invoice").on(table.invoiceId)
 ]);
-var payment = pgTable21("payment", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text21("portal_id").notNull().references(() => portal.id),
-  invoiceId: text21("invoice_id").notNull().references(() => invoice.id),
-  amount: numeric4("amount", { precision: 14, scale: 2 }).notNull(),
-  currency: text21("currency").notNull().default("USD"),
+var payment = pgTable23("payment", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text23("portal_id").notNull().references(() => portal.id),
+  invoiceId: text23("invoice_id").notNull().references(() => invoice.id),
+  amount: numeric5("amount", { precision: 14, scale: 2 }).notNull(),
+  currency: text23("currency").notNull().default("USD"),
   /** Tipo de cambio al momento del pago (1 si currency == 'USD'). */
-  exchangeRate: numeric4("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
+  exchangeRate: numeric5("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
   /** amount × exchange_rate → monto en USD para conciliación. */
-  amountBase: numeric4("amount_base", { precision: 14, scale: 2 }).notNull().default("0"),
-  method: text21("method").notNull().default("transfer"),
-  paidAt: timestamp21("paid_at", { withTimezone: true }).notNull().defaultNow(),
-  reference: text21("reference"),
-  createdBy: text21("created_by").references(() => hubUser.id),
-  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow()
+  amountBase: numeric5("amount_base", { precision: 14, scale: 2 }).notNull().default("0"),
+  method: text23("method").notNull().default("transfer"),
+  paidAt: timestamp23("paid_at", { withTimezone: true }).notNull().defaultNow(),
+  reference: text23("reference"),
+  createdBy: text23("created_by").references(() => hubUser.id),
+  createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14("payment_method_check", sql16`${table.method} IN ('transfer','card','cash','other')`),
-  check14("payment_currency_check", sql16`${table.currency} IN ('USD','ARS')`),
-  index17("idx_payment_portal").on(table.portalId)
+  check16("payment_method_check", sql18`${table.method} IN ('transfer','card','cash','other')`),
+  check16("payment_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  index19("idx_payment_portal").on(table.portalId)
 ]);
-var expense = pgTable21("expense", {
-  id: text21("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text21("portal_id").notNull().references(() => portal.id),
-  description: text21("description").notNull(),
-  amount: numeric4("amount", { precision: 14, scale: 2 }).notNull(),
-  currency: text21("currency").notNull(),
+var expense = pgTable23("expense", {
+  id: text23("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text23("portal_id").notNull().references(() => portal.id),
+  description: text23("description").notNull(),
+  amount: numeric5("amount", { precision: 14, scale: 2 }).notNull(),
+  currency: text23("currency").notNull(),
   /** Tipo de cambio al momento del gasto (1 si currency == 'USD'). */
-  exchangeRate: numeric4("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
+  exchangeRate: numeric5("exchange_rate", { precision: 14, scale: 6 }).notNull().default("1"),
   /** amount × exchange_rate → monto en USD para dashboards y reportes. */
-  amountBase: numeric4("amount_base", { precision: 14, scale: 2 }).notNull(),
-  category: text21("category").notNull(),
+  amountBase: numeric5("amount_base", { precision: 14, scale: 2 }).notNull(),
+  category: text23("category").notNull(),
   expenseDate: date4("expense_date").notNull(),
-  vendor: text21("vendor"),
-  dealId: text21("deal_id").references(() => deal.id),
-  companyId: text21("company_id").references(() => company.id),
-  paymentMethod: text21("payment_method"),
+  vendor: text23("vendor"),
+  dealId: text23("deal_id").references(() => deal.id),
+  companyId: text23("company_id").references(() => company.id),
+  paymentMethod: text23("payment_method"),
   /** Si el gasto es recurrente (ej.: suscripción mensual), se marca para alertas. */
-  isRecurring: boolean11("is_recurring").notNull().default(false),
-  notes: text21("notes"),
+  isRecurring: boolean14("is_recurring").notNull().default(false),
+  notes: text23("notes"),
   /** Clave del comprobante subido a R2 (sin URL; la URL se genera on-demand). */
-  storageKey: text21("storage_key"),
-  createdBy: text21("created_by").references(() => hubUser.id),
-  archived: boolean11("archived").notNull().default(false),
-  archivedAt: timestamp21("archived_at", { withTimezone: true }),
-  createdAt: timestamp21("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp21("updated_at", { withTimezone: true }).notNull().defaultNow()
+  storageKey: text23("storage_key"),
+  createdBy: text23("created_by").references(() => hubUser.id),
+  archived: boolean14("archived").notNull().default(false),
+  archivedAt: timestamp23("archived_at", { withTimezone: true }),
+  createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check14("expense_currency_check", sql16`${table.currency} IN ('USD','ARS')`),
-  check14(
+  check16("expense_currency_check", sql18`${table.currency} IN ('USD','ARS')`),
+  check16(
     "expense_category_check",
-    sql16`${table.category} IN ('software','infraestructura','equipo','impuestos','oficina','marketing','otros')`
+    sql18`${table.category} IN ('software','infraestructura','equipo','impuestos','oficina','marketing','otros')`
   ),
   // payment_method es opcional; si viene, solo acepta los valores conocidos.
-  check14(
+  check16(
     "expense_payment_method_check",
-    sql16`${table.paymentMethod} IS NULL OR ${table.paymentMethod} IN ('transfer','card','cash','other')`
+    sql18`${table.paymentMethod} IS NULL OR ${table.paymentMethod} IN ('transfer','card','cash','other')`
   ),
-  index17("idx_expense_portal_date").on(table.portalId, table.expenseDate),
-  index17("idx_expense_deal").on(table.dealId),
-  index17("idx_expense_category").on(table.category)
+  index19("idx_expense_portal_date").on(table.portalId, table.expenseDate),
+  index19("idx_expense_deal").on(table.dealId),
+  index19("idx_expense_category").on(table.category)
 ]);
 
 // src/db/schema/notification-prefs.ts
-import { pgTable as pgTable22, text as text22, boolean as boolean12, timestamp as timestamp22, unique as unique8, index as index18 } from "drizzle-orm/pg-core";
-var notificationPref = pgTable22(
+import { pgTable as pgTable24, text as text24, boolean as boolean15, timestamp as timestamp24, unique as unique10, index as index20 } from "drizzle-orm/pg-core";
+var notificationPref = pgTable24(
   "notification_pref",
   {
-    id: text22("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text22("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-    userId: text22("user_id").notNull().references(() => hubUser.id, { onDelete: "cascade" }),
-    eventType: text22("event_type").notNull(),
-    inApp: boolean12("in_app").notNull().default(true),
-    email: boolean12("email").notNull().default(false),
-    createdAt: timestamp22("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp22("updated_at", { withTimezone: true }).notNull().defaultNow()
+    id: text24("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text24("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    userId: text24("user_id").notNull().references(() => hubUser.id, { onDelete: "cascade" }),
+    eventType: text24("event_type").notNull(),
+    inApp: boolean15("in_app").notNull().default(true),
+    email: boolean15("email").notNull().default(false),
+    createdAt: timestamp24("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp24("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    unique8("notification_pref_user_id_event_type_unique").on(table.userId, table.eventType),
-    index18("idx_notification_pref_portal_user").on(table.portalId, table.userId)
+    unique10("notification_pref_user_id_event_type_unique").on(table.userId, table.eventType),
+    index20("idx_notification_pref_portal_user").on(table.portalId, table.userId)
   ]
 );
 
 // src/db/schema/custom-fields.ts
-import { pgTable as pgTable23, text as text23, integer as integer8, boolean as boolean13, timestamp as timestamp23, jsonb as jsonb10, unique as unique9, index as index19, check as check15 } from "drizzle-orm/pg-core";
-import { sql as sql17 } from "drizzle-orm";
-var customField = pgTable23(
+import { pgTable as pgTable25, text as text25, integer as integer10, boolean as boolean16, timestamp as timestamp25, jsonb as jsonb12, unique as unique11, index as index21, check as check17 } from "drizzle-orm/pg-core";
+import { sql as sql19 } from "drizzle-orm";
+var customField = pgTable25(
   "custom_field",
   {
-    id: text23("id").primaryKey().$defaultFn(() => createId()),
-    portalId: text23("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-    entityType: text23("entity_type").notNull(),
-    key: text23("key").notNull(),
-    label: text23("label").notNull(),
-    fieldType: text23("field_type").notNull(),
-    options: jsonb10("options").$type().default(null),
-    displayOrder: integer8("display_order").notNull().default(0),
-    archived: boolean13("archived").notNull().default(false),
-    archivedAt: timestamp23("archived_at", { withTimezone: true }),
-    createdAt: timestamp23("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp23("updated_at", { withTimezone: true }).notNull().defaultNow()
+    id: text25("id").primaryKey().$defaultFn(() => createId()),
+    portalId: text25("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+    entityType: text25("entity_type").notNull(),
+    key: text25("key").notNull(),
+    label: text25("label").notNull(),
+    fieldType: text25("field_type").notNull(),
+    options: jsonb12("options").$type().default(null),
+    displayOrder: integer10("display_order").notNull().default(0),
+    archived: boolean16("archived").notNull().default(false),
+    archivedAt: timestamp25("archived_at", { withTimezone: true }),
+    createdAt: timestamp25("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp25("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    check15(
+    check17(
       "custom_field_entity_type_check",
-      sql17`${table.entityType} IN ('contact','deal','company')`
+      sql19`${table.entityType} IN ('contact','deal','company')`
     ),
-    check15(
+    check17(
       "custom_field_field_type_check",
-      sql17`${table.fieldType} IN ('text','number','date','select','boolean')`
+      sql19`${table.fieldType} IN ('text','number','date','select','boolean')`
     ),
-    unique9("custom_field_portal_entity_key_unique").on(table.portalId, table.entityType, table.key),
-    index19("idx_custom_field_portal_entity").on(table.portalId, table.entityType)
+    unique11("custom_field_portal_entity_key_unique").on(table.portalId, table.entityType, table.key),
+    index21("idx_custom_field_portal_entity").on(table.portalId, table.entityType)
   ]
 );
 
 // src/db/schema/onboarding.ts
-import { pgTable as pgTable24, text as text24, jsonb as jsonb11, timestamp as timestamp24, index as index20, check as check16 } from "drizzle-orm/pg-core";
-import { sql as sql18 } from "drizzle-orm";
-var onboardingSubmission = pgTable24("onboarding_submission", {
-  id: text24("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text24("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+import { pgTable as pgTable26, text as text26, jsonb as jsonb13, timestamp as timestamp26, index as index22, check as check18 } from "drizzle-orm/pg-core";
+import { sql as sql20 } from "drizzle-orm";
+var onboardingSubmission = pgTable26("onboarding_submission", {
+  id: text26("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
   // ── Denormalizado para listado rápido en el admin ──
-  fullName: text24("full_name").notNull(),
-  email: text24("email").notNull(),
-  company: text24("company"),
+  fullName: text26("full_name").notNull(),
+  email: text26("email").notNull(),
+  company: text26("company"),
   // ── Respuestas completas del wizard ──
-  answers: jsonb11("answers").$type().notNull().default({}),
+  answers: jsonb13("answers").$type().notNull().default({}),
   // ── Routing de ventas: budget > 2000 || claridad baja → call ──
-  decision: text24("decision").notNull(),
+  decision: text26("decision").notNull(),
   // ── CRM creado automáticamente ──
-  contactId: text24("contact_id").references(() => contact.id, { onDelete: "set null" }),
-  dealId: text24("deal_id").references(() => deal.id, { onDelete: "set null" }),
-  createdAt: timestamp24("created_at", { withTimezone: true }).notNull().defaultNow()
+  contactId: text26("contact_id").references(() => contact.id, { onDelete: "set null" }),
+  dealId: text26("deal_id").references(() => deal.id, { onDelete: "set null" }),
+  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  check16("onboarding_submission_decision_check", sql18`${table.decision} IN ('call','proposal')`),
-  index20("idx_onboarding_submission_portal").on(table.portalId)
+  check18("onboarding_submission_decision_check", sql20`${table.decision} IN ('call','proposal')`),
+  index22("idx_onboarding_submission_portal").on(table.portalId)
 ]);
 
 // src/db/schema/client-onboarding.ts
-import { pgTable as pgTable25, text as text25, integer as integer9, jsonb as jsonb12, timestamp as timestamp25, unique as unique10, check as check17, index as index21 } from "drizzle-orm/pg-core";
-import { sql as sql19 } from "drizzle-orm";
-var clientOnboarding = pgTable25("client_onboarding", {
-  id: text25("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text25("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  dealId: text25("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
-  clientId: text25("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
-  status: text25("status").notNull().default("in_progress"),
-  currentStep: integer9("current_step").notNull().default(1),
+import { pgTable as pgTable27, text as text27, integer as integer11, jsonb as jsonb14, timestamp as timestamp27, unique as unique12, check as check19, index as index23 } from "drizzle-orm/pg-core";
+import { sql as sql21 } from "drizzle-orm";
+var clientOnboarding = pgTable27("client_onboarding", {
+  id: text27("id").primaryKey().$defaultFn(() => createId()),
+  portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
+  dealId: text27("deal_id").notNull().references(() => deal.id, { onDelete: "cascade" }),
+  clientId: text27("client_id").notNull().references(() => clientAccount.id, { onDelete: "cascade" }),
+  status: text27("status").notNull().default("in_progress"),
+  currentStep: integer11("current_step").notNull().default(1),
   /** Mapa { "1": ISOtimestamp, ..., "8": ISOtimestamp } de pasos completados. */
-  stepsCompleted: jsonb12("steps_completed").$type().notNull().default({}),
+  stepsCompleted: jsonb14("steps_completed").$type().notNull().default({}),
   // ── Paso 5 — Firma. Checkbox de aceptación + nombre tipeado + timestamp + IP.
   // NO DocuSeal (decisión de negocio explícita).
-  signatureName: text25("signature_name"),
-  signatureAcceptedAt: timestamp25("signature_accepted_at", { withTimezone: true }),
-  signatureIp: text25("signature_ip"),
+  signatureName: text27("signature_name"),
+  signatureAcceptedAt: timestamp27("signature_accepted_at", { withTimezone: true }),
+  signatureIp: text27("signature_ip"),
   // ── Paso 6 — Brief del proyecto (16 preguntas, ver OnboardingBriefSchema).
-  briefAnswers: jsonb12("brief_answers").$type(),
+  briefAnswers: jsonb14("brief_answers").$type(),
   // ── Paso 7 — Materiales. Estado por categoría fija (logoBrand, programContent,
   // clientBase, toolAccess) + IDs de client_asset vinculados por cada una.
-  materials: jsonb12("materials").$type().notNull().default({}),
-  completedAt: timestamp25("completed_at", { withTimezone: true }),
-  createdAt: timestamp25("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp25("updated_at", { withTimezone: true }).notNull().defaultNow()
+  materials: jsonb14("materials").$type().notNull().default({}),
+  completedAt: timestamp27("completed_at", { withTimezone: true }),
+  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => [
-  unique10("client_onboarding_deal_id_unique").on(table.dealId),
-  check17("client_onboarding_status_check", sql19`${table.status} IN ('in_progress','completed')`),
+  unique12("client_onboarding_deal_id_unique").on(table.dealId),
+  check19("client_onboarding_status_check", sql21`${table.status} IN ('in_progress','completed')`),
   // listOnboardings (admin) filtra por portal_id y ordena por status/updated_at.
-  index21("idx_client_onboarding_portal_status").on(table.portalId, table.status)
-]);
-
-// src/db/schema/prospecting.ts
-import { pgTable as pgTable26, text as text26, integer as integer10, numeric as numeric5, jsonb as jsonb13, timestamp as timestamp26, index as index22, check as check18 } from "drizzle-orm/pg-core";
-import { sql as sql20 } from "drizzle-orm";
-var prospectSearch = pgTable26("prospect_search", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  query: text26("query").notNull(),
-  ourServices: text26("our_services"),
-  requestedLimit: integer10("requested_limit").notNull().default(5),
-  resultCount: integer10("result_count").notNull().default(0),
-  status: text26("status").notNull().default("running"),
-  error: text26("error"),
-  createdBy: text26("created_by").references(() => hubUser.id, { onDelete: "set null" }),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check18("prospect_search_status_check", sql20`${table.status} IN ('running','completed','failed')`),
-  index22("idx_prospect_search_portal").on(table.portalId)
-]);
-var prospect = pgTable26("prospect", {
-  id: text26("id").primaryKey().$defaultFn(() => createId()),
-  portalId: text26("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  searchId: text26("search_id").notNull().references(() => prospectSearch.id, { onDelete: "cascade" }),
-  // ── Datos del negocio (Google Places + scraping) ──
-  name: text26("name").notNull(),
-  address: text26("address"),
-  phone: text26("phone"),
-  website: text26("website"),
-  email: text26("email"),
-  rating: numeric5("rating", { precision: 2, scale: 1 }),
-  userRatingsTotal: integer10("user_ratings_total"),
-  googlePlaceId: text26("google_place_id"),
-  types: jsonb13("types").$type().notNull().default([]),
-  // ── Análisis IA (Vertex / Gemini) ──
-  aiAnalysis: text26("ai_analysis"),
-  aiProposal: jsonb13("ai_proposal").$type(),
-  // ── Estado en el flujo de prospección ──
-  status: text26("status").notNull().default("new"),
-  importedContactId: text26("imported_contact_id").references(() => contact.id, { onDelete: "set null" }),
-  createdAt: timestamp26("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check18("prospect_status_check", sql20`${table.status} IN ('new','imported','discarded')`),
-  index22("idx_prospect_portal").on(table.portalId),
-  index22("idx_prospect_search").on(table.searchId)
-]);
-
-// src/db/schema/setter.ts
-import {
-  pgTable as pgTable27,
-  text as text27,
-  boolean as boolean14,
-  integer as integer11,
-  jsonb as jsonb14,
-  timestamp as timestamp27,
-  uniqueIndex as uniqueIndex2,
-  index as index23,
-  check as check19
-} from "drizzle-orm/pg-core";
-import { sql as sql21 } from "drizzle-orm";
-var setterTenant = pgTable27("setter_tenant", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  // El setter es interno del CRM: su config cuelga del portal (la org admin).
-  portalId: text27("portal_id").notNull().references(() => portal.id, { onDelete: "cascade" }),
-  name: text27("name").notNull(),
-  // Lo que el agente "conoce": qué vende, ICP, qué califica, oferta, FAQs, precios.
-  businessBrief: text27("business_brief").notNull(),
-  agentName: text27("agent_name").notNull(),
-  ownerName: text27("owner_name").notNull(),
-  timezone: text27("timezone").notNull().default("America/Argentina/Buenos_Aires"),
-  // shadow global en Sprint 0; el campo existe para el salto a híbrido/autopilot.
-  operationMode: text27("operation_mode").notNull().default("shadow"),
-  // Model Switcher: qué LLM genera los mensajes ('gemini' | 'claude').
-  modelProvider: text27("model_provider").notNull().default("gemini"),
-  // Prospección automática desde la oferta: qué ofrecemos (contexto para la IA)
-  // y los nichos/ICP sugeridos para buscar leads sin tipear nada.
-  prospectingServices: text27("prospecting_services"),
-  prospectingNiches: jsonb14("prospecting_niches").$type().notNull().default([]),
-  // Autopilot de prospección (loop nicho×ciudad cada 1h).
-  prospectingCities: jsonb14("prospecting_cities").$type().notNull().default([]),
-  prospectingAutopilot: boolean14("prospecting_autopilot").notNull().default(false),
-  prospectingAutopilotCursor: integer11("prospecting_autopilot_cursor").notNull().default(0),
-  // Nombre de la instancia de Evolution para este tenant (puede venir de env).
-  evolutionInstance: text27("evolution_instance"),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
-}, (table) => [
-  check19(
-    "setter_tenant_operation_mode_check",
-    sql21`${table.operationMode} IN ('shadow','hybrid','autopilot')`
-  ),
-  check19("setter_tenant_model_provider_check", sql21`${table.modelProvider} IN ('gemini','claude')`)
-]);
-var setterPerson = pgTable27("setter_person", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  name: text27("name"),
-  // E.164 (+549...). En Sprint 0 (solo WhatsApp) es la clave de identidad.
-  phone: text27("phone"),
-  // Guardrail no negociable: si opta por salir, nunca más se le genera ni envía.
-  optedOut: boolean14("opted_out").notNull().default(false),
-  optedOutAt: timestamp27("opted_out_at", { withTimezone: true }),
-  // Sync con el CRM: este Person es también un contact del CRM (lead/cliente).
-  crmContactId: text27("crm_contact_id").references(() => contact.id, { onDelete: "set null" }),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  uniqueIndex2("uq_setter_person_tenant_phone").on(table.tenantId, table.phone)
-]);
-var setterLead = pgTable27("setter_lead", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  personId: text27("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
-  status: text27("status").notNull().default("NEW"),
-  // { pain, fit, authority, timing, score, notes } — lo llena save_qualification.
-  qualification: jsonb14("qualification").$type(),
-  source: text27("source"),
-  // Cuándo cierra la ventana de servicio (último msg del lead + 24h).
-  windowExpiresAt: timestamp27("window_expires_at", { withTimezone: true }),
-  // Sync con el CRM: el deal generado para este lead (al calificar).
-  crmDealId: text27("crm_deal_id").references(() => deal.id, { onDelete: "set null" }),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
-}, (table) => [
-  check19(
-    "setter_lead_status_check",
-    sql21`${table.status} IN ('NEW','CONTACTED','ENGAGED','QUALIFYING','QUALIFIED','BOOKING','BOOKED','NOT_INTERESTED','HANDED_OFF','OPTED_OUT')`
-  ),
-  index23("idx_setter_lead_person").on(table.personId),
-  index23("idx_setter_lead_status").on(table.status),
-  index23("idx_setter_lead_window").on(table.windowExpiresAt)
-]);
-var setterConversation = pgTable27("setter_conversation", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  personId: text27("person_id").notNull().references(() => setterPerson.id, { onDelete: "cascade" }),
-  channel: text27("channel").notNull().default("whatsapp"),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  // Una conversación por persona en Sprint 0 (memoria única cross-canal).
-  uniqueIndex2("uq_setter_conversation_person").on(table.personId)
-]);
-var setterMessage = pgTable27("setter_message", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  conversationId: text27("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
-  role: text27("role").notNull(),
-  content: text27("content").notNull(),
-  // Idempotencia: id del mensaje en el canal (unique; admite múltiples NULL en PG).
-  messageId: text27("message_id"),
-  // Etiqueta de momento (apertura/calificación/objeción/booking…). Reusada por híbrido.
-  beat: text27("beat"),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check19(
-    "setter_message_role_check",
-    sql21`${table.role} IN ('user','assistant','system','tool')`
-  ),
-  uniqueIndex2("uq_setter_message_message_id").on(table.messageId),
-  index23("idx_setter_message_conversation").on(table.conversationId, table.createdAt)
-]);
-var setterAppointment = pgTable27("setter_appointment", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  leadId: text27("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
-  startsAt: timestamp27("starts_at", { withTimezone: true }).notNull(),
-  endsAt: timestamp27("ends_at", { withTimezone: true }).notNull(),
-  // Event id de Google Calendar (no guardamos URLs que expiran).
-  calendarRef: text27("calendar_ref"),
-  status: text27("status").notNull().default("confirmed"),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check19(
-    "setter_appointment_status_check",
-    sql21`${table.status} IN ('confirmed','cancelled','no_show','rescheduled')`
-  ),
-  uniqueIndex2("uq_setter_appointment_lead").on(table.leadId)
-]);
-var setterDraft = pgTable27("setter_draft", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  conversationId: text27("conversation_id").notNull().references(() => setterConversation.id, { onDelete: "cascade" }),
-  leadId: text27("lead_id").notNull().references(() => setterLead.id, { onDelete: "cascade" }),
-  // Texto propuesto por la IA (lo que se enviaría al aprobar).
-  content: text27("content").notNull(),
-  // Versión editada por el humano antes de enviar (si la hubo).
-  editedContent: text27("edited_content"),
-  beat: text27("beat"),
-  // beatPolicy: text en Sprint 0; voice llega en Sprint 2.
-  format: text27("format").notNull().default("text"),
-  status: text27("status").notNull().default("pending"),
-  // "Por qué dijo esto": tool calls + datos capturados (transparencia de la Bandeja).
-  toolCalls: jsonb14("tool_calls").$type(),
-  // Mensaje saliente generado al aprobar y enviar.
-  sentMessageId: text27("sent_message_id").references(() => setterMessage.id, {
-    onDelete: "set null"
-  }),
-  // Quién aprobó/editó (integra con los usuarios del CRM).
-  approvedBy: text27("approved_by").references(() => hubUser.id, { onDelete: "set null" }),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp27("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => /* @__PURE__ */ new Date())
-}, (table) => [
-  check19("setter_draft_format_check", sql21`${table.format} IN ('text','voice')`),
-  check19(
-    "setter_draft_status_check",
-    sql21`${table.status} IN ('pending','approved','edited','rejected','sent')`
-  ),
-  index23("idx_setter_draft_status").on(table.status),
-  index23("idx_setter_draft_conversation").on(table.conversationId),
-  index23("idx_setter_draft_tenant").on(table.tenantId)
-]);
-var setterEvent = pgTable27("setter_event", {
-  id: text27("id").primaryKey().$defaultFn(() => createId()),
-  tenantId: text27("tenant_id").notNull().references(() => setterTenant.id, { onDelete: "cascade" }),
-  level: text27("level").notNull().default("info"),
-  // inbound | agent | draft | approval | sync | autopilot | optout | error
-  type: text27("type").notNull(),
-  message: text27("message").notNull(),
-  leadId: text27("lead_id"),
-  meta: jsonb14("meta").$type(),
-  createdAt: timestamp27("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => [
-  check19("setter_event_level_check", sql21`${table.level} IN ('info','success','warn','error')`),
-  index23("idx_setter_event_tenant_time").on(table.tenantId, table.createdAt)
+  index23("idx_client_onboarding_portal_status").on(table.portalId, table.status)
 ]);
 
 // src/db/schema/proposals.ts
@@ -1495,7 +1593,7 @@ var proposal = pgTable28(
 );
 
 // src/db/schema/project-updates.ts
-import { pgTable as pgTable29, text as text29, boolean as boolean15, timestamp as timestamp29, index as index25 } from "drizzle-orm/pg-core";
+import { pgTable as pgTable29, text as text29, boolean as boolean17, timestamp as timestamp29, index as index25 } from "drizzle-orm/pg-core";
 var projectUpdate = pgTable29(
   "project_update",
   {
@@ -1505,7 +1603,7 @@ var projectUpdate = pgTable29(
     stageId: text29("stage_id").references(() => pipelineStage.id, { onDelete: "set null" }),
     body: text29("body").notNull(),
     createdBy: text29("created_by").notNull().references(() => hubUser.id),
-    archived: boolean15("archived").notNull().default(false),
+    archived: boolean17("archived").notNull().default(false),
     archivedAt: timestamp29("archived_at", { withTimezone: true }),
     createdAt: timestamp29("created_at", { withTimezone: true }).notNull().defaultNow()
   },
@@ -1625,20 +1723,22 @@ async function authenticate(request, _reply) {
 
 // src/modules/auth/auth.service.ts
 import { eq as eq2 } from "drizzle-orm";
-function publicUser(u) {
+function publicUser(u, portalSlug) {
   return {
     id: u.id,
     email: u.email,
     firstName: u.firstName,
     lastName: u.lastName,
     role: u.role,
-    portalId: u.portalId
+    portalId: u.portalId,
+    portalSlug
   };
 }
 async function getCurrentUser(id) {
   const [user] = await db.select().from(hubUser).where(eq2(hubUser.id, id)).limit(1);
   if (!user) throw Errors.notFound("Usuario no encontrado");
-  return publicUser(user);
+  const [p] = await db.select({ slug: portal.slug }).from(portal).where(eq2(portal.id, user.portalId)).limit(1);
+  return publicUser(user, p?.slug ?? null);
 }
 
 // src/modules/auth/auth.router.ts
@@ -1981,6 +2081,191 @@ async function getContactDetail(portalId, id) {
   return { contact: contactRow, deals: [...dealsById.values()], history, notes, tasks };
 }
 
+// src/modules/contacts/next-action.service.ts
+import { and as and5, desc as desc3, eq as eq6 } from "drizzle-orm";
+
+// src/lib/ai/gemini.ts
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+var client = null;
+function getClient() {
+  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    throw new Error("Gemini no configurado (GOOGLE_SERVICE_ACCOUNT_JSON)");
+  }
+  if (client) return client;
+  const credentials = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  if (!credentials.project_id) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON sin project_id");
+  client = new GoogleGenAI({
+    vertexai: true,
+    project: credentials.project_id,
+    location: env.VERTEX_LOCATION,
+    googleAuthOptions: { credentials }
+  });
+  return client;
+}
+var geminiGenerate = async (req) => {
+  const ai = getClient();
+  const res = await ai.models.generateContent({
+    model: env.VERTEX_MODEL,
+    contents: [{ role: "user", parts: [{ text: req.prompt }] }],
+    config: {
+      systemInstruction: req.systemInstruction,
+      temperature: req.temperature,
+      maxOutputTokens: req.maxOutputTokens,
+      // Generar una propuesta o una próxima acción es redacción con formato
+      // fijo, no razonamiento profundo: thinking bajo = más rápido y barato.
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
+    }
+  });
+  return { text: res.text ?? "" };
+};
+
+// src/lib/ai/claude.ts
+import Anthropic from "@anthropic-ai/sdk";
+var client2 = null;
+function getClient2() {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("Claude no configurado (ANTHROPIC_API_KEY)");
+  if (!client2) client2 = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  return client2;
+}
+var claudeGenerate = async (req) => {
+  const ai = getClient2();
+  const res = await ai.messages.create({
+    model: env.ANTHROPIC_MODEL,
+    max_tokens: req.maxOutputTokens,
+    temperature: req.temperature,
+    system: req.systemInstruction,
+    messages: [{ role: "user", content: req.prompt }]
+  });
+  const text30 = res.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  return { text: text30 };
+};
+
+// src/lib/ai/index.ts
+function getProvider(provider) {
+  return provider === "claude" ? claudeGenerate : geminiGenerate;
+}
+
+// src/modules/contacts/next-action.ai.ts
+var LIFECYCLE_LABEL = {
+  lead: "lead",
+  mql: "lead calificado por marketing",
+  sql: "lead calificado por ventas",
+  opportunity: "oportunidad",
+  customer: "cliente",
+  other: "otro"
+};
+var SYSTEM_INSTRUCTION = `Sos el asistente comercial de Synous (agencia de software a medida). Tu trabajo es sugerir la PR\xD3XIMA ACCI\xD3N concreta para avanzar un lead hacia el cierre.
+
+Reglas:
+- Respond\xE9 SOLO la acci\xF3n, en UNA frase corta, imperativa y accionable (m\xE1x ~120 caracteres).
+- Espa\xF1ol rioplatense (voseo). Nada de pre\xE1mbulos, comillas ni explicaciones.
+- Us\xE1 el contexto (etapa, onboarding, propuesta, deals) para que sea espec\xEDfica, no gen\xE9rica.`;
+function buildPrompt(ctx) {
+  const lines = [];
+  lines.push(`Nombre: ${ctx.firstName || "el lead"}`);
+  lines.push(`Etapa: ${LIFECYCLE_LABEL[ctx.lifecycleStage] ?? ctx.lifecycleStage}`);
+  if (ctx.deals.length) {
+    lines.push(
+      `Deals: ${ctx.deals.map((d) => `${d.name} (etapa: ${d.stage ?? "\u2014"}${d.isWon ? ", ganado" : ""})`).join("; ")}`
+    );
+  } else {
+    lines.push("Deals: ninguno");
+  }
+  if (ctx.onboarding) {
+    const o = ctx.onboarding;
+    lines.push(
+      `Onboarding: completado (routing sugerido: ${o.decision}; tipo: ${o.projectType ?? "\u2014"}; objetivo: ${o.mainGoal ?? "\u2014"}; presupuesto: ${o.budget ?? "\u2014"}; claridad: ${o.clarity ?? "\u2014"}; prefiere: ${o.preference ?? "\u2014"})`
+    );
+  } else {
+    lines.push("Onboarding: NO completado");
+  }
+  if (ctx.proposals.length) {
+    lines.push(`Propuestas: ${ctx.proposals.map((p) => p.status).join(", ")}`);
+  } else {
+    lines.push("Propuestas: ninguna generada");
+  }
+  if (ctx.lastActivityDays != null) {
+    lines.push(`\xDAltima actividad: hace ${ctx.lastActivityDays} d\xEDa(s)`);
+  }
+  return `Suger\xED la pr\xF3xima acci\xF3n para este lead:
+${lines.join("\n")}`;
+}
+async function suggestNextActionAI(ctx, provider = "gemini") {
+  const generate = getProvider(provider);
+  const result = await generate({
+    systemInstruction: SYSTEM_INSTRUCTION,
+    prompt: buildPrompt(ctx),
+    temperature: 0.6,
+    maxOutputTokens: 256
+  });
+  const action = result.text.split("\n").map((l) => l.replace(/^[-*•\s"']+/, "").trim()).find((l) => l.length > 0);
+  if (!action) throw new Error("La IA no devolvi\xF3 una acci\xF3n");
+  return action.slice(0, 160);
+}
+function fallbackNextAction(ctx) {
+  const lastProposal = ctx.proposals[0]?.status;
+  if (ctx.lifecycleStage === "customer") return "Coordin\xE1 el kickoff y los pr\xF3ximos pasos del proyecto.";
+  if (!ctx.onboarding) return "Enviale el link de onboarding para entender bien su proyecto.";
+  if (!ctx.proposals.length) return "Gener\xE1 y revis\xE1 la propuesta con la info del onboarding.";
+  if (lastProposal === "draft") return "Termin\xE1 de revisar la propuesta y aprobala para enviarla.";
+  if (lastProposal === "accepted" || lastProposal === "sent")
+    return "Envi\xE1 el link de la propuesta y confirm\xE1 que la recibi\xF3.";
+  if (lastProposal === "viewed") return "Ya vio la propuesta: llamalo para cerrar.";
+  return "Agend\xE1 un seguimiento para mantener la conversaci\xF3n activa.";
+}
+
+// src/modules/contacts/next-action.service.ts
+function getModelProvider() {
+  return env.MODEL_PROVIDER;
+}
+function s(v) {
+  return typeof v === "string" && v.trim() ? v : void 0;
+}
+async function suggestNextAction(portalId, contactId) {
+  const [c] = await db.select({
+    firstName: contact.firstName,
+    lifecycleStage: contact.lifecycleStage
+  }).from(contact).where(and5(eq6(contact.id, contactId), eq6(contact.portalId, portalId))).limit(1);
+  if (!c) throw Errors.notFound("Contacto no encontrado");
+  const deals = await db.select({
+    name: deal.name,
+    amount: deal.amount,
+    stage: pipelineStage.label,
+    isWon: pipelineStage.isWon
+  }).from(deal).leftJoin(pipelineStage, eq6(pipelineStage.id, deal.stageId)).where(and5(eq6(deal.primaryContactId, contactId), eq6(deal.archived, false)));
+  const [sub] = await db.select({ decision: onboardingSubmission.decision, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and5(eq6(onboardingSubmission.portalId, portalId), eq6(onboardingSubmission.contactId, contactId))).orderBy(desc3(onboardingSubmission.createdAt)).limit(1);
+  const proposals = await db.select({ status: proposal.status }).from(proposal).where(and5(eq6(proposal.portalId, portalId), eq6(proposal.contactId, contactId))).orderBy(desc3(proposal.createdAt));
+  const a = sub?.answers ?? {};
+  const ctx = {
+    firstName: c.firstName ?? "",
+    lifecycleStage: c.lifecycleStage,
+    deals: deals.map((d) => ({
+      name: d.name,
+      stage: d.stage,
+      amount: d.amount,
+      isWon: d.isWon ?? false
+    })),
+    onboarding: sub ? {
+      decision: sub.decision,
+      budget: s(a.budget),
+      projectType: s(a.projectType),
+      mainGoal: s(a.mainGoal),
+      preference: s(a.preference),
+      clarity: s(a.clarity)
+    } : void 0,
+    proposals: proposals.map((p) => ({ status: p.status }))
+  };
+  if (env.GOOGLE_SERVICE_ACCOUNT_JSON || env.ANTHROPIC_API_KEY) {
+    try {
+      const provider = getModelProvider();
+      const action = await suggestNextActionAI(ctx, provider);
+      return { action, source: "ai" };
+    } catch {
+    }
+  }
+  return { action: fallbackNextAction(ctx), source: "rules" };
+}
+
 // src/lib/http.ts
 var ADMIN_SECURITY = [{ bearerAuth: [] }];
 var CLIENT_SECURITY = [{ bearerAuth: [] }];
@@ -2018,6 +2303,19 @@ async function contactsRoutes(app2) {
       }
     },
     async (request) => ok(await getContactDetail(request.hubUser.portalId, request.params.id))
+  );
+  r.get(
+    "/:id/next-action",
+    {
+      schema: {
+        tags: [TAG],
+        summary: "Pr\xF3xima acci\xF3n sugerida",
+        description: "Sugiere la pr\xF3xima acci\xF3n para el contacto a partir de su etapa, deals, onboarding y propuestas. Intenta con IA (Model Switcher) y cae a reglas si no hay credenciales o falla \u2014 siempre devuelve una acci\xF3n.",
+        security,
+        params: IdParamSchema
+      }
+    },
+    async (request) => ok(await suggestNextAction(request.hubUser.portalId, request.params.id))
   );
   r.post(
     "/search",
@@ -2074,27 +2372,51 @@ var CreateCompanySchema = z5.object({
 var UpdateCompanySchema = CreateCompanySchema.partial();
 
 // src/modules/companies/companies.service.ts
-import { and as and5, desc as desc3, eq as eq6 } from "drizzle-orm";
+import { and as and7, desc as desc4, eq as eq8 } from "drizzle-orm";
+
+// src/lib/slug.ts
+import { and as and6, eq as eq7, ne as ne2 } from "drizzle-orm";
+import { slugify, SLUG_RESERVED } from "@synous/shared";
+async function slugTaken(tx, slug, excludeCompanyId) {
+  const [row] = await tx.select({ id: company.id }).from(company).where(excludeCompanyId ? and6(eq7(company.slug, slug), ne2(company.id, excludeCompanyId)) : eq7(company.slug, slug)).limit(1);
+  return !!row;
+}
+async function uniqueCompanySlug(tx, _portalId, name, excludeCompanyId) {
+  const base = slugify(name) || "empresa";
+  const reserved = SLUG_RESERVED;
+  let candidate = base;
+  let suffix = 1;
+  for (; ; ) {
+    if (!reserved.includes(candidate) && !await slugTaken(tx, candidate, excludeCompanyId)) {
+      return candidate;
+    }
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+}
+
+// src/modules/companies/companies.service.ts
 var ENTITY2 = "company";
 async function listCompanies(portalId, query) {
   const cursor = decodeCursor(query.cursor);
   const rows = await db.select().from(company).where(
-    and5(
-      eq6(company.portalId, portalId),
-      eq6(company.archived, false),
+    and7(
+      eq8(company.portalId, portalId),
+      eq8(company.archived, false),
       cursor ? cursorWhere(company.createdAt, company.id, cursor) : void 0
     )
-  ).orderBy(desc3(company.createdAt), desc3(company.id)).limit(query.limit + 1);
+  ).orderBy(desc4(company.createdAt), desc4(company.id)).limit(query.limit + 1);
   return paginateRows(rows, query.limit);
 }
 async function getCompany(portalId, id) {
-  const [row] = await db.select().from(company).where(and5(eq6(company.portalId, portalId), eq6(company.id, id), eq6(company.archived, false))).limit(1);
+  const [row] = await db.select().from(company).where(and7(eq8(company.portalId, portalId), eq8(company.id, id), eq8(company.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Empresa no encontrada");
   return row;
 }
 async function createCompany(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [row] = await tx.insert(company).values({ ...input, portalId }).returning();
+    const slug = await uniqueCompanySlug(tx, portalId, input.name);
+    const [row] = await tx.insert(company).values({ ...input, portalId, slug }).returning();
     if (!row) throw Errors.internal("No se pudo crear la empresa");
     await writeAudit({ tx, portalId, userId, entityType: ENTITY2, entityId: row.id, action: "CREATE", payload: input });
     return row;
@@ -2102,9 +2424,9 @@ async function createCompany(portalId, userId, input) {
 }
 async function updateCompany(portalId, userId, id, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(company).where(and5(eq6(company.portalId, portalId), eq6(company.id, id), eq6(company.archived, false))).limit(1);
+    const [existing] = await tx.select().from(company).where(and7(eq8(company.portalId, portalId), eq8(company.id, id), eq8(company.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Empresa no encontrada");
-    const [updated] = await tx.update(company).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq6(company.id, id)).returning();
+    const [updated] = await tx.update(company).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq8(company.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar la empresa");
     await recordFieldChanges({ tx, portalId, entityType: ENTITY2, entityId: id, before: existing, after: input, changedBy: userId });
     await writeAudit({ tx, portalId, userId, entityType: ENTITY2, entityId: id, action: "UPDATE", payload: input });
@@ -2113,20 +2435,20 @@ async function updateCompany(portalId, userId, id, input) {
 }
 async function archiveCompany(portalId, userId, id) {
   await db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(company).where(and5(eq6(company.portalId, portalId), eq6(company.id, id), eq6(company.archived, false))).limit(1);
+    const [existing] = await tx.select().from(company).where(and7(eq8(company.portalId, portalId), eq8(company.id, id), eq8(company.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Empresa no encontrada");
-    await tx.update(company).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq6(company.id, id));
+    await tx.update(company).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq8(company.id, id));
     await writeAudit({ tx, portalId, userId, entityType: ENTITY2, entityId: id, action: "DELETE" });
   });
 }
 async function getCompanyDetail(portalId, id) {
   const companyRow = await getCompany(portalId, id);
   const [contacts, deals, notes, tasks, history] = await Promise.all([
-    db.select().from(contact).where(and5(eq6(contact.portalId, portalId), eq6(contact.companyId, id), eq6(contact.archived, false))).orderBy(desc3(contact.createdAt)),
-    db.select().from(deal).where(and5(eq6(deal.portalId, portalId), eq6(deal.companyId, id), eq6(deal.archived, false))).orderBy(desc3(deal.createdAt)),
-    db.select().from(note).where(and5(eq6(note.portalId, portalId), eq6(note.companyId, id))).orderBy(desc3(note.createdAt)).limit(50),
-    db.select().from(task).where(and5(eq6(task.portalId, portalId), eq6(task.companyId, id))).orderBy(desc3(task.createdAt)),
-    db.select().from(recordHistory).where(and5(eq6(recordHistory.entityType, ENTITY2), eq6(recordHistory.entityId, id))).orderBy(desc3(recordHistory.changedAt)).limit(50)
+    db.select().from(contact).where(and7(eq8(contact.portalId, portalId), eq8(contact.companyId, id), eq8(contact.archived, false))).orderBy(desc4(contact.createdAt)),
+    db.select().from(deal).where(and7(eq8(deal.portalId, portalId), eq8(deal.companyId, id), eq8(deal.archived, false))).orderBy(desc4(deal.createdAt)),
+    db.select().from(note).where(and7(eq8(note.portalId, portalId), eq8(note.companyId, id))).orderBy(desc4(note.createdAt)).limit(50),
+    db.select().from(task).where(and7(eq8(task.portalId, portalId), eq8(task.companyId, id))).orderBy(desc4(task.createdAt)),
+    db.select().from(recordHistory).where(and7(eq8(recordHistory.entityType, ENTITY2), eq8(recordHistory.entityId, id))).orderBy(desc4(recordHistory.changedAt)).limit(50)
   ]);
   return { company: companyRow, contacts, deals, notes, tasks, history };
 }
@@ -2238,14 +2560,14 @@ var ProjectUpdateIdParamSchema = z7.object({
 });
 
 // src/modules/deals/deals.service.ts
-import { and as and9, desc as desc5, eq as eq10, inArray as inArray3 } from "drizzle-orm";
+import { and as and11, desc as desc6, eq as eq12, inArray as inArray3 } from "drizzle-orm";
 
 // src/modules/deals/stage.service.ts
 import { randomUUID } from "crypto";
-import { and as and8, eq as eq9 } from "drizzle-orm";
+import { and as and10, eq as eq11 } from "drizzle-orm";
 
 // src/modules/notifications/notifications.service.ts
-import { and as and6, count, desc as desc4, eq as eq7, isNull as isNull2 } from "drizzle-orm";
+import { and as and8, count, desc as desc5, eq as eq9, isNull as isNull2 } from "drizzle-orm";
 
 // src/lib/notification-bus.ts
 import { EventEmitter } from "events";
@@ -2282,27 +2604,27 @@ async function createNotification(input) {
   });
 }
 async function listNotifications(portalId, userId) {
-  return db.select().from(notification).where(and6(eq7(notification.portalId, portalId), eq7(notification.userId, userId))).orderBy(desc4(notification.createdAt)).limit(50);
+  return db.select().from(notification).where(and8(eq9(notification.portalId, portalId), eq9(notification.userId, userId))).orderBy(desc5(notification.createdAt)).limit(50);
 }
 async function unreadCount(portalId, userId) {
-  const [row] = await db.select({ n: count() }).from(notification).where(and6(eq7(notification.portalId, portalId), eq7(notification.userId, userId), isNull2(notification.readAt)));
+  const [row] = await db.select({ n: count() }).from(notification).where(and8(eq9(notification.portalId, portalId), eq9(notification.userId, userId), isNull2(notification.readAt)));
   return row?.n ?? 0;
 }
 async function markRead(portalId, userId, id) {
-  const res = await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and6(eq7(notification.portalId, portalId), eq7(notification.userId, userId), eq7(notification.id, id))).returning({ id: notification.id });
+  const res = await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and8(eq9(notification.portalId, portalId), eq9(notification.userId, userId), eq9(notification.id, id))).returning({ id: notification.id });
   if (res.length === 0) throw Errors.notFound("Notificaci\xF3n no encontrada");
 }
 async function markAllRead(portalId, userId) {
-  await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and6(eq7(notification.portalId, portalId), eq7(notification.userId, userId), isNull2(notification.readAt)));
+  await db.update(notification).set({ readAt: /* @__PURE__ */ new Date() }).where(and8(eq9(notification.portalId, portalId), eq9(notification.userId, userId), isNull2(notification.readAt)));
 }
 async function actorName(portalId, userId) {
-  const [u] = await db.select({ firstName: hubUser.firstName, lastName: hubUser.lastName, email: hubUser.email }).from(hubUser).where(and6(eq7(hubUser.id, userId), eq7(hubUser.portalId, portalId))).limit(1);
+  const [u] = await db.select({ firstName: hubUser.firstName, lastName: hubUser.lastName, email: hubUser.email }).from(hubUser).where(and8(eq9(hubUser.id, userId), eq9(hubUser.portalId, portalId))).limit(1);
   if (!u) return "Alguien";
   const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
   return name || u.email || "Alguien";
 }
 async function notifyAdmins(portalId, payload, opts) {
-  const admins = await db.select({ id: hubUser.id }).from(hubUser).where(and6(eq7(hubUser.portalId, portalId), eq7(hubUser.isActive, true)));
+  const admins = await db.select({ id: hubUser.id }).from(hubUser).where(and8(eq9(hubUser.portalId, portalId), eq9(hubUser.isActive, true)));
   for (const a of admins) {
     if (opts?.exceptUserId && a.id === opts.exceptUserId) continue;
     await createNotification({ portalId, userId: a.id, ...payload });
@@ -2379,8 +2701,8 @@ function getResend() {
   return resendClient;
 }
 async function sendEmail(params) {
-  const client4 = getResend();
-  if (!client4) {
+  const client3 = getResend();
+  if (!client3) {
     console.info("[mailer] RESEND_API_KEY no configurada \u2014 email omitido", {
       to: params.to,
       subject: params.subject
@@ -2388,7 +2710,7 @@ async function sendEmail(params) {
     return;
   }
   const from = params.from ?? env.FROM_EMAIL ?? "noreply@onboarding.resend.dev";
-  const { error } = await client4.emails.send({
+  const { error } = await client3.emails.send({
     from,
     to: Array.isArray(params.to) ? params.to : [params.to],
     subject: params.subject,
@@ -2437,47 +2759,47 @@ function portalInvitationHtml(p) {
 </body>
 </html>`;
 }
-function escHtml(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr(s) {
-  if (!s) return "#";
-  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escAttr(s2) {
+  if (!s2) return "#";
+  return s2.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/onboarding/assignees.ts
-import { and as and7, eq as eq8 } from "drizzle-orm";
+import { and as and9, eq as eq10 } from "drizzle-orm";
 var PRODUCTION_PIPELINE_LABEL = "Producci\xF3n";
 var PRODUCTION_DIAGNOSTICO_STAGE_LABEL = "Diagn\xF3stico";
 async function resolveProductionAssignee(dbOrTx, portalId, stageLabel) {
   const email = stageLabel === PRODUCTION_DIAGNOSTICO_STAGE_LABEL ? env.PRODUCTION_ASSIGNEE_DIAGNOSTICO_EMAIL : env.PRODUCTION_ASSIGNEE_DEFAULT_EMAIL;
-  const [u] = await dbOrTx.select({ id: hubUser.id }).from(hubUser).where(and7(eq8(hubUser.portalId, portalId), eq8(hubUser.email, email), eq8(hubUser.isActive, true))).limit(1);
+  const [u] = await dbOrTx.select({ id: hubUser.id }).from(hubUser).where(and9(eq10(hubUser.portalId, portalId), eq10(hubUser.email, email), eq10(hubUser.isActive, true))).limit(1);
   return u?.id ?? null;
 }
 
 // src/modules/deals/stage.service.ts
 var ENTITY3 = "deal";
 async function assertStageInPipeline(tx, pipelineId, stageId) {
-  const [stage] = await tx.select().from(pipelineStage).where(eq9(pipelineStage.id, stageId)).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(eq11(pipelineStage.id, stageId)).limit(1);
   if (!stage) throw Errors.badRequest("Stage inexistente");
   if (stage.pipelineId !== pipelineId) throw Errors.badRequest("El stage no pertenece al pipeline indicado");
   return stage;
 }
 async function activateClientPortal(tx, portalId, dealId) {
-  const [d] = await tx.select().from(deal).where(eq9(deal.id, dealId)).limit(1);
+  const [d] = await tx.select().from(deal).where(eq11(deal.id, dealId)).limit(1);
   if (!d?.primaryContactId) return null;
-  const [c] = await tx.select().from(contact).where(eq9(contact.id, d.primaryContactId)).limit(1);
+  const [c] = await tx.select().from(contact).where(eq11(contact.id, d.primaryContactId)).limit(1);
   if (!c?.email) return null;
-  const [existing] = await tx.select().from(clientAccount).where(and8(eq9(clientAccount.portalId, portalId), eq9(clientAccount.email, c.email))).limit(1);
+  const [existing] = await tx.select().from(clientAccount).where(and10(eq11(clientAccount.portalId, portalId), eq11(clientAccount.email, c.email))).limit(1);
   let account = existing;
   if (!account) {
     ;
-    [account] = await tx.insert(clientAccount).values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID(), inviteSentAt: /* @__PURE__ */ new Date() }).returning();
+    [account] = await tx.insert(clientAccount).values({ portalId, contactId: c.id, email: c.email, inviteToken: randomUUID() }).returning();
   }
   await tx.insert(clientDealAccess).values({ clientId: account.id, dealId }).onConflictDoNothing();
   if (c.lifecycleStage !== "customer") {
-    await tx.update(contact).set({ lifecycleStage: "customer", updatedAt: /* @__PURE__ */ new Date() }).where(eq9(contact.id, c.id));
+    await tx.update(contact).set({ lifecycleStage: "customer", updatedAt: /* @__PURE__ */ new Date() }).where(eq11(contact.id, c.id));
   }
   let invitationUrl = null;
   if (!existing) {
@@ -2495,11 +2817,60 @@ async function activateClientPortal(tx, portalId, dealId) {
       userType: "client"
     });
     if (clerkUserId) {
-      await tx.update(clientAccount).set({ clerkUserId }).where(eq9(clientAccount.id, account.id));
+      await tx.update(clientAccount).set({ clerkUserId }).where(eq11(clientAccount.id, account.id));
     }
   }
   if (existing) return null;
-  return { email: c.email, firstName: c.firstName, dealName: d.name, invitationUrl };
+  return { email: c.email, firstName: c.firstName, dealName: d.name, invitationUrl, clientAccountId: account.id };
+}
+async function sendPortalInvitationEmail(invitation) {
+  if (!invitation.invitationUrl) return;
+  try {
+    await sendEmail({
+      to: invitation.email,
+      subject: `Tu portal de ${invitation.dealName} ya est\xE1 listo`,
+      html: portalInvitationHtml({
+        firstName: invitation.firstName,
+        dealName: invitation.dealName,
+        portalUrl: invitation.invitationUrl
+      })
+    });
+    await db.update(clientAccount).set({ inviteSentAt: /* @__PURE__ */ new Date() }).where(eq11(clientAccount.id, invitation.clientAccountId));
+  } catch (err) {
+    console.error("[stage.service] No se pudo enviar el email de invitaci\xF3n al portal", {
+      clientAccountId: invitation.clientAccountId,
+      error: err?.message ?? err
+    });
+  }
+}
+async function activateClientPortalManually(portalId, userId, dealId) {
+  const result = await db.transaction(async (tx) => {
+    const [d] = await tx.select().from(deal).where(and10(eq11(deal.portalId, portalId), eq11(deal.id, dealId), eq11(deal.archived, false))).limit(1);
+    if (!d) throw Errors.notFound("Deal no encontrado");
+    if (!d.primaryContactId) {
+      return { status: "missing_contact", clientEmail: null, invitation: null };
+    }
+    const [c] = await tx.select().from(contact).where(eq11(contact.id, d.primaryContactId)).limit(1);
+    if (!c?.email) {
+      return { status: "missing_email", clientEmail: null, invitation: null };
+    }
+    const invitation = await activateClientPortal(tx, portalId, dealId);
+    if (!invitation) {
+      return { status: "already_active", clientEmail: c.email, invitation: null };
+    }
+    await writeAudit({
+      tx,
+      portalId,
+      userId,
+      entityType: ENTITY3,
+      entityId: dealId,
+      action: "CLIENT_PORTAL_ACTIVATED",
+      payload: { clientEmail: c.email }
+    });
+    return { status: "activated", clientEmail: c.email, invitation };
+  });
+  if (result.invitation) await sendPortalInvitationEmail(result.invitation);
+  return { status: result.status, clientEmail: result.clientEmail };
 }
 async function reassignProductionOwner(tx, portalId, stageLabel, currentOwnerId) {
   const newOwnerId = await resolveProductionAssignee(tx, portalId, stageLabel);
@@ -2508,7 +2879,7 @@ async function reassignProductionOwner(tx, portalId, stageLabel, currentOwnerId)
 }
 async function changeStage(portalId, userId, dealId, newStageId) {
   const result = await db.transaction(async (tx) => {
-    const [row] = await tx.select({ deal, pipelineLabel: pipeline.label }).from(deal).innerJoin(pipeline, eq9(pipeline.id, deal.pipelineId)).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, dealId), eq9(deal.archived, false))).limit(1);
+    const [row] = await tx.select({ deal, pipelineLabel: pipeline.label }).from(deal).innerJoin(pipeline, eq11(pipeline.id, deal.pipelineId)).where(and10(eq11(deal.portalId, portalId), eq11(deal.id, dealId), eq11(deal.archived, false))).limit(1);
     if (!row) throw Errors.notFound("Deal no encontrado");
     const { deal: d, pipelineLabel } = row;
     const stage = await assertStageInPipeline(tx, d.pipelineId, newStageId);
@@ -2519,7 +2890,7 @@ async function changeStage(portalId, userId, dealId, newStageId) {
         invitation: null
       };
     }
-    const [updated] = await tx.update(deal).set({ stageId: newStageId, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, dealId)).returning();
+    const [updated] = await tx.update(deal).set({ stageId: newStageId, updatedAt: /* @__PURE__ */ new Date() }).where(eq11(deal.id, dealId)).returning();
     if (!updated) throw Errors.internal("No se pudo cambiar la etapa");
     await recordFieldChanges({
       tx,
@@ -2543,7 +2914,7 @@ async function changeStage(portalId, userId, dealId, newStageId) {
     if (pipelineLabel === PRODUCTION_PIPELINE_LABEL) {
       const newOwnerId = await reassignProductionOwner(tx, portalId, stage.label, updated.ownerId);
       if (newOwnerId) {
-        const [reassigned] = await tx.update(deal).set({ ownerId: newOwnerId, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(deal.id, dealId)).returning();
+        const [reassigned] = await tx.update(deal).set({ ownerId: newOwnerId, updatedAt: /* @__PURE__ */ new Date() }).where(eq11(deal.id, dealId)).returning();
         if (reassigned) {
           finalDeal = reassigned;
           await recordFieldChanges({
@@ -2575,25 +2946,15 @@ async function changeStage(portalId, userId, dealId, newStageId) {
       title: `El deal "${result.notify.dealName}" pas\xF3 a la etapa "${result.notify.stageLabel}"`
     });
   }
-  if (result.invitation?.invitationUrl) {
-    await sendEmail({
-      to: result.invitation.email,
-      subject: `Tu portal de ${result.invitation.dealName} ya est\xE1 listo`,
-      html: portalInvitationHtml({
-        firstName: result.invitation.firstName,
-        dealName: result.invitation.dealName,
-        portalUrl: result.invitation.invitationUrl
-      })
-    });
-  }
+  if (result.invitation) await sendPortalInvitationEmail(result.invitation);
   return result.deal;
 }
 async function moveDealToProduction(tx, portalId, dealId, actor) {
-  const [pl] = await tx.select().from(pipeline).where(and8(eq9(pipeline.portalId, portalId), eq9(pipeline.label, PRODUCTION_PIPELINE_LABEL))).limit(1);
+  const [pl] = await tx.select().from(pipeline).where(and10(eq11(pipeline.portalId, portalId), eq11(pipeline.label, PRODUCTION_PIPELINE_LABEL))).limit(1);
   if (!pl) throw Errors.internal('Pipeline "Producci\xF3n" no seedeado en este portal');
-  const [stage] = await tx.select().from(pipelineStage).where(and8(eq9(pipelineStage.pipelineId, pl.id), eq9(pipelineStage.label, PRODUCTION_DIAGNOSTICO_STAGE_LABEL))).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(and10(eq11(pipelineStage.pipelineId, pl.id), eq11(pipelineStage.label, PRODUCTION_DIAGNOSTICO_STAGE_LABEL))).limit(1);
   if (!stage) throw Errors.internal('Stage "Diagn\xF3stico" no seedeado en el pipeline Producci\xF3n');
-  const [d] = await tx.select().from(deal).where(and8(eq9(deal.portalId, portalId), eq9(deal.id, dealId), eq9(deal.archived, false))).limit(1);
+  const [d] = await tx.select().from(deal).where(and10(eq11(deal.portalId, portalId), eq11(deal.id, dealId), eq11(deal.archived, false))).limit(1);
   if (!d) throw Errors.notFound("Deal no encontrado");
   const resolvedOwnerId = await reassignProductionOwner(tx, portalId, stage.label, d.ownerId);
   const finalOwnerId = resolvedOwnerId ?? d.ownerId;
@@ -2602,7 +2963,7 @@ async function moveDealToProduction(tx, portalId, dealId, actor) {
     stageId: stage.id,
     ...resolvedOwnerId ? { ownerId: resolvedOwnerId } : {},
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq9(deal.id, dealId)).returning();
+  }).where(eq11(deal.id, dealId)).returning();
   if (!updated) throw Errors.internal("No se pudo mover el deal a Producci\xF3n");
   await recordFieldChanges({
     tx,
@@ -2642,7 +3003,7 @@ function toAmount(amount) {
   return amount === void 0 ? void 0 : amount.toFixed(2);
 }
 async function assertStageInPipeline2(tx, pipelineId, stageId) {
-  const [stage] = await tx.select().from(pipelineStage).where(eq10(pipelineStage.id, stageId)).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(eq12(pipelineStage.id, stageId)).limit(1);
   if (!stage) throw Errors.badRequest("Stage inexistente");
   if (stage.pipelineId !== pipelineId) throw Errors.badRequest("El stage no pertenece al pipeline indicado");
   return stage;
@@ -2650,18 +3011,18 @@ async function assertStageInPipeline2(tx, pipelineId, stageId) {
 async function listDeals(portalId, query) {
   const cursor = decodeCursor(query.cursor);
   const rows = await db.select().from(deal).where(
-    and9(eq10(deal.portalId, portalId), eq10(deal.archived, false), cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
-  ).orderBy(desc5(deal.createdAt), desc5(deal.id)).limit(query.limit + 1);
+    and11(eq12(deal.portalId, portalId), eq12(deal.archived, false), cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
+  ).orderBy(desc6(deal.createdAt), desc6(deal.id)).limit(query.limit + 1);
   return paginateRows(rows, query.limit);
 }
 async function getDeal(portalId, id) {
-  const [row] = await db.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
+  const [row] = await db.select().from(deal).where(and11(eq12(deal.portalId, portalId), eq12(deal.id, id), eq12(deal.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Deal no encontrado");
   return row;
 }
 async function createDeal(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [pl] = await tx.select().from(pipeline).where(and9(eq10(pipeline.id, input.pipelineId), eq10(pipeline.portalId, portalId))).limit(1);
+    const [pl] = await tx.select().from(pipeline).where(and11(eq12(pipeline.id, input.pipelineId), eq12(pipeline.portalId, portalId))).limit(1);
     if (!pl) throw Errors.badRequest("Pipeline inexistente");
     await assertStageInPipeline2(tx, input.pipelineId, input.stageId);
     const [row] = await tx.insert(deal).values({ ...input, amount: toAmount(input.amount), portalId }).returning();
@@ -2672,10 +3033,10 @@ async function createDeal(portalId, userId, input) {
 }
 async function updateDeal(portalId, userId, id, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
+    const [existing] = await tx.select().from(deal).where(and11(eq12(deal.portalId, portalId), eq12(deal.id, id), eq12(deal.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Deal no encontrado");
     const patch = { ...input, amount: toAmount(input.amount) };
-    const [updated] = await tx.update(deal).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq10(deal.id, id)).returning();
+    const [updated] = await tx.update(deal).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq12(deal.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el deal");
     await recordFieldChanges({ tx, portalId, entityType: ENTITY4, entityId: id, before: existing, after: patch, changedBy: userId });
     await writeAudit({ tx, portalId, userId, entityType: ENTITY4, entityId: id, action: "UPDATE", payload: input });
@@ -2684,41 +3045,47 @@ async function updateDeal(portalId, userId, id, input) {
 }
 async function archiveDeal(portalId, userId, id) {
   await db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(deal).where(and9(eq10(deal.portalId, portalId), eq10(deal.id, id), eq10(deal.archived, false))).limit(1);
+    const [existing] = await tx.select().from(deal).where(and11(eq12(deal.portalId, portalId), eq12(deal.id, id), eq12(deal.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Deal no encontrado");
-    await tx.update(deal).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq10(deal.id, id));
+    await tx.update(deal).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq12(deal.id, id));
     await writeAudit({ tx, portalId, userId, entityType: ENTITY4, entityId: id, action: "DELETE" });
   });
 }
 async function addDealContact(portalId, dealId, contactId, role) {
   await getDeal(portalId, dealId);
-  const [c] = await db.select().from(contact).where(and9(eq10(contact.portalId, portalId), eq10(contact.id, contactId))).limit(1);
+  const [c] = await db.select().from(contact).where(and11(eq12(contact.portalId, portalId), eq12(contact.id, contactId))).limit(1);
   if (!c) throw Errors.badRequest("Contacto inexistente");
   await db.insert(dealContact).values({ dealId, contactId, role }).onConflictDoNothing();
 }
 async function removeDealContact(portalId, dealId, contactId) {
   await getDeal(portalId, dealId);
-  await db.delete(dealContact).where(and9(eq10(dealContact.dealId, dealId), eq10(dealContact.contactId, contactId)));
+  await db.delete(dealContact).where(and11(eq12(dealContact.dealId, dealId), eq12(dealContact.contactId, contactId)));
 }
 async function getDealDetail(portalId, id) {
   const dealRow = await getDeal(portalId, id);
   let companyRow = null;
   if (dealRow.companyId) {
-    const [c] = await db.select().from(company).where(eq10(company.id, dealRow.companyId)).limit(1);
+    const [c] = await db.select().from(company).where(eq12(company.id, dealRow.companyId)).limit(1);
     companyRow = c ?? null;
   }
   const ids = /* @__PURE__ */ new Set();
   if (dealRow.primaryContactId) ids.add(dealRow.primaryContactId);
-  const links = await db.select({ contactId: dealContact.contactId }).from(dealContact).where(eq10(dealContact.dealId, id));
+  const links = await db.select({ contactId: dealContact.contactId }).from(dealContact).where(eq12(dealContact.dealId, id));
   for (const l of links) ids.add(l.contactId);
   let contacts = [];
   if (ids.size > 0) {
-    contacts = await db.select().from(contact).where(and9(eq10(contact.portalId, portalId), inArray3(contact.id, [...ids])));
+    contacts = await db.select().from(contact).where(and11(eq12(contact.portalId, portalId), inArray3(contact.id, [...ids])));
   }
-  const notes = await db.select().from(note).where(and9(eq10(note.portalId, portalId), eq10(note.dealId, id))).orderBy(desc5(note.createdAt)).limit(50);
-  const tasks = await db.select().from(task).where(and9(eq10(task.portalId, portalId), eq10(task.dealId, id))).orderBy(desc5(task.createdAt)).limit(50);
-  const history = await db.select().from(recordHistory).where(and9(eq10(recordHistory.entityType, ENTITY4), eq10(recordHistory.entityId, id))).orderBy(desc5(recordHistory.changedAt)).limit(50);
-  return { deal: dealRow, company: companyRow, contacts, notes, tasks, history };
+  const notes = await db.select().from(note).where(and11(eq12(note.portalId, portalId), eq12(note.dealId, id))).orderBy(desc6(note.createdAt)).limit(50);
+  const tasks = await db.select().from(task).where(and11(eq12(task.portalId, portalId), eq12(task.dealId, id))).orderBy(desc6(task.createdAt)).limit(50);
+  const history = await db.select().from(recordHistory).where(and11(eq12(recordHistory.entityType, ENTITY4), eq12(recordHistory.entityId, id))).orderBy(desc6(recordHistory.changedAt)).limit(50);
+  let clientPortal = { status: "not_activated", email: null };
+  const primaryContact = dealRow.primaryContactId ? contacts.find((c) => c.id === dealRow.primaryContactId) : void 0;
+  if (primaryContact?.email) {
+    const [acc] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and11(eq12(clientAccount.portalId, portalId), eq12(clientAccount.email, primaryContact.email))).limit(1);
+    clientPortal = { status: acc ? "active" : "not_activated", email: primaryContact.email };
+  }
+  return { deal: dealRow, company: companyRow, contacts, notes, tasks, history, clientPortal };
 }
 var DEAL_FIELDS = {
   name: { column: deal.name, kind: "text" },
@@ -2735,30 +3102,110 @@ async function searchDeals(portalId, body) {
   const cond = body.filter ? buildFilter(body.filter, DEAL_FIELDS) : void 0;
   const cursor = decodeCursor(body.cursor);
   const rows = await db.select().from(deal).where(
-    and9(eq10(deal.portalId, portalId), eq10(deal.archived, false), cond, cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
-  ).orderBy(desc5(deal.createdAt), desc5(deal.id)).limit(body.limit + 1);
+    and11(eq12(deal.portalId, portalId), eq12(deal.archived, false), cond, cursor ? cursorWhere(deal.createdAt, deal.id, cursor) : void 0)
+  ).orderBy(desc6(deal.createdAt), desc6(deal.id)).limit(body.limit + 1);
   return paginateRows(rows, body.limit);
 }
 
 // src/modules/deals/project-updates.service.ts
-import { and as and11, desc as desc6, eq as eq12 } from "drizzle-orm";
+import { and as and13, desc as desc7, eq as eq14 } from "drizzle-orm";
 
 // src/lib/portal-access.ts
-import { and as and10, eq as eq11 } from "drizzle-orm";
+import { and as and12, eq as eq13 } from "drizzle-orm";
 async function clientDealIds(clientId) {
-  const rows = await db.select({ dealId: clientDealAccess.dealId }).from(clientDealAccess).where(eq11(clientDealAccess.clientId, clientId));
+  const rows = await db.select({ dealId: clientDealAccess.dealId }).from(clientDealAccess).innerJoin(deal, eq13(deal.id, clientDealAccess.dealId)).where(and12(eq13(clientDealAccess.clientId, clientId), eq13(deal.archived, false)));
   return rows.map((r) => r.dealId);
 }
 async function assertDealInPortal(portalId, dealId) {
-  const [d] = await db.select().from(deal).where(and10(eq11(deal.id, dealId), eq11(deal.portalId, portalId), eq11(deal.archived, false))).limit(1);
+  const [d] = await db.select().from(deal).where(and12(eq13(deal.id, dealId), eq13(deal.portalId, portalId), eq13(deal.archived, false))).limit(1);
   if (!d) throw Errors.badRequest("Deal inexistente");
   return d;
+}
+
+// src/lib/portal-url.ts
+var DEV_FALLBACK = "http://localhost:3000";
+var warnedMissingBase = false;
+function baseUrl() {
+  if (!env.ADMIN_URL) {
+    if (env.RESEND_API_KEY && !warnedMissingBase) {
+      warnedMissingBase = true;
+      console.error(
+        `[portal-url] ADMIN_URL no est\xE1 configurada pero RESEND_API_KEY s\xED: los emails al cliente van a salir con links a ${DEV_FALLBACK}, que no es accesible para ellos.`
+      );
+    }
+    return DEV_FALLBACK;
+  }
+  return env.ADMIN_URL.replace(/\/+$/, "");
+}
+function portalPrefix(brandSlug) {
+  return brandSlug ? `/c/${encodeURIComponent(brandSlug)}` : "/portal";
+}
+function portalHomeUrl(brandSlug) {
+  return `${baseUrl()}${portalPrefix(brandSlug)}`;
+}
+
+// src/lib/emails/esc.ts
+function escHtml2(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function escAttr2(s2) {
+  if (!s2) return "#";
+  return s2.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function escParagraphs(s2, style = "") {
+  const attr = style ? ` style="${style}"` : "";
+  return s2.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean).map((block) => `<p${attr}>${escHtml2(block).replace(/\n/g, "<br />")}</p>`).join("\n");
+}
+
+// src/modules/deals/emails/project-update-published.ts
+function projectUpdateSubject(dealName) {
+  return `Novedad de tu proyecto \u2014 ${dealName}`;
+}
+function projectUpdateHtml(p) {
+  const saludo = p.firstName ? `Hola ${escHtml2(p.firstName)},` : "Hola,";
+  const fase = p.phaseLabel ? `<p style="margin: 0 0 16px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716c;">Fase: ${escHtml2(p.phaseLabel)}</p>` : "";
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Novedad de tu proyecto</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f5f5f4;">
+  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #1c1917; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
+
+    <p style="margin: 0 0 4px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716c;">Novedad del proyecto</p>
+    <h1 style="margin: 0 0 24px; font-size: 22px; line-height: 1.3; font-weight: 600;">${escHtml2(p.dealName)}</h1>
+
+    <p style="font-size: 15px; line-height: 1.6;">${saludo}</p>
+
+    <div style="background: #ffffff; border: 1px solid #e7e5e4; border-radius: 12px; padding: 20px 22px; margin: 20px 0;">
+      ${fase}
+      ${escParagraphs(p.body, "margin: 0 0 12px; font-size: 15px; line-height: 1.6;")}
+    </div>
+
+    <p style="margin: 24px 0;">
+      <a href="${escAttr2(p.portalUrl)}"
+         style="display: inline-block; padding: 12px 24px; background: #0c0a09; color: #fafaf9; border-radius: 999px; text-decoration: none; font-size: 14px; font-weight: 600;">
+        Ver el estado del proyecto
+      </a>
+    </p>
+
+    <hr style="margin: 32px 0 16px; border: none; border-top: 1px solid #e7e5e4;" />
+    <p style="font-size: 12px; color: #78716c; line-height: 1.5;">
+      Recib\xEDs este aviso porque ten\xE9s un proyecto activo con nosotros.
+      Respond\xE9 este email si quer\xE9s hacernos una consulta.
+    </p>
+  </div>
+</body>
+</html>`;
 }
 
 // src/modules/deals/project-updates.service.ts
 var ENTITY5 = "project_update";
 async function assertStageInPipeline3(tx, pipelineId, stageId) {
-  const [stage] = await tx.select().from(pipelineStage).where(eq12(pipelineStage.id, stageId)).limit(1);
+  const [stage] = await tx.select().from(pipelineStage).where(eq14(pipelineStage.id, stageId)).limit(1);
   if (!stage) throw Errors.badRequest("Stage inexistente");
   if (stage.pipelineId !== pipelineId) throw Errors.badRequest("El stage no pertenece al pipeline del deal");
   return stage;
@@ -2775,7 +3222,7 @@ async function listDealUpdates(portalId, dealId) {
     createdById: hubUser.id,
     createdByFirstName: hubUser.firstName,
     createdByEmail: hubUser.email
-  }).from(projectUpdate).innerJoin(hubUser, eq12(hubUser.id, projectUpdate.createdBy)).leftJoin(pipelineStage, eq12(pipelineStage.id, projectUpdate.stageId)).where(and11(eq12(projectUpdate.portalId, portalId), eq12(projectUpdate.dealId, dealId))).orderBy(desc6(projectUpdate.createdAt));
+  }).from(projectUpdate).innerJoin(hubUser, eq14(hubUser.id, projectUpdate.createdBy)).leftJoin(pipelineStage, eq14(pipelineStage.id, projectUpdate.stageId)).where(and13(eq14(projectUpdate.portalId, portalId), eq14(projectUpdate.dealId, dealId))).orderBy(desc7(projectUpdate.createdAt));
   return rows.map((r) => ({
     id: r.id,
     body: r.body,
@@ -2788,34 +3235,76 @@ async function listDealUpdates(portalId, dealId) {
 }
 async function createDealUpdate(portalId, userId, dealId, input) {
   const d = await assertDealInPortal(portalId, dealId);
-  return db.transaction(async (tx) => {
+  const row = await db.transaction(async (tx) => {
     let stageId = null;
     if (input.stageId) {
       const stage = await assertStageInPipeline3(tx, d.pipelineId, input.stageId);
       stageId = stage.id;
     } else {
-      const [pl] = await tx.select({ label: pipeline.label }).from(pipeline).where(eq12(pipeline.id, d.pipelineId)).limit(1);
+      const [pl] = await tx.select({ label: pipeline.label }).from(pipeline).where(eq14(pipeline.id, d.pipelineId)).limit(1);
       if (pl?.label === PRODUCTION_PIPELINE_LABEL) stageId = d.stageId;
     }
-    const [row] = await tx.insert(projectUpdate).values({ portalId, dealId, stageId, body: input.body, createdBy: userId }).returning();
-    if (!row) throw Errors.internal("No se pudo crear la novedad");
+    const [row2] = await tx.insert(projectUpdate).values({ portalId, dealId, stageId, body: input.body, createdBy: userId }).returning();
+    if (!row2) throw Errors.internal("No se pudo crear la novedad");
     await writeAudit({
       tx,
       portalId,
       userId,
       entityType: ENTITY5,
-      entityId: row.id,
+      entityId: row2.id,
       action: "PROJECT_UPDATE_CREATED",
       payload: { dealId, stageId }
     });
-    return row;
+    return row2;
   });
+  await notifyClientOfUpdate(portalId, dealId, row);
+  return row;
+}
+async function notifyClientOfUpdate(portalId, dealId, row) {
+  try {
+    const [d] = await db.select({ name: deal.name }).from(deal).where(eq14(deal.id, dealId)).limit(1);
+    if (!d) return;
+    let phaseLabel = null;
+    if (row.stageId) {
+      const [stage] = await db.select({ label: pipelineStage.label }).from(pipelineStage).where(eq14(pipelineStage.id, row.stageId)).limit(1);
+      phaseLabel = stage?.label ?? null;
+    }
+    const recipients = await db.select({
+      email: clientAccount.email,
+      brandSlug: clientAccount.brandSlug,
+      firstName: contact.firstName
+    }).from(clientDealAccess).innerJoin(clientAccount, eq14(clientAccount.id, clientDealAccess.clientId)).leftJoin(contact, eq14(contact.id, clientAccount.contactId)).where(
+      and13(
+        eq14(clientDealAccess.dealId, dealId),
+        eq14(clientAccount.portalId, portalId),
+        eq14(clientAccount.isActive, true)
+      )
+    );
+    for (const r of recipients) {
+      await sendEmail({
+        to: r.email,
+        subject: projectUpdateSubject(d.name),
+        html: projectUpdateHtml({
+          firstName: r.firstName,
+          dealName: d.name,
+          phaseLabel,
+          body: row.body,
+          portalUrl: portalHomeUrl(r.brandSlug)
+        })
+      });
+    }
+  } catch (err) {
+    console.error("[project-updates.service] No se pudo avisar al cliente de la novedad", {
+      projectUpdateId: row.id,
+      error: err?.message ?? err
+    });
+  }
 }
 async function archiveDealUpdate(portalId, userId, id) {
   await db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(projectUpdate).where(and11(eq12(projectUpdate.portalId, portalId), eq12(projectUpdate.id, id), eq12(projectUpdate.archived, false))).limit(1);
+    const [existing] = await tx.select().from(projectUpdate).where(and13(eq14(projectUpdate.portalId, portalId), eq14(projectUpdate.id, id), eq14(projectUpdate.archived, false))).limit(1);
     if (!existing) throw Errors.notFound("Novedad no encontrada");
-    await tx.update(projectUpdate).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq12(projectUpdate.id, id));
+    await tx.update(projectUpdate).set({ archived: true, archivedAt: /* @__PURE__ */ new Date() }).where(eq14(projectUpdate.id, id));
     await writeAudit({
       tx,
       portalId,
@@ -2983,6 +3472,22 @@ async function dealsRoutes(app2) {
       return ok(await changeStage(request.hubUser.portalId, request.hubUser.sub, request.params.id, request.body.stageId));
     }
   );
+  r.post(
+    "/:id/activate-portal",
+    {
+      schema: {
+        tags: [TAG3],
+        summary: "Invitar manualmente al Client Portal",
+        description: "Activa el Client Portal para el contacto principal del deal sin esperar a que gane o a DocuSeal. Idempotente: no duplica la cuenta ni reenv\xEDa el email si ya estaba activa. `missing_contact` / `missing_email` / `already_active` son resultados de negocio v\xE1lidos, no errores \u2014 siempre 200.",
+        security: security3,
+        params: IdParamSchema
+      },
+      preHandler: [authorize("owner", "member", "collaborator")]
+    },
+    async (request) => {
+      return ok(await activateClientPortalManually(request.hubUser.portalId, request.hubUser.sub, request.params.id));
+    }
+  );
   r.delete(
     "/:id",
     { schema: { tags: [TAG3], summary: "Archivar deal", description: "Soft delete (archived = true). Requiere rol owner.", security: security3, params: IdParamSchema }, preHandler: [authorize("owner")] },
@@ -3023,14 +3528,14 @@ var UpdateStageSchema = z8.object({
 });
 
 // src/modules/pipelines/pipelines.service.ts
-import { and as and12, asc, count as count2, eq as eq13 } from "drizzle-orm";
+import { and as and14, asc, count as count2, eq as eq15 } from "drizzle-orm";
 async function assertPipeline(portalId, pipelineId) {
-  const [pl] = await db.select({ id: pipeline.id }).from(pipeline).where(and12(eq13(pipeline.id, pipelineId), eq13(pipeline.portalId, portalId))).limit(1);
+  const [pl] = await db.select({ id: pipeline.id }).from(pipeline).where(and14(eq15(pipeline.id, pipelineId), eq15(pipeline.portalId, portalId))).limit(1);
   if (!pl) throw Errors.notFound("Pipeline no encontrado");
 }
 async function addStage(portalId, pipelineId, input) {
   await assertPipeline(portalId, pipelineId);
-  const existing = await db.select({ id: pipelineStage.id }).from(pipelineStage).where(eq13(pipelineStage.pipelineId, pipelineId));
+  const existing = await db.select({ id: pipelineStage.id }).from(pipelineStage).where(eq15(pipelineStage.pipelineId, pipelineId));
   const [row] = await db.insert(pipelineStage).values({
     pipelineId,
     label: input.label,
@@ -3046,24 +3551,24 @@ async function addStage(portalId, pipelineId, input) {
 }
 async function deleteStage(portalId, pipelineId, stageId) {
   await assertPipeline(portalId, pipelineId);
-  const [used] = await db.select({ n: count2() }).from(deal).where(eq13(deal.stageId, stageId));
+  const [used] = await db.select({ n: count2() }).from(deal).where(eq15(deal.stageId, stageId));
   if ((used?.n ?? 0) > 0) throw Errors.badRequest("La etapa tiene deals; movelos antes de eliminarla");
-  const res = await db.delete(pipelineStage).where(and12(eq13(pipelineStage.id, stageId), eq13(pipelineStage.pipelineId, pipelineId))).returning({ id: pipelineStage.id });
+  const res = await db.delete(pipelineStage).where(and14(eq15(pipelineStage.id, stageId), eq15(pipelineStage.pipelineId, pipelineId))).returning({ id: pipelineStage.id });
   if (res.length === 0) throw Errors.notFound("Etapa no encontrada");
 }
 async function listPipelines(portalId) {
-  const pipelines = await db.select().from(pipeline).where(and12(eq13(pipeline.portalId, portalId), eq13(pipeline.archived, false))).orderBy(asc(pipeline.displayOrder), asc(pipeline.id));
+  const pipelines = await db.select().from(pipeline).where(and14(eq15(pipeline.portalId, portalId), eq15(pipeline.archived, false))).orderBy(asc(pipeline.displayOrder), asc(pipeline.id));
   const result = [];
   for (const pl of pipelines) {
-    const stages = await db.select().from(pipelineStage).where(and12(eq13(pipelineStage.pipelineId, pl.id), eq13(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
+    const stages = await db.select().from(pipelineStage).where(and14(eq15(pipelineStage.pipelineId, pl.id), eq15(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
     result.push({ ...pl, stages });
   }
   return result;
 }
 async function getStages(portalId, pipelineId) {
-  const [pl] = await db.select().from(pipeline).where(and12(eq13(pipeline.id, pipelineId), eq13(pipeline.portalId, portalId))).limit(1);
+  const [pl] = await db.select().from(pipeline).where(and14(eq15(pipeline.id, pipelineId), eq15(pipeline.portalId, portalId))).limit(1);
   if (!pl) throw Errors.notFound("Pipeline no encontrado");
-  return db.select().from(pipelineStage).where(and12(eq13(pipelineStage.pipelineId, pipelineId), eq13(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
+  return db.select().from(pipelineStage).where(and14(eq15(pipelineStage.pipelineId, pipelineId), eq15(pipelineStage.archived, false))).orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id));
 }
 async function updateStage(portalId, pipelineId, stageId, input) {
   await assertPipeline(portalId, pipelineId);
@@ -3075,7 +3580,7 @@ async function updateStage(portalId, pipelineId, stageId, input) {
   if ("probability" in input) updates.probability = input.probability === void 0 || input.probability === null ? null : input.probability.toFixed(4);
   if ("exitCriteria" in input) updates.exitCriteria = input.exitCriteria ?? null;
   if ("description" in input) updates.description = input.description ?? null;
-  const [row] = await db.update(pipelineStage).set(updates).where(and12(eq13(pipelineStage.id, stageId), eq13(pipelineStage.pipelineId, pipelineId))).returning();
+  const [row] = await db.update(pipelineStage).set(updates).where(and14(eq15(pipelineStage.id, stageId), eq15(pipelineStage.pipelineId, pipelineId))).returning();
   if (!row) throw Errors.notFound("Etapa no encontrada");
   return row;
 }
@@ -3086,15 +3591,15 @@ async function createPipeline(portalId, input) {
     let stages = [];
     if (input.stages && input.stages.length > 0) {
       stages = await tx.insert(pipelineStage).values(
-        input.stages.map((s, i) => ({
+        input.stages.map((s2, i) => ({
           pipelineId: pl.id,
-          label: s.label,
-          displayOrder: s.displayOrder ?? i,
-          probability: s.probability === void 0 ? null : s.probability.toFixed(4),
-          isClosed: s.isClosed ?? false,
-          isWon: s.isWon ?? false,
-          exitCriteria: s.exitCriteria ?? null,
-          description: s.description ?? null
+          label: s2.label,
+          displayOrder: s2.displayOrder ?? i,
+          probability: s2.probability === void 0 ? null : s2.probability.toFixed(4),
+          isClosed: s2.isClosed ?? false,
+          isWon: s2.isWon ?? false,
+          exitCriteria: s2.exitCriteria ?? null,
+          description: s2.description ?? null
         }))
       ).returning();
     }
@@ -3219,7 +3724,7 @@ async function leadsRoutes(app2) {
 }
 
 // src/modules/clients/clients.service.ts
-import { eq as eq14, inArray as inArray4, desc as desc7 } from "drizzle-orm";
+import { eq as eq16, inArray as inArray4, desc as desc8 } from "drizzle-orm";
 var CLIENT_STAGES = ["customer"];
 function listClients(portalId, query) {
   return listContactsByLifecycle(portalId, CLIENT_STAGES, query);
@@ -3234,7 +3739,7 @@ async function listClientAccounts(portalId) {
     inviteAccepted: clientAccount.inviteAccepted,
     isActive: clientAccount.isActive,
     createdAt: clientAccount.createdAt
-  }).from(clientAccount).where(eq14(clientAccount.portalId, portalId)).orderBy(desc7(clientAccount.createdAt));
+  }).from(clientAccount).where(eq16(clientAccount.portalId, portalId)).orderBy(desc8(clientAccount.createdAt));
   if (accounts.length === 0) return [];
   const accIds = accounts.map((a) => a.id);
   const accesses = await db.select({ clientId: clientDealAccess.clientId, dealId: clientDealAccess.dealId }).from(clientDealAccess).where(inArray4(clientDealAccess.clientId, accIds));
@@ -3345,21 +3850,21 @@ var TaskQuerySchema = z10.object({
 });
 
 // src/modules/activities/activities.service.ts
-import { and as and13, desc as desc8, eq as eq15 } from "drizzle-orm";
+import { and as and15, desc as desc9, eq as eq17 } from "drizzle-orm";
 async function createNote(portalId, userId, input) {
   const [row] = await db.insert(note).values({ ...input, portalId, createdBy: userId }).returning();
   if (!row) throw Errors.internal("No se pudo crear la nota");
   return row;
 }
 async function listNotes(portalId, filters) {
-  const conds = [eq15(note.portalId, portalId)];
-  if (filters.contactId) conds.push(eq15(note.contactId, filters.contactId));
-  if (filters.dealId) conds.push(eq15(note.dealId, filters.dealId));
-  if (filters.companyId) conds.push(eq15(note.companyId, filters.companyId));
-  return db.select().from(note).where(and13(...conds)).orderBy(desc8(note.createdAt)).limit(100);
+  const conds = [eq17(note.portalId, portalId)];
+  if (filters.contactId) conds.push(eq17(note.contactId, filters.contactId));
+  if (filters.dealId) conds.push(eq17(note.dealId, filters.dealId));
+  if (filters.companyId) conds.push(eq17(note.companyId, filters.companyId));
+  return db.select().from(note).where(and15(...conds)).orderBy(desc9(note.createdAt)).limit(100);
 }
 async function deleteNote(portalId, id) {
-  const res = await db.delete(note).where(and13(eq15(note.portalId, portalId), eq15(note.id, id))).returning({ id: note.id });
+  const res = await db.delete(note).where(and15(eq17(note.portalId, portalId), eq17(note.id, id))).returning({ id: note.id });
   if (res.length === 0) throw Errors.notFound("Nota no encontrada");
 }
 async function createTask(portalId, userId, input) {
@@ -3369,15 +3874,15 @@ async function createTask(portalId, userId, input) {
   return row;
 }
 async function listTasks(portalId, filters) {
-  const conds = [eq15(task.portalId, portalId)];
-  if (filters.status) conds.push(eq15(task.status, filters.status));
-  if (filters.assignedTo) conds.push(eq15(task.assignedTo, filters.assignedTo));
-  if (filters.contactId) conds.push(eq15(task.contactId, filters.contactId));
-  if (filters.dealId) conds.push(eq15(task.dealId, filters.dealId));
-  return db.select().from(task).where(and13(...conds)).orderBy(desc8(task.createdAt)).limit(200);
+  const conds = [eq17(task.portalId, portalId)];
+  if (filters.status) conds.push(eq17(task.status, filters.status));
+  if (filters.assignedTo) conds.push(eq17(task.assignedTo, filters.assignedTo));
+  if (filters.contactId) conds.push(eq17(task.contactId, filters.contactId));
+  if (filters.dealId) conds.push(eq17(task.dealId, filters.dealId));
+  return db.select().from(task).where(and15(...conds)).orderBy(desc9(task.createdAt)).limit(200);
 }
 async function updateTask(portalId, id, input) {
-  const [existing] = await db.select().from(task).where(and13(eq15(task.portalId, portalId), eq15(task.id, id))).limit(1);
+  const [existing] = await db.select().from(task).where(and15(eq17(task.portalId, portalId), eq17(task.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Tarea no encontrada");
   const patch = {};
   if (input.title !== void 0) patch.title = input.title;
@@ -3390,12 +3895,12 @@ async function updateTask(portalId, id, input) {
     if (input.status === "completed") patch.completedAt = existing.completedAt ?? /* @__PURE__ */ new Date();
     else patch.completedAt = null;
   }
-  const [row] = await db.update(task).set(patch).where(eq15(task.id, id)).returning();
+  const [row] = await db.update(task).set(patch).where(eq17(task.id, id)).returning();
   if (!row) throw Errors.internal("No se pudo actualizar la tarea");
   return row;
 }
 async function deleteTask(portalId, id) {
-  const res = await db.delete(task).where(and13(eq15(task.portalId, portalId), eq15(task.id, id))).returning({ id: task.id });
+  const res = await db.delete(task).where(and15(eq17(task.portalId, portalId), eq17(task.id, id))).returning({ id: task.id });
   if (res.length === 0) throw Errors.notFound("Tarea no encontrada");
 }
 
@@ -3513,7 +4018,7 @@ async function tasksRoutes(app2) {
 }
 
 // src/modules/dashboard/dashboard.service.ts
-import { and as and14, asc as asc2, count as count3, desc as desc9, eq as eq16, inArray as inArray5, notInArray, sql as sql24 } from "drizzle-orm";
+import { and as and16, asc as asc2, count as count3, desc as desc10, eq as eq18, inArray as inArray5, notInArray, sql as sql24 } from "drizzle-orm";
 var OPEN_TASK_STATUSES = ["completed", "cancelled"];
 async function getDashboard(portalId) {
   const [
@@ -3527,14 +4032,14 @@ async function getDashboard(portalId) {
     recentTasks,
     recentDeals
   ] = await Promise.all([
-    db.select({ n: count3() }).from(contact).where(and14(eq16(contact.portalId, portalId), eq16(contact.archived, false), inArray5(contact.lifecycleStage, LEAD_STAGES))),
-    db.select({ n: count3() }).from(contact).where(and14(eq16(contact.portalId, portalId), eq16(contact.archived, false), eq16(contact.lifecycleStage, "customer"))),
-    db.select({ n: count3() }).from(company).where(and14(eq16(company.portalId, portalId), eq16(company.archived, false))),
-    db.select({ n: count3() }).from(task).where(and14(eq16(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
-    db.select({ openDeals: count3(), openValue: sql24`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
+    db.select({ n: count3() }).from(contact).where(and16(eq18(contact.portalId, portalId), eq18(contact.archived, false), inArray5(contact.lifecycleStage, LEAD_STAGES))),
+    db.select({ n: count3() }).from(contact).where(and16(eq18(contact.portalId, portalId), eq18(contact.archived, false), eq18(contact.lifecycleStage, "customer"))),
+    db.select({ n: count3() }).from(company).where(and16(eq18(company.portalId, portalId), eq18(company.archived, false))),
+    db.select({ n: count3() }).from(task).where(and16(eq18(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
+    db.select({ openDeals: count3(), openValue: sql24`coalesce(sum(${deal.amount}), 0)` }).from(deal).where(and16(eq18(deal.portalId, portalId), eq18(deal.archived, false))),
     db.select({
       weighted: sql24`coalesce(sum(${deal.amount} * coalesce(${pipelineStage.probability}, 0)), 0)`
-    }).from(deal).innerJoin(pipelineStage, eq16(deal.stageId, pipelineStage.id)).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))),
+    }).from(deal).innerJoin(pipelineStage, eq18(deal.stageId, pipelineStage.id)).where(and16(eq18(deal.portalId, portalId), eq18(deal.archived, false))),
     db.select({
       stageId: pipelineStage.id,
       label: pipelineStage.label,
@@ -3542,10 +4047,10 @@ async function getDashboard(portalId) {
       value: sql24`coalesce(sum(${deal.amount}), 0)`
     }).from(pipelineStage).innerJoin(
       pipeline,
-      and14(eq16(pipelineStage.pipelineId, pipeline.id), eq16(pipeline.portalId, portalId), eq16(pipeline.archived, false))
-    ).leftJoin(deal, and14(eq16(deal.stageId, pipelineStage.id), eq16(deal.archived, false))).groupBy(pipelineStage.id, pipelineStage.label, pipelineStage.displayOrder).orderBy(asc2(pipelineStage.displayOrder)),
-    db.select().from(task).where(and14(eq16(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))).orderBy(asc2(task.dueDate), desc9(task.createdAt)).limit(6),
-    db.select().from(deal).where(and14(eq16(deal.portalId, portalId), eq16(deal.archived, false))).orderBy(desc9(deal.createdAt)).limit(6)
+      and16(eq18(pipelineStage.pipelineId, pipeline.id), eq18(pipeline.portalId, portalId), eq18(pipeline.archived, false))
+    ).leftJoin(deal, and16(eq18(deal.stageId, pipelineStage.id), eq18(deal.archived, false))).groupBy(pipelineStage.id, pipelineStage.label, pipelineStage.displayOrder).orderBy(asc2(pipelineStage.displayOrder)),
+    db.select().from(task).where(and16(eq18(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))).orderBy(asc2(task.dueDate), desc10(task.createdAt)).limit(6),
+    db.select().from(deal).where(and16(eq18(deal.portalId, portalId), eq18(deal.archived, false))).orderBy(desc10(deal.createdAt)).limit(6)
   ]);
   return {
     counts: {
@@ -3719,7 +4224,7 @@ var WeekBookingsQuerySchema = z11.object({
 });
 
 // src/modules/calendar/calendar.service.ts
-import { and as and15, asc as asc3, eq as eq17, gte as gte2, inArray as inArray6, lte as lte2 } from "drizzle-orm";
+import { and as and17, asc as asc3, eq as eq19, gte as gte2, inArray as inArray6, lte as lte2 } from "drizzle-orm";
 import { addMinutes as addMinutes2 } from "date-fns";
 import { format as formatTz2, toZonedTime as toZonedTime2 } from "date-fns-tz";
 import jwt from "jsonwebtoken";
@@ -3889,17 +4394,17 @@ function bookingConfirmInviteeHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #2563eb;">\u2705 Reuni\xF3n confirmada</h2>
 
-  <p>Hola ${escHtml2(p.guestName)},</p>
+  <p>Hola ${escHtml3(p.guestName)},</p>
   <p>Tu reuni\xF3n ha sido confirmada. Aqu\xED est\xE1n los detalles:</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml2(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml3(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora</td>
-      <td style="padding: 8px 12px;">${escHtml2(p.startLocal)}</td>
+      <td style="padding: 8px 12px;">${escHtml3(p.startLocal)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Duraci\xF3n</td>
@@ -3907,17 +4412,17 @@ function bookingConfirmInviteeHtml(p) {
     </tr>
     ${p.location ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Ubicaci\xF3n / Link</td>
-      <td style="padding: 8px 12px;"><a href="${escAttr2(p.location)}" style="color: #2563eb;">${escHtml2(p.location)}</a></td>
+      <td style="padding: 8px 12px;"><a href="${escAttr3(p.location)}" style="color: #2563eb;">${escHtml3(p.location)}</a></td>
     </tr>` : ""}
   </table>
 
   <p style="margin-top: 24px;">\xBFNecesit\xE1s cambiar algo?</p>
   <p>
-    <a href="${escAttr2(p.cancelUrl)}"
+    <a href="${escAttr3(p.cancelUrl)}"
        style="display: inline-block; margin-right: 12px; padding: 10px 18px; background: #ef4444; color: #fff; border-radius: 6px; text-decoration: none;">
       Cancelar reuni\xF3n
     </a>
-    <a href="${escAttr2(p.rescheduleUrl)}"
+    <a href="${escAttr3(p.rescheduleUrl)}"
        style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; border-radius: 6px; text-decoration: none;">
       Reprogramar
     </a>
@@ -3931,13 +4436,13 @@ function bookingConfirmInviteeHtml(p) {
 </body>
 </html>`;
 }
-function escHtml2(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml3(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr2(s) {
-  if (!s) return "#";
-  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escAttr3(s2) {
+  if (!s2) return "#";
+  return s2.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/calendar/emails/booking-cancelled.ts
@@ -3952,17 +4457,17 @@ function bookingCancelledHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #ef4444;">\u274C Reuni\xF3n cancelada</h2>
 
-  <p>Hola ${escHtml3(p.guestName)},</p>
+  <p>Hola ${escHtml4(p.guestName)},</p>
   <p>Tu reuni\xF3n ha sido cancelada.</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora original</td>
-      <td style="padding: 8px 12px;">${escHtml3(p.startLocal)}</td>
+      <td style="padding: 8px 12px;">${escHtml4(p.startLocal)}</td>
     </tr>
   </table>
 
@@ -3975,14 +4480,14 @@ function bookingCancelledHtml(p) {
 </body>
 </html>`;
 }
-function escHtml3(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml4(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/calendar/emails/booking-host-notify.ts
 function bookingHostNotifyHtml(p) {
-  const greeting = p.hostName ? `Hola ${escHtml4(p.hostName)},` : "Hola,";
+  const greeting = p.hostName ? `Hola ${escHtml5(p.hostName)},` : "Hola,";
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -3993,21 +4498,21 @@ function bookingHostNotifyHtml(p) {
 <body style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 24px;">
   <h2 style="color: #2563eb;">\u{1F4C5} Nueva reuni\xF3n agendada</h2>
 
-  <p>${escHtml4(greeting)}</p>
+  <p>${escHtml5(greeting)}</p>
   <p>Ten\xE9s una nueva reuni\xF3n confirmada en tu agenda:</p>
 
   <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold; width: 40%;">Evento</td>
-      <td style="padding: 8px 12px;">${escHtml4(p.eventName)}</td>
+      <td style="padding: 8px 12px;">${escHtml5(p.eventName)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Invitado</td>
-      <td style="padding: 8px 12px;">${escHtml4(p.guestName)} &lt;<a href="mailto:${escAttr3(p.guestEmail)}" style="color: #2563eb;">${escHtml4(p.guestEmail)}</a>&gt;</td>
+      <td style="padding: 8px 12px;">${escHtml5(p.guestName)} &lt;<a href="mailto:${escAttr4(p.guestEmail)}" style="color: #2563eb;">${escHtml5(p.guestEmail)}</a>&gt;</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Fecha y hora</td>
-      <td style="padding: 8px 12px;">${escHtml4(p.startLocalHost)}</td>
+      <td style="padding: 8px 12px;">${escHtml5(p.startLocalHost)}</td>
     </tr>
     <tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Duraci\xF3n</td>
@@ -4015,11 +4520,11 @@ function bookingHostNotifyHtml(p) {
     </tr>
     ${p.location ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Ubicaci\xF3n / Link</td>
-      <td style="padding: 8px 12px;"><a href="${escAttr3(p.location)}" style="color: #2563eb;">${escHtml4(p.location)}</a></td>
+      <td style="padding: 8px 12px;"><a href="${escAttr4(p.location)}" style="color: #2563eb;">${escHtml5(p.location)}</a></td>
     </tr>` : ""}
     ${p.notes ? `<tr>
       <td style="padding: 8px 12px; background: #f1f5f9; font-weight: bold;">Notas</td>
-      <td style="padding: 8px 12px;">${escHtml4(p.notes)}</td>
+      <td style="padding: 8px 12px;">${escHtml5(p.notes)}</td>
     </tr>` : ""}
   </table>
 
@@ -4030,21 +4535,18 @@ function bookingHostNotifyHtml(p) {
 </body>
 </html>`;
 }
-function escHtml4(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml5(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr3(s) {
-  if (!s) return "#";
-  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escAttr4(s2) {
+  if (!s2) return "#";
+  return s2.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/calendar/calendar.service.ts
-function slugify(s) {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
 async function listMeetingTypes(portalId) {
-  return db.select().from(meetingType).where(eq17(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
+  return db.select().from(meetingType).where(eq19(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
 }
 async function createMeetingType(portalId, ownerId, input) {
   const [row] = await db.insert(meetingType).values({
@@ -4062,17 +4564,17 @@ async function createMeetingType(portalId, ownerId, input) {
   return row;
 }
 async function updateMeetingType(portalId, id, input) {
-  const [existing] = await db.select().from(meetingType).where(and15(eq17(meetingType.portalId, portalId), eq17(meetingType.id, id))).limit(1);
+  const [existing] = await db.select().from(meetingType).where(and17(eq19(meetingType.portalId, portalId), eq19(meetingType.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
-  const [row] = await db.update(meetingType).set({ ...input, slug: input.slug ? slugify(input.slug) : void 0 }).where(eq17(meetingType.id, id)).returning();
+  const [row] = await db.update(meetingType).set({ ...input, slug: input.slug ? slugify(input.slug) : void 0 }).where(eq19(meetingType.id, id)).returning();
   return row;
 }
 async function deleteMeetingType(portalId, id) {
-  const res = await db.delete(meetingType).where(and15(eq17(meetingType.portalId, portalId), eq17(meetingType.id, id))).returning({ id: meetingType.id });
+  const res = await db.delete(meetingType).where(and17(eq19(meetingType.portalId, portalId), eq19(meetingType.id, id))).returning({ id: meetingType.id });
   if (res.length === 0) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
 }
 async function listAvailabilityRules(ownerId) {
-  return db.select().from(availabilityRule).where(eq17(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
+  return db.select().from(availabilityRule).where(eq19(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
 }
 async function createAvailabilityRule(ownerId, input) {
   if (input.endTime <= input.startTime) throw Errors.badRequest("La hora de fin debe ser posterior a la de inicio");
@@ -4087,17 +4589,17 @@ async function createAvailabilityRule(ownerId, input) {
   return row;
 }
 async function deleteAvailabilityRule(ownerId, id) {
-  const res = await db.delete(availabilityRule).where(and15(eq17(availabilityRule.ownerId, ownerId), eq17(availabilityRule.id, id))).returning({ id: availabilityRule.id });
+  const res = await db.delete(availabilityRule).where(and17(eq19(availabilityRule.ownerId, ownerId), eq19(availabilityRule.id, id))).returning({ id: availabilityRule.id });
   if (res.length === 0) throw Errors.notFound("Regla no encontrada");
 }
 async function loadHostSchedule(mt, ownerId) {
   if (mt.availabilityScheduleId) {
-    const [schedule] = await db.select().from(availabilitySchedule).where(eq17(availabilitySchedule.id, mt.availabilityScheduleId)).limit(1);
+    const [schedule] = await db.select().from(availabilitySchedule).where(eq19(availabilitySchedule.id, mt.availabilityScheduleId)).limit(1);
     if (!schedule) {
       return loadLegacyRules(ownerId);
     }
-    const intervals = await db.select().from(availabilityInterval).where(eq17(availabilityInterval.scheduleId, schedule.id)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime));
-    const overrides = await db.select().from(dateOverride).where(eq17(dateOverride.scheduleId, schedule.id));
+    const intervals = await db.select().from(availabilityInterval).where(eq19(availabilityInterval.scheduleId, schedule.id)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime));
+    const overrides = await db.select().from(dateOverride).where(eq19(dateOverride.scheduleId, schedule.id));
     const weeklyIntervals = intervals.map((i) => ({
       dayOfWeek: i.dayOfWeek,
       // Los campos time en Drizzle/PG llegan como string 'HH:MM:SS' → tomar solo 'HH:MM'
@@ -4118,7 +4620,7 @@ async function loadHostSchedule(mt, ownerId) {
   return loadLegacyRules(ownerId);
 }
 async function loadLegacyRules(ownerId) {
-  const rules = await db.select().from(availabilityRule).where(eq17(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
+  const rules = await db.select().from(availabilityRule).where(eq19(availabilityRule.ownerId, ownerId)).orderBy(asc3(availabilityRule.dayOfWeek), asc3(availabilityRule.startTime));
   const timeZone = rules[0]?.timeZone ?? "America/Argentina/Buenos_Aires";
   const intervals = rules.map((r) => ({
     dayOfWeek: r.dayOfWeek,
@@ -4153,12 +4655,20 @@ function verifyBookingToken(token, expectedType) {
     throw Errors.unauthorized("Token inv\xE1lido o expirado");
   }
 }
-async function getPublicEventType(portalId, eventSlug) {
+async function resolvePortalRef(ref) {
+  const [bySlug] = await db.select({ id: portal.id }).from(portal).where(eq19(portal.slug, ref)).limit(1);
+  if (bySlug) return bySlug.id;
+  const [byId] = await db.select({ id: portal.id }).from(portal).where(eq19(portal.id, ref)).limit(1);
+  if (byId) return byId.id;
+  throw Errors.notFound("Portal no encontrado");
+}
+async function getPublicEventType(portalRef, eventSlug) {
+  const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
-    and15(
-      eq17(meetingType.portalId, portalId),
-      eq17(meetingType.slug, eventSlug),
-      eq17(meetingType.isActive, true)
+    and17(
+      eq19(meetingType.portalId, portalId),
+      eq19(meetingType.slug, eventSlug),
+      eq19(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
@@ -4191,7 +4701,7 @@ function toEventTypeConfig(mt) {
 }
 async function getSchedulesForMeetingType(mt) {
   if (mt.kind === "group") {
-    const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq17(eventMembership.meetingTypeId, mt.id));
+    const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq19(eventMembership.meetingTypeId, mt.id));
     const hostIds = memberships.map((m) => m.hostId);
     if (hostIds.length === 0) return { schedules: [], hostIds: [] };
     const schedules = await Promise.all(hostIds.map((hostId) => loadHostSchedule(mt, hostId)));
@@ -4201,7 +4711,7 @@ async function getSchedulesForMeetingType(mt) {
 }
 async function getBusyBookings(hostIds, excludeBookingId) {
   if (hostIds.length === 0) return [];
-  const rows = await db.select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status }).from(booking).where(and15(inArray6(booking.ownerId, hostIds), eq17(booking.status, "confirmed")));
+  const rows = await db.select({ id: booking.id, startsAt: booking.startsAt, endsAt: booking.endsAt, status: booking.status }).from(booking).where(and17(inArray6(booking.ownerId, hostIds), eq19(booking.status, "confirmed")));
   return rows.filter((b) => b.id !== excludeBookingId).map((b) => ({
     startsAt: new Date(b.startsAt).toISOString(),
     endsAt: new Date(b.endsAt).toISOString(),
@@ -4229,17 +4739,18 @@ async function assertSlotAvailable(mt, startsAtIso, excludeBookingId) {
     now: /* @__PURE__ */ new Date()
   });
   const target = startsAt.getTime();
-  const available = slots.some((s) => new Date(s.startUtc).getTime() === target);
+  const available = slots.some((s2) => new Date(s2.startUtc).getTime() === target);
   if (!available) {
     throw Errors.badRequest("El horario seleccionado no est\xE1 disponible");
   }
 }
-async function getPublicSlots(portalId, eventSlug, from, to, tz) {
+async function getPublicSlots(portalRef, eventSlug, from, to, tz) {
+  const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
-    and15(
-      eq17(meetingType.portalId, portalId),
-      eq17(meetingType.slug, eventSlug),
-      eq17(meetingType.isActive, true)
+    and17(
+      eq19(meetingType.portalId, portalId),
+      eq19(meetingType.slug, eventSlug),
+      eq19(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
@@ -4257,25 +4768,26 @@ async function getPublicSlots(portalId, eventSlug, from, to, tz) {
     inviteeTimezone: tz,
     now: /* @__PURE__ */ new Date()
   });
-  return slots.map((s) => ({
-    startUtc: s.startUtc,
-    endUtc: s.endUtc,
-    startLocal: toInviteeDisplay(s.startUtc, tz, "yyyy-MM-dd HH:mm")
+  return slots.map((s2) => ({
+    startUtc: s2.startUtc,
+    endUtc: s2.endUtc,
+    startLocal: toInviteeDisplay(s2.startUtc, tz, "yyyy-MM-dd HH:mm")
   }));
 }
-async function createPublicBooking(portalId, eventSlug, input, baseUrl) {
+async function createPublicBooking(portalRef, eventSlug, input, baseUrl2) {
+  const portalId = await resolvePortalRef(portalRef);
   const [mt] = await db.select().from(meetingType).where(
-    and15(
-      eq17(meetingType.portalId, portalId),
-      eq17(meetingType.slug, eventSlug),
-      eq17(meetingType.isActive, true)
+    and17(
+      eq19(meetingType.portalId, portalId),
+      eq19(meetingType.slug, eventSlug),
+      eq19(meetingType.isActive, true)
     )
   ).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado o inactivo");
   await assertSlotAvailable(mt, input.startsAt);
   const startsAt = new Date(input.startsAt);
   const endsAt = addMinutes2(startsAt, mt.durationMin);
-  const [owner] = await db.select({ email: hubUser.email, firstName: hubUser.firstName, lastName: hubUser.lastName }).from(hubUser).where(eq17(hubUser.id, mt.ownerId)).limit(1);
+  const [owner] = await db.select({ email: hubUser.email, firstName: hubUser.firstName, lastName: hubUser.lastName }).from(hubUser).where(eq19(hubUser.id, mt.ownerId)).limit(1);
   let newBooking;
   try {
     newBooking = await db.transaction(async (tx) => {
@@ -4304,10 +4816,10 @@ async function createPublicBooking(portalId, eventSlug, input, baseUrl) {
   }
   const cancelToken = signBookingToken(newBooking.id, "booking-cancel", startsAt);
   const rescheduleToken = signBookingToken(newBooking.id, "booking-reschedule", startsAt);
-  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq17(booking.id, newBooking.id)).returning();
+  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq19(booking.id, newBooking.id)).returning();
   const finalBooking = updated ?? newBooking;
-  const cancelUrl = `${baseUrl}/book/cancel?token=${cancelToken}`;
-  const rescheduleUrl = `${baseUrl}/book/reschedule?token=${rescheduleToken}`;
+  const cancelUrl = `${baseUrl2}/book/cancel?token=${cancelToken}`;
+  const rescheduleUrl = `${baseUrl2}/book/reschedule?token=${rescheduleToken}`;
   const startLocal = toInviteeDisplay(startsAt.toISOString(), input.inviteeTimeZone, "yyyy-MM-dd HH:mm");
   const location = Array.isArray(mt.locations) && mt.locations.length > 0 ? mt.locations[0]?.link ?? mt.locations[0]?.address ?? null : null;
   try {
@@ -4362,7 +4874,7 @@ async function createPublicBooking(portalId, eventSlug, input, baseUrl) {
 }
 async function cancelPublicBooking(token) {
   const decoded = verifyBookingToken(token, "booking-cancel");
-  const [existing] = await db.select().from(booking).where(eq17(booking.id, decoded.sub)).limit(1);
+  const [existing] = await db.select().from(booking).where(eq19(booking.id, decoded.sub)).limit(1);
   if (!existing) throw Errors.notFound("Booking no encontrado");
   if (existing.cancelToken !== token) {
     throw Errors.unauthorized("Token de cancelaci\xF3n ya revocado o inv\xE1lido");
@@ -4375,8 +4887,8 @@ async function cancelPublicBooking(token) {
     cancelledAt: /* @__PURE__ */ new Date(),
     cancelToken: null
     // Revocar para que no pueda usarse dos veces
-  }).where(eq17(booking.id, existing.id)).returning();
-  const [mt] = await db.select({ name: meetingType.name }).from(meetingType).where(eq17(meetingType.id, existing.meetingTypeId)).limit(1);
+  }).where(eq19(booking.id, existing.id)).returning();
+  const [mt] = await db.select({ name: meetingType.name }).from(meetingType).where(eq19(meetingType.id, existing.meetingTypeId)).limit(1);
   try {
     const startLocal = toInviteeDisplay(
       new Date(existing.startsAt).toISOString(),
@@ -4397,9 +4909,9 @@ async function cancelPublicBooking(token) {
   }
   return { booking: cancelled ?? existing };
 }
-async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
+async function reschedulePublicBooking(token, rescheduleData, baseUrl2) {
   const decoded = verifyBookingToken(token, "booking-reschedule");
-  const [original] = await db.select().from(booking).where(eq17(booking.id, decoded.sub)).limit(1);
+  const [original] = await db.select().from(booking).where(eq19(booking.id, decoded.sub)).limit(1);
   if (!original) throw Errors.notFound("Booking no encontrado");
   if (original.rescheduleToken !== token) {
     throw Errors.unauthorized("Token de reprogramaci\xF3n ya revocado o inv\xE1lido");
@@ -4407,7 +4919,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
   if (original.status === "cancelled") {
     throw Errors.badRequest("No se puede reprogramar un booking cancelado");
   }
-  const [mt] = await db.select().from(meetingType).where(eq17(meetingType.id, original.meetingTypeId)).limit(1);
+  const [mt] = await db.select().from(meetingType).where(eq19(meetingType.id, original.meetingTypeId)).limit(1);
   if (!mt) throw Errors.notFound("Tipo de reuni\xF3n no encontrado");
   await assertSlotAvailable(mt, rescheduleData.newStartsAt, original.id);
   const newStartsAt = new Date(rescheduleData.newStartsAt);
@@ -4422,7 +4934,7 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
         cancelToken: null,
         rescheduleToken: null
         // Revocar ambos tokens del original
-      }).where(eq17(booking.id, original.id));
+      }).where(eq19(booking.id, original.id));
       const [row] = await tx.insert(booking).values({
         meetingTypeId: original.meetingTypeId,
         ownerId: original.ownerId,
@@ -4451,10 +4963,10 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
   }
   const cancelToken = signBookingToken(newBooking.id, "booking-cancel", newStartsAt);
   const rescheduleToken = signBookingToken(newBooking.id, "booking-reschedule", newStartsAt);
-  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq17(booking.id, newBooking.id)).returning();
+  const [updated] = await db.update(booking).set({ cancelToken, rescheduleToken }).where(eq19(booking.id, newBooking.id)).returning();
   const finalBooking = updated ?? newBooking;
-  const cancelUrl = `${baseUrl}/book/cancel?token=${cancelToken}`;
-  const rescheduleUrl = `${baseUrl}/book/reschedule?token=${rescheduleToken}`;
+  const cancelUrl = `${baseUrl2}/book/cancel?token=${cancelToken}`;
+  const rescheduleUrl = `${baseUrl2}/book/reschedule?token=${rescheduleToken}`;
   const startLocal = toInviteeDisplay(newStartsAt.toISOString(), inviteeTimeZone, "yyyy-MM-dd HH:mm");
   const location = Array.isArray(mt.locations) && mt.locations.length > 0 ? mt.locations[0]?.link ?? mt.locations[0]?.address ?? null : null;
   try {
@@ -4481,39 +4993,39 @@ async function reschedulePublicBooking(token, rescheduleData, baseUrl) {
   };
 }
 async function listSchedules(portalId) {
-  const schedules = await db.select().from(availabilitySchedule).where(eq17(availabilitySchedule.portalId, portalId)).orderBy(asc3(availabilitySchedule.name));
+  const schedules = await db.select().from(availabilitySchedule).where(eq19(availabilitySchedule.portalId, portalId)).orderBy(asc3(availabilitySchedule.name));
   if (schedules.length === 0) return [];
-  const scheduleIds = schedules.map((s) => s.id);
+  const scheduleIds = schedules.map((s2) => s2.id);
   const [intervals, overrides] = await Promise.all([
     db.select().from(availabilityInterval).where(inArray6(availabilityInterval.scheduleId, scheduleIds)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
     db.select().from(dateOverride).where(inArray6(dateOverride.scheduleId, scheduleIds))
   ]);
-  return schedules.map((s) => ({
-    ...s,
-    intervals: intervals.filter((i) => i.scheduleId === s.id),
-    dateOverrides: overrides.filter((o) => o.scheduleId === s.id)
+  return schedules.map((s2) => ({
+    ...s2,
+    intervals: intervals.filter((i) => i.scheduleId === s2.id),
+    dateOverrides: overrides.filter((o) => o.scheduleId === s2.id)
   }));
 }
 async function getSchedule(portalId, scheduleId) {
-  const [schedule] = await db.select().from(availabilitySchedule).where(and15(eq17(availabilitySchedule.id, scheduleId), eq17(availabilitySchedule.portalId, portalId))).limit(1);
+  const [schedule] = await db.select().from(availabilitySchedule).where(and17(eq19(availabilitySchedule.id, scheduleId), eq19(availabilitySchedule.portalId, portalId))).limit(1);
   if (!schedule) throw Errors.notFound("Schedule no encontrado");
   const [intervals, overrides] = await Promise.all([
-    db.select().from(availabilityInterval).where(eq17(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
-    db.select().from(dateOverride).where(eq17(dateOverride.scheduleId, scheduleId))
+    db.select().from(availabilityInterval).where(eq19(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
+    db.select().from(dateOverride).where(eq19(dateOverride.scheduleId, scheduleId))
   ]);
   return { ...schedule, intervals, dateOverrides: overrides };
 }
 async function createSchedule(portalId, ownerId, input) {
   return db.transaction(async (tx) => {
     const existing = await tx.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(
-      and15(eq17(availabilitySchedule.portalId, portalId), eq17(availabilitySchedule.ownerId, ownerId))
+      and17(eq19(availabilitySchedule.portalId, portalId), eq19(availabilitySchedule.ownerId, ownerId))
     );
     const makeDefault = input.isDefault === true || existing.length === 0;
     if (makeDefault && existing.length > 0) {
       await tx.update(availabilitySchedule).set({ isDefault: false }).where(
-        and15(
-          eq17(availabilitySchedule.portalId, portalId),
-          eq17(availabilitySchedule.ownerId, ownerId)
+        and17(
+          eq19(availabilitySchedule.portalId, portalId),
+          eq19(availabilitySchedule.ownerId, ownerId)
         )
       );
     }
@@ -4524,13 +5036,13 @@ async function createSchedule(portalId, ownerId, input) {
 }
 async function updateSchedule(portalId, scheduleId, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(availabilitySchedule).where(and15(eq17(availabilitySchedule.id, scheduleId), eq17(availabilitySchedule.portalId, portalId))).limit(1);
+    const [existing] = await tx.select().from(availabilitySchedule).where(and17(eq19(availabilitySchedule.id, scheduleId), eq19(availabilitySchedule.portalId, portalId))).limit(1);
     if (!existing) throw Errors.notFound("Schedule no encontrado");
     if (input.isDefault === true && !existing.isDefault) {
       await tx.update(availabilitySchedule).set({ isDefault: false }).where(
-        and15(
-          eq17(availabilitySchedule.portalId, portalId),
-          eq17(availabilitySchedule.ownerId, existing.ownerId)
+        and17(
+          eq19(availabilitySchedule.portalId, portalId),
+          eq19(availabilitySchedule.ownerId, existing.ownerId)
         )
       );
     }
@@ -4538,22 +5050,22 @@ async function updateSchedule(portalId, scheduleId, input) {
     if (input.name !== void 0) updateData.name = input.name;
     if (input.timeZone !== void 0) updateData.timeZone = input.timeZone;
     if (input.isDefault !== void 0) updateData.isDefault = input.isDefault;
-    const [updated] = await tx.update(availabilitySchedule).set(updateData).where(eq17(availabilitySchedule.id, scheduleId)).returning();
+    const [updated] = await tx.update(availabilitySchedule).set(updateData).where(eq19(availabilitySchedule.id, scheduleId)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el schedule");
     const [intervals, overrides] = await Promise.all([
-      tx.select().from(availabilityInterval).where(eq17(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
-      tx.select().from(dateOverride).where(eq17(dateOverride.scheduleId, scheduleId))
+      tx.select().from(availabilityInterval).where(eq19(availabilityInterval.scheduleId, scheduleId)).orderBy(asc3(availabilityInterval.dayOfWeek), asc3(availabilityInterval.startTime)),
+      tx.select().from(dateOverride).where(eq19(dateOverride.scheduleId, scheduleId))
     ]);
     return { ...updated, intervals, dateOverrides: overrides };
   });
 }
 async function deleteSchedule(portalId, scheduleId) {
-  const res = await db.delete(availabilitySchedule).where(and15(eq17(availabilitySchedule.id, scheduleId), eq17(availabilitySchedule.portalId, portalId))).returning({ id: availabilitySchedule.id });
+  const res = await db.delete(availabilitySchedule).where(and17(eq19(availabilitySchedule.id, scheduleId), eq19(availabilitySchedule.portalId, portalId))).returning({ id: availabilitySchedule.id });
   if (res.length === 0) throw Errors.notFound("Schedule no encontrado");
 }
 async function assertScheduleOwnership(portalId, scheduleId) {
-  const [s] = await db.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(and15(eq17(availabilitySchedule.id, scheduleId), eq17(availabilitySchedule.portalId, portalId))).limit(1);
-  if (!s) throw Errors.notFound("Schedule no encontrado");
+  const [s2] = await db.select({ id: availabilitySchedule.id }).from(availabilitySchedule).where(and17(eq19(availabilitySchedule.id, scheduleId), eq19(availabilitySchedule.portalId, portalId))).limit(1);
+  if (!s2) throw Errors.notFound("Schedule no encontrado");
 }
 async function addScheduleInterval(portalId, scheduleId, input) {
   await assertScheduleOwnership(portalId, scheduleId);
@@ -4579,7 +5091,7 @@ async function replaceScheduleIntervals(portalId, scheduleId, input) {
     }
   }
   return db.transaction(async (tx) => {
-    await tx.delete(availabilityInterval).where(eq17(availabilityInterval.scheduleId, scheduleId));
+    await tx.delete(availabilityInterval).where(eq19(availabilityInterval.scheduleId, scheduleId));
     if (input.intervals.length === 0) return [];
     const rows = await tx.insert(availabilityInterval).values(
       input.intervals.map((i) => ({
@@ -4595,15 +5107,15 @@ async function replaceScheduleIntervals(portalId, scheduleId, input) {
 async function deleteScheduleInterval(portalId, scheduleId, intervalId) {
   await assertScheduleOwnership(portalId, scheduleId);
   const res = await db.delete(availabilityInterval).where(
-    and15(eq17(availabilityInterval.id, intervalId), eq17(availabilityInterval.scheduleId, scheduleId))
+    and17(eq19(availabilityInterval.id, intervalId), eq19(availabilityInterval.scheduleId, scheduleId))
   ).returning({ id: availabilityInterval.id });
   if (res.length === 0) throw Errors.notFound("Intervalo no encontrado");
 }
 async function upsertDateOverride(portalId, scheduleId, input) {
   await assertScheduleOwnership(portalId, scheduleId);
-  const [existing] = await db.select().from(dateOverride).where(and15(eq17(dateOverride.scheduleId, scheduleId), eq17(dateOverride.date, input.date))).limit(1);
+  const [existing] = await db.select().from(dateOverride).where(and17(eq19(dateOverride.scheduleId, scheduleId), eq19(dateOverride.date, input.date))).limit(1);
   if (existing) {
-    const [updated] = await db.update(dateOverride).set({ intervals: input.intervals }).where(eq17(dateOverride.id, existing.id)).returning();
+    const [updated] = await db.update(dateOverride).set({ intervals: input.intervals }).where(eq19(dateOverride.id, existing.id)).returning();
     return updated;
   }
   const [row] = await db.insert(dateOverride).values({ scheduleId, date: input.date, intervals: input.intervals }).returning();
@@ -4612,7 +5124,7 @@ async function upsertDateOverride(portalId, scheduleId, input) {
 }
 async function deleteDateOverride(portalId, scheduleId, overrideId) {
   await assertScheduleOwnership(portalId, scheduleId);
-  const res = await db.delete(dateOverride).where(and15(eq17(dateOverride.id, overrideId), eq17(dateOverride.scheduleId, scheduleId))).returning({ id: dateOverride.id });
+  const res = await db.delete(dateOverride).where(and17(eq19(dateOverride.id, overrideId), eq19(dateOverride.scheduleId, scheduleId))).returning({ id: dateOverride.id });
   if (res.length === 0) throw Errors.notFound("Override no encontrado");
 }
 function toEventTypeV2(mt, hosts) {
@@ -4646,7 +5158,7 @@ function toEventTypeV2(mt, hosts) {
   };
 }
 async function listEventTypesV2(portalId) {
-  const types = await db.select().from(meetingType).where(eq17(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
+  const types = await db.select().from(meetingType).where(eq19(meetingType.portalId, portalId)).orderBy(asc3(meetingType.name));
   if (types.length === 0) return [];
   const typeIds = types.map((t) => t.id);
   const memberships = await db.select({ meetingTypeId: eventMembership.meetingTypeId, hostId: eventMembership.hostId }).from(eventMembership).where(inArray6(eventMembership.meetingTypeId, typeIds));
@@ -4656,9 +5168,9 @@ async function listEventTypesV2(portalId) {
   });
 }
 async function getEventTypeV2(portalId, id) {
-  const [mt] = await db.select().from(meetingType).where(and15(eq17(meetingType.id, id), eq17(meetingType.portalId, portalId))).limit(1);
+  const [mt] = await db.select().from(meetingType).where(and17(eq19(meetingType.id, id), eq19(meetingType.portalId, portalId))).limit(1);
   if (!mt) throw Errors.notFound("Event type no encontrado");
-  const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq17(eventMembership.meetingTypeId, id));
+  const memberships = await db.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq19(eventMembership.meetingTypeId, id));
   return toEventTypeV2(mt, memberships.map((m) => m.hostId));
 }
 async function createEventTypeV2(portalId, ownerId, input) {
@@ -4701,7 +5213,7 @@ async function createEventTypeV2(portalId, ownerId, input) {
 }
 async function updateEventTypeV2(portalId, id, input) {
   return db.transaction(async (tx) => {
-    const [existing] = await tx.select().from(meetingType).where(and15(eq17(meetingType.id, id), eq17(meetingType.portalId, portalId))).limit(1);
+    const [existing] = await tx.select().from(meetingType).where(and17(eq19(meetingType.id, id), eq19(meetingType.portalId, portalId))).limit(1);
     if (!existing) throw Errors.notFound("Event type no encontrado");
     const updateData = {};
     if (input.name !== void 0) updateData.name = input.name;
@@ -4726,24 +5238,24 @@ async function updateEventTypeV2(portalId, id, input) {
     if (input.dailyLimit !== void 0) updateData.dailyLimit = input.dailyLimit;
     if (input.maxInvitees !== void 0) updateData.maxInvitees = input.maxInvitees;
     if (input.availabilityScheduleId !== void 0) updateData.availabilityScheduleId = input.availabilityScheduleId;
-    const [updated] = await tx.update(meetingType).set(updateData).where(eq17(meetingType.id, id)).returning();
+    const [updated] = await tx.update(meetingType).set(updateData).where(eq19(meetingType.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el event type");
     let hostIds;
     if (input.hostIds !== void 0) {
-      await tx.delete(eventMembership).where(eq17(eventMembership.meetingTypeId, id));
+      await tx.delete(eventMembership).where(eq19(eventMembership.meetingTypeId, id));
       if (input.hostIds.length > 0) {
         await tx.insert(eventMembership).values(input.hostIds.map((hostId) => ({ meetingTypeId: id, hostId })));
       }
       hostIds = input.hostIds;
     } else {
-      const memberships = await tx.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq17(eventMembership.meetingTypeId, id));
+      const memberships = await tx.select({ hostId: eventMembership.hostId }).from(eventMembership).where(eq19(eventMembership.meetingTypeId, id));
       hostIds = memberships.map((m) => m.hostId);
     }
     return toEventTypeV2(updated, hostIds);
   });
 }
 async function deleteEventTypeV2(portalId, id) {
-  const res = await db.delete(meetingType).where(and15(eq17(meetingType.id, id), eq17(meetingType.portalId, portalId))).returning({ id: meetingType.id });
+  const res = await db.delete(meetingType).where(and17(eq19(meetingType.id, id), eq19(meetingType.portalId, portalId))).returning({ id: meetingType.id });
   if (res.length === 0) throw Errors.notFound("Event type no encontrado");
 }
 async function listWeekBookings(portalId, from, to) {
@@ -4760,9 +5272,9 @@ async function listWeekBookings(portalId, from, to) {
     inviteeTimeZone: booking.inviteeTimeZone,
     meetingTypeName: meetingType.name,
     meetingTypeColor: meetingType.color
-  }).from(booking).innerJoin(meetingType, eq17(booking.meetingTypeId, meetingType.id)).where(
-    and15(
-      eq17(meetingType.portalId, portalId),
+  }).from(booking).innerJoin(meetingType, eq19(booking.meetingTypeId, meetingType.id)).where(
+    and17(
+      eq19(meetingType.portalId, portalId),
       gte2(booking.startsAt, fromDate),
       lte2(booking.startsAt, toDate)
     )
@@ -4773,7 +5285,7 @@ async function cancelAdminBooking(portalId, bookingId) {
     id: booking.id,
     status: booking.status,
     portalId: meetingType.portalId
-  }).from(booking).innerJoin(meetingType, eq17(booking.meetingTypeId, meetingType.id)).where(eq17(booking.id, bookingId)).limit(1);
+  }).from(booking).innerJoin(meetingType, eq19(booking.meetingTypeId, meetingType.id)).where(eq19(booking.id, bookingId)).limit(1);
   if (!existing) throw Errors.notFound("Booking no encontrado");
   if (existing.portalId !== portalId) throw Errors.notFound("Booking no encontrado");
   if (existing.status === "cancelled") {
@@ -4784,7 +5296,7 @@ async function cancelAdminBooking(portalId, bookingId) {
     cancelledAt: /* @__PURE__ */ new Date(),
     cancelToken: null,
     rescheduleToken: null
-  }).where(eq17(booking.id, bookingId)).returning({ id: booking.id });
+  }).where(eq19(booking.id, bookingId)).returning({ id: booking.id });
   return { bookingId: cancelled.id };
 }
 async function listBookings(portalId) {
@@ -4797,7 +5309,7 @@ async function listBookings(portalId) {
     status: booking.status,
     meetLink: booking.meetLink,
     meetingTypeName: meetingType.name
-  }).from(booking).innerJoin(meetingType, eq17(booking.meetingTypeId, meetingType.id)).where(eq17(meetingType.portalId, portalId)).orderBy(asc3(booking.startsAt)).limit(100);
+  }).from(booking).innerJoin(meetingType, eq19(booking.meetingTypeId, meetingType.id)).where(eq19(meetingType.portalId, portalId)).orderBy(asc3(booking.startsAt)).limit(100);
 }
 
 // src/modules/calendar/calendar.router.ts
@@ -4878,7 +5390,7 @@ var UpdateUserSchema = z12.object({
 }).partial();
 
 // src/modules/users/users.service.ts
-import { and as and16, asc as asc4, eq as eq18 } from "drizzle-orm";
+import { and as and18, asc as asc4, eq as eq20 } from "drizzle-orm";
 var publicCols = {
   id: hubUser.id,
   email: hubUser.email,
@@ -4888,10 +5400,10 @@ var publicCols = {
   isActive: hubUser.isActive
 };
 async function listUsers(portalId) {
-  return db.select(publicCols).from(hubUser).where(eq18(hubUser.portalId, portalId)).orderBy(asc4(hubUser.id));
+  return db.select(publicCols).from(hubUser).where(eq20(hubUser.portalId, portalId)).orderBy(asc4(hubUser.id));
 }
 async function createUser(portalId, input) {
-  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and16(eq18(hubUser.portalId, portalId), eq18(hubUser.email, input.email))).limit(1);
+  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and18(eq20(hubUser.portalId, portalId), eq20(hubUser.email, input.email))).limit(1);
   if (existing) throw Errors.conflict("Ya existe un usuario con ese email");
   const [row] = await db.insert(hubUser).values({
     portalId,
@@ -4908,14 +5420,14 @@ async function createUser(portalId, input) {
     userType: "admin"
   });
   if (clerkUserId) {
-    await db.update(hubUser).set({ clerkUserId }).where(eq18(hubUser.id, row.id));
+    await db.update(hubUser).set({ clerkUserId }).where(eq20(hubUser.id, row.id));
   }
   return row;
 }
 async function updateUser(portalId, id, input) {
-  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and16(eq18(hubUser.portalId, portalId), eq18(hubUser.id, id))).limit(1);
+  const [existing] = await db.select({ id: hubUser.id }).from(hubUser).where(and18(eq20(hubUser.portalId, portalId), eq20(hubUser.id, id))).limit(1);
   if (!existing) throw Errors.notFound("Usuario no encontrado");
-  const [row] = await db.update(hubUser).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq18(hubUser.id, id)).returning(publicCols);
+  const [row] = await db.update(hubUser).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq20(hubUser.id, id)).returning(publicCols);
   return row;
 }
 
@@ -4946,7 +5458,7 @@ async function usersRoutes(app2) {
 }
 
 // src/modules/settings/settings.service.ts
-import { eq as eq19 } from "drizzle-orm";
+import { eq as eq21 } from "drizzle-orm";
 import { z as z13 } from "zod";
 var UpdatePortalSchema = z13.object({
   name: z13.string().min(1).optional(),
@@ -4954,12 +5466,12 @@ var UpdatePortalSchema = z13.object({
   currency: z13.string().length(3).optional()
 });
 async function getPortal(portalId) {
-  const [row] = await db.select().from(portal).where(eq19(portal.id, portalId)).limit(1);
+  const [row] = await db.select().from(portal).where(eq21(portal.id, portalId)).limit(1);
   if (!row) throw Errors.notFound("Portal no encontrado");
   return row;
 }
 async function updatePortal(portalId, input) {
-  const [row] = await db.update(portal).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq19(portal.id, portalId)).returning();
+  const [row] = await db.update(portal).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq21(portal.id, portalId)).returning();
   if (!row) throw Errors.notFound("Portal no encontrado");
   return row;
 }
@@ -4993,7 +5505,7 @@ async function authenticateClient(request, _reply) {
 }
 
 // src/modules/client-auth/client-auth.service.ts
-import { eq as eq20 } from "drizzle-orm";
+import { eq as eq22 } from "drizzle-orm";
 function toPublicClient(row) {
   return {
     id: row.id,
@@ -5007,7 +5519,7 @@ function toPublicClient(row) {
   };
 }
 async function getClientAccount(id) {
-  const [account] = await db.select().from(clientAccount).where(eq20(clientAccount.id, id)).limit(1);
+  const [account] = await db.select().from(clientAccount).where(eq22(clientAccount.id, id)).limit(1);
   if (!account) throw Errors.notFound("Cuenta de cliente no encontrada");
   return toPublicClient(account);
 }
@@ -5027,8 +5539,8 @@ async function clientAuthRoutes(app2) {
       preHandler: [authenticateClient]
     },
     async (request) => {
-      const client4 = await getClientAccount(request.clientAccount.sub);
-      return ok(client4);
+      const client3 = await getClientAccount(request.clientAccount.sub);
+      return ok(client3);
     }
   );
 }
@@ -5042,28 +5554,35 @@ var CreateDeliverableSchema = z14.object({
   title: z14.string().min(1),
   type: DeliverableTypeEnum,
   url: z14.string().url().optional(),
-  description: z14.string().optional()
+  description: z14.string().optional(),
+  /**
+   * ¿Se muestra en el Portal del cliente? Default true — un entregable se
+   * entrega. Se manda false para material interno del proceso (Blueprint
+   * técnico, Diagnóstico), que el cliente no debe ver.
+   */
+  visibleToClient: z14.boolean().optional()
 });
 var UpdateDeliverableSchema = z14.object({
   title: z14.string().min(1),
   url: z14.string().url(),
   description: z14.string(),
   status: DeliverableStatusEnum,
-  feedback: z14.string()
+  feedback: z14.string(),
+  visibleToClient: z14.boolean()
 }).partial();
 var DeliverableListQuerySchema = z14.object({
   dealId: z14.string().min(1).optional()
 });
 
 // src/modules/deliverables/deliverables.service.ts
-import { and as and17, desc as desc10, eq as eq21 } from "drizzle-orm";
+import { and as and19, desc as desc11, eq as eq23 } from "drizzle-orm";
 async function requireDeliverableInPortal(tx, id, portalId) {
-  const [row] = await tx.select({ deliverable }).from(deliverable).innerJoin(deal, and17(eq21(deal.id, deliverable.dealId), eq21(deal.portalId, portalId), eq21(deal.archived, false))).where(eq21(deliverable.id, id)).limit(1);
+  const [row] = await tx.select({ deliverable }).from(deliverable).innerJoin(deal, and19(eq23(deal.id, deliverable.dealId), eq23(deal.portalId, portalId), eq23(deal.archived, false))).where(eq23(deliverable.id, id)).limit(1);
   if (!row) throw Errors.notFound("Entregable no encontrado");
   return row.deliverable;
 }
 async function listDeliverables(portalId, query) {
-  const rows = await db.select({ deliverable }).from(deliverable).innerJoin(deal, and17(eq21(deal.id, deliverable.dealId), eq21(deal.portalId, portalId), eq21(deal.archived, false))).where(query.dealId ? eq21(deliverable.dealId, query.dealId) : void 0).orderBy(desc10(deliverable.createdAt));
+  const rows = await db.select({ deliverable }).from(deliverable).innerJoin(deal, and19(eq23(deal.id, deliverable.dealId), eq23(deal.portalId, portalId), eq23(deal.archived, false))).where(query.dealId ? eq23(deliverable.dealId, query.dealId) : void 0).orderBy(desc11(deliverable.createdAt));
   return rows.map((r) => r.deliverable);
 }
 async function createDeliverable(portalId, userId, input) {
@@ -5075,6 +5594,8 @@ async function createDeliverable(portalId, userId, input) {
       type: input.type,
       url: input.url ?? null,
       description: input.description ?? null,
+      // Omitido → cae al default de la columna (true).
+      ...input.visibleToClient === void 0 ? {} : { visibleToClient: input.visibleToClient },
       createdBy: userId
     }).returning();
     if (!row) throw Errors.internal("No se pudo crear el entregable");
@@ -5088,7 +5609,7 @@ async function updateDeliverable(portalId, id, input) {
     const [updated] = await tx.update(deliverable).set({
       ...input,
       ...reviewTimestamp ? { reviewedAt: reviewTimestamp } : {}
-    }).where(eq21(deliverable.id, id)).returning();
+    }).where(eq23(deliverable.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el entregable");
     return updated;
   });
@@ -5096,7 +5617,7 @@ async function updateDeliverable(portalId, id, input) {
 async function deleteDeliverable(portalId, id) {
   await db.transaction(async (tx) => {
     await requireDeliverableInPortal(tx, id, portalId);
-    await tx.delete(deliverable).where(eq21(deliverable.id, id));
+    await tx.delete(deliverable).where(eq23(deliverable.id, id));
   });
 }
 
@@ -5179,35 +5700,37 @@ async function deliverablesRoutes(app2) {
 import { z as z15 } from "zod";
 
 // src/modules/client/client.service.ts
-import { and as and18, asc as asc5, desc as desc11, eq as eq22, inArray as inArray7, sql as sql25 } from "drizzle-orm";
+import { and as and20, asc as asc5, desc as desc12, eq as eq24, inArray as inArray7, sql as sql25 } from "drizzle-orm";
 async function clientDeals(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select({ id: deal.id, name: deal.name, amount: deal.amount, currency: deal.currency, stageId: deal.stageId, createdAt: deal.createdAt }).from(deal).where(and18(inArray7(deal.id, ids), eq22(deal.archived, false)));
+  return db.select({ id: deal.id, name: deal.name, amount: deal.amount, currency: deal.currency, stageId: deal.stageId, createdAt: deal.createdAt }).from(deal).where(and20(inArray7(deal.id, ids), eq24(deal.archived, false)));
 }
 async function clientDeliverables(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select().from(deliverable).where(inArray7(deliverable.dealId, ids)).orderBy(desc11(deliverable.createdAt));
+  return db.select().from(deliverable).where(and20(inArray7(deliverable.dealId, ids), eq24(deliverable.visibleToClient, true))).orderBy(desc12(deliverable.createdAt));
 }
 async function assertClientDeliverable(clientId, deliverableId) {
   const ids = await clientDealIds(clientId);
-  const [dv] = await db.select().from(deliverable).where(eq22(deliverable.id, deliverableId)).limit(1);
-  if (!dv || !ids.includes(dv.dealId)) throw Errors.notFound("Entregable no encontrado");
+  const [dv] = await db.select().from(deliverable).where(eq24(deliverable.id, deliverableId)).limit(1);
+  if (!dv || !ids.includes(dv.dealId) || !dv.visibleToClient) {
+    throw Errors.notFound("Entregable no encontrado");
+  }
   return dv;
 }
 async function approveDeliverable(clientId, deliverableId) {
   await assertClientDeliverable(clientId, deliverableId);
-  await db.update(deliverable).set({ status: "approved", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback: null }).where(eq22(deliverable.id, deliverableId));
+  await db.update(deliverable).set({ status: "approved", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback: null }).where(eq24(deliverable.id, deliverableId));
 }
 async function requestChanges(clientId, deliverableId, feedback) {
   await assertClientDeliverable(clientId, deliverableId);
-  await db.update(deliverable).set({ status: "changes_requested", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback }).where(eq22(deliverable.id, deliverableId));
+  await db.update(deliverable).set({ status: "changes_requested", reviewedBy: clientId, reviewedAt: /* @__PURE__ */ new Date(), feedback }).where(eq24(deliverable.id, deliverableId));
 }
 async function listClientInvoices(clientId) {
   const dealIds = await clientDealIds(clientId);
   if (dealIds.length === 0) return [];
-  const invoices = await db.select().from(invoice).where(and18(inArray7(invoice.dealId, dealIds), eq22(invoice.archived, false))).orderBy(desc11(invoice.createdAt));
+  const invoices = await db.select().from(invoice).where(and20(inArray7(invoice.dealId, dealIds), eq24(invoice.archived, false))).orderBy(desc12(invoice.createdAt));
   if (invoices.length === 0) return [];
   const invoiceIds = invoices.map((inv) => inv.id);
   const paymentTotals = await db.select({
@@ -5233,13 +5756,13 @@ async function listClientInvoices(clientId) {
   });
 }
 async function resolveActiveClientDeal(clientId) {
-  const [row] = await db.select({ id: deal.id, portalId: deal.portalId, name: deal.name, pipelineId: deal.pipelineId, stageId: deal.stageId }).from(clientDealAccess).innerJoin(deal, eq22(deal.id, clientDealAccess.dealId)).where(and18(eq22(clientDealAccess.clientId, clientId), eq22(deal.archived, false))).orderBy(desc11(deal.createdAt)).limit(1);
+  const [row] = await db.select({ id: deal.id, portalId: deal.portalId, name: deal.name, pipelineId: deal.pipelineId, stageId: deal.stageId }).from(clientDealAccess).innerJoin(deal, eq24(deal.id, clientDealAccess.dealId)).where(and20(eq24(clientDealAccess.clientId, clientId), eq24(deal.archived, false))).orderBy(desc12(deal.createdAt)).limit(1);
   if (!row) throw Errors.notFound("No hay un proyecto activo asociado a esta cuenta");
   return row;
 }
 async function getClientProject(clientId) {
   const activeDeal = await resolveActiveClientDeal(clientId);
-  const [pl] = await db.select({ id: pipeline.id, label: pipeline.label }).from(pipeline).where(eq22(pipeline.id, activeDeal.pipelineId)).limit(1);
+  const [pl] = await db.select({ id: pipeline.id, label: pipeline.label }).from(pipeline).where(eq24(pipeline.id, activeDeal.pipelineId)).limit(1);
   const inProduction = pl?.label === PRODUCTION_PIPELINE_LABEL;
   let currentPhase = null;
   let phases = null;
@@ -5249,22 +5772,22 @@ async function getClientProject(clientId) {
       label: pipelineStage.label,
       description: pipelineStage.description,
       displayOrder: pipelineStage.displayOrder
-    }).from(pipelineStage).where(and18(eq22(pipelineStage.pipelineId, activeDeal.pipelineId), eq22(pipelineStage.archived, false))).orderBy(asc5(pipelineStage.displayOrder));
-    const current = stages.find((s) => s.id === activeDeal.stageId);
+    }).from(pipelineStage).where(and20(eq24(pipelineStage.pipelineId, activeDeal.pipelineId), eq24(pipelineStage.archived, false))).orderBy(asc5(pipelineStage.displayOrder));
+    const current = stages.find((s2) => s2.id === activeDeal.stageId);
     const currentDisplayOrder = current?.displayOrder ?? -1;
-    phases = stages.map((s) => ({
-      id: s.id,
-      label: s.label,
-      description: s.description,
-      displayOrder: s.displayOrder,
-      isCurrent: s.id === activeDeal.stageId,
-      isDone: s.displayOrder < currentDisplayOrder
+    phases = stages.map((s2) => ({
+      id: s2.id,
+      label: s2.label,
+      description: s2.description,
+      displayOrder: s2.displayOrder,
+      isCurrent: s2.id === activeDeal.stageId,
+      isDone: s2.displayOrder < currentDisplayOrder
     }));
     if (current) {
       currentPhase = { id: current.id, label: current.label, description: current.description };
     }
   }
-  const updateRows = await db.select({ id: projectUpdate.id, body: projectUpdate.body, createdAt: projectUpdate.createdAt, stageLabel: pipelineStage.label }).from(projectUpdate).leftJoin(pipelineStage, eq22(pipelineStage.id, projectUpdate.stageId)).where(and18(eq22(projectUpdate.dealId, activeDeal.id), eq22(projectUpdate.archived, false))).orderBy(desc11(projectUpdate.createdAt)).limit(20);
+  const updateRows = await db.select({ id: projectUpdate.id, body: projectUpdate.body, createdAt: projectUpdate.createdAt, stageLabel: pipelineStage.label }).from(projectUpdate).leftJoin(pipelineStage, eq24(pipelineStage.id, projectUpdate.stageId)).where(and20(eq24(projectUpdate.dealId, activeDeal.id), eq24(projectUpdate.archived, false))).orderBy(desc12(projectUpdate.createdAt)).limit(20);
   const updates = updateRows.map((u) => ({
     id: u.id,
     body: u.body,
@@ -5281,7 +5804,7 @@ async function getClientProject(clientId) {
 }
 
 // src/modules/documents/documents.service.ts
-import { and as and19, desc as desc12, eq as eq23, inArray as inArray8 } from "drizzle-orm";
+import { and as and21, desc as desc13, eq as eq25, inArray as inArray8 } from "drizzle-orm";
 function toDTO(row) {
   return {
     id: row.id,
@@ -5298,11 +5821,11 @@ function toDTO(row) {
   };
 }
 async function listDocuments(portalId, query) {
-  const conditions = [eq23(document.portalId, portalId)];
+  const conditions = [eq25(document.portalId, portalId)];
   if (query.dealId) {
-    conditions.push(eq23(document.dealId, query.dealId));
+    conditions.push(eq25(document.dealId, query.dealId));
   }
-  const rows = await db.select().from(document).where(and19(...conditions)).orderBy(desc12(document.createdAt));
+  const rows = await db.select().from(document).where(and21(...conditions)).orderBy(desc13(document.createdAt));
   return rows.map(toDTO);
 }
 async function createDocument(portalId, userId, input) {
@@ -5314,19 +5837,21 @@ async function createDocument(portalId, userId, input) {
     type: input.type,
     source: "manual",
     storageKey: input.storageKey ?? null,
+    // Omitido → cae al default de la columna (true).
+    ...input.visibleToClient === void 0 ? {} : { visibleToClient: input.visibleToClient },
     createdBy: userId
   }).returning();
   if (!row) throw Errors.internal("Error al crear documento");
   return toDTO(row);
 }
 async function deleteDocument(portalId, id) {
-  const [row] = await db.select({ id: document.id }).from(document).where(and19(eq23(document.id, id), eq23(document.portalId, portalId))).limit(1);
+  const [row] = await db.select({ id: document.id }).from(document).where(and21(eq25(document.id, id), eq25(document.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Documento no encontrado");
-  await db.delete(document).where(eq23(document.id, id));
+  await db.delete(document).where(eq25(document.id, id));
 }
 async function listClientDocuments(dealIds) {
   if (dealIds.length === 0) return [];
-  const rows = await db.select().from(document).where(inArray8(document.dealId, dealIds)).orderBy(desc12(document.createdAt));
+  const rows = await db.select().from(document).where(and21(inArray8(document.dealId, dealIds), eq25(document.visibleToClient, true))).orderBy(desc13(document.createdAt));
   return rows.map((row) => ({
     id: row.id,
     dealId: row.dealId,
@@ -5440,19 +5965,16 @@ var RespondIntakeSchema = z16.object({
 });
 
 // src/modules/intake/intake.service.ts
-import { and as and20, asc as asc6, desc as desc13, eq as eq24, inArray as inArray9 } from "drizzle-orm";
-function slugify2(s) {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
+import { and as and22, asc as asc6, desc as desc14, eq as eq26, inArray as inArray9 } from "drizzle-orm";
 async function listIntakeForms(portalId) {
-  return db.select().from(intakeForm).where(eq24(intakeForm.portalId, portalId)).orderBy(asc6(intakeForm.name));
+  return db.select().from(intakeForm).where(eq26(intakeForm.portalId, portalId)).orderBy(asc6(intakeForm.name));
 }
 async function createIntakeForm(portalId, input) {
   const [row] = await db.insert(intakeForm).values({
     portalId,
     name: input.name,
     description: input.description,
-    slug: slugify2(input.slug ?? input.name),
+    slug: slugify(input.slug ?? input.name),
     fields: input.fields
   }).returning();
   if (!row) throw Errors.internal("No se pudo crear el formulario");
@@ -5466,12 +5988,12 @@ async function listDealIntakes(portalId, dealId) {
     dueDate: dealIntake.dueDate,
     completedAt: dealIntake.completedAt,
     formName: intakeForm.name
-  }).from(dealIntake).innerJoin(deal, and20(eq24(deal.id, dealIntake.dealId), eq24(deal.portalId, portalId))).innerJoin(intakeForm, eq24(intakeForm.id, dealIntake.formId)).where(eq24(dealIntake.dealId, dealId)).orderBy(desc13(dealIntake.createdAt));
+  }).from(dealIntake).innerJoin(deal, and22(eq26(deal.id, dealIntake.dealId), eq26(deal.portalId, portalId))).innerJoin(intakeForm, eq26(intakeForm.id, dealIntake.formId)).where(eq26(dealIntake.dealId, dealId)).orderBy(desc14(dealIntake.createdAt));
 }
 async function assignIntake(portalId, input) {
-  const [d] = await db.select().from(deal).where(and20(eq24(deal.id, input.dealId), eq24(deal.portalId, portalId))).limit(1);
+  const [d] = await db.select().from(deal).where(and22(eq26(deal.id, input.dealId), eq26(deal.portalId, portalId))).limit(1);
   if (!d) throw Errors.badRequest("Deal inexistente");
-  const [f] = await db.select().from(intakeForm).where(and20(eq24(intakeForm.id, input.formId), eq24(intakeForm.portalId, portalId))).limit(1);
+  const [f] = await db.select().from(intakeForm).where(and22(eq26(intakeForm.id, input.formId), eq26(intakeForm.portalId, portalId))).limit(1);
   if (!f) throw Errors.badRequest("Formulario inexistente");
   const [row] = await db.insert(dealIntake).values({
     dealId: input.dealId,
@@ -5491,14 +6013,14 @@ async function clientIntakes(clientId) {
     dueDate: dealIntake.dueDate,
     fields: intakeForm.fields,
     answers: dealIntakeResponse.answers
-  }).from(dealIntake).innerJoin(intakeForm, eq24(intakeForm.id, dealIntake.formId)).leftJoin(dealIntakeResponse, eq24(dealIntakeResponse.intakeId, dealIntake.id)).where(inArray9(dealIntake.dealId, ids)).orderBy(asc6(dealIntake.status));
+  }).from(dealIntake).innerJoin(intakeForm, eq26(intakeForm.id, dealIntake.formId)).leftJoin(dealIntakeResponse, eq26(dealIntakeResponse.intakeId, dealIntake.id)).where(inArray9(dealIntake.dealId, ids)).orderBy(asc6(dealIntake.status));
 }
 async function respondIntake(clientId, intakeId, answers) {
   const ids = await clientDealIds(clientId);
-  const [intake] = await db.select().from(dealIntake).where(eq24(dealIntake.id, intakeId)).limit(1);
+  const [intake] = await db.select().from(dealIntake).where(eq26(dealIntake.id, intakeId)).limit(1);
   if (!intake || !ids.includes(intake.dealId)) throw Errors.notFound("Formulario no encontrado");
   await db.insert(dealIntakeResponse).values({ intakeId, clientId, answers }).onConflictDoUpdate({ target: dealIntakeResponse.intakeId, set: { answers, clientId, submittedAt: /* @__PURE__ */ new Date() } });
-  await db.update(dealIntake).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq24(dealIntake.id, intakeId));
+  await db.update(dealIntake).set({ status: "completed", completedAt: /* @__PURE__ */ new Date() }).where(eq26(dealIntake.id, intakeId));
 }
 
 // src/modules/intake/intake.router.ts
@@ -5622,7 +6144,12 @@ import { randomUUID as randomUUID2 } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
 import { existsSync, createReadStream } from "fs";
 import { join, basename, extname } from "path";
+import { Readable } from "stream";
+import { put, get, del } from "@vercel/blob";
 var UPLOADS_DIR = join(process.cwd(), "uploads");
+function isBlobConfigured() {
+  return Boolean(process.env["BLOB_READ_WRITE_TOKEN"] ?? process.env["BLOB_STORE_ID"]);
+}
 var MIME_BY_EXT = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -5630,29 +6157,78 @@ var MIME_BY_EXT = {
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".svg": "image/svg+xml",
-  ".pdf": "application/pdf"
+  ".pdf": "application/pdf",
+  ".webm": "audio/webm",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".ogg": "audio/ogg",
+  ".wav": "audio/wav"
 };
 function sanitize(name) {
   return basename(name).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100) || "archivo";
 }
-async function saveUpload(buffer, originalName, mimeType) {
-  await mkdir(UPLOADS_DIR, { recursive: true });
-  const storageKey = `${randomUUID2()}-${sanitize(originalName)}`;
-  await writeFile(join(UPLOADS_DIR, storageKey), buffer);
-  return { storageKey, name: originalName, mimeType, sizeBytes: buffer.length, url: `/api/files/${storageKey}` };
+function mimeForKey(key) {
+  return MIME_BY_EXT[extname(basename(key)).toLowerCase()] ?? "application/octet-stream";
 }
-function resolveFile(key) {
+async function saveUpload(buffer, originalName, mimeType) {
+  const storageKey = `${randomUUID2()}-${sanitize(originalName)}`;
+  if (isBlobConfigured()) {
+    await put(storageKey, buffer, { access: "private", contentType: mimeType });
+  } else {
+    await mkdir(UPLOADS_DIR, { recursive: true });
+    await writeFile(join(UPLOADS_DIR, storageKey), buffer);
+  }
+  return {
+    storageKey,
+    name: originalName,
+    mimeType,
+    sizeBytes: buffer.length,
+    url: `/api/files/${storageKey}`
+  };
+}
+async function readFile(key) {
   const safe = basename(key);
+  if (isBlobConfigured()) {
+    try {
+      const result = await get(safe, { access: "private" });
+      if (!result || result.statusCode !== 200) return null;
+      return {
+        stream: Readable.fromWeb(result.stream),
+        mime: result.blob.contentType || mimeForKey(safe)
+      };
+    } catch {
+      return null;
+    }
+  }
   const path = join(UPLOADS_DIR, safe);
   if (!existsSync(path)) return null;
-  return { path, mime: MIME_BY_EXT[extname(safe).toLowerCase()] ?? "application/octet-stream" };
-}
-function fileStream(path) {
-  return createReadStream(path);
+  return { stream: createReadStream(path), mime: mimeForKey(safe) };
 }
 
 // src/modules/files/files.router.ts
 var TAG17 = "Archivos";
+async function authenticateAny(request) {
+  const header = request.headers.authorization;
+  const queryToken = request.query.token;
+  const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : queryToken;
+  if (!token) throw Errors.unauthorized("Falta el token de acceso");
+  let clerkUserId;
+  try {
+    clerkUserId = await verifyClerkToken(token);
+  } catch {
+    throw Errors.unauthorized("Token de acceso inv\xE1lido o expirado");
+  }
+  try {
+    await resolveHubUser(clerkUserId);
+    return;
+  } catch {
+  }
+  try {
+    await resolveClientAccount(clerkUserId);
+  } catch {
+    throw Errors.unauthorized("Usuario no autorizado");
+  }
+}
 async function filesRoutes(app2) {
   app2.post(
     "/",
@@ -5664,12 +6240,19 @@ async function filesRoutes(app2) {
       return reply.status(201).send(ok(saved));
     }
   );
-  app2.get("/:key", { schema: { tags: [TAG17], summary: "Descargar archivo por key" } }, async (request, reply) => {
-    const { key } = request.params;
-    const f = resolveFile(key);
-    if (!f) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Archivo no encontrado" } });
-    return reply.type(f.mime).send(fileStream(f.path));
-  });
+  app2.get(
+    "/:key",
+    { schema: { tags: [TAG17], summary: "Descargar archivo por key (requiere sesi\xF3n)", security: [{ bearerAuth: [] }] } },
+    async (request, reply) => {
+      await authenticateAny(request);
+      const { key } = request.params;
+      const f = await readFile(key);
+      if (!f) {
+        return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Archivo no encontrado" } });
+      }
+      return reply.type(f.mime).send(f.stream);
+    }
+  );
 }
 async function clientFilesRoutes(app2) {
   app2.post(
@@ -5717,10 +6300,10 @@ var CRListQuerySchema = z17.object({ dealId: z17.string().min(1).optional() });
 var CR_STATUSES = ["draft", "sent", "approved", "rejected", "negotiating", "approved_verbally", "disputed", "completed"];
 var TransitionSchema = z17.object({ status: z17.enum(CR_STATUSES), comment: z17.string().optional() });
 var CommentSchema = z17.object({ body: z17.string().min(1) });
-var ClientDecisionSchema = z17.object({ comment: z17.string().optional() });
+var ClientDecisionSchema = z17.object({ comment: z17.string().optional() }).nullish();
 
 // src/modules/change-requests/cr.service.ts
-import { and as and21, asc as asc7, desc as desc14, eq as eq25, inArray as inArray10, ne as ne2, sql as sql26 } from "drizzle-orm";
+import { and as and23, asc as asc7, desc as desc15, eq as eq27, getTableColumns, inArray as inArray10, ne as ne3, sql as sql26 } from "drizzle-orm";
 
 // src/lib/money.ts
 function toDecimal(n) {
@@ -5729,24 +6312,24 @@ function toDecimal(n) {
 
 // src/modules/change-requests/cr.service.ts
 async function getCRInPortal(portalId, id) {
-  const [cr] = await db.select().from(changeRequest).where(and21(eq25(changeRequest.id, id), eq25(changeRequest.portalId, portalId))).limit(1);
+  const [cr] = await db.select().from(changeRequest).where(and23(eq27(changeRequest.id, id), eq27(changeRequest.portalId, portalId))).limit(1);
   if (!cr) throw Errors.notFound("Change request no encontrada");
   return cr;
 }
 async function listCRs(portalId, dealId) {
-  return db.select().from(changeRequest).where(dealId ? and21(eq25(changeRequest.portalId, portalId), eq25(changeRequest.dealId, dealId)) : eq25(changeRequest.portalId, portalId)).orderBy(desc14(changeRequest.createdAt));
+  return db.select({ ...getTableColumns(changeRequest), dealName: deal.name }).from(changeRequest).leftJoin(deal, eq27(deal.id, changeRequest.dealId)).where(dealId ? and23(eq27(changeRequest.portalId, portalId), eq27(changeRequest.dealId, dealId)) : eq27(changeRequest.portalId, portalId)).orderBy(desc15(changeRequest.createdAt));
 }
 async function getCRDetail(portalId, id) {
   const cr = await getCRInPortal(portalId, id);
-  const items = await db.select().from(changeRequestItem).where(eq25(changeRequestItem.changeRequestId, id));
-  const comments = await db.select().from(changeRequestComment).where(eq25(changeRequestComment.changeRequestId, id)).orderBy(asc7(changeRequestComment.createdAt));
-  const history = await db.select().from(changeRequestHistory).where(eq25(changeRequestHistory.changeRequestId, id)).orderBy(desc14(changeRequestHistory.changedAt));
+  const items = await db.select().from(changeRequestItem).where(eq27(changeRequestItem.changeRequestId, id));
+  const comments = await db.select().from(changeRequestComment).where(eq27(changeRequestComment.changeRequestId, id)).orderBy(asc7(changeRequestComment.createdAt));
+  const history = await db.select().from(changeRequestHistory).where(eq27(changeRequestHistory.changeRequestId, id)).orderBy(desc15(changeRequestHistory.changedAt));
   return { changeRequest: cr, items, comments, history };
 }
 async function createCR(portalId, userId, input) {
   await assertDealInPortal(portalId, input.dealId);
   return db.transaction(async (tx) => {
-    const numRows = await tx.select({ next: sql26`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq25(changeRequest.dealId, input.dealId));
+    const numRows = await tx.select({ next: sql26`coalesce(max(${changeRequest.number}), 0) + 1` }).from(changeRequest).where(eq27(changeRequest.dealId, input.dealId));
     const next = numRows[0]?.next ?? 1;
     const [cr] = await tx.insert(changeRequest).values({
       portalId,
@@ -5779,7 +6362,7 @@ async function createCR(portalId, userId, input) {
 async function updateCR(portalId, id, input) {
   const cr = await getCRInPortal(portalId, id);
   if (cr.status !== "draft") throw Errors.badRequest("Solo se puede editar una CR en borrador");
-  const [row] = await db.update(changeRequest).set({ ...input, totalAmount: toDecimal(input.totalAmount), updatedAt: /* @__PURE__ */ new Date() }).where(eq25(changeRequest.id, id)).returning();
+  const [row] = await db.update(changeRequest).set({ ...input, totalAmount: toDecimal(input.totalAmount), updatedAt: /* @__PURE__ */ new Date() }).where(eq27(changeRequest.id, id)).returning();
   return row;
 }
 async function addItem(portalId, id, input) {
@@ -5796,13 +6379,13 @@ async function addItem(portalId, id, input) {
 }
 async function deleteItem(portalId, id, itemId) {
   await getCRInPortal(portalId, id);
-  await db.delete(changeRequestItem).where(and21(eq25(changeRequestItem.id, itemId), eq25(changeRequestItem.changeRequestId, id)));
+  await db.delete(changeRequestItem).where(and23(eq27(changeRequestItem.id, itemId), eq27(changeRequestItem.changeRequestId, id)));
 }
 async function transitionCR(portalId, userId, id, status, comment) {
   const cr = await getCRInPortal(portalId, id);
   const patch = { status, updatedAt: /* @__PURE__ */ new Date() };
   if (status === "completed") patch.completedAt = /* @__PURE__ */ new Date();
-  const [row] = await db.update(changeRequest).set(patch).where(eq25(changeRequest.id, id)).returning();
+  const [row] = await db.update(changeRequest).set(patch).where(eq27(changeRequest.id, id)).returning();
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: status, comment, changedByUser: userId });
   return row;
 }
@@ -5813,14 +6396,14 @@ async function addComment(portalId, userId, id, body) {
 }
 async function getClientCR(clientId, id) {
   const ids = await clientDealIds(clientId);
-  const [cr] = await db.select().from(changeRequest).where(eq25(changeRequest.id, id)).limit(1);
+  const [cr] = await db.select().from(changeRequest).where(eq27(changeRequest.id, id)).limit(1);
   if (!cr || !ids.includes(cr.dealId)) throw Errors.notFound("Change request no encontrada");
   return cr;
 }
 async function clientListCRs(clientId) {
   const ids = await clientDealIds(clientId);
   if (ids.length === 0) return [];
-  return db.select().from(changeRequest).where(and21(inArray10(changeRequest.dealId, ids), ne2(changeRequest.status, "draft"))).orderBy(desc14(changeRequest.createdAt));
+  return db.select().from(changeRequest).where(and23(inArray10(changeRequest.dealId, ids), ne3(changeRequest.status, "draft"))).orderBy(desc15(changeRequest.createdAt));
 }
 async function clientDecision(clientId, id, decision, comment) {
   const cr = await getClientCR(clientId, id);
@@ -5828,7 +6411,7 @@ async function clientDecision(clientId, id, decision, comment) {
     status: decision,
     updatedAt: /* @__PURE__ */ new Date(),
     ...decision === "approved" ? { approvedAt: /* @__PURE__ */ new Date(), approvedBy: clientId } : {}
-  }).where(eq25(changeRequest.id, id));
+  }).where(eq27(changeRequest.id, id));
   await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: decision, comment, changedByClient: clientId });
   await createNotification({
     portalId: cr.portalId,
@@ -5905,11 +6488,11 @@ async function clientCrRoutes(app2) {
     async (req) => ok(await clientListCRs(req.clientAccount.sub))
   );
   r.post("/:id/approve", { schema: { tags: [TAG19], summary: "Aprobar CR", security: security18, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
-    await clientDecision(req.clientAccount.sub, req.params.id, "approved", req.body.comment);
+    await clientDecision(req.clientAccount.sub, req.params.id, "approved", req.body?.comment);
     return ok({ success: true });
   });
   r.post("/:id/reject", { schema: { tags: [TAG19], summary: "Rechazar CR", security: security18, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
-    await clientDecision(req.clientAccount.sub, req.params.id, "rejected", req.body.comment);
+    await clientDecision(req.clientAccount.sub, req.params.id, "rejected", req.body?.comment);
     return ok({ success: true });
   });
   r.post(
@@ -5986,20 +6569,20 @@ var ListLibraryQuerySchema = z19.object({
 });
 
 // src/modules/library/library.service.ts
-import { and as and22, desc as desc15, eq as eq26 } from "drizzle-orm";
+import { and as and24, desc as desc16, eq as eq28 } from "drizzle-orm";
 async function requireItemInPortal(portalId, id) {
-  const [row] = await db.select().from(libraryItem).where(and22(eq26(libraryItem.id, id), eq26(libraryItem.portalId, portalId), eq26(libraryItem.archived, false))).limit(1);
+  const [row] = await db.select().from(libraryItem).where(and24(eq28(libraryItem.id, id), eq28(libraryItem.portalId, portalId), eq28(libraryItem.archived, false))).limit(1);
   if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
   return row;
 }
 async function listLibraryItems(portalId, query) {
   const conditions = [
-    eq26(libraryItem.portalId, portalId),
-    eq26(libraryItem.archived, false),
-    ...query.type ? [eq26(libraryItem.type, query.type)] : [],
-    ...query.kind ? [eq26(libraryItem.kind, query.kind)] : []
+    eq28(libraryItem.portalId, portalId),
+    eq28(libraryItem.archived, false),
+    ...query.type ? [eq28(libraryItem.type, query.type)] : [],
+    ...query.kind ? [eq28(libraryItem.kind, query.kind)] : []
   ];
-  return db.select().from(libraryItem).where(and22(...conditions)).orderBy(desc15(libraryItem.createdAt));
+  return db.select().from(libraryItem).where(and24(...conditions)).orderBy(desc16(libraryItem.createdAt));
 }
 async function getLibraryItem(portalId, id) {
   return requireItemInPortal(portalId, id);
@@ -6025,7 +6608,7 @@ async function createLibraryItem(portalId, userId, input) {
 }
 async function updateLibraryItem(portalId, id, input) {
   return db.transaction(async (tx) => {
-    await tx.select({ id: libraryItem.id }).from(libraryItem).where(and22(eq26(libraryItem.id, id), eq26(libraryItem.portalId, portalId), eq26(libraryItem.archived, false))).limit(1).then(([row]) => {
+    await tx.select({ id: libraryItem.id }).from(libraryItem).where(and24(eq28(libraryItem.id, id), eq28(libraryItem.portalId, portalId), eq28(libraryItem.archived, false))).limit(1).then(([row]) => {
       if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
     });
     const patch = { updatedAt: /* @__PURE__ */ new Date() };
@@ -6040,16 +6623,16 @@ async function updateLibraryItem(portalId, id, input) {
     if (input.steps !== void 0) {
       patch.steps = input.steps;
     }
-    const [updated] = await tx.update(libraryItem).set(patch).where(eq26(libraryItem.id, id)).returning();
+    const [updated] = await tx.update(libraryItem).set(patch).where(eq28(libraryItem.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el \xEDtem de biblioteca");
     return updated;
   });
 }
 async function archiveLibraryItem(portalId, id) {
   await db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: libraryItem.id }).from(libraryItem).where(and22(eq26(libraryItem.id, id), eq26(libraryItem.portalId, portalId), eq26(libraryItem.archived, false))).limit(1);
+    const [row] = await tx.select({ id: libraryItem.id }).from(libraryItem).where(and24(eq28(libraryItem.id, id), eq28(libraryItem.portalId, portalId), eq28(libraryItem.archived, false))).limit(1);
     if (!row) throw Errors.notFound("\xCDtem de biblioteca no encontrado");
-    await tx.update(libraryItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq26(libraryItem.id, id));
+    await tx.update(libraryItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(libraryItem.id, id));
   });
 }
 
@@ -6175,15 +6758,15 @@ var ListWorkItemsQuerySchema = z20.object({
 });
 
 // src/modules/work-items/work-items.service.ts
-import { and as and23, desc as desc16, eq as eq27 } from "drizzle-orm";
+import { and as and25, desc as desc17, eq as eq29 } from "drizzle-orm";
 async function listWorkItems(portalId, query) {
   const conditions = [
-    eq27(workItem.portalId, portalId),
-    eq27(workItem.archived, false),
-    ...query.type ? [eq27(workItem.type, query.type)] : [],
-    ...query.status ? [eq27(workItem.status, query.status)] : []
+    eq29(workItem.portalId, portalId),
+    eq29(workItem.archived, false),
+    ...query.type ? [eq29(workItem.type, query.type)] : [],
+    ...query.status ? [eq29(workItem.status, query.status)] : []
   ];
-  return db.select().from(workItem).where(and23(...conditions)).orderBy(desc16(workItem.createdAt));
+  return db.select().from(workItem).where(and25(...conditions)).orderBy(desc17(workItem.createdAt));
 }
 async function createWorkItem(portalId, userId, input) {
   const [row] = await db.insert(workItem).values({
@@ -6202,19 +6785,19 @@ async function createWorkItem(portalId, userId, input) {
 }
 async function updateWorkItem(portalId, id, input) {
   return db.transaction(async (tx) => {
-    await tx.select({ id: workItem.id }).from(workItem).where(and23(eq27(workItem.id, id), eq27(workItem.portalId, portalId), eq27(workItem.archived, false))).limit(1).then(([row]) => {
+    await tx.select({ id: workItem.id }).from(workItem).where(and25(eq29(workItem.id, id), eq29(workItem.portalId, portalId), eq29(workItem.archived, false))).limit(1).then(([row]) => {
       if (!row) throw Errors.notFound("\xCDtem de operaciones no encontrado");
     });
-    const [updated] = await tx.update(workItem).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq27(workItem.id, id)).returning();
+    const [updated] = await tx.update(workItem).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq29(workItem.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el \xEDtem de operaciones");
     return updated;
   });
 }
 async function archiveWorkItem(portalId, id) {
   await db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: workItem.id }).from(workItem).where(and23(eq27(workItem.id, id), eq27(workItem.portalId, portalId), eq27(workItem.archived, false))).limit(1);
+    const [row] = await tx.select({ id: workItem.id }).from(workItem).where(and25(eq29(workItem.id, id), eq29(workItem.portalId, portalId), eq29(workItem.archived, false))).limit(1);
     if (!row) throw Errors.notFound("\xCDtem de operaciones no encontrado");
-    await tx.update(workItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq27(workItem.id, id));
+    await tx.update(workItem).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq29(workItem.id, id));
   });
 }
 
@@ -6449,7 +7032,7 @@ var DebtorsQuerySchema = z21.object({
 });
 
 // src/modules/finance/finance.service.ts
-import { and as and24, asc as asc8, between, desc as desc17, eq as eq28, gte as gte3, inArray as inArray11, lte as lte3, sql as sql27, sum as sum2 } from "drizzle-orm";
+import { and as and26, asc as asc8, between, desc as desc18, eq as eq30, gte as gte3, inArray as inArray11, lte as lte3, sql as sql27, sum as sum2 } from "drizzle-orm";
 
 // src/lib/fx.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
@@ -6503,17 +7086,17 @@ function calcAmountBase(amount, currency, exchangeRate) {
   return amount / exchangeRate;
 }
 async function requireInvoice(portalId, id) {
-  const [row] = await db.select().from(invoice).where(and24(eq28(invoice.id, id), eq28(invoice.portalId, portalId), eq28(invoice.archived, false))).limit(1);
+  const [row] = await db.select().from(invoice).where(and26(eq30(invoice.id, id), eq30(invoice.portalId, portalId), eq30(invoice.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Factura no encontrada");
   return row;
 }
 async function requireExpense(portalId, id) {
-  const [row] = await db.select().from(expense).where(and24(eq28(expense.id, id), eq28(expense.portalId, portalId), eq28(expense.archived, false))).limit(1);
+  const [row] = await db.select().from(expense).where(and26(eq30(expense.id, id), eq30(expense.portalId, portalId), eq30(expense.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Gasto no encontrado");
   return row;
 }
 async function requireRetainer(portalId, id) {
-  const [row] = await db.select().from(retainer).where(and24(eq28(retainer.id, id), eq28(retainer.portalId, portalId), eq28(retainer.archived, false))).limit(1);
+  const [row] = await db.select().from(retainer).where(and26(eq30(retainer.id, id), eq30(retainer.portalId, portalId), eq30(retainer.archived, false))).limit(1);
   if (!row) throw Errors.notFound("Retainer no encontrado");
   return row;
 }
@@ -6528,20 +7111,20 @@ function computeDerivedStatus(inv, balance) {
   return "enviada";
 }
 async function listInvoices(portalId, query) {
-  const conditions = [eq28(invoice.portalId, portalId), eq28(invoice.archived, false)];
+  const conditions = [eq30(invoice.portalId, portalId), eq30(invoice.archived, false)];
   const { tab, status } = query;
   if (status) {
-    conditions.push(eq28(invoice.status, status));
+    conditions.push(eq30(invoice.status, status));
   } else if (tab === "borradores") {
-    conditions.push(eq28(invoice.status, "draft"));
+    conditions.push(eq30(invoice.status, "draft"));
   } else if (tab === "vencidas") {
-    conditions.push(eq28(invoice.status, "overdue"));
+    conditions.push(eq30(invoice.status, "overdue"));
   } else if (tab === "pagadas") {
-    conditions.push(eq28(invoice.status, "paid"));
+    conditions.push(eq30(invoice.status, "paid"));
   } else if (tab === "por_cobrar") {
     conditions.push(inArray11(invoice.status, ["sent", "overdue"]));
   }
-  const invoices = await db.select().from(invoice).where(and24(...conditions)).orderBy(desc17(invoice.createdAt));
+  const invoices = await db.select().from(invoice).where(and26(...conditions)).orderBy(desc18(invoice.createdAt));
   if (invoices.length === 0) return [];
   const ids = invoices.map((i) => i.id);
   const paidByInvoice = await db.select({ invoiceId: payment.invoiceId, total: sum2(payment.amountBase) }).from(payment).where(inArray11(payment.invoiceId, ids)).groupBy(payment.invoiceId);
@@ -6567,15 +7150,15 @@ async function listInvoices(portalId, query) {
 }
 async function getInvoiceDetail(portalId, id) {
   const inv = await requireInvoice(portalId, id);
-  const items = await db.select().from(invoiceItem).where(eq28(invoiceItem.invoiceId, id));
-  const payments_ = await db.select().from(payment).where(eq28(payment.invoiceId, id)).orderBy(desc17(payment.paidAt));
+  const items = await db.select().from(invoiceItem).where(eq30(invoiceItem.invoiceId, id));
+  const payments_ = await db.select().from(payment).where(eq30(payment.invoiceId, id)).orderBy(desc18(payment.paidAt));
   const totalPaid = payments_.reduce((acc, p) => acc + Number(p.amountBase), 0);
   const balance = num(Math.max(0, Number(inv.amountBase) - totalPaid));
   return { invoice: inv, items, payments: payments_, balance };
 }
 async function createInvoice(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq30(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const subtotal = input.items.reduce((acc, it) => acc + (it.quantity ?? 1) * it.unitPrice, 0);
     const tax = input.tax ?? 0;
@@ -6629,22 +7212,22 @@ async function updateInvoice(portalId, id, input) {
     ...needsRecalc ? { exchangeRate: num(exchangeRate), amountBase: num(amountBase) } : {},
     ...input.notes !== void 0 ? { notes: input.notes } : {},
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq28(invoice.id, id)).returning();
+  }).where(eq30(invoice.id, id)).returning();
   return row;
 }
 async function transitionInvoice(portalId, id, status) {
   await requireInvoice(portalId, id);
-  const [row] = await db.update(invoice).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq28(invoice.id, id)).returning();
+  const [row] = await db.update(invoice).set({ status, updatedAt: /* @__PURE__ */ new Date() }).where(eq30(invoice.id, id)).returning();
   return row;
 }
 async function archiveInvoice(portalId, id) {
   await requireInvoice(portalId, id);
-  await db.update(invoice).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(invoice.id, id));
+  await db.update(invoice).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(invoice.id, id));
 }
 async function listPayments(portalId, query) {
-  const conditions = [eq28(payment.portalId, portalId)];
-  if (query.method) conditions.push(eq28(payment.method, query.method));
-  if (query.invoiceId) conditions.push(eq28(payment.invoiceId, query.invoiceId));
+  const conditions = [eq30(payment.portalId, portalId)];
+  if (query.method) conditions.push(eq30(payment.method, query.method));
+  if (query.invoiceId) conditions.push(eq30(payment.invoiceId, query.invoiceId));
   if (query.from && query.to) {
     conditions.push(between(payment.paidAt, new Date(query.from), /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   } else if (query.from) {
@@ -6652,7 +7235,7 @@ async function listPayments(portalId, query) {
   } else if (query.to) {
     conditions.push(lte3(payment.paidAt, /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   }
-  const payments_ = await db.select().from(payment).where(and24(...conditions)).orderBy(desc17(payment.paidAt));
+  const payments_ = await db.select().from(payment).where(and26(...conditions)).orderBy(desc18(payment.paidAt));
   if (payments_.length === 0) {
     return { payments: [], meta: { totalPeriod: "0.00" } };
   }
@@ -6688,7 +7271,7 @@ async function listPayments(portalId, query) {
 }
 async function registerPayment(portalId, userId, input) {
   return db.transaction(async (tx) => {
-    const [inv] = await tx.select().from(invoice).where(and24(eq28(invoice.id, input.invoiceId), eq28(invoice.portalId, portalId), eq28(invoice.archived, false))).limit(1);
+    const [inv] = await tx.select().from(invoice).where(and26(eq30(invoice.id, input.invoiceId), eq30(invoice.portalId, portalId), eq30(invoice.archived, false))).limit(1);
     if (!inv) throw Errors.notFound("Factura no encontrada");
     const currency = input.currency ?? "USD";
     const exchangeRate = currency === "ARS" ? input.exchangeRate ?? 1 : 1;
@@ -6706,19 +7289,19 @@ async function registerPayment(portalId, userId, input) {
       createdBy: userId
     }).returning();
     if (!row) throw Errors.internal("No se pudo registrar el cobro");
-    const [totals] = await tx.select({ total: sum2(payment.amountBase) }).from(payment).where(eq28(payment.invoiceId, input.invoiceId));
+    const [totals] = await tx.select({ total: sum2(payment.amountBase) }).from(payment).where(eq30(payment.invoiceId, input.invoiceId));
     const totalPaid = Number(totals?.total ?? 0);
     if (totalPaid >= Number(inv.amountBase)) {
-      await tx.update(invoice).set({ status: "paid", updatedAt: /* @__PURE__ */ new Date() }).where(eq28(invoice.id, input.invoiceId));
+      await tx.update(invoice).set({ status: "paid", updatedAt: /* @__PURE__ */ new Date() }).where(eq30(invoice.id, input.invoiceId));
     }
     return row;
   });
 }
 async function listExpenses(portalId, query) {
-  const conditions = [eq28(expense.portalId, portalId), eq28(expense.archived, false)];
-  if (query.category) conditions.push(eq28(expense.category, query.category));
-  if (query.dealId) conditions.push(eq28(expense.dealId, query.dealId));
-  if (query.isRecurring != null) conditions.push(eq28(expense.isRecurring, query.isRecurring));
+  const conditions = [eq30(expense.portalId, portalId), eq30(expense.archived, false)];
+  if (query.category) conditions.push(eq30(expense.category, query.category));
+  if (query.dealId) conditions.push(eq30(expense.dealId, query.dealId));
+  if (query.isRecurring != null) conditions.push(eq30(expense.isRecurring, query.isRecurring));
   if (query.from && query.to) {
     conditions.push(between(expense.expenseDate, query.from, query.to));
   } else if (query.from) {
@@ -6726,7 +7309,7 @@ async function listExpenses(portalId, query) {
   } else if (query.to) {
     conditions.push(lte3(expense.expenseDate, query.to));
   }
-  return db.select().from(expense).where(and24(...conditions)).orderBy(desc17(expense.expenseDate));
+  return db.select().from(expense).where(and26(...conditions)).orderBy(desc18(expense.expenseDate));
 }
 async function createExpense(portalId, userId, input) {
   return db.transaction(async (tx) => {
@@ -6798,7 +7381,7 @@ async function updateExpense(portalId, id, userId, input) {
     if (input.isRecurring != null) patch.isRecurring = input.isRecurring;
     if (input.notes !== void 0) patch.notes = input.notes ?? null;
     if (input.storageKey !== void 0) patch.storageKey = input.storageKey ?? null;
-    const [updated] = await tx.update(expense).set(patch).where(eq28(expense.id, id)).returning();
+    const [updated] = await tx.update(expense).set(patch).where(eq30(expense.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el gasto");
     await recordFieldChanges({
       tx,
@@ -6815,10 +7398,10 @@ async function updateExpense(portalId, id, userId, input) {
 }
 async function archiveExpense(portalId, id) {
   await requireExpense(portalId, id);
-  await db.update(expense).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(expense.id, id));
+  await db.update(expense).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(expense.id, id));
 }
 async function expenseSummary(portalId) {
-  const expenses = await db.select().from(expense).where(and24(eq28(expense.portalId, portalId), eq28(expense.archived, false)));
+  const expenses = await db.select().from(expense).where(and26(eq30(expense.portalId, portalId), eq30(expense.archived, false)));
   let totalUsd = 0;
   let totalArs = 0;
   const byCategory = {};
@@ -6839,10 +7422,10 @@ async function expenseSummary(portalId) {
   };
 }
 async function listRetainers(portalId, query) {
-  const conditions = [eq28(retainer.portalId, portalId), eq28(retainer.archived, false)];
-  if (query.status) conditions.push(eq28(retainer.status, query.status));
-  if (query.companyId) conditions.push(eq28(retainer.companyId, query.companyId));
-  const retainers = await db.select().from(retainer).where(and24(...conditions)).orderBy(asc8(retainer.startDate));
+  const conditions = [eq30(retainer.portalId, portalId), eq30(retainer.archived, false)];
+  if (query.status) conditions.push(eq30(retainer.status, query.status));
+  if (query.companyId) conditions.push(eq30(retainer.companyId, query.companyId));
+  const retainers = await db.select().from(retainer).where(and26(...conditions)).orderBy(asc8(retainer.startDate));
   if (retainers.length === 0) return [];
   const companyIds = [...new Set(retainers.map((r) => r.companyId))];
   const companies = await db.select({ id: company.id, name: company.name }).from(company).where(inArray11(company.id, companyIds));
@@ -6851,8 +7434,8 @@ async function listRetainers(portalId, query) {
 }
 async function getRetainerDetail(portalId, id) {
   const ret = await requireRetainer(portalId, id);
-  const [companyRow] = await db.select({ name: company.name }).from(company).where(eq28(company.id, ret.companyId)).limit(1);
-  const invoices_ = await db.select().from(invoice).where(and24(eq28(invoice.retainerId, id), eq28(invoice.archived, false))).orderBy(desc17(invoice.createdAt));
+  const [companyRow] = await db.select({ name: company.name }).from(company).where(eq30(company.id, ret.companyId)).limit(1);
+  const invoices_ = await db.select().from(invoice).where(and26(eq30(invoice.retainerId, id), eq30(invoice.archived, false))).orderBy(desc18(invoice.createdAt));
   return {
     ...ret,
     companyName: companyRow?.name ?? null,
@@ -6860,7 +7443,7 @@ async function getRetainerDetail(portalId, id) {
   };
 }
 async function createRetainer(portalId, userId, input) {
-  const [companyRow] = await db.select().from(company).where(and24(eq28(company.id, input.companyId), eq28(company.portalId, portalId))).limit(1);
+  const [companyRow] = await db.select().from(company).where(and26(eq30(company.id, input.companyId), eq30(company.portalId, portalId))).limit(1);
   if (!companyRow) throw Errors.notFound("Empresa no encontrada");
   const currency = input.currency;
   const exchangeRate = currency === "ARS" ? input.exchangeRate ?? 1 : 1;
@@ -6902,15 +7485,15 @@ async function updateRetainer(portalId, id, input) {
       ...input.endDate !== void 0 ? { endDate: input.endDate ?? null } : {},
       ...input.notes !== void 0 ? { notes: input.notes ?? null } : {},
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq28(retainer.id, id)).returning();
+    }).where(eq30(retainer.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el retainer");
-    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq28(company.id, updated.companyId)).limit(1);
+    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq30(company.id, updated.companyId)).limit(1);
     return { ...updated, companyName: companyRow?.name ?? null };
   });
 }
 async function archiveRetainer(portalId, id) {
   await requireRetainer(portalId, id);
-  await db.update(retainer).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq28(retainer.id, id));
+  await db.update(retainer).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(retainer.id, id));
 }
 async function generateRetainerInvoice(portalId, retainerId, userId) {
   return db.transaction(async (tx) => {
@@ -6920,15 +7503,15 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
     }
     const currentMonth = (/* @__PURE__ */ new Date()).toISOString().slice(0, 7);
     const [existing] = await tx.select().from(invoice).where(
-      and24(
-        eq28(invoice.retainerId, retainerId),
-        eq28(invoice.archived, false),
+      and26(
+        eq30(invoice.retainerId, retainerId),
+        eq30(invoice.archived, false),
         // issueDate LIKE 'YYYY-MM-%'
         sql27`${invoice.issueDate} LIKE ${currentMonth + "-%"}`
       )
     ).limit(1);
     if (existing) return { invoice: existing, created: false };
-    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq28(invoice.portalId, portalId));
+    const [numRow] = await tx.select({ next: sql27`coalesce(max(${invoice.number}), 0) + 1` }).from(invoice).where(eq30(invoice.portalId, portalId));
     const next = numRow?.next ?? 1;
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const [row] = await tx.insert(invoice).values({
@@ -6960,7 +7543,7 @@ async function generateRetainerInvoice(portalId, retainerId, userId) {
   });
 }
 async function financeSummary(portalId, query) {
-  const invoiceConds = [eq28(invoice.portalId, portalId), eq28(invoice.archived, false)];
+  const invoiceConds = [eq30(invoice.portalId, portalId), eq30(invoice.archived, false)];
   if (query.from && query.to) {
     invoiceConds.push(between(invoice.issueDate, query.from, query.to));
   } else if (query.from) {
@@ -6968,13 +7551,13 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     invoiceConds.push(lte3(invoice.issueDate, query.to));
   }
-  const invoicesInPeriod = await db.select().from(invoice).where(and24(...invoiceConds));
+  const invoicesInPeriod = await db.select().from(invoice).where(and26(...invoiceConds));
   const totalInvoiced = invoicesInPeriod.filter((i) => i.status !== "void").reduce((acc, i) => acc + Number(i.amountBase), 0);
   const invoicesByStatus = {};
   for (const inv of invoicesInPeriod) {
     invoicesByStatus[inv.status] = (invoicesByStatus[inv.status] ?? 0) + 1;
   }
-  const paymentConds = [eq28(payment.portalId, portalId)];
+  const paymentConds = [eq30(payment.portalId, portalId)];
   if (query.from && query.to) {
     paymentConds.push(between(payment.paidAt, new Date(query.from), /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   } else if (query.from) {
@@ -6982,9 +7565,9 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     paymentConds.push(lte3(payment.paidAt, /* @__PURE__ */ new Date(query.to + "T23:59:59Z")));
   }
-  const [payTotals] = await db.select({ total: sum2(payment.amountBase) }).from(payment).where(and24(...paymentConds));
+  const [payTotals] = await db.select({ total: sum2(payment.amountBase) }).from(payment).where(and26(...paymentConds));
   const totalPaid = Number(payTotals?.total ?? 0);
-  const expenseConds = [eq28(expense.portalId, portalId), eq28(expense.archived, false)];
+  const expenseConds = [eq30(expense.portalId, portalId), eq30(expense.archived, false)];
   if (query.from && query.to) {
     expenseConds.push(between(expense.expenseDate, query.from, query.to));
   } else if (query.from) {
@@ -6992,13 +7575,13 @@ async function financeSummary(portalId, query) {
   } else if (query.to) {
     expenseConds.push(lte3(expense.expenseDate, query.to));
   }
-  const [expTotals] = await db.select({ total: sum2(expense.amountBase) }).from(expense).where(and24(...expenseConds));
+  const [expTotals] = await db.select({ total: sum2(expense.amountBase) }).from(expense).where(and26(...expenseConds));
   const totalExpenses = Number(expTotals?.total ?? 0);
   const netProfit = totalPaid - totalExpenses;
   const openInvoices = await db.select().from(invoice).where(
-    and24(
-      eq28(invoice.portalId, portalId),
-      eq28(invoice.archived, false),
+    and26(
+      eq30(invoice.portalId, portalId),
+      eq30(invoice.archived, false),
       inArray11(invoice.status, ["sent", "overdue"])
     )
   );
@@ -7013,7 +7596,7 @@ async function financeSummary(portalId, query) {
       outstanding += Math.max(0, Number(inv.amountBase) - (paidMap.get(inv.id) ?? 0));
     }
   }
-  const [mrrRow] = await db.select({ total: sum2(retainer.amountBase) }).from(retainer).where(and24(eq28(retainer.portalId, portalId), eq28(retainer.status, "active"), eq28(retainer.archived, false)));
+  const [mrrRow] = await db.select({ total: sum2(retainer.amountBase) }).from(retainer).where(and26(eq30(retainer.portalId, portalId), eq30(retainer.status, "active"), eq30(retainer.archived, false)));
   const mrr = Number(mrrRow?.total ?? 0);
   return {
     totalInvoiced: num(totalInvoiced),
@@ -7038,14 +7621,14 @@ async function monthlySummary(portalId, months = 6) {
   const incomeRows = await db.select({
     month: sql27`to_char(${payment.paidAt}, 'YYYY-MM')`,
     total: sum2(payment.amountBase)
-  }).from(payment).where(and24(eq28(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql27`to_char(${payment.paidAt}, 'YYYY-MM')`);
+  }).from(payment).where(and26(eq30(payment.portalId, portalId), gte3(payment.paidAt, new Date(from)))).groupBy(sql27`to_char(${payment.paidAt}, 'YYYY-MM')`);
   const expenseRows = await db.select({
     month: sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`,
     total: sum2(expense.amountBase)
   }).from(expense).where(
-    and24(
-      eq28(expense.portalId, portalId),
-      eq28(expense.archived, false),
+    and26(
+      eq30(expense.portalId, portalId),
+      eq30(expense.archived, false),
       between(expense.expenseDate, from, to)
     )
   ).groupBy(sql27`to_char(${expense.expenseDate}::date, 'YYYY-MM')`);
@@ -7059,9 +7642,9 @@ async function monthlySummary(portalId, months = 6) {
 }
 async function topDebtors(portalId, limit = 5) {
   const openInvoices = await db.select().from(invoice).where(
-    and24(
-      eq28(invoice.portalId, portalId),
-      eq28(invoice.archived, false),
+    and26(
+      eq30(invoice.portalId, portalId),
+      eq30(invoice.archived, false),
       inArray11(invoice.status, ["sent", "overdue"])
     )
   );
@@ -7089,11 +7672,11 @@ async function topDebtors(portalId, limit = 5) {
 }
 async function generateInvoicePdf(portalId, id) {
   const { invoice: inv, items } = await getInvoiceDetail(portalId, id);
-  const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq28(portal.id, portalId)).limit(1);
-  const portalName = portalRow?.name ?? "NOUS";
+  const [portalRow] = await db.select({ name: portal.name }).from(portal).where(eq30(portal.id, portalId)).limit(1);
+  const portalName = portalRow?.name ?? "Synous";
   let companyName = "\u2014";
   if (inv.companyId) {
-    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq28(company.id, inv.companyId)).limit(1);
+    const [companyRow] = await db.select({ name: company.name }).from(company).where(eq30(company.id, inv.companyId)).limit(1);
     companyName = companyRow?.name ?? "\u2014";
   }
   const easyinvoice = (await import("easyinvoice")).default;
@@ -7551,7 +8134,7 @@ var BulkUpsertPrefSchema = z23.object({
 });
 
 // src/modules/notification-prefs/notification-prefs.service.ts
-import { and as and25, eq as eq29 } from "drizzle-orm";
+import { and as and27, eq as eq31 } from "drizzle-orm";
 function defaultPref(portalId, userId, eventType) {
   return {
     id: "",
@@ -7565,7 +8148,7 @@ function defaultPref(portalId, userId, eventType) {
   };
 }
 async function listPrefs(portalId, userId) {
-  const rows = await db.select().from(notificationPref).where(and25(eq29(notificationPref.portalId, portalId), eq29(notificationPref.userId, userId)));
+  const rows = await db.select().from(notificationPref).where(and27(eq31(notificationPref.portalId, portalId), eq31(notificationPref.userId, userId)));
   const rowsByType = new Map(rows.map((r) => [r.eventType, r]));
   return KNOWN_EVENT_TYPES.map(
     (et) => rowsByType.get(et) ?? defaultPref(portalId, userId, et)
@@ -7658,22 +8241,22 @@ var ListCustomFieldsQuerySchema = z24.object({
 });
 
 // src/modules/custom-fields/custom-fields.service.ts
-import { and as and26, asc as asc9, eq as eq30 } from "drizzle-orm";
+import { and as and28, asc as asc9, eq as eq32 } from "drizzle-orm";
 async function listCustomFields(portalId, query) {
   const conditions = [
-    eq30(customField.portalId, portalId),
-    eq30(customField.archived, false),
-    ...query.entityType ? [eq30(customField.entityType, query.entityType)] : []
+    eq32(customField.portalId, portalId),
+    eq32(customField.archived, false),
+    ...query.entityType ? [eq32(customField.entityType, query.entityType)] : []
   ];
-  return db.select().from(customField).where(and26(...conditions)).orderBy(asc9(customField.displayOrder), asc9(customField.createdAt));
+  return db.select().from(customField).where(and28(...conditions)).orderBy(asc9(customField.displayOrder), asc9(customField.createdAt));
 }
 async function createCustomField(portalId, input) {
   const [existing] = await db.select({ id: customField.id }).from(customField).where(
-    and26(
-      eq30(customField.portalId, portalId),
-      eq30(customField.entityType, input.entityType),
-      eq30(customField.key, input.key),
-      eq30(customField.archived, false)
+    and28(
+      eq32(customField.portalId, portalId),
+      eq32(customField.entityType, input.entityType),
+      eq32(customField.key, input.key),
+      eq32(customField.archived, false)
     )
   ).limit(1);
   if (existing) {
@@ -7705,14 +8288,14 @@ async function createCustomField(portalId, input) {
 async function updateCustomField(portalId, id, input) {
   return db.transaction(async (tx) => {
     const [existing] = await tx.select({ id: customField.id }).from(customField).where(
-      and26(
-        eq30(customField.id, id),
-        eq30(customField.portalId, portalId),
-        eq30(customField.archived, false)
+      and28(
+        eq32(customField.id, id),
+        eq32(customField.portalId, portalId),
+        eq32(customField.archived, false)
       )
     ).limit(1);
     if (!existing) throw Errors.notFound("Campo personalizado no encontrado");
-    const [updated] = await tx.update(customField).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq30(customField.id, id)).returning();
+    const [updated] = await tx.update(customField).set({ ...input, updatedAt: /* @__PURE__ */ new Date() }).where(eq32(customField.id, id)).returning();
     if (!updated) throw Errors.internal("No se pudo actualizar el campo personalizado");
     return updated;
   });
@@ -7720,14 +8303,14 @@ async function updateCustomField(portalId, id, input) {
 async function archiveCustomField(portalId, id) {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({ id: customField.id }).from(customField).where(
-      and26(
-        eq30(customField.id, id),
-        eq30(customField.portalId, portalId),
-        eq30(customField.archived, false)
+      and28(
+        eq32(customField.id, id),
+        eq32(customField.portalId, portalId),
+        eq32(customField.archived, false)
       )
     ).limit(1);
     if (!row) throw Errors.notFound("Campo personalizado no encontrado");
-    await tx.update(customField).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq30(customField.id, id));
+    await tx.update(customField).set({ archived: true, archivedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq32(customField.id, id));
   });
 }
 
@@ -7848,16 +8431,16 @@ var TimelineQuerySchema = z25.object({
 });
 
 // src/modules/timeline/timeline.service.ts
-import { and as and27, desc as desc18, eq as eq32, inArray as inArray12 } from "drizzle-orm";
+import { and as and29, desc as desc19, eq as eq34, inArray as inArray12 } from "drizzle-orm";
 
 // src/modules/email-tracking/email-tracking.service.ts
-import { eq as eq31 } from "drizzle-orm";
+import { eq as eq33 } from "drizzle-orm";
 var TRACKING_PIXEL_GIF = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
   "base64"
 );
 async function recordOpen(trackingId, userAgent, ip) {
-  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq31(emailSend.trackingId, trackingId)).limit(1);
+  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq33(emailSend.trackingId, trackingId)).limit(1);
   if (!send) return;
   await db.insert(emailEvent).values({
     emailId: send.id,
@@ -7867,7 +8450,7 @@ async function recordOpen(trackingId, userAgent, ip) {
   });
 }
 async function recordClick(trackingId, url, userAgent, ip) {
-  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq31(emailSend.trackingId, trackingId)).limit(1);
+  const [send] = await db.select({ id: emailSend.id }).from(emailSend).where(eq33(emailSend.trackingId, trackingId)).limit(1);
   if (!send) return;
   await db.insert(emailEvent).values({
     emailId: send.id,
@@ -7944,7 +8527,7 @@ async function logEmail(portalId, _userId, input) {
   if (!row) throw Errors.internal("No se pudo registrar el email");
   if (input.bodyHtml) {
     const htmlWithPixel = injectTrackingPixel(input.bodyHtml, row.trackingId);
-    const [updated] = await db.update(emailSend).set({ bodyHtml: htmlWithPixel }).where(eq32(emailSend.id, row.id)).returning();
+    const [updated] = await db.update(emailSend).set({ bodyHtml: htmlWithPixel }).where(eq34(emailSend.id, row.id)).returning();
     if (updated) return updated;
   }
   return row;
@@ -7953,10 +8536,10 @@ async function getTimeline(portalId, query) {
   const { dealId, contactId, companyId } = query;
   const items = [];
   if (dealId != null || contactId != null) {
-    const callConds = [eq32(call.portalId, portalId)];
-    if (dealId != null) callConds.push(eq32(call.dealId, dealId));
-    else if (contactId != null) callConds.push(eq32(call.contactId, contactId));
-    const calls = await db.select().from(call).where(and27(...callConds)).orderBy(desc18(call.occurredAt)).limit(100);
+    const callConds = [eq34(call.portalId, portalId)];
+    if (dealId != null) callConds.push(eq34(call.dealId, dealId));
+    else if (contactId != null) callConds.push(eq34(call.contactId, contactId));
+    const calls = await db.select().from(call).where(and29(...callConds)).orderBy(desc19(call.occurredAt)).limit(100);
     for (const c of calls) {
       items.push({
         kind: "call",
@@ -7972,10 +8555,10 @@ async function getTimeline(portalId, query) {
     }
   }
   if (dealId != null || contactId != null) {
-    const meetConds = [eq32(meeting.portalId, portalId)];
-    if (dealId != null) meetConds.push(eq32(meeting.dealId, dealId));
-    else if (contactId != null) meetConds.push(eq32(meeting.contactId, contactId));
-    const meetings = await db.select().from(meeting).where(and27(...meetConds)).orderBy(desc18(meeting.createdAt)).limit(100);
+    const meetConds = [eq34(meeting.portalId, portalId)];
+    if (dealId != null) meetConds.push(eq34(meeting.dealId, dealId));
+    else if (contactId != null) meetConds.push(eq34(meeting.contactId, contactId));
+    const meetings = await db.select().from(meeting).where(and29(...meetConds)).orderBy(desc19(meeting.createdAt)).limit(100);
     for (const m of meetings) {
       items.push({
         kind: "meeting",
@@ -7992,10 +8575,10 @@ async function getTimeline(portalId, query) {
     }
   }
   if (dealId != null || contactId != null) {
-    const emailConds = [eq32(emailSend.portalId, portalId)];
-    if (dealId != null) emailConds.push(eq32(emailSend.dealId, dealId));
-    else if (contactId != null) emailConds.push(eq32(emailSend.contactId, contactId));
-    const emails = await db.select().from(emailSend).where(and27(...emailConds)).orderBy(desc18(emailSend.sentAt)).limit(100);
+    const emailConds = [eq34(emailSend.portalId, portalId)];
+    if (dealId != null) emailConds.push(eq34(emailSend.dealId, dealId));
+    else if (contactId != null) emailConds.push(eq34(emailSend.contactId, contactId));
+    const emails = await db.select().from(emailSend).where(and29(...emailConds)).orderBy(desc19(emailSend.sentAt)).limit(100);
     const emailIds = emails.map((e) => e.id);
     const eventRows = emailIds.length ? await db.select({ emailId: emailEvent.emailId, type: emailEvent.type }).from(emailEvent).where(inArray12(emailEvent.emailId, emailIds)) : [];
     const openedSet = /* @__PURE__ */ new Set();
@@ -8023,11 +8606,11 @@ async function getTimeline(portalId, query) {
     }
   }
   {
-    const noteConds = [eq32(note.portalId, portalId)];
-    if (dealId != null) noteConds.push(eq32(note.dealId, dealId));
-    else if (contactId != null) noteConds.push(eq32(note.contactId, contactId));
-    else if (companyId != null) noteConds.push(eq32(note.companyId, companyId));
-    const notes = await db.select().from(note).where(and27(...noteConds)).orderBy(desc18(note.createdAt)).limit(100);
+    const noteConds = [eq34(note.portalId, portalId)];
+    if (dealId != null) noteConds.push(eq34(note.dealId, dealId));
+    else if (contactId != null) noteConds.push(eq34(note.contactId, contactId));
+    else if (companyId != null) noteConds.push(eq34(note.companyId, companyId));
+    const notes = await db.select().from(note).where(and29(...noteConds)).orderBy(desc19(note.createdAt)).limit(100);
     for (const n of notes) {
       items.push({
         kind: "note",
@@ -8039,11 +8622,11 @@ async function getTimeline(portalId, query) {
     }
   }
   {
-    const taskConds = [eq32(task.portalId, portalId)];
-    if (dealId != null) taskConds.push(eq32(task.dealId, dealId));
-    else if (contactId != null) taskConds.push(eq32(task.contactId, contactId));
-    else if (companyId != null) taskConds.push(eq32(task.companyId, companyId));
-    const tasks = await db.select().from(task).where(and27(...taskConds)).orderBy(desc18(task.createdAt)).limit(100);
+    const taskConds = [eq34(task.portalId, portalId)];
+    if (dealId != null) taskConds.push(eq34(task.dealId, dealId));
+    else if (contactId != null) taskConds.push(eq34(task.contactId, contactId));
+    else if (companyId != null) taskConds.push(eq34(task.companyId, companyId));
+    const tasks = await db.select().from(task).where(and29(...taskConds)).orderBy(desc19(task.createdAt)).limit(100);
     for (const t of tasks) {
       items.push({
         kind: "task",
@@ -8074,12 +8657,12 @@ async function getTimeline(portalId, query) {
       entityId = companyId;
     }
     const history = await db.select().from(recordHistory).where(
-      and27(
-        eq32(recordHistory.portalId, portalId),
-        eq32(recordHistory.entityType, entityType),
-        eq32(recordHistory.entityId, entityId)
+      and29(
+        eq34(recordHistory.portalId, portalId),
+        eq34(recordHistory.entityType, entityType),
+        eq34(recordHistory.entityId, entityId)
       )
-    ).orderBy(desc18(recordHistory.changedAt)).limit(100);
+    ).orderBy(desc19(recordHistory.changedAt)).limit(100);
     for (const h of history) {
       items.push({
         kind: "history",
@@ -8189,7 +8772,7 @@ var FocusQuerySchema = z26.object({
 });
 
 // src/modules/focus/focus.service.ts
-import { and as and28, asc as asc10, eq as eq33, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql28 } from "drizzle-orm";
+import { and as and30, asc as asc10, eq as eq35, inArray as inArray13, lte as lte4, isNotNull as isNotNull2, sql as sql28 } from "drizzle-orm";
 
 // src/lib/dates.ts
 function startOfDay2(d) {
@@ -8212,14 +8795,14 @@ async function getFollowUps(portalId, userId) {
   const todayStart = startOfDay2(now);
   const sevenDaysEnd = endOfDay(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1e3));
   const baseConds = [
-    eq33(task.portalId, portalId),
+    eq35(task.portalId, portalId),
     inArray13(task.status, ["pending", "in_progress"]),
     isNotNull2(task.dueDate),
     lte4(task.dueDate, sevenDaysEnd)
     // only up to 7 days out
   ];
-  if (userId != null) baseConds.push(eq33(task.assignedTo, userId));
-  const openTasks = await db.select().from(task).where(and28(...baseConds)).orderBy(asc10(task.dueDate));
+  if (userId != null) baseConds.push(eq35(task.assignedTo, userId));
+  const openTasks = await db.select().from(task).where(and30(...baseConds)).orderBy(asc10(task.dueDate));
   const dealIds = [...new Set(openTasks.filter((t) => t.dealId != null).map((t) => t.dealId))];
   const contactIds = [...new Set(openTasks.filter((t) => t.contactId != null).map((t) => t.contactId))];
   const companyIds = [...new Set(openTasks.filter((t) => t.companyId != null).map((t) => t.companyId))];
@@ -8279,18 +8862,18 @@ async function getDealsNeedingAttention(portalId) {
     ownerId: deal.ownerId,
     createdAt: deal.createdAt,
     stageLabel: pipelineStage.label
-  }).from(deal).innerJoin(pipelineStage, eq33(deal.stageId, pipelineStage.id)).where(
-    and28(
-      eq33(deal.portalId, portalId),
-      eq33(deal.archived, false),
-      eq33(pipelineStage.isClosed, false)
+  }).from(deal).innerJoin(pipelineStage, eq35(deal.stageId, pipelineStage.id)).where(
+    and30(
+      eq35(deal.portalId, portalId),
+      eq35(deal.archived, false),
+      eq35(pipelineStage.isClosed, false)
     )
   );
   if (openDeals.length === 0) return { noNextAction: [], stale: [] };
   const dealIds = openDeals.map((d) => d.id);
   const openTaskRows = await db.select({ dealId: task.dealId, id: task.id, dueDate: task.dueDate }).from(task).where(
-    and28(
-      eq33(task.portalId, portalId),
+    and30(
+      eq35(task.portalId, portalId),
       inArray13(task.status, ["pending", "in_progress"]),
       inArray13(task.dealId, dealIds)
     )
@@ -8298,21 +8881,21 @@ async function getDealsNeedingAttention(portalId) {
   const dealsWithTask = new Set(openTaskRows.map((t) => t.dealId).filter((id) => id != null));
   const [callAgg, meetingAgg, emailAgg, noteAgg, taskAgg] = await Promise.all([
     // calls: max(occurredAt)
-    db.select({ dealId: call.dealId, maxDate: sql28`max(${call.occurredAt})` }).from(call).where(and28(eq33(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
+    db.select({ dealId: call.dealId, maxDate: sql28`max(${call.occurredAt})` }).from(call).where(and30(eq35(call.portalId, portalId), inArray13(call.dealId, dealIds))).groupBy(call.dealId),
     // meetings: max(coalesce(starts_at, created_at))
     db.select({
       dealId: meeting.dealId,
       maxDate: sql28`max(coalesce(${meeting.startsAt}, ${meeting.createdAt}))`
-    }).from(meeting).where(and28(eq33(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
+    }).from(meeting).where(and30(eq35(meeting.portalId, portalId), inArray13(meeting.dealId, dealIds))).groupBy(meeting.dealId),
     // emails: max(sentAt)
-    db.select({ dealId: emailSend.dealId, maxDate: sql28`max(${emailSend.sentAt})` }).from(emailSend).where(and28(eq33(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
+    db.select({ dealId: emailSend.dealId, maxDate: sql28`max(${emailSend.sentAt})` }).from(emailSend).where(and30(eq35(emailSend.portalId, portalId), inArray13(emailSend.dealId, dealIds))).groupBy(emailSend.dealId),
     // notes: max(createdAt)
-    db.select({ dealId: note.dealId, maxDate: sql28`max(${note.createdAt})` }).from(note).where(and28(eq33(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
+    db.select({ dealId: note.dealId, maxDate: sql28`max(${note.createdAt})` }).from(note).where(and30(eq35(note.portalId, portalId), inArray13(note.dealId, dealIds))).groupBy(note.dealId),
     // tasks (any task, completed too): max(completedAt ?? createdAt)
     db.select({
       dealId: task.dealId,
       maxDate: sql28`max(coalesce(${task.completedAt}, ${task.createdAt}))`
-    }).from(task).where(and28(eq33(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
+    }).from(task).where(and30(eq35(task.portalId, portalId), inArray13(task.dealId, dealIds))).groupBy(task.dealId)
   ]);
   const lastActivityMap = /* @__PURE__ */ new Map();
   function applyAgg(rows) {
@@ -8390,7 +8973,7 @@ var ReportsQuerySchema = z27.object({
 });
 
 // src/modules/reports/reports.service.ts
-import { and as and29, asc as asc11, count as count4, eq as eq34, gte as gte5, inArray as inArray14, lte as lte5, sql as sql29 } from "drizzle-orm";
+import { and as and31, asc as asc11, count as count4, eq as eq36, gte as gte5, inArray as inArray14, lte as lte5, sql as sql29 } from "drizzle-orm";
 async function getReports(portalId, params) {
   const now = /* @__PURE__ */ new Date();
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -8427,12 +9010,12 @@ async function fetchPipelineFunnel(portalId) {
     currentValue: sql29`coalesce(sum(${deal.amount}), 0)`
   }).from(pipelineStage).innerJoin(
     pipeline,
-    and29(
-      eq34(pipelineStage.pipelineId, pipeline.id),
-      eq34(pipeline.portalId, portalId),
-      eq34(pipeline.archived, false)
+    and31(
+      eq36(pipelineStage.pipelineId, pipeline.id),
+      eq36(pipeline.portalId, portalId),
+      eq36(pipeline.archived, false)
     )
-  ).leftJoin(deal, and29(eq34(deal.stageId, pipelineStage.id), eq34(deal.archived, false))).where(eq34(pipelineStage.archived, false)).groupBy(
+  ).leftJoin(deal, and31(eq36(deal.stageId, pipelineStage.id), eq36(deal.archived, false))).where(eq36(pipelineStage.archived, false)).groupBy(
     pipelineStage.id,
     pipelineStage.label,
     pipelineStage.displayOrder,
@@ -8442,10 +9025,10 @@ async function fetchPipelineFunnel(portalId) {
   const [winRateRow] = await db.select({
     won: sql29`count(*) filter (where ${pipelineStage.isWon} = true)`,
     closed: sql29`count(*) filter (where ${pipelineStage.isClosed} = true)`
-  }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).innerJoin(
+  }).from(deal).innerJoin(pipelineStage, eq36(deal.stageId, pipelineStage.id)).innerJoin(
     pipeline,
-    and29(eq34(pipelineStage.pipelineId, pipeline.id), eq34(pipeline.portalId, portalId))
-  ).where(and29(eq34(deal.portalId, portalId), eq34(deal.archived, false)));
+    and31(eq36(pipelineStage.pipelineId, pipeline.id), eq36(pipeline.portalId, portalId))
+  ).where(and31(eq36(deal.portalId, portalId), eq36(deal.archived, false)));
   const won = Number(winRateRow?.won ?? 0);
   const closed = Number(winRateRow?.closed ?? 0);
   const winRate = closed > 0 ? Math.round(won / closed * 100) : null;
@@ -8466,7 +9049,7 @@ async function fetchConversionBySource(portalId) {
     source: sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`,
     total: count4(),
     customers: sql29`count(*) filter (where ${contact.lifecycleStage} = 'customer')`
-  }).from(contact).where(and29(eq34(contact.portalId, portalId), eq34(contact.archived, false))).groupBy(sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql29`count(*) desc`);
+  }).from(contact).where(and31(eq36(contact.portalId, portalId), eq36(contact.archived, false))).groupBy(sql29`coalesce(nullif(trim(${contact.custom}->>'source'), ''), 'Sin fuente')`).orderBy(sql29`count(*) desc`);
   return rows.map((r) => {
     const leads = Number(r.total);
     const customers = Number(r.customers);
@@ -8484,14 +9067,14 @@ async function fetchActivityByUser(portalId, from, to) {
     firstName: hubUser.firstName,
     lastName: hubUser.lastName,
     email: hubUser.email
-  }).from(hubUser).where(and29(eq34(hubUser.portalId, portalId), eq34(hubUser.isActive, true)));
+  }).from(hubUser).where(and31(eq36(hubUser.portalId, portalId), eq36(hubUser.isActive, true)));
   if (users.length === 0) return [];
   const userIds = users.map((u) => u.id);
   const [callRows, meetingRows, noteRows, taskCreatedRows, taskCompletedRows] = await Promise.all([
     // calls by createdBy
     db.select({ userId: call.createdBy, n: count4() }).from(call).where(
-      and29(
-        eq34(call.portalId, portalId),
+      and31(
+        eq36(call.portalId, portalId),
         inArray14(call.createdBy, userIds),
         gte5(call.createdAt, from),
         lte5(call.createdAt, to)
@@ -8499,8 +9082,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(call.createdBy),
     // meetings by createdBy
     db.select({ userId: meeting.createdBy, n: count4() }).from(meeting).where(
-      and29(
-        eq34(meeting.portalId, portalId),
+      and31(
+        eq36(meeting.portalId, portalId),
         inArray14(meeting.createdBy, userIds),
         gte5(meeting.createdAt, from),
         lte5(meeting.createdAt, to)
@@ -8508,8 +9091,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(meeting.createdBy),
     // notes by createdBy
     db.select({ userId: note.createdBy, n: count4() }).from(note).where(
-      and29(
-        eq34(note.portalId, portalId),
+      and31(
+        eq36(note.portalId, portalId),
         inArray14(note.createdBy, userIds),
         gte5(note.createdAt, from),
         lte5(note.createdAt, to)
@@ -8517,8 +9100,8 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(note.createdBy),
     // tasks created by user
     db.select({ userId: task.createdBy, n: count4() }).from(task).where(
-      and29(
-        eq34(task.portalId, portalId),
+      and31(
+        eq36(task.portalId, portalId),
         inArray14(task.createdBy, userIds),
         gte5(task.createdAt, from),
         lte5(task.createdAt, to)
@@ -8526,10 +9109,10 @@ async function fetchActivityByUser(portalId, from, to) {
     ).groupBy(task.createdBy),
     // tasks completed by assignedTo (in period)
     db.select({ userId: task.assignedTo, n: count4() }).from(task).where(
-      and29(
-        eq34(task.portalId, portalId),
+      and31(
+        eq36(task.portalId, portalId),
         inArray14(task.assignedTo, userIds),
-        eq34(task.status, "completed"),
+        eq36(task.status, "completed"),
         gte5(task.completedAt, from),
         lte5(task.completedAt, to)
       )
@@ -8555,13 +9138,13 @@ async function fetchClosedWon(portalId, from, to, prevFrom, prevTo) {
     const [row] = await db.select({
       n: count4(),
       value: sql29`coalesce(sum(${deal.amount}), 0)`
-    }).from(deal).innerJoin(pipelineStage, eq34(deal.stageId, pipelineStage.id)).innerJoin(
+    }).from(deal).innerJoin(pipelineStage, eq36(deal.stageId, pipelineStage.id)).innerJoin(
       pipeline,
-      and29(eq34(pipelineStage.pipelineId, pipeline.id), eq34(pipeline.portalId, portalId))
+      and31(eq36(pipelineStage.pipelineId, pipeline.id), eq36(pipeline.portalId, portalId))
     ).where(
-      and29(
-        eq34(deal.portalId, portalId),
-        eq34(pipelineStage.isWon, true),
+      and31(
+        eq36(deal.portalId, portalId),
+        eq36(pipelineStage.isWon, true),
         gte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
         lte5(sql29`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end)
       )
@@ -8604,7 +9187,7 @@ import { z as z28 } from "zod";
 
 // src/modules/webhooks/webhooks.service.ts
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq as eq35, and as and30 } from "drizzle-orm";
+import { eq as eq37, and as and32, asc as asc12 } from "drizzle-orm";
 function verifyFathomSignature(rawBody, signature) {
   if (!env.FATHOM_WEBHOOK_SECRET || !signature) return false;
   const bodyStr = typeof rawBody === "string" ? rawBody : rawBody.toString("utf8");
@@ -8619,18 +9202,25 @@ function verifyFathomSignature(rawBody, signature) {
     return false;
   }
 }
+function verifyDocusealToken(token) {
+  if (!env.DOCUSEAL_WEBHOOK_SECRET || !token) return false;
+  const expected = Buffer.from(env.DOCUSEAL_WEBHOOK_SECRET, "utf8");
+  const received = Buffer.from(token, "utf8");
+  if (expected.length !== received.length) return false;
+  return timingSafeEqual(expected, received);
+}
 async function resolvePortalId() {
-  const [row] = await db.select({ id: portal.id }).from(portal).limit(1);
+  const [row] = await db.select({ id: portal.id }).from(portal).orderBy(asc12(portal.createdAt)).limit(1);
   return row?.id ?? null;
 }
 async function findContactByEmail(portalId, email) {
-  const [row] = await db.select({ id: contact.id }).from(contact).where(and30(eq35(contact.portalId, portalId), eq35(contact.email, email))).limit(1);
+  const [row] = await db.select({ id: contact.id }).from(contact).where(and32(eq37(contact.portalId, portalId), eq37(contact.email, email))).limit(1);
   if (!row) return null;
   const [dealRow] = await db.select({ id: deal.id }).from(deal).where(
-    and30(
-      eq35(deal.portalId, portalId),
-      eq35(deal.primaryContactId, row.id),
-      eq35(deal.archived, false)
+    and32(
+      eq37(deal.portalId, portalId),
+      eq37(deal.primaryContactId, row.id),
+      eq37(deal.archived, false)
     )
   ).limit(1);
   return { id: row.id, primaryDealId: dealRow?.id ?? null };
@@ -8658,9 +9248,9 @@ async function handleFathomMeeting(portalId, payload) {
   }
   if (fathomTranscriptUrl) {
     const [existing] = await db.select({ id: meeting.id }).from(meeting).where(
-      and30(
-        eq35(meeting.portalId, portalId),
-        eq35(meeting.fathomTranscriptUrl, fathomTranscriptUrl)
+      and32(
+        eq37(meeting.portalId, portalId),
+        eq37(meeting.fathomTranscriptUrl, fathomTranscriptUrl)
       )
     ).limit(1);
     if (existing) {
@@ -8673,7 +9263,7 @@ async function handleFathomMeeting(portalId, payload) {
         fathomParticipants,
         contactId: contactId ?? void 0,
         dealId: dealId ?? void 0
-      }).where(eq35(meeting.id, existing.id));
+      }).where(eq37(meeting.id, existing.id));
       return;
     }
   }
@@ -8703,6 +9293,198 @@ async function handleFathomWebhook(payload) {
   const portalId = await resolvePortalId();
   if (portalId == null) return;
   await handleFathomMeeting(portalId, payload);
+}
+
+// src/modules/documents/docuseal.service.ts
+import { and as and33, eq as eq38 } from "drizzle-orm";
+
+// src/modules/documents/docuseal.client.ts
+function isDocusealConfigured() {
+  return Boolean(env.DOCUSEAL_API_KEY);
+}
+function apiBase() {
+  return env.DOCUSEAL_API_URL.replace(/\/+$/, "");
+}
+function appBase() {
+  return env.DOCUSEAL_URL.replace(/\/+$/, "");
+}
+async function docusealFetch(path, init) {
+  if (!isDocusealConfigured()) {
+    throw Errors.badRequest("DocuSeal no est\xE1 configurado (falta DOCUSEAL_API_KEY)");
+  }
+  const res = await fetch(`${apiBase()}${path}`, {
+    ...init,
+    headers: {
+      "X-Auth-Token": env.DOCUSEAL_API_KEY,
+      "Content-Type": "application/json",
+      ...init?.headers ?? {}
+    }
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    console.error("[docuseal] Error de la API", { path, status: res.status, detail: detail.slice(0, 500) });
+    throw Errors.internal(`DocuSeal respondi\xF3 ${res.status}`);
+  }
+  return await res.json();
+}
+async function createSubmission(templateId, submitters) {
+  return docusealFetch("/submissions", {
+    method: "POST",
+    body: JSON.stringify({
+      template_id: templateId,
+      send_email: false,
+      submitters
+    })
+  });
+}
+async function fetchSubmissionDocuments(submissionId) {
+  const detail = await docusealFetch(`/submissions/${submissionId}/documents`);
+  return detail.documents ?? [];
+}
+function signingUrl(submitterSlug) {
+  return `${appBase()}/s/${submitterSlug}`;
+}
+
+// src/modules/documents/emails/signature-request.ts
+function signatureRequestSubject(documentName) {
+  return `Para tu firma: ${documentName}`;
+}
+function signatureRequestHtml(p) {
+  const saludo = p.firstName ? `Hola ${escHtml2(p.firstName)},` : "Hola,";
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documento para firmar</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f5f5f4;">
+  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #1c1917; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
+
+    <p style="margin: 0 0 4px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #78716c;">Documento para firmar</p>
+    <h1 style="margin: 0 0 20px; font-size: 22px; line-height: 1.3; font-weight: 600;">${escHtml2(p.documentName)}</h1>
+
+    <p style="font-size: 15px; line-height: 1.6;">${saludo}</p>
+    <p style="font-size: 15px; line-height: 1.6;">
+      Te dejamos el documento listo para que lo revises y lo firmes. Se firma
+      online, desde el navegador \u2014 no hace falta imprimir ni escanear nada.
+    </p>
+
+    <p style="margin: 28px 0;">
+      <a href="${escAttr2(p.signingUrl)}"
+         style="display: inline-block; padding: 14px 28px; background: #0c0a09; color: #fafaf9; border-radius: 999px; text-decoration: none; font-size: 15px; font-weight: 600;">
+        Revisar y firmar
+      </a>
+    </p>
+
+    <p style="font-size: 15px; line-height: 1.6;">
+      Si algo del documento no te cierra, respond\xE9 este email antes de firmar y
+      lo vemos.
+    </p>
+
+    <hr style="margin: 32px 0 16px; border: none; border-top: 1px solid #e7e5e4;" />
+    <p style="font-size: 12px; color: #78716c; line-height: 1.5;">
+      Este link es personal: es tu enlace de firma, no lo compartas.
+    </p>
+  </div>
+</body>
+</html>`;
+}
+
+// src/modules/documents/docuseal.service.ts
+var ENTITY6 = "document";
+async function sendForSignature(portalId, dealId, userId, input) {
+  if (!isDocusealConfigured()) {
+    throw Errors.badRequest("DocuSeal no est\xE1 configurado (falta DOCUSEAL_API_KEY)");
+  }
+  const [d] = await db.select({ id: deal.id, name: deal.name, primaryContactId: deal.primaryContactId }).from(deal).where(and33(eq38(deal.id, dealId), eq38(deal.portalId, portalId), eq38(deal.archived, false))).limit(1);
+  if (!d) throw Errors.notFound("Deal no encontrado");
+  if (!d.primaryContactId) throw Errors.badRequest("El deal no tiene contacto principal a qui\xE9n enviarle el documento");
+  const [c] = await db.select({ email: contact.email, firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq38(contact.id, d.primaryContactId)).limit(1);
+  if (!c?.email) throw Errors.badRequest("El contacto principal no tiene email");
+  const fullName = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || void 0;
+  const submitters = await createSubmission(input.templateId, [{ email: c.email, name: fullName }]);
+  const first = submitters[0];
+  if (!first) throw Errors.internal("DocuSeal no devolvi\xF3 ning\xFAn submitter");
+  const name = input.name ?? (input.documentType === "contract" ? `Contrato \u2014 ${d.name}` : `Propuesta \u2014 ${d.name}`);
+  const [row] = await db.insert(document).values({
+    portalId,
+    dealId,
+    name,
+    type: input.documentType,
+    source: "docuseal",
+    docusealSubmissionId: first.submission_id,
+    docusealTemplateId: input.templateId,
+    docusealStatus: "pending",
+    // `slug` del submitter: es lo que identifica al firmante en el webhook.
+    docusealExternalId: first.slug,
+    createdBy: userId
+  }).returning();
+  if (!row) throw Errors.internal("No se pudo crear el documento");
+  const url = signingUrl(first.slug);
+  try {
+    await sendEmail({
+      to: c.email,
+      subject: signatureRequestSubject(name),
+      html: signatureRequestHtml({ firstName: c.firstName, documentName: name, signingUrl: url })
+    });
+  } catch (err) {
+    console.error("[docuseal.service] No se pudo enviar el email de firma", {
+      documentId: row.id,
+      error: err?.message ?? err
+    });
+  }
+  return { documentId: row.id, submissionId: first.submission_id, signingUrl: url };
+}
+async function getSignedDocuments(portalId, documentId) {
+  const [row] = await db.select({ submissionId: document.docusealSubmissionId, status: document.docusealStatus }).from(document).where(and33(eq38(document.id, documentId), eq38(document.portalId, portalId))).limit(1);
+  if (!row) throw Errors.notFound("Documento no encontrado");
+  if (!row.submissionId) throw Errors.badRequest("El documento no tiene una submission de DocuSeal asociada");
+  if (row.status !== "completed") throw Errors.badRequest("El documento todav\xEDa no est\xE1 firmado");
+  return fetchSubmissionDocuments(row.submissionId);
+}
+var HANDLED_EVENTS = /* @__PURE__ */ new Set(["form.completed", "form.declined"]);
+async function handleDocusealWebhook(payload) {
+  const eventType = payload.event_type;
+  if (!eventType || !HANDLED_EVENTS.has(eventType)) return;
+  const slug = payload.data?.slug;
+  if (!slug) {
+    console.error("[docuseal] Evento sin slug de submitter \u2014 no se puede resolver el documento", { eventType });
+    return;
+  }
+  const [row] = await db.select({
+    id: document.id,
+    portalId: document.portalId,
+    dealId: document.dealId,
+    type: document.type,
+    status: document.docusealStatus
+  }).from(document).where(eq38(document.docusealExternalId, slug)).limit(1);
+  if (!row) {
+    console.error("[docuseal] No hay documento para el slug recibido", { slug, eventType });
+    return;
+  }
+  const newStatus = eventType === "form.completed" ? "completed" : "declined";
+  if (row.status === newStatus) return;
+  const shouldActivate = newStatus === "completed" && row.type === "contract" && Boolean(row.dealId);
+  const invitation = await db.transaction(async (tx) => {
+    await tx.update(document).set({
+      docusealStatus: newStatus,
+      signedAt: newStatus === "completed" ? /* @__PURE__ */ new Date() : null
+    }).where(eq38(document.id, row.id));
+    await recordFieldChanges({
+      tx,
+      portalId: row.portalId,
+      entityType: ENTITY6,
+      entityId: row.id,
+      before: { docusealStatus: row.status },
+      after: { docusealStatus: newStatus },
+      // El cambio lo origina DocuSeal, no un hub_user: `changed_by` va null.
+      changedBy: null,
+      sourceType: "DOCUSEAL"
+    });
+    return shouldActivate ? activateClientPortal(tx, row.portalId, row.dealId) : null;
+  });
+  if (invitation) await sendPortalInvitationEmail(invitation);
 }
 
 // src/modules/webhooks/webhooks.router.ts
@@ -8754,6 +9536,26 @@ async function webhooksRoutes(app2) {
       }
     },
     fathomHandler
+  );
+  async function docusealHandler(request, reply) {
+    const token = request.headers["x-docuseal-signature"] ?? request.headers["x-webhook-secret"];
+    if (!verifyDocusealToken(token)) {
+      await reply.code(401).send();
+      return;
+    }
+    await handleDocusealWebhook(request.body);
+    await reply.code(200).send({ ok: true });
+  }
+  app2.post(
+    "/docuseal",
+    {
+      schema: {
+        tags: ["Webhooks"],
+        summary: "Webhook de DocuSeal",
+        description: "Recibe eventos de firma (form.completed / form.declined). Protegido por token fijo en el header X-Docuseal-Signature comparado contra DOCUSEAL_WEBHOOK_SECRET. Responde 401 sin detalle si no valida. Al completarse un CONTRATO, activa el Client Portal."
+      }
+    },
+    docusealHandler
   );
 }
 
@@ -8814,10 +9616,22 @@ var CreateDocumentSchema = z30.object({
   crId: z30.string().min(1).optional(),
   name: z30.string().min(1, "El nombre es requerido"),
   type: DocumentTypeEnum,
-  storageKey: z30.string().min(1).optional()
+  storageKey: z30.string().min(1).optional(),
+  /**
+   * ¿Se muestra en el Portal del cliente? Default true, para no cambiar lo que
+   * los clientes ya veían (contratos, propuestas, facturas). Se manda false
+   * para documentos internos del proceso de entrega.
+   */
+  visibleToClient: z30.boolean().optional()
 });
 var ListDocumentsQuerySchema = z30.object({
   dealId: z30.string().min(1).optional()
+});
+var SendForSignatureSchema = z30.object({
+  /** ID numérico del template en DocuSeal. */
+  templateId: z30.number().int().positive(),
+  documentType: z30.enum(["contract", "proposal"]),
+  name: z30.string().min(1).max(200).optional()
 });
 
 // src/modules/documents/documents.router.ts
@@ -8876,2118 +9690,22 @@ async function documentsRoutes(app2) {
       return reply.status(204).send();
     }
   );
-}
-
-// src/modules/setter/setter.router.ts
-import { sql as sql30 } from "drizzle-orm";
-
-// src/modules/setter/channels/evolution.client.ts
-import axios from "axios";
-var OPT_OUT_KEYWORDS = [
-  "no me escribas mas",
-  "no me escriban mas",
-  "dejame de escribir",
-  "dejenme de escribir",
-  "no me contactes",
-  "no quiero que me escriban",
-  "bajame de la lista",
-  "bajame",
-  "desuscribir",
-  "darme de baja",
-  "stop",
-  "unsubscribe"
-];
-function normalize(text30) {
-  return text30.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
-}
-var EvolutionProvider = class {
-  http;
-  constructor() {
-    this.http = env.EVOLUTION_API_URL && env.EVOLUTION_API_KEY ? axios.create({
-      baseURL: env.EVOLUTION_API_URL,
-      headers: { apikey: env.EVOLUTION_API_KEY },
-      timeout: 8e3
-    }) : null;
-  }
-  /** ¿Están las tres env (URL + key + instance) presentes? */
-  isConfigured() {
-    return Boolean(env.EVOLUTION_API_URL && env.EVOLUTION_API_KEY && env.EVOLUTION_INSTANCE);
-  }
-  /**
-   * Estado de la instancia de Evolution. Sin config → `not_configured`.
-   * Con config pero inalcanzable → `unreachable` (no tira excepción: lo reporta).
-   */
-  async ping() {
-    if (!this.http || !env.EVOLUTION_INSTANCE) {
-      return { configured: false, status: "not_configured" };
-    }
-    try {
-      const res = await this.http.get(`/instance/connectionState/${env.EVOLUTION_INSTANCE}`);
-      const state = res.data?.instance?.state ?? res.data?.state ?? "unknown";
-      return { configured: true, status: String(state), reachable: true };
-    } catch {
-      return { configured: true, status: "unreachable", reachable: false };
-    }
-  }
-  /** Opt-out por keywords. El opt-out es no negociable (guardrail Sprint 0). */
-  detectOptOut(text30) {
-    const normalized = normalize(text30);
-    return OPT_OUT_KEYWORDS.some((k) => normalized.includes(k));
-  }
-  // ── Envío (Fase 2) ───────────────────────────────────────────────────────
-  /** Garantiza que el cliente está configurado o lanza con un mensaje claro. */
-  requireHttp() {
-    if (!this.http || !env.EVOLUTION_INSTANCE) {
-      throw new Error("Evolution no configurado (EVOLUTION_API_URL/KEY/INSTANCE)");
-    }
-    return this.http;
-  }
-  /** Envía un único texto. `number` para Evolution = dígitos sin `+`. */
-  async sendText(to, text30) {
-    const http = this.requireHttp();
-    const res = await http.post(`/message/sendText/${env.EVOLUTION_INSTANCE}`, {
-      number: toNumber(to),
-      text: text30
-    });
-    const channelMessageId = res.data?.key?.id ?? null;
-    return { channelMessageId, ok: true };
-  }
-  /**
-   * Envía una respuesta partida en burbujas con "escribiendo…" y delays
-   * variables (~1.5–4s) entre cada una. Autenticidad humana + anti-ban.
-   */
-  async sendSplitMessages(to, parts) {
-    const http = this.requireHttp();
-    const number = toNumber(to);
-    const results = [];
-    for (const part of parts) {
-      const delayMs = randomDelayMs();
-      try {
-        await http.post(`/chat/sendPresence/${env.EVOLUTION_INSTANCE}`, {
-          number,
-          presence: "composing",
-          delay: delayMs
-        });
-      } catch {
-      }
-      await sleep(delayMs);
-      results.push(await this.sendText(to, part));
-    }
-    return results;
-  }
-  /**
-   * Estado de la ventana de servicio. En Baileys no existe la ventana paga de
-   * Meta (no se cobra por mensaje), así que para el canal siempre está "abierta".
-   * El control económico/temporal real vive en `setter_lead.windowExpiresAt`.
-   */
-  async getWindowState(_to) {
-    return { open: true, expiresAt: null };
-  }
-  /** Marca como leído el último mensaje entrante (best-effort). */
-  async markRead(to, channelMessageId) {
-    const http = this.requireHttp();
-    await http.post(`/chat/markMessageAsRead/${env.EVOLUTION_INSTANCE}`, {
-      readMessages: [{ remoteJid: `${toNumber(to)}@s.whatsapp.net`, id: channelMessageId }]
-    });
-  }
-};
-function toNumber(to) {
-  return to.replace(/\D/g, "");
-}
-function randomDelayMs() {
-  return 1500 + Math.floor(Math.random() * 2500);
-}
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-function splitIntoBubbles(text30, maxBubbles = 3) {
-  const trimmed = text30.trim();
-  if (!trimmed) return [];
-  const byLines = trimmed.split(/\n+/).map((s) => s.trim()).filter(Boolean);
-  const units = byLines.length > 1 ? byLines : trimmed.split(/(?<=[.?!])\s+/).filter(Boolean);
-  if (units.length <= 1) return [trimmed];
-  if (units.length <= maxBubbles) return units;
-  const perBubble = Math.ceil(units.length / maxBubbles);
-  const bubbles = [];
-  for (let i = 0; i < units.length; i += perBubble) {
-    bubbles.push(units.slice(i, i + perBubble).join(" "));
-  }
-  return bubbles;
-}
-var evolutionProvider = new EvolutionProvider();
-
-// src/modules/setter/queue/setter.queue.ts
-import { Queue, Worker } from "bullmq";
-
-// src/jobs/connection.ts
-function isRedisConfigured() {
-  return !!env.REDIS_URL;
-}
-function getRedisConnectionOptions() {
-  if (!env.REDIS_URL) {
-    throw new Error("REDIS_URL is not configured \u2014 cannot build Redis connection options");
-  }
-  const url = new URL(env.REDIS_URL);
-  const options = {
-    host: url.hostname,
-    port: url.port ? Number(url.port) : 6379,
-    // maxRetriesPerRequest must be null for BullMQ (required by the library)
-    maxRetriesPerRequest: null
-  };
-  if (url.password) {
-    ;
-    options["password"] = decodeURIComponent(url.password);
-  }
-  if (url.username) {
-    ;
-    options["username"] = decodeURIComponent(url.username);
-  }
-  return options;
-}
-
-// src/modules/setter/agent/brain.ts
-import { asc as asc13, eq as eq39 } from "drizzle-orm";
-
-// src/modules/setter/agent/tools.ts
-import { Type } from "@google/genai";
-import { eq as eq36 } from "drizzle-orm";
-var TOOL_DECLARATIONS = [
-  {
-    name: "check_availability",
-    description: "Devuelve horarios libres reales para la call, en el timezone del lead. Usar SIEMPRE antes de proponer cualquier horario. \xDAnica fuente de slots.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        preferredRange: {
-          type: Type.STRING,
-          enum: ["morning", "afternoon", "this_week", "next_week"],
-          description: "Preferencia de franja si el lead la mencion\xF3."
-        }
-      }
-    }
-  },
-  {
-    name: "book_appointment",
-    description: "Agenda la call. \xDAnica tool que agenda. Llamar solo tras reconfirmar el horario exacto con el lead.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        startsAt: { type: Type.STRING, description: "Inicio en ISO 8601 (uno de los slots de check_availability)." },
-        durationMin: { type: Type.INTEGER, description: "Duraci\xF3n en minutos (default 30)." },
-        email: { type: Type.STRING, description: "Email del lead para la invitaci\xF3n, si lo dio." }
-      },
-      required: ["startsAt"]
-    }
-  },
-  {
-    name: "save_qualification",
-    description: "Guarda datos de calificaci\xF3n capturados en la charla. Llamar cada vez que descubr\xEDs dolor, fit, autoridad o timing.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        pain: { type: Type.STRING },
-        fit: { type: Type.STRING },
-        authority: { type: Type.STRING },
-        timing: { type: Type.STRING },
-        score: { type: Type.INTEGER, description: "Score de calificaci\xF3n 0-15 si lo pod\xE9s estimar." },
-        notes: { type: Type.STRING }
-      }
-    }
-  },
-  {
-    name: "handoff_to_human",
-    description: "Pasa la conversaci\xF3n a un humano (pedido expl\xEDcito, deal grande, fuera de scope, frustraci\xF3n).",
-    parameters: {
-      type: Type.OBJECT,
-      properties: { reason: { type: Type.STRING } },
-      required: ["reason"]
-    }
-  },
-  {
-    name: "mark_not_interested",
-    description: "Marca al lead como no interesado / no fit, con cierre cordial.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: { reason: { type: Type.STRING } },
-      required: ["reason"]
-    }
-  }
-];
-function formatSlot(d, tz) {
-  return new Intl.DateTimeFormat("es-AR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: tz,
-    hour12: false
-  }).format(d);
-}
-async function checkAvailability(_args, ctx) {
-  const tz = ctx.tenant.timezone;
-  const slot1 = /* @__PURE__ */ new Date();
-  slot1.setDate(slot1.getDate() + 1);
-  slot1.setHours(10, 0, 0, 0);
-  const slot2 = /* @__PURE__ */ new Date();
-  slot2.setDate(slot2.getDate() + 2);
-  slot2.setHours(15, 0, 0, 0);
-  return {
-    mock: true,
-    slots: [
-      { label: formatSlot(slot1, tz), startsAt: slot1.toISOString() },
-      { label: formatSlot(slot2, tz), startsAt: slot2.toISOString() }
-    ]
-  };
-}
-async function bookAppointment(args, ctx) {
-  const startsAtRaw = args["startsAt"];
-  const startsAt = typeof startsAtRaw === "string" ? new Date(startsAtRaw) : /* @__PURE__ */ new Date(NaN);
-  if (Number.isNaN(startsAt.getTime())) {
-    return { ok: false, error: "startsAt inv\xE1lido (se esperaba ISO 8601)" };
-  }
-  const durationMin = typeof args["durationMin"] === "number" ? args["durationMin"] : 30;
-  const endsAt = new Date(startsAt.getTime() + durationMin * 6e4);
-  const calendarRef = `mock-${createId()}`;
-  await db.insert(setterAppointment).values({
-    tenantId: ctx.tenant.id,
-    leadId: ctx.leadId,
-    startsAt,
-    endsAt,
-    calendarRef,
-    status: "confirmed"
-  }).onConflictDoUpdate({
-    target: setterAppointment.leadId,
-    set: { startsAt, endsAt, calendarRef, status: "confirmed" }
-  });
-  await db.update(setterLead).set({ status: "BOOKED" }).where(eq36(setterLead.id, ctx.leadId));
-  return { ok: true, calendarRef, startsAt: startsAt.toISOString(), mock: true };
-}
-async function saveQualification(args, ctx) {
-  const fields = {};
-  for (const key of ["pain", "fit", "authority", "timing", "score", "notes"]) {
-    if (args[key] !== void 0 && args[key] !== null) fields[key] = args[key];
-  }
-  const [lead] = await db.select({ qualification: setterLead.qualification, status: setterLead.status }).from(setterLead).where(eq36(setterLead.id, ctx.leadId)).limit(1);
-  const merged = { ...lead?.qualification ?? {}, ...fields };
-  const score = typeof fields["score"] === "number" ? fields["score"] : void 0;
-  const terminal = ["BOOKED", "NOT_INTERESTED", "HANDED_OFF", "OPTED_OUT", "BOOKING"];
-  let nextStatus = lead?.status;
-  if (lead && !terminal.includes(lead.status)) {
-    nextStatus = score !== void 0 && score >= 10 ? "QUALIFIED" : "QUALIFYING";
-  }
-  await db.update(setterLead).set({ qualification: merged, status: nextStatus }).where(eq36(setterLead.id, ctx.leadId));
-  return { ok: true, status: nextStatus };
-}
-async function handoffToHuman(args, ctx) {
-  await db.update(setterLead).set({ status: "HANDED_OFF" }).where(eq36(setterLead.id, ctx.leadId));
-  return { ok: true, reason: args["reason"] ?? null };
-}
-async function markNotInterested(args, ctx) {
-  await db.update(setterLead).set({ status: "NOT_INTERESTED" }).where(eq36(setterLead.id, ctx.leadId));
-  return { ok: true, reason: args["reason"] ?? null };
-}
-var TOOLS = {
-  check_availability: checkAvailability,
-  book_appointment: bookAppointment,
-  save_qualification: saveQualification,
-  handoff_to_human: handoffToHuman,
-  mark_not_interested: markNotInterested
-};
-async function executeTool(name, args, ctx) {
-  const tool = TOOLS[name];
-  if (!tool) throw new Error(`Tool desconocida: ${name}`);
-  return tool(args, ctx);
-}
-
-// src/modules/setter/agent/prompts.ts
-function buildMasterPrompt(tenant) {
-  return `Sos ${tenant.agentName}, del equipo de ${tenant.name}. Tu \xFAnico trabajo es: calificar al
-lead y, si es buen fit, agendar una llamada con ${tenant.ownerName}. No sos un asistente
-general; no respondas temas fuera de ${tenant.name}.
-
-CONTEXTO DEL NEGOCIO:
-${tenant.businessBrief}
-
-QUI\xC9N SOS Y C\xD3MO HABL\xC1S:
-- Espa\xF1ol rioplatense. Vos, nunca t\xFA. Profesional pero cercano, como un humano del
-  equipo comercial argentino. Natural, directo, sin solemnidad corporativa.
-- Mensajes CORTOS: 1 a 3 l\xEDneas. Una idea por mensaje. UNA sola pregunta por mensaje.
-- M\xE1ximo 1 emoji por mensaje, y no siempre. Nada de signos de exclamaci\xF3n m\xFAltiples.
-- PUNTUACI\xD3N: NO uses los signos de apertura "\xBF" ni "\xA1". Escrib\xED "Te queda mejor ma\xF1ana?"
-  y "Buen\xEDsimo!". S\xCD manten\xE9 los de cierre "?" y "!". Esto vale para TODOS tus mensajes.
-- Reflej\xE1 el lenguaje del lead. Si dice "facturaci\xF3n", no digas "revenue".
-
-REGLAS DURAS:
-- Si te preguntan si sos una IA/bot, dec\xED la verdad con naturalidad. Nunca lo niegues.
-- Nunca inventes precios, horarios ni detalles que no est\xE9n en el contexto.
-- Para proponer horarios us\xE1 SIEMPRE la tool check_availability. Para agendar,
-  book_appointment. Nunca "confirmes" un turno por texto sin que la tool lo haya hecho.
-- No prometas nada que ${tenant.name} no ofrezca. El setter NO cotiza: deriva el precio a la call.
-- Si el lead se pone t\xE9cnico/dif\xEDcil, pide humano, o es un deal grande fuera de tu
-  alcance -> us\xE1 handoff_to_human.
-- Si claramente no es fit o es un curioso sin intenci\xF3n -> mark_not_interested, con un
-  cierre cordial. No fuerces.
-- Si el lead muestra se\xF1al clara de compra (quiere avanzar/agendar ya), DEJ\xC1 de calificar
-  y pas\xE1 directo a proponer la call.
-
-OBJETIVO DE CADA ETAPA (no es un script r\xEDgido, es una meta):
-1. Apertura: referenci\xE1 lo concreto por lo que lleg\xF3. Baj\xE1 fricci\xF3n. UNA pregunta f\xE1cil.
-2. Calificaci\xF3n: descubr\xED dolor, fit, autoridad y timing SIN parecer formulario. Guard\xE1
-   lo que aprendas con save_qualification.
-3. Cierre: si califica, propon\xE9 la call asumiendo el s\xED (doble opci\xF3n de horario), no
-   preguntes "quer\xE9s agendar?". Reconfirm\xE1 el horario exacto antes de book_appointment.
-
-NUNCA: mandes links sin contexto, suenes a vendedor desesperado, repitas "segu\xEDs ah\xED?",
-escribas p\xE1rrafos largos, ni hagas m\xE1s de una pregunta por mensaje.`;
-}
-function guideForStatus(status) {
-  switch (status) {
-    case "NEW":
-    case "CONTACTED":
-      return `MOMENTO: APERTURA. Es de los primeros mensajes. Provoc\xE1 una respuesta, NO vendas.
-Referenci\xE1 lo concreto por lo que lleg\xF3, presentate en pocas palabras y hac\xE9 UNA pregunta
-abierta y f\xE1cil sobre su situaci\xF3n. C\xE1lido pero al toque.`;
-    case "ENGAGED":
-    case "QUALIFYING":
-      return `MOMENTO: CALIFICACI\xD3N. Descubr\xED (una cosa por mensaje, construyendo sobre lo que
-responde): el DOLOR concreto, el FIT con la oferta, si DECIDE, y el TIMING. No interrogues:
-que parezca charla. Cuando captures un dato, llam\xE1 save_qualification. Si ya ten\xE9s dolor +
-fit + timing claros y decide -> pas\xE1 a cierre (check_availability).`;
-    case "QUALIFIED":
-    case "BOOKING":
-      return `MOMENTO: CIERRE. El lead califica. Propon\xE9 la call ASUMIENDO el s\xED: us\xE1
-check_availability y ofrec\xE9 DOS horarios concretos (no "cu\xE1ndo pod\xE9s?"). Cuando elija,
-RECONFIRM\xC1 el horario exacto en sus palabras y reci\xE9n ah\xED llam\xE1 book_appointment.`;
-    case "BOOKED":
-      return `MOMENTO: POST-BOOKING. Ya agendaste. Confirm\xE1 en una l\xEDnea, dej\xE1 claro qu\xE9/cu\xE1ndo,
-y baj\xE1 la ansiedad. No vuelvas a vender.`;
-    default:
-      return `MOMENTO: CONVERSACI\xD3N. Segu\xED el framework del maestro. Una pregunta por mensaje.`;
-  }
-}
-var FEW_SHOTS = `EJEMPLOS DE TONO (imit\xE1 los \u2705, evit\xE1 los \u274C):
-\u2705 "Hola Mati, soy Tom de la agencia \u{1F44B} Vi que dejaste tus datos. Qu\xE9 es lo que m\xE1s te urge resolver hoy con eso?"
-\u274C "\xA1Hola!! \u{1F600} Muchas gracias por tu inter\xE9s. Estamos encantados de ayudarte a alcanzar tus objetivos. \xBFEn qu\xE9 podemos asistirte?"
-\u2705 "Te lo muestro sobre tu caso en 15 min, rinde m\xE1s que un PDF. Ma\xF1ana 10 o a la tarde?"
-\u274C "Claro, te env\xEDo toda la informaci\xF3n a tu correo as\xED la revis\xE1s con calma."
-\u2705 "Tengo jueves 10 o viernes 15, cu\xE1l te queda mejor?"
-\u274C "\xBFTe gustar\xEDa agendar una llamada en alg\xFAn momento que te sea conveniente?"
-\u2705 "S\xED, soy un asistente con IA del equipo. Igual lo que charlemos lo ve el due\xF1o y la call es con \xE9l. Te muestro horarios?"
-\u274C "No, soy Tom, parte del equipo comercial \u{1F60A}"`;
-function buildSystemInstruction(tenant, status) {
-  return `${buildMasterPrompt(tenant)}
-
-${guideForStatus(status)}
-
-${FEW_SHOTS}`;
-}
-function deriveBeat(statusBefore, toolsCalled) {
-  if (toolsCalled.includes("mark_not_interested")) return "cierre_no_fit";
-  if (toolsCalled.includes("handoff_to_human")) return "handoff";
-  if (toolsCalled.includes("book_appointment")) return "booking";
-  if (toolsCalled.includes("check_availability")) return "cierre";
-  if (toolsCalled.includes("save_qualification")) return "calificacion";
-  if (statusBefore === "NEW" || statusBefore === "CONTACTED") return "apertura";
-  return "conversacion";
-}
-function validateOutput(text30, checkAvailabilityCalled) {
-  const mentionsTime = /\b\d{1,2}([:.]\d{2})?\s?(hs?|am|pm)\b/i.test(text30);
-  if (mentionsTime && !checkAvailabilityCalled) {
-    return { ok: false, reason: "menciona un horario sin haber llamado check_availability" };
-  }
-  const mentionsPrice = /(usd|u\$s|us\$|\$)\s?\d{2,}/i.test(text30);
-  if (mentionsPrice) {
-    return { ok: false, reason: "menciona un precio concreto (el setter no cotiza)" };
-  }
-  return { ok: true };
-}
-
-// src/modules/setter/agent/providers/gemini.provider.ts
-import { GoogleGenAI, ThinkingLevel } from "@google/genai";
-var client = null;
-function getClient() {
-  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    throw new Error("Gemini no configurado (GOOGLE_SERVICE_ACCOUNT_JSON)");
-  }
-  if (client) return client;
-  const credentials = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  if (!credentials.project_id) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON sin project_id");
-  client = new GoogleGenAI({
-    vertexai: true,
-    project: credentials.project_id,
-    location: env.VERTEX_LOCATION,
-    googleAuthOptions: { credentials }
-  });
-  return client;
-}
-var geminiGenerate = async (req) => {
-  const ai = getClient();
-  const res = await ai.models.generateContent({
-    model: env.VERTEX_MODEL,
-    contents: req.contents,
-    config: {
-      systemInstruction: req.systemInstruction,
-      temperature: req.temperature,
-      maxOutputTokens: req.maxOutputTokens,
-      // Un setter ejecuta un framework, no razona profundo: thinking bajo =
-      // más rápido, más barato y deja tokens para el mensaje.
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      tools: [{ functionDeclarations: TOOL_DECLARATIONS }]
-    }
-  });
-  const functionCalls = (res.functionCalls ?? []).map((f) => ({
-    id: f.id,
-    name: f.name ?? "",
-    args: f.args ?? {}
-  }));
-  return { functionCalls, text: res.text ?? "", modelContent: res.candidates?.[0]?.content };
-};
-
-// src/modules/setter/agent/providers/claude.provider.ts
-import Anthropic from "@anthropic-ai/sdk";
-var TYPE_MAP = {
-  OBJECT: "object",
-  STRING: "string",
-  INTEGER: "integer",
-  NUMBER: "number",
-  BOOLEAN: "boolean",
-  ARRAY: "array"
-};
-function convertSchema(s) {
-  const out = {};
-  if (s["type"]) out["type"] = TYPE_MAP[String(s["type"])] ?? "string";
-  if (s["description"]) out["description"] = s["description"];
-  if (s["enum"]) out["enum"] = s["enum"];
-  if (s["properties"]) {
-    const props = {};
-    for (const [k, v] of Object.entries(s["properties"])) {
-      props[k] = convertSchema(v);
-    }
-    out["properties"] = props;
-  }
-  if (s["required"]) out["required"] = s["required"];
-  if (s["items"]) out["items"] = convertSchema(s["items"]);
-  return out;
-}
-function toAnthropicTools() {
-  return TOOL_DECLARATIONS.map((d) => ({
-    name: d.name ?? "",
-    description: d.description ?? "",
-    input_schema: d.parameters ? convertSchema(d.parameters) : { type: "object", properties: {} }
-  }));
-}
-function assistantParts(parts) {
-  const blocks = [];
-  for (const p of parts) {
-    if (p.text) blocks.push({ type: "text", text: p.text });
-    else if (p.functionCall) {
-      blocks.push({
-        type: "tool_use",
-        id: p.functionCall.id ?? createId(),
-        name: p.functionCall.name ?? "",
-        input: p.functionCall.args ?? {}
-      });
-    }
-  }
-  return blocks;
-}
-function userContent(parts) {
-  const toolResults = parts.filter((p) => p.functionResponse);
-  if (toolResults.length > 0) {
-    return toolResults.map((p) => ({
-      type: "tool_result",
-      tool_use_id: p.functionResponse.id ?? "",
-      content: JSON.stringify(p.functionResponse.response ?? {})
-    }));
-  }
-  return parts.map((p) => p.text ?? "").filter(Boolean).join("\n");
-}
-function translateToAnthropic(contents) {
-  const msgs = [];
-  for (const c of contents) {
-    if (c.role === "model") {
-      msgs.push({ role: "assistant", content: assistantParts(c.parts ?? []) });
-    } else {
-      msgs.push({ role: "user", content: userContent(c.parts ?? []) });
-    }
-  }
-  const merged = [];
-  for (const m of msgs) {
-    const last = merged[merged.length - 1];
-    if (last && last.role === m.role && typeof last.content === "string" && typeof m.content === "string") {
-      last.content = `${last.content}
-${m.content}`;
-    } else {
-      merged.push(m);
-    }
-  }
-  return merged;
-}
-var client2 = null;
-function getClient2() {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new Error("Claude no configurado (ANTHROPIC_API_KEY)");
-  }
-  if (!client2) client2 = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  return client2;
-}
-var claudeGenerate = async (req) => {
-  const ai = getClient2();
-  const res = await ai.messages.create({
-    model: env.ANTHROPIC_MODEL,
-    max_tokens: req.maxOutputTokens,
-    temperature: req.temperature,
-    system: req.systemInstruction,
-    messages: translateToAnthropic(req.contents),
-    tools: toAnthropicTools()
-  });
-  const functionCalls = [];
-  const parts = [];
-  let text30 = "";
-  for (const block of res.content) {
-    if (block.type === "text") {
-      text30 += block.text;
-      parts.push({ text: block.text });
-    } else if (block.type === "tool_use") {
-      functionCalls.push({ id: block.id, name: block.name, args: block.input });
-      parts.push({ functionCall: { id: block.id, name: block.name, args: block.input } });
-    }
-  }
-  return { functionCalls, text: text30, modelContent: { role: "model", parts } };
-};
-
-// src/modules/setter/agent/providers/index.ts
-function getProvider(provider) {
-  return provider === "claude" ? claudeGenerate : geminiGenerate;
-}
-
-// src/modules/setter/setter.crm-sync.service.ts
-import { and as and32, asc as asc12, eq as eq38 } from "drizzle-orm";
-
-// src/modules/setter/setter.events.service.ts
-import { and as and31, desc as desc19, eq as eq37, gt as gt2 } from "drizzle-orm";
-
-// src/modules/setter/setter.event-bus.ts
-import { EventEmitter as EventEmitter2 } from "events";
-var SetterEventBus = class extends EventEmitter2 {
-};
-var setterEventBus = new SetterEventBus();
-setterEventBus.setMaxListeners(0);
-function emitSetterEvent(event) {
-  setterEventBus.emit("event", event);
-}
-
-// src/modules/setter/setter.events.service.ts
-async function logSetterEvent(input) {
-  if (env.NODE_ENV === "test") return;
-  try {
-    const [row] = await db.insert(setterEvent).values({
-      tenantId: input.tenantId,
-      level: input.level ?? "info",
-      type: input.type,
-      message: input.message,
-      leadId: input.leadId ?? null,
-      meta: input.meta
-    }).returning({ id: setterEvent.id, createdAt: setterEvent.createdAt });
-    if (row) {
-      emitSetterEvent({
-        id: row.id,
-        tenantId: input.tenantId,
-        level: input.level ?? "info",
-        type: input.type,
-        message: input.message,
-        leadId: input.leadId ?? null,
-        meta: input.meta ?? null,
-        createdAt: row.createdAt.toISOString()
-      });
-    }
-  } catch (err) {
-    console.error("[setter] no se pudo registrar el evento:", err);
-  }
-}
-async function listSetterEvents(portalId, opts) {
-  const conds = [eq37(setterTenant.portalId, portalId)];
-  if (opts?.since) conds.push(gt2(setterEvent.createdAt, opts.since));
-  return db.select({
-    id: setterEvent.id,
-    level: setterEvent.level,
-    type: setterEvent.type,
-    message: setterEvent.message,
-    leadId: setterEvent.leadId,
-    meta: setterEvent.meta,
-    createdAt: setterEvent.createdAt
-  }).from(setterEvent).innerJoin(setterTenant, eq37(setterEvent.tenantId, setterTenant.id)).where(and31(...conds)).orderBy(desc19(setterEvent.createdAt)).limit(opts?.limit ?? 150);
-}
-
-// src/modules/setter/setter.crm-sync.service.ts
-var STATUS_TO_LIFECYCLE = {
-  ENGAGED: "lead",
-  QUALIFYING: "mql",
-  QUALIFIED: "sql",
-  BOOKING: "opportunity",
-  BOOKED: "opportunity",
-  NOT_INTERESTED: "other",
-  OPTED_OUT: "other"
-};
-var CREATE_CONTACT_STATUSES = /* @__PURE__ */ new Set([
-  "ENGAGED",
-  "QUALIFYING",
-  "QUALIFIED",
-  "BOOKING",
-  "BOOKED",
-  "HANDED_OFF"
-]);
-var CREATE_DEAL_STATUSES = /* @__PURE__ */ new Set(["QUALIFIED", "BOOKING", "BOOKED"]);
-var LIFECYCLE_RANK = {
-  lead: 1,
-  mql: 2,
-  sql: 3,
-  opportunity: 4,
-  customer: 5
-};
-function isDowngrade(current, next) {
-  if (next === "other") return false;
-  if (current === "customer") return true;
-  return (LIFECYCLE_RANK[next] ?? 0) < (LIFECYCLE_RANK[current] ?? 0);
-}
-async function findOrCreateContact(tx, portalId, person, lifecycle, actorId) {
-  if (person.phone) {
-    const [existing] = await tx.select({ id: contact.id }).from(contact).where(
-      and32(eq38(contact.portalId, portalId), eq38(contact.phone, person.phone), eq38(contact.archived, false))
-    ).limit(1);
-    if (existing) return existing.id;
-  }
-  const [created] = await tx.insert(contact).values({
-    portalId,
-    ownerId: actorId,
-    firstName: person.name,
-    phone: person.phone,
-    lifecycleStage: lifecycle,
-    custom: { source: "setter", setterPersonId: person.id }
-  }).returning({ id: contact.id });
-  if (actorId) {
-    await writeAudit({
-      tx,
-      portalId,
-      userId: actorId,
-      entityType: "contact",
-      entityId: created.id,
-      action: "CREATE",
-      payload: { source: "setter" }
-    });
-  }
-  return created.id;
-}
-async function createSetterDeal(tx, portalId, contactId, person, tenantName, actorId) {
-  let [pl] = await tx.select({ id: pipeline.id }).from(pipeline).where(and32(eq38(pipeline.portalId, portalId), eq38(pipeline.archived, false), eq38(pipeline.label, "Ventas"))).limit(1);
-  if (!pl) {
-    ;
-    [pl] = await tx.select({ id: pipeline.id }).from(pipeline).where(and32(eq38(pipeline.portalId, portalId), eq38(pipeline.archived, false))).orderBy(asc12(pipeline.createdAt)).limit(1);
-  }
-  if (!pl) return null;
-  const [stage] = await tx.select({ id: pipelineStage.id }).from(pipelineStage).where(and32(eq38(pipelineStage.pipelineId, pl.id), eq38(pipelineStage.archived, false))).orderBy(asc12(pipelineStage.displayOrder)).limit(1);
-  if (!stage) return null;
-  const [created] = await tx.insert(deal).values({
-    portalId,
-    ownerId: actorId,
-    pipelineId: pl.id,
-    stageId: stage.id,
-    primaryContactId: contactId,
-    name: `${person.name ?? "Lead"} \u2014 ${tenantName}`,
-    currency: "USD",
-    custom: { source: "setter" }
-  }).returning({ id: deal.id });
-  if (actorId) {
-    await writeAudit({
-      tx,
-      portalId,
-      userId: actorId,
-      entityType: "deal",
-      entityId: created.id,
-      action: "CREATE",
-      payload: { source: "setter" }
-    });
-  }
-  return created.id;
-}
-async function advanceDealOnBooked(portalId, actorId, dealId) {
-  const [d] = await db.select({ pipelineId: deal.pipelineId, stageId: deal.stageId }).from(deal).where(eq38(deal.id, dealId)).limit(1);
-  if (!d) return;
-  const stages = await db.select({ id: pipelineStage.id, isWon: pipelineStage.isWon, isClosed: pipelineStage.isClosed }).from(pipelineStage).where(eq38(pipelineStage.pipelineId, d.pipelineId)).orderBy(asc12(pipelineStage.displayOrder));
-  const idx = stages.findIndex((s) => s.id === d.stageId);
-  const next = idx >= 0 ? stages[idx + 1] : void 0;
-  if (next && !next.isWon && !next.isClosed) {
-    await changeStage(portalId, actorId, dealId, next.id);
-  }
-}
-async function syncLeadToCrm(leadId) {
-  const [lead] = await db.select().from(setterLead).where(eq38(setterLead.id, leadId)).limit(1);
-  if (!lead) return;
-  const [person] = await db.select().from(setterPerson).where(eq38(setterPerson.id, lead.personId)).limit(1);
-  if (!person) return;
-  const [tenant] = await db.select({ portalId: setterTenant.portalId, name: setterTenant.name }).from(setterTenant).where(eq38(setterTenant.id, lead.tenantId)).limit(1);
-  if (!tenant) return;
-  const portalId = tenant.portalId;
-  const status = lead.status;
-  const lifecycle = STATUS_TO_LIFECYCLE[status];
-  const [owner] = await db.select({ id: hubUser.id }).from(hubUser).where(and32(eq38(hubUser.portalId, portalId), eq38(hubUser.role, "owner"))).limit(1) ?? [];
-  const [anyUser] = owner ? [owner] : await db.select({ id: hubUser.id }).from(hubUser).where(eq38(hubUser.portalId, portalId)).limit(1);
-  const actorId = anyUser?.id ?? null;
-  let advanceDealId = null;
-  let linkedContactId = null;
-  let newDealId = null;
-  await db.transaction(async (tx) => {
-    let contactId = person.crmContactId;
-    if (!contactId) {
-      if (!CREATE_CONTACT_STATUSES.has(status)) return;
-      contactId = await findOrCreateContact(tx, portalId, person, lifecycle ?? "lead", actorId);
-      await tx.update(setterPerson).set({ crmContactId: contactId }).where(eq38(setterPerson.id, person.id));
-      linkedContactId = contactId;
-    }
-    if (lifecycle) {
-      const [c] = await tx.select({ lifecycleStage: contact.lifecycleStage }).from(contact).where(eq38(contact.id, contactId)).limit(1);
-      if (c && c.lifecycleStage !== lifecycle && !isDowngrade(c.lifecycleStage, lifecycle)) {
-        await tx.update(contact).set({ lifecycleStage: lifecycle, updatedAt: /* @__PURE__ */ new Date() }).where(eq38(contact.id, contactId));
-        if (actorId) {
-          await recordFieldChanges({
-            tx,
-            portalId,
-            entityType: "contact",
-            entityId: contactId,
-            before: { lifecycleStage: c.lifecycleStage },
-            after: { lifecycleStage: lifecycle },
-            changedBy: actorId,
-            sourceType: "setter"
-          });
-        }
-      }
-    }
-    if (CREATE_DEAL_STATUSES.has(status) && !lead.crmDealId) {
-      const dealId = await createSetterDeal(tx, portalId, contactId, person, tenant.name, actorId);
-      if (dealId) {
-        await tx.update(setterLead).set({ crmDealId: dealId }).where(eq38(setterLead.id, lead.id));
-        newDealId = dealId;
-        if (status === "BOOKED") advanceDealId = dealId;
-      }
-    } else if (status === "BOOKED" && lead.crmDealId) {
-      advanceDealId = lead.crmDealId;
-    }
-  });
-  if (advanceDealId && actorId) {
-    await advanceDealOnBooked(portalId, actorId, advanceDealId);
-  }
-  if (linkedContactId) {
-    void logSetterEvent({
-      tenantId: lead.tenantId,
-      level: "success",
-      type: "sync",
-      message: `Lead sincronizado al CRM como contacto (${lifecycle ?? "lead"})`,
-      leadId
-    });
-  }
-  if (newDealId) {
-    void logSetterEvent({
-      tenantId: lead.tenantId,
-      level: "success",
-      type: "sync",
-      message: "Deal creado en el CRM",
-      leadId
-    });
-  }
-}
-
-// src/modules/setter/agent/brain.ts
-var MAX_HOPS = 3;
-var MAX_OUTPUT_TOKENS = 2048;
-function toContents(messages) {
-  return messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }]
-  }));
-}
-async function runAgentTurn(leadId, opts) {
-  const [lead] = await db.select().from(setterLead).where(eq39(setterLead.id, leadId)).limit(1);
-  if (!lead) throw new Error(`Lead no encontrado: ${leadId}`);
-  const [person] = await db.select().from(setterPerson).where(eq39(setterPerson.id, lead.personId)).limit(1);
-  if (person?.optedOut) return { draftId: null, beat: null, status: lead.status, skipped: "opted_out" };
-  const [tenant] = await db.select().from(setterTenant).where(eq39(setterTenant.id, lead.tenantId)).limit(1);
-  if (!tenant) throw new Error(`Tenant no encontrado: ${lead.tenantId}`);
-  const generate = opts?.generate ?? getProvider(tenant.modelProvider);
-  const [conversation] = await db.select().from(setterConversation).where(eq39(setterConversation.personId, lead.personId)).limit(1);
-  if (!conversation) throw new Error(`Conversaci\xF3n no encontrada para person ${lead.personId}`);
-  const messages = await db.select({ role: setterMessage.role, content: setterMessage.content }).from(setterMessage).where(eq39(setterMessage.conversationId, conversation.id)).orderBy(asc13(setterMessage.createdAt)).limit(40);
-  const statusBefore = lead.status;
-  if (statusBefore === "NEW" || statusBefore === "CONTACTED") {
-    await db.update(setterLead).set({ status: "ENGAGED" }).where(eq39(setterLead.id, leadId));
-  }
-  const statusForGuide = statusBefore === "NEW" || statusBefore === "CONTACTED" ? "ENGAGED" : statusBefore;
-  const systemInstruction = buildSystemInstruction(tenant, statusForGuide);
-  const contents = toContents(messages);
-  const ctx = { tenant, leadId };
-  const toolsCalled = [];
-  let checkAvailabilityCalled = false;
-  let finalText = "";
-  for (let hop = 0; hop < MAX_HOPS; hop++) {
-    const res = await generate({
-      systemInstruction,
-      contents,
-      temperature: 0.4,
-      maxOutputTokens: MAX_OUTPUT_TOKENS
-    });
-    if (res.functionCalls.length > 0) {
-      contents.push(
-        res.modelContent ?? {
-          role: "model",
-          parts: res.functionCalls.map((fc) => ({
-            functionCall: { id: fc.id, name: fc.name, args: fc.args }
-          }))
-        }
-      );
-      const responseParts = [];
-      for (const fc of res.functionCalls) {
-        toolsCalled.push(fc.name);
-        if (fc.name === "check_availability") checkAvailabilityCalled = true;
-        const result = await executeTool(fc.name, fc.args, ctx);
-        responseParts.push({ functionResponse: { id: fc.id, name: fc.name, response: result } });
-      }
-      contents.push({ role: "user", parts: responseParts });
-      if (res.text) finalText = res.text;
-      continue;
-    }
-    finalText = res.text;
-    break;
-  }
-  finalText = finalText.trim();
-  let beat = deriveBeat(statusBefore, toolsCalled);
-  const validation = validateOutput(finalText, checkAvailabilityCalled);
-  const recordedTools = [...toolsCalled];
-  if (!validation.ok || !finalText) {
-    await executeTool(
-      "handoff_to_human",
-      { reason: `Validaci\xF3n de salida: ${validation.reason ?? "respuesta vac\xEDa"}` },
-      ctx
-    );
-    recordedTools.push("handoff_to_human");
-    beat = "handoff";
-    finalText = finalText && validation.ok ? finalText : "Dejame que el due\xF1o te responda esto directamente, te escribe en un rato por ac\xE1 \u{1F44D}";
-  }
-  const [after] = await db.select({ status: setterLead.status }).from(setterLead).where(eq39(setterLead.id, leadId)).limit(1);
-  const [draft] = await db.insert(setterDraft).values({
-    tenantId: tenant.id,
-    conversationId: conversation.id,
-    leadId,
-    content: finalText,
-    beat,
-    format: "text",
-    status: "pending",
-    toolCalls: { tools: recordedTools, checkAvailabilityCalled }
-  }).returning({ id: setterDraft.id });
-  if (tenant.portalId && beat !== "handoff" && draft?.id) {
-    void notifyAdmins(tenant.portalId, {
-      entityType: "setter_draft",
-      entityId: draft.id,
-      type: "setter_draft_pending",
-      title: "El setter tiene un borrador esperando tu aprobaci\xF3n",
-      body: person?.name ? `Para \xAB${person.name}\xBB` : null,
-      actionUrl: "/admin/setter"
-    });
-  }
-  void logSetterEvent({
-    tenantId: tenant.id,
-    level: beat === "handoff" ? "warn" : "success",
-    type: beat === "handoff" ? "agent" : "draft",
-    message: beat === "handoff" ? `Failsafe \u2192 handoff a humano (lead ${after.status})` : `Draft generado \xB7 ${beat} \xB7 lead ${after.status}`,
-    leadId,
-    meta: { beat, status: after.status, tools: recordedTools }
-  });
-  if (env.NODE_ENV !== "test") {
-    try {
-      await syncLeadToCrm(leadId);
-    } catch (err) {
-      console.error(`[setter] sync CRM fall\xF3 para lead ${leadId}:`, err);
-    }
-  }
-  return { draftId: draft.id, beat, status: after.status };
-}
-
-// src/modules/setter/queue/setter.queue.ts
-var SETTER_INBOUND_QUEUE = "setter-inbound";
-var inboundQueue = null;
-function getSetterInboundQueue() {
-  if (!isRedisConfigured()) {
-    throw new Error("REDIS_URL no configurado \u2014 la cola del setter no est\xE1 disponible");
-  }
-  if (!inboundQueue) {
-    inboundQueue = new Queue(SETTER_INBOUND_QUEUE, { connection: getRedisConnectionOptions() });
-  }
-  return inboundQueue;
-}
-async function pingSetterQueue() {
-  if (!isRedisConfigured()) {
-    return "not_configured";
-  }
-  try {
-    const queue = getSetterInboundQueue();
-    await queue.waitUntilReady();
-    return "ok";
-  } catch {
-    return "unreachable";
-  }
-}
-
-// src/modules/setter/setter.router.ts
-async function setterRoutes(app2) {
-  app2.addHook("preHandler", authenticate);
-  app2.get(
-    "/health",
-    {
-      schema: {
-        tags: ["Setter"],
-        summary: "Estado del setter",
-        security: [{ bearerAuth: [] }],
-        description: "Reporta el estado de cada dependencia del setter: base de datos, cola BullMQ, Vertex (Gemini) y el canal Evolution. En Sprint 0 solo Vertex est\xE1 vivo; Evolution y el calendario quedan diferidos hasta cargar sus credenciales."
-      }
-    },
-    async () => {
-      const [dbStatus, bullmq, evolution] = await Promise.all([
-        db.execute(sql30`select 1`).then(() => "ok").catch(() => "down"),
-        pingSetterQueue(),
-        evolutionProvider.ping()
-      ]);
-      const vertex = env.GOOGLE_SERVICE_ACCOUNT_JSON ? "configured" : "not_configured";
-      return ok({
-        db: dbStatus,
-        bullmq,
-        vertex,
-        evolution,
-        time: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-  );
-}
-
-// src/modules/setter/setter.schema.ts
-import { z as z31 } from "zod";
-var DraftStatusSchema = z31.enum(["pending", "approved", "edited", "rejected", "sent"]);
-var ListDraftsQuerySchema = z31.object({
-  status: DraftStatusSchema.default("pending")
-});
-var EditDraftSchema = z31.object({
-  content: z31.string().min(1, "El contenido no puede estar vac\xEDo").max(4096)
-});
-var ModelProviderSchema = z31.object({
-  modelProvider: z31.enum(["gemini", "claude"])
-});
-var AutopilotSchema = z31.object({
-  enabled: z31.boolean()
-});
-var ListEventsQuerySchema = z31.object({
-  limit: z31.coerce.number().int().min(1).max(500).default(150),
-  since: z31.string().datetime().optional()
-});
-
-// src/modules/setter/setter.approval.service.ts
-import { and as and33, asc as asc14, eq as eq40 } from "drizzle-orm";
-var DRAFT_COLUMNS = {
-  id: setterDraft.id,
-  tenantId: setterDraft.tenantId,
-  content: setterDraft.content,
-  editedContent: setterDraft.editedContent,
-  beat: setterDraft.beat,
-  format: setterDraft.format,
-  status: setterDraft.status,
-  toolCalls: setterDraft.toolCalls,
-  createdAt: setterDraft.createdAt,
-  leadId: setterDraft.leadId,
-  leadStatus: setterLead.status,
-  qualification: setterLead.qualification,
-  conversationId: setterDraft.conversationId,
-  channel: setterConversation.channel,
-  personName: setterPerson.name,
-  personPhone: setterPerson.phone,
-  crmContactId: setterPerson.crmContactId,
-  crmDealId: setterLead.crmDealId
-};
-function baseQuery() {
-  return db.select(DRAFT_COLUMNS).from(setterDraft).innerJoin(setterTenant, eq40(setterDraft.tenantId, setterTenant.id)).innerJoin(setterLead, eq40(setterDraft.leadId, setterLead.id)).innerJoin(setterConversation, eq40(setterDraft.conversationId, setterConversation.id)).innerJoin(setterPerson, eq40(setterLead.personId, setterPerson.id)).$dynamic();
-}
-async function listDrafts(portalId, status) {
-  return baseQuery().where(and33(eq40(setterTenant.portalId, portalId), eq40(setterDraft.status, status))).orderBy(asc14(setterDraft.createdAt));
-}
-async function getDraftDetail(portalId, id) {
-  const [draft] = await baseQuery().where(
-    and33(eq40(setterTenant.portalId, portalId), eq40(setterDraft.id, id))
-  );
-  if (!draft) throw Errors.notFound("Draft no encontrado");
-  const messages = await db.select({
-    role: setterMessage.role,
-    content: setterMessage.content,
-    beat: setterMessage.beat,
-    createdAt: setterMessage.createdAt
-  }).from(setterMessage).where(eq40(setterMessage.conversationId, draft.conversationId)).orderBy(asc14(setterMessage.createdAt));
-  return { ...draft, messages };
-}
-async function loadDraft(portalId, id) {
-  const [draft] = await baseQuery().where(
-    and33(eq40(setterTenant.portalId, portalId), eq40(setterDraft.id, id))
-  );
-  if (!draft) throw Errors.notFound("Draft no encontrado");
-  return draft;
-}
-async function sendAndFinalize(draft, finalContent, userId, edited) {
-  if (draft.status !== "pending") {
-    throw Errors.conflict(`El draft ya est\xE1 en estado "${draft.status}"`);
-  }
-  if (!draft.personPhone) {
-    throw Errors.badRequest("La persona no tiene tel\xE9fono \u2014 no se puede enviar");
-  }
-  const [msg] = await db.insert(setterMessage).values({
-    conversationId: draft.conversationId,
-    role: "assistant",
-    content: finalContent,
-    beat: draft.beat
-  }).returning({ id: setterMessage.id });
-  let sent = false;
-  if (evolutionProvider.isConfigured()) {
-    try {
-      await evolutionProvider.sendSplitMessages(draft.personPhone, splitIntoBubbles(finalContent));
-      sent = true;
-    } catch {
-      sent = false;
-    }
-  }
-  const status = sent ? edited ? "edited" : "sent" : "approved";
-  await db.update(setterDraft).set({
-    status,
-    editedContent: edited ? finalContent : null,
-    sentMessageId: msg.id,
-    approvedBy: userId
-  }).where(eq40(setterDraft.id, draft.id));
-  void logSetterEvent({
-    tenantId: draft.tenantId,
-    level: "success",
-    type: "approval",
-    message: sent ? `${edited ? "Editado y enviado" : "Aprobado y enviado"} a ${draft.personPhone ?? "lead"}` : `${edited ? "Editado" : "Aprobado"} (env\xEDo pendiente: Evolution sin credenciales)`,
-    leadId: draft.leadId
-  });
-  return { id: draft.id, status, sent, messageId: msg.id };
-}
-async function approveDraft(portalId, userId, id) {
-  const draft = await loadDraft(portalId, id);
-  const result = await sendAndFinalize(draft, draft.content, userId, false);
-  const who = await actorName(portalId, userId);
-  await notifyAdmins(
-    portalId,
-    {
-      entityType: "setter_draft",
-      entityId: id,
-      type: "setter_draft_approved",
-      title: `${who} aprob\xF3 un mensaje del setter`,
-      body: draft.personName ? `Para \xAB${draft.personName}\xBB` : null,
-      actionUrl: "/admin/setter"
-    },
-    { exceptUserId: userId }
-  );
-  return result;
-}
-async function editAndSendDraft(portalId, userId, id, content) {
-  const draft = await loadDraft(portalId, id);
-  const result = await sendAndFinalize(draft, content, userId, true);
-  const who = await actorName(portalId, userId);
-  await notifyAdmins(
-    portalId,
-    {
-      entityType: "setter_draft",
-      entityId: id,
-      type: "setter_draft_edited",
-      title: `${who} edit\xF3 y envi\xF3 un mensaje del setter`,
-      body: draft.personName ? `Para \xAB${draft.personName}\xBB` : null,
-      actionUrl: "/admin/setter"
-    },
-    { exceptUserId: userId }
-  );
-  return result;
-}
-async function rejectDraft(portalId, userId, id) {
-  const draft = await loadDraft(portalId, id);
-  if (draft.status !== "pending") {
-    throw Errors.conflict(`El draft ya est\xE1 en estado "${draft.status}"`);
-  }
-  await db.update(setterDraft).set({ status: "rejected" }).where(eq40(setterDraft.id, id));
-  void logSetterEvent({
-    tenantId: draft.tenantId,
-    type: "approval",
-    message: "Draft rechazado",
-    leadId: draft.leadId
-  });
-  const who = await actorName(portalId, userId);
-  await notifyAdmins(
-    portalId,
-    {
-      entityType: "setter_draft",
-      entityId: id,
-      type: "setter_draft_rejected",
-      title: `${who} rechaz\xF3 un mensaje del setter`,
-      body: draft.personName ? `Para \xAB${draft.personName}\xBB` : null,
-      actionUrl: "/admin/setter"
-    },
-    { exceptUserId: userId }
-  );
-  return { id, status: "rejected" };
-}
-async function regenerateDraft(portalId, id) {
-  const draft = await loadDraft(portalId, id);
-  await db.update(setterDraft).set({ status: "rejected" }).where(eq40(setterDraft.id, id));
-  const result = await runAgentTurn(draft.leadId);
-  if (!result.draftId) {
-    throw Errors.conflict("No se gener\xF3 un nuevo draft (lead en opt-out o sin texto)");
-  }
-  return getDraftDetail(portalId, result.draftId);
-}
-
-// src/modules/setter/setter.config.service.ts
-import { eq as eq41 } from "drizzle-orm";
-var setterConfigCols = {
-  id: setterTenant.id,
-  portalId: setterTenant.portalId,
-  modelProvider: setterTenant.modelProvider,
-  operationMode: setterTenant.operationMode,
-  agentName: setterTenant.agentName,
-  ownerName: setterTenant.ownerName,
-  timezone: setterTenant.timezone,
-  prospectingServices: setterTenant.prospectingServices,
-  prospectingNiches: setterTenant.prospectingNiches,
-  prospectingCities: setterTenant.prospectingCities,
-  prospectingAutopilot: setterTenant.prospectingAutopilot
-};
-async function loadTenant(portalId) {
-  const [tenant] = await db.select(setterConfigCols).from(setterTenant).where(eq41(setterTenant.portalId, portalId)).limit(1);
-  if (!tenant) throw Errors.notFound("No hay setter configurado para este portal");
-  return tenant;
-}
-function toConfig(tenant) {
-  return {
-    modelProvider: tenant.modelProvider,
-    operationMode: tenant.operationMode,
-    agentName: tenant.agentName,
-    ownerName: tenant.ownerName,
-    timezone: tenant.timezone,
-    providers: {
-      gemini: Boolean(env.GOOGLE_SERVICE_ACCOUNT_JSON),
-      claude: Boolean(env.ANTHROPIC_API_KEY)
-    },
-    prospectingServices: tenant.prospectingServices,
-    prospectingNiches: tenant.prospectingNiches,
-    prospectingCities: tenant.prospectingCities,
-    prospectingAutopilot: tenant.prospectingAutopilot
-  };
-}
-async function getSetterConfig(portalId) {
-  return toConfig(await loadTenant(portalId));
-}
-async function setModelProvider(portalId, provider) {
-  const tenant = await loadTenant(portalId);
-  await db.update(setterTenant).set({ modelProvider: provider }).where(eq41(setterTenant.id, tenant.id));
-  return getSetterConfig(portalId);
-}
-async function setProspectingAutopilot(portalId, enabled) {
-  const tenant = await loadTenant(portalId);
-  await db.update(setterTenant).set({ prospectingAutopilot: enabled }).where(eq41(setterTenant.id, tenant.id));
-  return getSetterConfig(portalId);
-}
-
-// src/modules/setter/setter.approval.router.ts
-var TAG29 = "Setter";
-var security28 = ADMIN_SECURITY;
-async function setterApprovalRoutes(app2) {
-  const r = app2.withTypeProvider();
-  r.addHook("preHandler", authenticate);
-  r.get(
-    "/config",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Config del setter (Model Switcher, etc.)",
-        security: security28
-      }
-    },
-    async (request) => ok(await getSetterConfig(request.hubUser.portalId))
-  );
-  r.patch(
-    "/config/model-provider",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Cambiar el LLM que genera los mensajes (Gemini \u21C4 Claude)",
-        security: security28,
-        body: ModelProviderSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const config = await setModelProvider(request.hubUser.portalId, request.body.modelProvider);
-      return ok(config);
-    }
-  );
-  r.patch(
-    "/config/autopilot",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Encender/apagar el autopilot de prospecci\xF3n",
-        security: security28,
-        body: AutopilotSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const config = await setProspectingAutopilot(request.hubUser.portalId, request.body.enabled);
-      return ok(config);
-    }
-  );
-  r.get(
-    "/events",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Consola: log de actividad del setter",
-        security: security28,
-        querystring: ListEventsQuerySchema
-      }
-    },
-    async (request) => {
-      const { limit, since } = request.query;
-      const events = await listSetterEvents(request.hubUser.portalId, {
-        limit,
-        since: since ? new Date(since) : void 0
-      });
-      return ok(events);
-    }
-  );
-  r.get(
-    "/drafts",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Listar drafts de la cola de aprobaci\xF3n",
-        description: "Drafts del setter por estado (default pending), con contexto del lead.",
-        security: security28,
-        querystring: ListDraftsQuerySchema
-      }
-    },
-    async (request) => {
-      const items = await listDrafts(request.hubUser.portalId, request.query.status);
-      return ok(items);
-    }
-  );
-  r.get(
-    "/drafts/:id",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Detalle de un draft + conversaci\xF3n",
-        security: security28,
-        params: IdParamSchema
-      }
-    },
-    async (request) => {
-      const detail = await getDraftDetail(request.hubUser.portalId, request.params.id);
-      return ok(detail);
-    }
-  );
   r.post(
-    "/drafts/:id/approve",
+    "/deals/:id/send-for-signature",
     {
       schema: {
-        tags: [TAG29],
-        summary: "Aprobar y enviar el draft",
-        description: "Persiste el mensaje saliente y lo env\xEDa por WhatsApp (si Evolution est\xE1 configurado).",
-        security: security28,
-        params: IdParamSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const result = await approveDraft(request.hubUser.portalId, request.hubUser.sub, request.params.id);
-      return ok(result);
-    }
-  );
-  r.post(
-    "/drafts/:id/edit",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Editar y enviar el draft",
-        security: security28,
+        tags: [TAG28],
+        summary: "Enviar un documento a firmar (DocuSeal)",
+        description: "Crea una submission en DocuSeal para el contacto principal del deal, deja el documento en estado `pending` y le manda el pedido de firma por email con la marca de la agencia. Devuelve la URL de firma.",
+        security: security27,
         params: IdParamSchema,
-        body: EditDraftSchema
-      },
-      preHandler: [authorize("owner")]
+        body: SendForSignatureSchema
+      }
     },
-    async (request) => {
-      const result = await editAndSendDraft(
+    async (request, reply) => {
+      const result = await sendForSignature(
         request.hubUser.portalId,
-        request.hubUser.sub,
         request.params.id,
-        request.body.content
-      );
-      return ok(result);
-    }
-  );
-  r.post(
-    "/drafts/:id/reject",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Rechazar el draft",
-        security: security28,
-        params: IdParamSchema
-      }
-    },
-    async (request) => {
-      const result = await rejectDraft(request.hubUser.portalId, request.hubUser.sub, request.params.id);
-      return ok(result);
-    }
-  );
-  r.post(
-    "/drafts/:id/regenerate",
-    {
-      schema: {
-        tags: [TAG29],
-        summary: "Regenerar el draft (re-corre el cerebro)",
-        security: security28,
-        params: IdParamSchema
-      },
-      preHandler: [authorize("owner")]
-    },
-    async (request) => {
-      const detail = await regenerateDraft(request.hubUser.portalId, request.params.id);
-      return ok(detail);
-    }
-  );
-}
-
-// src/modules/setter/setter.ws.ts
-import { eq as eq42 } from "drizzle-orm";
-async function setterWsRoutes(app2) {
-  app2.get("/ws/setter/events", { websocket: true }, async (socket, request) => {
-    const token = request.query.token;
-    let user;
-    try {
-      if (!token) throw new Error("no token");
-      const clerkUserId = await verifyClerkToken(token);
-      user = await resolveHubUser(clerkUserId);
-    } catch {
-      socket.close(1008, "unauthorized");
-      return;
-    }
-    const tenants = await db.select({ id: setterTenant.id }).from(setterTenant).where(eq42(setterTenant.portalId, user.portalId));
-    const tenantIds = new Set(tenants.map((t) => t.id));
-    const handler2 = (event) => {
-      if (!tenantIds.has(event.tenantId)) return;
-      try {
-        socket.send(JSON.stringify(event));
-      } catch {
-      }
-    };
-    setterEventBus.on("event", handler2);
-    socket.send(JSON.stringify({ type: "connected" }));
-    socket.on("close", () => setterEventBus.off("event", handler2));
-  });
-}
-
-// src/modules/setter/webhooks/whatsapp.webhook.ts
-import { timingSafeEqual as timingSafeEqual2 } from "crypto";
-
-// src/modules/setter/setter.service.ts
-import { and as and34, eq as eq43 } from "drizzle-orm";
-var SERVICE_WINDOW_MS = 24 * 60 * 60 * 1e3;
-async function getSetterTenantId() {
-  const [tenant] = await db.select({ id: setterTenant.id }).from(setterTenant).limit(1);
-  return tenant?.id ?? null;
-}
-async function handleInboundMessage(input) {
-  const tenantId = await getSetterTenantId();
-  if (!tenantId) {
-    throw new Error("No hay setter_tenant. Corr\xE9: pnpm --filter api db:seed:setter");
-  }
-  const optedOutByKeyword = evolutionProvider.detectOptOut(input.text);
-  const result = await db.transaction(async (tx) => {
-    await tx.insert(setterPerson).values({ tenantId, name: input.name ?? null, phone: input.from }).onConflictDoNothing({ target: [setterPerson.tenantId, setterPerson.phone] });
-    const [person] = await tx.select().from(setterPerson).where(and34(eq43(setterPerson.tenantId, tenantId), eq43(setterPerson.phone, input.from))).limit(1);
-    if (person.optedOut) {
-      return { status: "skipped_opted_out" };
-    }
-    await tx.insert(setterConversation).values({ tenantId, personId: person.id, channel: input.channel ?? "whatsapp" }).onConflictDoNothing({ target: setterConversation.personId });
-    const [conversation] = await tx.select().from(setterConversation).where(eq43(setterConversation.personId, person.id)).limit(1);
-    let [lead] = await tx.select().from(setterLead).where(eq43(setterLead.personId, person.id)).limit(1);
-    if (!lead) {
-      ;
-      [lead] = await tx.insert(setterLead).values({ tenantId, personId: person.id, status: "NEW", source: input.channel ?? "whatsapp" }).returning();
-    }
-    const inserted = await tx.insert(setterMessage).values({
-      conversationId: conversation.id,
-      role: "user",
-      content: input.text,
-      messageId: input.messageId
-    }).onConflictDoNothing({ target: setterMessage.messageId }).returning({ id: setterMessage.id });
-    if (inserted.length === 0) {
-      return { status: "duplicate" };
-    }
-    await tx.update(setterLead).set({ windowExpiresAt: new Date(Date.now() + SERVICE_WINDOW_MS) }).where(eq43(setterLead.id, lead.id));
-    if (optedOutByKeyword) {
-      await tx.update(setterPerson).set({ optedOut: true, optedOutAt: /* @__PURE__ */ new Date() }).where(eq43(setterPerson.id, person.id));
-      await tx.update(setterLead).set({ status: "OPTED_OUT" }).where(eq43(setterLead.id, lead.id));
-      return { status: "opted_out", leadId: lead.id };
-    }
-    return { status: "processed", leadId: lead.id, conversationId: conversation.id };
-  });
-  if (result.status === "processed") {
-    void logSetterEvent({
-      tenantId,
-      type: "inbound",
-      message: `Entr\xF3 mensaje de ${input.from}`,
-      leadId: result.leadId,
-      meta: { messageId: input.messageId }
-    });
-  } else if (result.status === "opted_out") {
-    void logSetterEvent({
-      tenantId,
-      level: "warn",
-      type: "optout",
-      message: `Opt-out de ${input.from} \u2014 no se le genera ni env\xEDa nada m\xE1s`,
-      leadId: result.leadId
-    });
-  }
-  if (result.status === "processed" && isRedisConfigured() && env.NODE_ENV !== "test") {
-    await getSetterInboundQueue().add(
-      "handle-message",
-      { leadId: result.leadId, conversationId: result.conversationId, messageId: input.messageId },
-      { jobId: input.messageId, removeOnComplete: true, removeOnFail: 100 }
-    );
-  }
-  if (result.status === "opted_out" && env.NODE_ENV !== "test") {
-    try {
-      await syncLeadToCrm(result.leadId);
-    } catch (err) {
-      console.error("[setter] sync CRM opt-out fall\xF3:", err);
-    }
-  }
-  return result;
-}
-
-// src/modules/setter/webhooks/whatsapp.webhook.ts
-function safeEqual(a, b) {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual2(ab, bb);
-}
-function extractText(message) {
-  if (!message) return null;
-  const conv = message["conversation"];
-  if (typeof conv === "string" && conv.trim()) return conv;
-  const ext = message["extendedTextMessage"];
-  if (ext?.text && ext.text.trim()) return ext.text;
-  const ephemeral = message["ephemeralMessage"];
-  const ephText = ephemeral?.message?.extendedTextMessage?.text ?? ephemeral?.message?.conversation;
-  if (typeof ephText === "string" && ephText.trim()) return ephText;
-  return null;
-}
-function parseEvolutionInbound(body) {
-  const key = body.data?.key;
-  if (!key?.remoteJid || !key.id) return null;
-  if (key.fromMe) return null;
-  if (key.remoteJid.endsWith("@g.us")) return null;
-  const text30 = extractText(body.data?.message);
-  if (!text30) return null;
-  const digits = key.remoteJid.split("@")[0]?.replace(/\D/g, "");
-  if (!digits) return null;
-  return {
-    from: `+${digits}`,
-    name: body.data?.pushName ?? null,
-    messageId: key.id,
-    text: text30,
-    channel: "whatsapp"
-  };
-}
-async function setterWhatsappWebhookRoutes(app2) {
-  app2.post(
-    "/whatsapp",
-    {
-      schema: {
-        tags: ["Setter"],
-        summary: "Webhook de WhatsApp (Evolution)",
-        description: "Recibe eventos de Evolution API. Responde 200 siempre y procesa de forma as\xEDncrona (dedup por message_id, ventana de 24h, opt-out, encola el turno del agente)."
-      }
-    },
-    async (request, reply) => {
-      const secret = env.EVOLUTION_WEBHOOK_SECRET;
-      if (secret) {
-        const headers = request.headers;
-        const provided = request.query?.token ?? headers["apikey"] ?? headers["x-webhook-secret"];
-        if (!provided || !safeEqual(provided, secret)) {
-          return reply.code(401).send();
-        }
-      }
-      reply.code(200).send({ ok: true });
-      const inbound = parseEvolutionInbound(request.body);
-      if (!inbound) return;
-      handleInboundMessage(inbound).then((outcome) => {
-        request.log.info(
-          { personPhone: inbound.from, messageId: inbound.messageId, outcome: outcome.status },
-          "[setter] mensaje entrante procesado"
-        );
-      }).catch((err) => {
-        request.log.error(
-          { err, messageId: inbound.messageId },
-          "[setter] error procesando mensaje entrante"
-        );
-      });
-    }
-  );
-}
-
-// src/modules/prospecting/prospecting.schema.ts
-import { z as z32 } from "zod";
-var RunSearchSchema = z32.object({
-  query: z32.string().min(3, "La b\xFAsqueda debe tener al menos 3 caracteres").max(200),
-  limit: z32.coerce.number().int().min(1).max(20).default(5),
-  ourServices: z32.string().max(500).optional()
-});
-var ListSearchesQuerySchema = z32.object({
-  limit: z32.coerce.number().int().min(1).max(100).default(20),
-  cursor: z32.string().optional()
-});
-var SuggestServicesSchema = z32.object({
-  hint: z32.string().max(500).optional().default("")
-});
-var ListProspectsQuerySchema = z32.object({
-  searchId: z32.string().min(1).optional(),
-  status: z32.enum(["new", "imported", "discarded"]).optional()
-});
-
-// src/modules/prospecting/prospecting.service.ts
-import { and as and35, desc as desc20, eq as eq44, inArray as inArray15 } from "drizzle-orm";
-
-// src/modules/prospecting/places.client.ts
-import axios2 from "axios";
-var PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
-var FIELD_MASK = [
-  "places.id",
-  "places.displayName",
-  "places.formattedAddress",
-  "places.nationalPhoneNumber",
-  "places.internationalPhoneNumber",
-  "places.websiteUri",
-  "places.rating",
-  "places.userRatingCount",
-  "places.types"
-].join(",");
-function isPlacesConfigured() {
-  return Boolean(env.GOOGLE_MAPS_API_KEY);
-}
-async function searchBusinesses(query, limit) {
-  if (!env.GOOGLE_MAPS_API_KEY) {
-    throw Errors.badRequest("GOOGLE_MAPS_API_KEY no est\xE1 configurada en la API");
-  }
-  const maxResultCount = Math.min(Math.max(limit, 1), 20);
-  try {
-    const { data } = await axios2.post(
-      PLACES_TEXT_SEARCH_URL,
-      { textQuery: query, maxResultCount, languageCode: "es" },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": env.GOOGLE_MAPS_API_KEY,
-          "X-Goog-FieldMask": FIELD_MASK
-        },
-        timeout: 15e3
-      }
-    );
-    const places = data.places ?? [];
-    return places.slice(0, maxResultCount).map((p) => ({
-      googlePlaceId: p.id ?? "",
-      name: p.displayName?.text ?? "Sin nombre",
-      address: p.formattedAddress ?? null,
-      phone: p.nationalPhoneNumber ?? p.internationalPhoneNumber ?? null,
-      website: p.websiteUri ?? null,
-      rating: typeof p.rating === "number" ? p.rating : null,
-      userRatingsTotal: typeof p.userRatingCount === "number" ? p.userRatingCount : null,
-      types: Array.isArray(p.types) ? p.types : []
-    }));
-  } catch (err) {
-    if (axios2.isAxiosError(err)) {
-      const status = err.response?.status;
-      const apiMsg = err.response?.data?.error?.message ?? err.message;
-      if (status === 403 || status === 401) {
-        throw Errors.badRequest(`Google Places rechaz\xF3 la key (${status}): ${apiMsg}`);
-      }
-      throw new AppError("PLACES_ERROR", `Error consultando Google Places: ${apiMsg}`, 502);
-    }
-    throw err;
-  }
-}
-
-// src/modules/prospecting/email-scraper.ts
-import axios3 from "axios";
-var EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-var JUNK_PATTERNS = [
-  /\.(png|jpe?g|gif|svg|webp|css|js)$/i,
-  /@(2x|3x)\b/i,
-  /(example|sentry|wixpress|godaddy|sentry\.io|domain)\./i,
-  /^[0-9a-f]{16,}@/i
-  // hashes
-];
-function isPlausible(email) {
-  if (email.length > 60) return false;
-  return !JUNK_PATTERNS.some((re) => re.test(email));
-}
-async function scrapeEmail(website) {
-  try {
-    const url = website.startsWith("http") ? website : `https://${website}`;
-    const { data } = await axios3.get(url, {
-      timeout: 8e3,
-      maxContentLength: 2e6,
-      responseType: "text",
-      // Algunos sitios bloquean clients sin UA "de navegador".
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; NOUSCRM/1.0; +https://nous.dev) prospecting-bot",
-        Accept: "text/html"
-      },
-      // No queremos que un redirect a un esquema raro rompa todo.
-      maxRedirects: 3
-    });
-    if (typeof data !== "string") return null;
-    const matches = data.match(EMAIL_REGEX);
-    if (!matches) return null;
-    const candidate = matches.map((m) => m.toLowerCase()).find(isPlausible);
-    return candidate ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// src/modules/prospecting/vertex.client.ts
-import { GoogleGenAI as GoogleGenAI2, Type as Type2 } from "@google/genai";
-var client3 = null;
-function isVertexConfigured() {
-  return Boolean(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-}
-function getClient3() {
-  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) return null;
-  if (client3) return client3;
-  let credentials;
-  try {
-    credentials = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  } catch {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON no es un JSON v\xE1lido");
-  }
-  if (!credentials.project_id) {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON no contiene project_id");
-  }
-  client3 = new GoogleGenAI2({
-    vertexai: true,
-    project: credentials.project_id,
-    location: env.VERTEX_LOCATION,
-    googleAuthOptions: { credentials }
-  });
-  return client3;
-}
-var RESPONSE_SCHEMA = {
-  type: Type2.OBJECT,
-  properties: {
-    analysis: { type: Type2.STRING },
-    opportunityScore: { type: Type2.INTEGER },
-    proposalType: { type: Type2.STRING, enum: ["automation", "web_app", "both"] },
-    painPoints: { type: Type2.ARRAY, items: { type: Type2.STRING } },
-    solution: { type: Type2.STRING },
-    mvpScope: { type: Type2.ARRAY, items: { type: Type2.STRING } },
-    estimatedValueUsd: { type: Type2.INTEGER },
-    sequence: {
-      type: Type2.OBJECT,
-      properties: {
-        opener: { type: Type2.STRING },
-        problemQuestions: { type: Type2.ARRAY, items: { type: Type2.STRING } },
-        bookingMessage: { type: Type2.STRING },
-        confirmationMessage: { type: Type2.STRING }
-      },
-      required: ["opener", "problemQuestions", "bookingMessage", "confirmationMessage"]
-    },
-    objections: {
-      type: Type2.ARRAY,
-      items: {
-        type: Type2.OBJECT,
-        properties: {
-          objection: { type: Type2.STRING },
-          response: { type: Type2.STRING }
-        },
-        required: ["objection", "response"]
-      }
-    }
-  },
-  required: [
-    "analysis",
-    "opportunityScore",
-    "proposalType",
-    "painPoints",
-    "solution",
-    "mvpScope",
-    "estimatedValueUsd",
-    "sequence",
-    "objections"
-  ]
-};
-var SYSTEM_INSTRUCTION = `Sos un consultor senior de una agencia de desarrollo web y automatizaci\xF3n Y un appointment setter experto que prospecta a negocios argentinos.
-Tu trabajo es analizar un negocio y armar la secuencia de mensajes para iniciar una conversaci\xF3n que termine en una llamada agendada.
-
-PRINCIPIOS DE SETTING (obligatorios, son la base de todo):
-1. OPENER GENUINO: el primer mensaje arranca con algo espec\xEDfico y verdadero de ESE negocio (rubro, ubicaci\xF3n, reputaci\xF3n, que no tiene web). PROHIBIDO el halago gen\xE9rico tipo "felicitaciones por tu perfil".
-2. RAZ\xD3N PARA RESPONDER: dale a la persona un motivo real para contestar. Lo m\xE1s natural es una pregunta genuina y relevante a su rubro (algo que de verdad querr\xEDas saber de su negocio), no "para conocerte mejor". Si encaja sin forzar, pod\xE9s mencionar algo \xFAtil que le podr\xEDas pasar, dicho casual, NUNCA como oferta de marketing. Si no encaja natural, no lo metas: la pregunta sola alcanza.
-3. PRIMERO EL PROBLEMA, DESPU\xC9S EL LINK: el opener NO vende la soluci\xF3n ni pide la reuni\xF3n. Primero se saca a la luz el problema con preguntas; reci\xE9n despu\xE9s se invita a agendar.
-4. NUNCA MOSTRAR NECESIDAD: no persigas ni sobreexpliques. Siempre dej\xE1 claro POR QU\xC9 pregunt\xE1s o propon\xE9s algo, desde el lugar de querer ayudar, no de querer venderle.
-5. LENGUAJE SIMPLE Y CONCRETO (clave en Argentina): habl\xE1 derecho, sin inflar. Nada de "transformar tu negocio", "programa", "soluci\xF3n integral" ni promesas grandilocuentes: eso genera desconfianza, no deseo. En vez de "agilizar la recepci\xF3n de facturas" dec\xED "que no tengas que andar persiguiendo a los clientes por los comprobantes". Si una frase suena m\xE1s grande de lo que es, achicala.
-6. OBJECIONES: valid\xE1 en una frase corta (sin frases hechas) y segu\xED con UNA pregunta o un reencuadre que abra la conversaci\xF3n, no con un argumento de venta ni con presi\xF3n. Si la persona dice que no en serio, se la deja ir sin insistir.
-7. La invitaci\xF3n a agendar se enmarca en EL PROBLEMA y EL OBJETIVO puntual de la persona, y da la raz\xF3n concreta por la que vale la pena esa charla.
-
-SON\xC1 HUMANO (lo m\xE1s importante de todo): los mensajes los lee una persona real. NO pueden parecer escritos por una IA ni por una plantilla. Si suenan a folleto o a vendedor, fallaste.
-- Escrib\xED como le escribir\xEDas a un conocido por WhatsApp: frases CORTAS, directas, naturales. Nada de p\xE1rrafos largos ni perfectos.
-- CERCANO PERO CON RESPETO, NO ZALAMERO: la calidez se gana, no se finge en el primer mensaje. Nada de apodos ("crack", "campe\xF3n", "genio") ni efusividad fingida. Un "Hola [Nombre], \xBFc\xF3mo va?" funciona mejor que cualquier apodo o emoji.
-- PROHIBIDAS las muletillas de IA/vendedor: "Entiendo,", "Comprendo que", "L\xF3gico,", "Excelente,", "Por supuesto", "Es importante destacar", "En este sentido", "Espero que est\xE9s muy bien".
-- PROHIBIDO el vocabulario corporativo/buzzword: "cuello de botella", "agilizar", "optimizar", "carga operativa", "soluci\xF3n integral", "plan de acci\xF3n", "diagn\xF3stico gratuito", "impecable", "potenciar", "maximizar", "de forma definitiva", "sinergia", "implementar una soluci\xF3n", "transformar tu negocio", "programa" (como eufemismo de servicio), "sesi\xF3n" (como eufemismo de llamada).
-- Us\xE1 palabras simples y cotidianas.
-- Natural NO es matero: no sobrecargues de lunfardo ("chusmear", "una charlita", "los re bancan"). Profesional relajado, no amigo del barrio.
-- Est\xE1 bien transparentar que es prospecci\xF3n ("te escribo porque laburamos con [rubro] y se me ocurri\xF3 que..."). No disimules que es un mensaje de laburo.
-- Est\xE1 bien sonar un poco informal e imperfecto. Mejor que suene a persona apurada que a copy de agencia.
-- Menos es m\xE1s: no metas todos los beneficios en el primer mensaje. Si dud\xE1s, cort\xE1 la frase.
-- No uses guiones largos (\u2014). Us\xE1 puntos o par\xE9ntesis. Nada de vi\xF1etas dentro de los mensajes.
-- M\xE1ximo un emoji por mensaje, y solo si suma. Cero urgencia falsa ("\xFAltimos cupos", "solo por hoy").
-- Vari\xE1 los arranques: NO empieces siempre con "Hola, estuve viendo...". Si todos arrancan igual, suena a plantilla.
-
-Reglas de estilo: espa\xF1ol rioplatense (vos, ten\xE9s, quer\xE9s), sin erratas, sin jerga t\xE9cnica, sin promesas exageradas.`;
-function buildPrompt(input) {
-  const services = input.ourServices?.trim() ? input.ourServices.trim() : "desarrollo de web apps a medida y automatizaciones (chatbots, integraciones, dashboards, flujos internos)";
-  return `Analiz\xE1 este negocio y arm\xE1 su secuencia de setting.
-
-NEGOCIO:
-- Nombre: ${input.name}
-- Rubro/categor\xEDas: ${input.types.join(", ") || "desconocido"}
-- Web: ${input.website ?? "no tiene sitio web detectado"}
-- Rating Google: ${input.rating ?? "sin datos"}
-- Direcci\xF3n: ${input.address ?? "sin datos"}
-
-LO QUE OFRECEMOS NOSOTROS:
-${services}
-
-DEVOLV\xC9 (an\xE1lisis interno, NO se env\xEDa a nadie):
-1. analysis: 2-3 frases sobre el negocio y por qu\xE9 podr\xEDa (o no) necesitarnos.
-2. opportunityScore: del 1 al 10, qu\xE9 tan buena oportunidad es.
-3. proposalType: "automation", "web_app" o "both".
-4. painPoints: 2-4 problemas que probablemente tenga (hip\xF3tesis a confirmar en la charla).
-5. solution: qu\xE9 le proponemos, 1-2 frases.
-6. mvpScope: 3-5 features m\xEDnimas del MVP, acotado y entregable r\xE1pido.
-7. estimatedValueUsd: precio estimado del MVP en USD (entero realista).
-
-Y LA SECUENCIA DE SETTING (esto S\xCD se env\xEDa, aplic\xE1 los principios):
-8. sequence.opener: PRIMER mensaje, CORTO (2-3 frases m\xE1ximo, como un WhatsApp real). Gancho genuino y espec\xEDfico de ESTE negocio + una pregunta real y relevante a su rubro que invite a contestar. PROHIBIDO: pitchear la soluci\xF3n, pedir la reuni\xF3n, halago gen\xE9rico, prometer cosas grandes, o sonar a plantilla.
-9. sequence.problemQuestions: EXACTAMENTE 3 preguntas para sacar el problema a la luz, adaptadas a este negocio. Pensadas para enviarse de a una (conversacional, no interrogatorio). Estilo: "\xBFc\xF3mo te est\xE1 pegando [X]?", "\xBFa qu\xE9 te refer\xEDs cuando dec\xEDs [Y]?", "\xBFte acord\xE1s de alguna situaci\xF3n de la \xFAltima semana donde esto te complic\xF3?".
-10. sequence.bookingMessage: la invitaci\xF3n a agendar, enmarcada en SU problema y SU objetivo, dando la raz\xF3n. Estilo: "Por lo que me cont\xE1s de [problema], creo que te puedo mostrar c\xF3mo lo resolver\xEDamos en tu caso. \xBFTe parece si lo charlamos 15 min con [nuestro especialista] y te tiramos un par de ideas concretas para [objetivo]?". Que suene a propuesta tranquila, no a cierre de venta.
-11. sequence.confirmationMessage: mensaje breve para confirmar la asistencia. Ped\xEDs confirmaci\xF3n de forma natural, sin sonar desesperado pero tampoco arrogante. Dale una salida f\xE1cil por si tiene que reprogramar.
-12. objections: 3-5 objeciones probables de ESTE negocio (ej: dinero, "lo tengo que consultar", "ya prob\xE9 algo similar", "lo tengo que pensar", "no tengo tiempo"). Para cada una, en "response" pon\xE9: una validaci\xF3n corta (sin frase hecha) + LA PREGUNTA o el reencuadre que abre la conversaci\xF3n. Nada de presi\xF3n ni de insistir.`;
-}
-async function suggestServices(hint) {
-  const ai = getClient3();
-  if (!ai) return null;
-  const notes = hint.trim() ? `Basate en estas notas del usuario: "${hint.trim()}".` : "Asum\xED servicios t\xEDpicos de una agencia chica: web apps a medida, automatizaciones con IA, chatbots, integraciones y dashboards.";
-  const prompt = `Sos parte de una agencia de desarrollo web y automatizaci\xF3n.
-Escrib\xED en 1 o 2 frases, en espa\xF1ol rioplatense simple y concreto (sin jerga ni palabras infladas), qu\xE9 ofrece la agencia. Sirve como contexto para una IA que prospecta clientes.
-${notes}
-Devolv\xE9 SOLO el texto, sin comillas, sin encabezados, sin vi\xF1etas.`;
-  const res = await ai.models.generateContent({
-    model: env.VERTEX_MODEL,
-    contents: prompt,
-    config: { temperature: 0.7 }
-  });
-  return res.text?.trim() ?? null;
-}
-async function analyzeBusiness(input) {
-  const ai = getClient3();
-  if (!ai) return null;
-  const res = await ai.models.generateContent({
-    model: env.VERTEX_MODEL,
-    contents: buildPrompt(input),
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-      // Bajado de 0.95: a 0.95 hay más deriva y se incumplen reglas de estilo.
-      // 0.85 mantiene variedad en los arranques sin desmadrarse.
-      temperature: 0.85
-    }
-  });
-  const text30 = res.text;
-  if (!text30) return null;
-  try {
-    return JSON.parse(text30);
-  } catch {
-    return null;
-  }
-}
-
-// src/modules/prospecting/prospecting.service.ts
-function toProspectDTO(row) {
-  return {
-    id: row.id,
-    searchId: row.searchId,
-    name: row.name,
-    address: row.address,
-    phone: row.phone,
-    website: row.website,
-    email: row.email,
-    rating: row.rating != null ? Number(row.rating) : null,
-    userRatingsTotal: row.userRatingsTotal,
-    types: row.types ?? [],
-    aiAnalysis: row.aiAnalysis,
-    aiProposal: row.aiProposal ?? null,
-    status: row.status,
-    importedContactId: row.importedContactId,
-    createdAt: row.createdAt.toISOString()
-  };
-}
-function toSearchDTO(row) {
-  return {
-    id: row.id,
-    query: row.query,
-    ourServices: row.ourServices,
-    requestedLimit: row.requestedLimit,
-    resultCount: row.resultCount,
-    status: row.status,
-    error: row.error,
-    createdAt: row.createdAt.toISOString()
-  };
-}
-function getProspectingCapabilities() {
-  return { places: isPlacesConfigured(), ai: isVertexConfigured() };
-}
-async function suggestProspectingServices(hint) {
-  if (!isVertexConfigured()) {
-    throw new AppError("AI_NOT_CONFIGURED", "La sugerencia con IA requiere Vertex configurado.", 503);
-  }
-  const text30 = await suggestServices(hint);
-  if (!text30) throw Errors.internal("La IA no devolvi\xF3 una sugerencia");
-  return text30;
-}
-async function runProspectSearch(portalId, userId, input) {
-  if (!isPlacesConfigured()) {
-    throw new AppError(
-      "PLACES_NOT_CONFIGURED",
-      "La prospecci\xF3n requiere GOOGLE_MAPS_API_KEY configurada en la API.",
-      503
-    );
-  }
-  const [search] = await db.insert(prospectSearch).values({
-    portalId,
-    query: input.query,
-    ourServices: input.ourServices ?? null,
-    requestedLimit: input.limit,
-    status: "running",
-    createdBy: userId
-  }).returning();
-  if (!search) throw Errors.internal("No se pudo crear la b\xFAsqueda");
-  try {
-    const places = await searchBusinesses(input.query, input.limit);
-    const placeIds = places.map((p) => p.googlePlaceId).filter((id) => Boolean(id));
-    const alreadySeen = placeIds.length ? await db.select({ googlePlaceId: prospect.googlePlaceId }).from(prospect).where(and35(eq44(prospect.portalId, portalId), inArray15(prospect.googlePlaceId, placeIds))) : [];
-    const seen = new Set(alreadySeen.map((r) => r.googlePlaceId));
-    const batchSeen = /* @__PURE__ */ new Set();
-    const fresh = places.filter((p) => {
-      if (!p.googlePlaceId) return true;
-      if (seen.has(p.googlePlaceId) || batchSeen.has(p.googlePlaceId)) return false;
-      batchSeen.add(p.googlePlaceId);
-      return true;
-    });
-    const enriched = await Promise.all(
-      fresh.map(async (place) => {
-        const [email, ai] = await Promise.all([
-          place.website ? scrapeEmail(place.website) : Promise.resolve(null),
-          analyzeBusiness({
-            name: place.name,
-            types: place.types,
-            website: place.website,
-            rating: place.rating,
-            address: place.address,
-            ourServices: input.ourServices ?? null
-          }).catch(() => null)
-        ]);
-        return { place, email, ai };
-      })
-    );
-    let prospects = [];
-    if (enriched.length > 0) {
-      const rows = await db.insert(prospect).values(
-        enriched.map(({ place, email, ai }) => ({
-          portalId,
-          searchId: search.id,
-          name: place.name,
-          address: place.address,
-          phone: place.phone,
-          website: place.website,
-          email,
-          rating: place.rating != null ? String(place.rating) : null,
-          userRatingsTotal: place.userRatingsTotal,
-          googlePlaceId: place.googlePlaceId || null,
-          types: place.types,
-          aiAnalysis: ai?.analysis ?? null,
-          aiProposal: ai ? ai : null
-        }))
-      ).returning();
-      prospects = rows.map(toProspectDTO);
-    }
-    const [updated] = await db.update(prospectSearch).set({ status: "completed", resultCount: prospects.length }).where(eq44(prospectSearch.id, search.id)).returning();
-    return { search: toSearchDTO(updated ?? search), prospects };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Error desconocido";
-    await db.update(prospectSearch).set({ status: "failed", error: message }).where(eq44(prospectSearch.id, search.id));
-    if (err instanceof AppError) throw err;
-    throw new AppError("PROSPECTING_FAILED", `La prospecci\xF3n fall\xF3: ${message}`, 502);
-  }
-}
-async function listSearches(portalId, query) {
-  const cursor = decodeCursor(query.cursor);
-  const rows = await db.select().from(prospectSearch).where(
-    and35(
-      eq44(prospectSearch.portalId, portalId),
-      cursor ? cursorWhere(prospectSearch.createdAt, prospectSearch.id, cursor) : void 0
-    )
-  ).orderBy(desc20(prospectSearch.createdAt), desc20(prospectSearch.id)).limit(query.limit + 1);
-  const page = paginateRows(rows, query.limit);
-  return { items: page.items.map(toSearchDTO), nextCursor: page.nextCursor };
-}
-async function getSearchWithProspects(portalId, searchId) {
-  const [row] = await db.select().from(prospectSearch).where(and35(eq44(prospectSearch.id, searchId), eq44(prospectSearch.portalId, portalId))).limit(1);
-  if (!row) throw Errors.notFound("B\xFAsqueda no encontrada");
-  const prospects = await db.select().from(prospect).where(and35(eq44(prospect.searchId, searchId), eq44(prospect.portalId, portalId))).orderBy(desc20(prospect.createdAt));
-  return { search: toSearchDTO(row), prospects: prospects.map(toProspectDTO) };
-}
-async function listProspects(portalId, query) {
-  const conditions = [eq44(prospect.portalId, portalId)];
-  if (query.searchId) conditions.push(eq44(prospect.searchId, query.searchId));
-  if (query.status) conditions.push(eq44(prospect.status, query.status));
-  const rows = await db.select().from(prospect).where(and35(...conditions)).orderBy(desc20(prospect.createdAt)).limit(500);
-  return rows.map(toProspectDTO);
-}
-async function findProspect(portalId, id) {
-  const [row] = await db.select().from(prospect).where(and35(eq44(prospect.id, id), eq44(prospect.portalId, portalId))).limit(1);
-  if (!row) throw Errors.notFound("Prospecto no encontrado");
-  return row;
-}
-async function importProspect(portalId, userId, id) {
-  const row = await findProspect(portalId, id);
-  if (row.status === "imported" && row.importedContactId) {
-    throw Errors.conflict("Este prospecto ya fue importado al CRM");
-  }
-  const result = await db.transaction(async (tx) => {
-    const [newCompany] = await tx.insert(company).values({
-      portalId,
-      ownerId: userId,
-      name: row.name,
-      website: row.website,
-      phone: row.phone,
-      custom: { source: "prospecting", prospectId: row.id }
-    }).returning({ id: company.id });
-    if (!newCompany) throw Errors.internal("No se pudo crear la empresa");
-    let newContact;
-    try {
-      ;
-      [newContact] = await tx.insert(contact).values({
-        portalId,
-        ownerId: userId,
-        companyId: newCompany.id,
-        firstName: row.name,
-        email: row.email,
-        phone: row.phone,
-        lifecycleStage: "lead",
-        custom: { source: "prospecting", prospectId: row.id }
-      }).returning({ id: contact.id });
-    } catch {
-      throw Errors.conflict("Ya existe un contacto con ese email en el CRM");
-    }
-    if (!newContact) throw Errors.internal("No se pudo crear el contacto");
-    await tx.update(prospect).set({ status: "imported", importedContactId: newContact.id }).where(eq44(prospect.id, row.id));
-    return { contactId: newContact.id, companyId: newCompany.id };
-  });
-  const who = await actorName(portalId, userId);
-  await notifyAdmins(
-    portalId,
-    {
-      entityType: "contact",
-      entityId: result.contactId,
-      type: "prospect_converted",
-      title: `${who} convirti\xF3 \xAB${row.name}\xBB en lead`,
-      actionUrl: `/admin/leads/${result.contactId}`
-    },
-    { exceptUserId: userId }
-  );
-  return result;
-}
-async function discardProspect(portalId, id) {
-  await findProspect(portalId, id);
-  const [updated] = await db.update(prospect).set({ status: "discarded" }).where(and35(eq44(prospect.id, id), eq44(prospect.portalId, portalId))).returning();
-  if (!updated) throw Errors.internal("No se pudo descartar el prospecto");
-  return toProspectDTO(updated);
-}
-
-// src/modules/prospecting/prospecting.router.ts
-var TAG30 = "Prospecci\xF3n";
-var security29 = ADMIN_SECURITY;
-async function prospectingRoutes(app2) {
-  const r = app2.withTypeProvider();
-  r.addHook("preHandler", authenticate);
-  r.get(
-    "/capabilities",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Estado de configuraci\xF3n (Places / IA)",
-        description: "Indica si Google Places y Vertex AI est\xE1n configurados en la API.",
-        security: security29
-      }
-    },
-    async () => ok(getProspectingCapabilities())
-  );
-  r.post(
-    "/suggest-services",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Sugerir descripci\xF3n de servicios de la agencia",
-        description: 'Redacta con IA el perfil de "qu\xE9 ofrecemos" a partir de notas opcionales.',
-        security: security29,
-        body: SuggestServicesSchema
-      },
-      preHandler: [authorize("owner", "member")]
-    },
-    async (request) => {
-      const services = await suggestProspectingServices(request.body.hint);
-      return ok({ services });
-    }
-  );
-  r.post(
-    "/search",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Buscar y analizar prospectos",
-        description: "Busca negocios en Google Places, extrae emails y genera una propuesta con IA. No env\xEDa nada.",
-        security: security29,
-        body: RunSearchSchema
-      },
-      preHandler: [authorize("owner", "member")]
-    },
-    async (request, reply) => {
-      const result = await runProspectSearch(
-        request.hubUser.portalId,
         request.hubUser.sub,
         request.body
       );
@@ -10995,141 +9713,71 @@ async function prospectingRoutes(app2) {
     }
   );
   r.get(
-    "/searches",
+    "/:id/signed-documents",
     {
       schema: {
-        tags: [TAG30],
-        summary: "Listar b\xFAsquedas de prospecci\xF3n",
-        security: security29,
-        querystring: ListSearchesQuerySchema
-      }
-    },
-    async (request) => {
-      const { items, nextCursor } = await listSearches(request.hubUser.portalId, request.query);
-      return ok(items, { nextCursor });
-    }
-  );
-  r.get(
-    "/searches/:id",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Detalle de una b\xFAsqueda + sus prospectos",
-        security: security29,
+        tags: [TAG28],
+        summary: "URLs del documento firmado (ef\xEDmeras)",
+        description: "Pide a DocuSeal las URLs del PDF firmado EN EL MOMENTO. Caducan a los 40 minutos, por eso no se guardan en la base: hay que pedirlas cada vez que se necesitan.",
+        security: security27,
         params: IdParamSchema
       }
     },
-    async (request) => {
-      const result = await getSearchWithProspects(request.hubUser.portalId, request.params.id);
-      return ok(result);
-    }
-  );
-  r.get(
-    "/prospects",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Listar prospectos",
-        description: "Filtrable por b\xFAsqueda (searchId) y estado (new/imported/discarded).",
-        security: security29,
-        querystring: ListProspectsQuerySchema
-      }
-    },
-    async (request) => {
-      const items = await listProspects(request.hubUser.portalId, request.query);
-      return ok(items);
-    }
-  );
-  r.post(
-    "/prospects/:id/import",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Importar prospecto al CRM como Lead",
-        description: "Crea una empresa + un contacto (lead) y marca el prospecto como importado.",
-        security: security29,
-        params: IdParamSchema
-      },
-      preHandler: [authorize("owner", "member")]
-    },
-    async (request, reply) => {
-      const result = await importProspect(
-        request.hubUser.portalId,
-        request.hubUser.sub,
-        request.params.id
-      );
-      return reply.status(201).send(ok(result));
-    }
-  );
-  r.post(
-    "/prospects/:id/discard",
-    {
-      schema: {
-        tags: [TAG30],
-        summary: "Descartar prospecto",
-        security: security29,
-        params: IdParamSchema
-      },
-      preHandler: [authorize("owner", "member")]
-    },
-    async (request) => {
-      const result = await discardProspect(request.hubUser.portalId, request.params.id);
-      return ok(result);
-    }
+    async (request) => ok(await getSignedDocuments(request.hubUser.portalId, request.params.id))
   );
 }
 
 // src/modules/proposals/proposals.schema.ts
-import { z as z33 } from "zod";
-var ProposalScopeItemSchema = z33.object({
-  title: z33.string().max(160),
-  description: z33.string().max(1e3)
+import { z as z31 } from "zod";
+var ProposalScopeItemSchema = z31.object({
+  title: z31.string().max(160),
+  description: z31.string().max(1e3)
 });
-var ProposalPhaseSchema = z33.object({
-  phase: z33.string().max(160),
-  duration: z33.string().max(80),
-  detail: z33.string().max(1e3)
+var ProposalPhaseSchema = z31.object({
+  phase: z31.string().max(160),
+  duration: z31.string().max(80),
+  detail: z31.string().max(1e3)
 });
-var ProposalPricingItemSchema = z33.object({
-  label: z33.string().max(200),
-  amount: z33.number().nonnegative()
+var ProposalPricingItemSchema = z31.object({
+  label: z31.string().max(200),
+  amount: z31.number().nonnegative()
 });
-var ProposalPricingSchema = z33.object({
-  items: z33.array(ProposalPricingItemSchema).max(30),
-  total: z33.number().nonnegative(),
-  currency: z33.string().min(1).max(3),
-  note: z33.string().max(400).optional()
+var ProposalPricingSchema = z31.object({
+  items: z31.array(ProposalPricingItemSchema).max(30),
+  total: z31.number().nonnegative(),
+  currency: z31.string().min(1).max(3),
+  note: z31.string().max(400).optional()
 });
-var ProposalContentSchema = z33.object({
-  title: z33.string().max(200),
-  clientName: z33.string().max(160),
-  companyName: z33.string().max(160).optional(),
-  logoUrl: z33.string().max(500).optional(),
-  tagline: z33.string().max(200).optional(),
-  summary: z33.string().max(2e3),
-  understanding: z33.string().max(2e3),
-  objectives: z33.array(z33.string().max(400)).max(12),
-  solution: z33.string().max(3e3),
-  scope: z33.array(ProposalScopeItemSchema).max(20),
-  timeline: z33.array(ProposalPhaseSchema).max(12),
+var ProposalContentSchema = z31.object({
+  title: z31.string().max(200),
+  clientName: z31.string().max(160),
+  companyName: z31.string().max(160).optional(),
+  logoUrl: z31.string().max(500).optional(),
+  tagline: z31.string().max(200).optional(),
+  summary: z31.string().max(2e3),
+  understanding: z31.string().max(2e3),
+  objectives: z31.array(z31.string().max(400)).max(12),
+  solution: z31.string().max(3e3),
+  scope: z31.array(ProposalScopeItemSchema).max(20),
+  timeline: z31.array(ProposalPhaseSchema).max(12),
   pricing: ProposalPricingSchema,
-  whyUs: z33.array(z33.string().max(400)).max(10),
-  nextSteps: z33.string().max(2e3),
-  terms: z33.string().max(3e3).optional()
+  whyUs: z31.array(z31.string().max(400)).max(10),
+  nextSteps: z31.string().max(2e3),
+  terms: z31.string().max(3e3).optional()
 });
-var GenerateProposalSchema = z33.object({
-  dealId: z33.string().min(1, "dealId requerido").max(60)
+var GenerateProposalSchema = z31.object({
+  dealId: z31.string().min(1, "dealId requerido").max(60)
 });
-var UpdateProposalSchema = z33.object({
-  title: z33.string().min(1).max(200).optional(),
+var UpdateProposalSchema = z31.object({
+  title: z31.string().min(1).max(200).optional(),
   content: ProposalContentSchema.optional()
 });
-var ProposalTokenParamSchema = z33.object({
-  token: z33.string().min(1).max(60)
+var ProposalTokenParamSchema = z31.object({
+  token: z31.string().min(1).max(60)
 });
 
 // src/modules/proposals/proposals.service.ts
-import { and as and36, desc as desc21, eq as eq45 } from "drizzle-orm";
+import { and as and34, desc as desc20, eq as eq39 } from "drizzle-orm";
 
 // src/modules/proposals/proposals.ai.ts
 var PROJECT_TYPE_LABEL = {
@@ -11157,7 +9805,7 @@ var PRIORITY_LABEL = {
   calidad: "la calidad",
   escalabilidad: "la escalabilidad"
 };
-var SYSTEM_INSTRUCTION2 = `Sos el redactor comercial de NOUS, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escrib\xEDs propuestas claras, concretas y profesionales, en espa\xF1ol rioplatense (voseo), sin relleno ni buzzwords vac\xEDos. Habl\xE1s de valor de negocio, no de tecnolog\xEDa por la tecnolog\xEDa. Sos honesto y espec\xEDfico: nada de promesas gen\xE9ricas.
+var SYSTEM_INSTRUCTION2 = `Sos el redactor comercial de Synous, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escrib\xEDs propuestas claras, concretas y profesionales, en espa\xF1ol rioplatense (voseo), sin relleno ni buzzwords vac\xEDos. Habl\xE1s de valor de negocio, no de tecnolog\xEDa por la tecnolog\xEDa. Sos honesto y espec\xEDfico: nada de promesas gen\xE9ricas.
 
 Devolv\xE9s SIEMPRE y \xDANICAMENTE un objeto JSON v\xE1lido (sin markdown, sin texto fuera del JSON) con esta forma exacta:
 {
@@ -11177,7 +9825,7 @@ Devolv\xE9s SIEMPRE y \xDANICAMENTE un objeto JSON v\xE1lido (sin markdown, sin 
     "currency": "USD",
     "note": string            // condiciones de pago, ej "50% al inicio, 50% a la entrega"
   },
-  "whyUs": string[],          // 3-4 diferenciales de NOUS
+  "whyUs": string[],          // 3-4 diferenciales de Synous
   "nextSteps": string,        // cierre / pr\xF3ximos pasos
   "terms": string             // t\xE9rminos breves (validez, revisiones, etc.)
 }`;
@@ -11217,7 +9865,7 @@ async function generateProposalContent(input, provider = "gemini") {
   const generate = getProvider(provider);
   const result = await generate({
     systemInstruction: SYSTEM_INSTRUCTION2,
-    contents: [{ role: "user", parts: [{ text: buildPrompt2(input) }] }],
+    prompt: buildPrompt2(input),
     temperature: 0.8,
     maxOutputTokens: 8192
   });
@@ -11310,7 +9958,7 @@ function buildProposalPdf(content) {
       doc.moveDown(0.35);
     }
   };
-  doc.font("Helvetica-Bold").fontSize(10).fillColor(MUTED).text("NOUS", { characterSpacing: 2 });
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(MUTED).text("Synous", { characterSpacing: 2 });
   doc.moveDown(2);
   doc.font("Helvetica-Bold").fontSize(28).fillColor(INK).text(content.title, { width });
   if (content.tagline) {
@@ -11339,9 +9987,9 @@ function buildProposalPdf(content) {
   }
   if (content.scope.length) {
     heading("Alcance");
-    for (const s of content.scope) {
-      doc.font("Helvetica-Bold").fontSize(11.5).fillColor(INK).text(s.title, { width });
-      doc.font("Helvetica").fontSize(10.5).fillColor(MUTED).text(s.description, { width, lineGap: 2 });
+    for (const s2 of content.scope) {
+      doc.font("Helvetica-Bold").fontSize(11.5).fillColor(INK).text(s2.title, { width });
+      doc.font("Helvetica").fontSize(10.5).fillColor(MUTED).text(s2.description, { width, lineGap: 2 });
       doc.moveDown(0.5);
     }
   }
@@ -11377,7 +10025,7 @@ function buildProposalPdf(content) {
     doc.font("Helvetica").fontSize(9.5).fillColor(MUTED).text(content.pricing.note, { width });
   }
   if (content.whyUs.length) {
-    heading("Por qu\xE9 NOUS");
+    heading("Por qu\xE9 Synous");
     bullets(content.whyUs);
   }
   if (content.nextSteps) {
@@ -11404,9 +10052,8 @@ function publicUrl(token) {
   const base = env.ADMIN_URL ?? "http://localhost:3000";
   return `${base}/p/${token}`;
 }
-async function getModelProvider(portalId) {
-  const [t] = await db.select({ p: setterTenant.modelProvider }).from(setterTenant).where(eq45(setterTenant.portalId, portalId)).limit(1);
-  return t?.p === "claude" ? "claude" : "gemini";
+function getModelProvider2() {
+  return env.MODEL_PROVIDER;
 }
 function toDTO2(row) {
   return {
@@ -11434,19 +10081,19 @@ async function generateProposal(portalId, dealId, actorId) {
     id: deal.id,
     primaryContactId: deal.primaryContactId,
     companyId: deal.companyId
-  }).from(deal).where(and36(eq45(deal.id, dealId), eq45(deal.portalId, portalId), eq45(deal.archived, false))).limit(1);
+  }).from(deal).where(and34(eq39(deal.id, dealId), eq39(deal.portalId, portalId), eq39(deal.archived, false))).limit(1);
   if (!d) throw Errors.notFound("Deal no encontrado");
   let contactName = "Cliente";
   if (d.primaryContactId) {
-    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq45(contact.id, d.primaryContactId)).limit(1);
+    const [c] = await db.select({ firstName: contact.firstName, lastName: contact.lastName }).from(contact).where(eq39(contact.id, d.primaryContactId)).limit(1);
     if (c) contactName = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || contactName;
   }
   let companyName;
   if (d.companyId) {
-    const [co] = await db.select({ name: company.name }).from(company).where(eq45(company.id, d.companyId)).limit(1);
+    const [co] = await db.select({ name: company.name }).from(company).where(eq39(company.id, d.companyId)).limit(1);
     companyName = co?.name;
   }
-  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and36(eq45(onboardingSubmission.portalId, portalId), eq45(onboardingSubmission.dealId, dealId))).orderBy(desc21(onboardingSubmission.createdAt)).limit(1);
+  const [sub] = await db.select({ id: onboardingSubmission.id, answers: onboardingSubmission.answers }).from(onboardingSubmission).where(and34(eq39(onboardingSubmission.portalId, portalId), eq39(onboardingSubmission.dealId, dealId))).orderBy(desc20(onboardingSubmission.createdAt)).limit(1);
   const a = sub?.answers ?? {};
   const input = {
     contactName,
@@ -11462,7 +10109,7 @@ async function generateProposal(portalId, dealId, actorId) {
     toAutomate: str(a.toAutomate),
     priority: str(a.priority)
   };
-  const provider = await getModelProvider(portalId);
+  const provider = getModelProvider2();
   let content;
   let model;
   try {
@@ -11502,11 +10149,11 @@ async function generateProposal(portalId, dealId, actorId) {
   return toDTO2(row);
 }
 async function listProposals(portalId) {
-  const rows = await db.select().from(proposal).where(eq45(proposal.portalId, portalId)).orderBy(desc21(proposal.createdAt)).limit(500);
+  const rows = await db.select().from(proposal).where(eq39(proposal.portalId, portalId)).orderBy(desc20(proposal.createdAt)).limit(500);
   return rows.map(toDTO2);
 }
 async function getProposal(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
@@ -11519,12 +10166,12 @@ async function updateProposal(portalId, id, input) {
     patch.currency = input.content.pricing.currency || "USD";
   }
   if (Object.keys(patch).length === 0) return getProposal(portalId, id);
-  const [row] = await db.update(proposal).set(patch).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set(patch).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   return toDTO2(row);
 }
 async function acceptProposal(portalId, id, actorId) {
-  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).returning();
+  const [row] = await db.update(proposal).set({ status: "accepted", acceptedAt: /* @__PURE__ */ new Date() }).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).returning();
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   const who = await actorName(portalId, actorId);
   await notifyAdmins(
@@ -11542,26 +10189,26 @@ async function acceptProposal(portalId, id, actorId) {
   return toDTO2(row);
 }
 async function markProposalSent(portalId, id) {
-  const [row] = await db.select().from(proposal).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).limit(1);
+  const [row] = await db.select().from(proposal).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).limit(1);
   if (!row) throw Errors.notFound("Propuesta no encontrada");
   if (!row.sentAt) {
-    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and36(eq45(proposal.id, id), eq45(proposal.portalId, portalId))).returning();
+    const [updated] = await db.update(proposal).set({ sentAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" ? "sent" : row.status }).where(and34(eq39(proposal.id, id), eq39(proposal.portalId, portalId))).returning();
     if (updated) return toDTO2(updated);
   }
   return toDTO2(row);
 }
 async function markProposalCompleted(token) {
-  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq45(proposal.token, token)).limit(1);
+  const [row] = await db.select({ id: proposal.id, status: proposal.status, completedAt: proposal.completedAt }).from(proposal).where(eq39(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") return;
   if (!row.completedAt) {
-    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq45(proposal.id, row.id));
+    await db.update(proposal).set({ completedAt: /* @__PURE__ */ new Date() }).where(eq39(proposal.id, row.id));
   }
 }
 async function getPublicProposal(token) {
-  const [row] = await db.select().from(proposal).where(eq45(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq39(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   if (!row.viewedAt) {
-    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq45(proposal.id, row.id));
+    await db.update(proposal).set({ viewedAt: /* @__PURE__ */ new Date(), status: row.status === "accepted" || row.status === "sent" ? "viewed" : row.status }).where(eq39(proposal.id, row.id));
     const cliente = row.content.companyName || row.content.clientName;
     await notifyAdmins(row.portalId, {
       entityType: "proposal",
@@ -11579,25 +10226,25 @@ async function getPublicProposal(token) {
     updatedAt: row.updatedAt.toISOString()
   };
 }
-function slugify3(s) {
-  return s.normalize("NFD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "propuesta";
+function slugify2(s2) {
+  return slugify(s2).slice(0, 60) || "propuesta";
 }
 async function getPublicProposalPdf(token) {
-  const [row] = await db.select().from(proposal).where(eq45(proposal.token, token)).limit(1);
+  const [row] = await db.select().from(proposal).where(eq39(proposal.token, token)).limit(1);
   if (!row || row.status === "draft") throw Errors.notFound("Propuesta no encontrada");
   const buffer = await buildProposalPdf(row.content);
-  return { filename: `${slugify3(row.title)}.pdf`, buffer };
+  return { filename: `${slugify2(row.title)}.pdf`, buffer };
 }
 
 // src/modules/proposals/proposals.router.ts
-var TAG31 = "Proposals";
+var TAG29 = "Proposals";
 async function proposalPublicRoutes(app2) {
   const r = app2.withTypeProvider();
   r.get(
     "/:token",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Ver una propuesta por su token (p\xFAblico)",
         params: ProposalTokenParamSchema
       }
@@ -11608,7 +10255,7 @@ async function proposalPublicRoutes(app2) {
     "/:token/pdf",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Descargar el PDF de una propuesta (p\xFAblico)",
         params: ProposalTokenParamSchema
       }
@@ -11622,7 +10269,7 @@ async function proposalPublicRoutes(app2) {
     "/:token/completed",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Marcar que el cliente termin\xF3 la presentaci\xF3n (p\xFAblico)",
         params: ProposalTokenParamSchema
       }
@@ -11640,7 +10287,7 @@ async function proposalAdminRoutes(app2) {
     "/generate",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Generar una propuesta con IA desde un deal",
         security: ADMIN_SECURITY,
         body: GenerateProposalSchema
@@ -11658,19 +10305,19 @@ async function proposalAdminRoutes(app2) {
   );
   r.get(
     "/",
-    { schema: { tags: [TAG31], summary: "Listar propuestas", security: ADMIN_SECURITY } },
+    { schema: { tags: [TAG29], summary: "Listar propuestas", security: ADMIN_SECURITY } },
     async (request) => ok(await listProposals(request.hubUser.portalId))
   );
   r.get(
     "/:id",
-    { schema: { tags: [TAG31], summary: "Detalle de una propuesta", security: ADMIN_SECURITY, params: IdParamSchema } },
+    { schema: { tags: [TAG29], summary: "Detalle de una propuesta", security: ADMIN_SECURITY, params: IdParamSchema } },
     async (request) => ok(await getProposal(request.hubUser.portalId, request.params.id))
   );
   r.patch(
     "/:id",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Editar una propuesta",
         security: ADMIN_SECURITY,
         params: IdParamSchema,
@@ -11683,7 +10330,7 @@ async function proposalAdminRoutes(app2) {
     "/:id/accept",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Aprobar una propuesta",
         security: ADMIN_SECURITY,
         params: IdParamSchema
@@ -11696,7 +10343,7 @@ async function proposalAdminRoutes(app2) {
     "/:id/sent",
     {
       schema: {
-        tags: [TAG31],
+        tags: [TAG29],
         summary: "Marcar una propuesta como enviada",
         security: ADMIN_SECURITY,
         params: IdParamSchema
@@ -11708,28 +10355,28 @@ async function proposalAdminRoutes(app2) {
 }
 
 // src/modules/branding/branding.schema.ts
-import { z as z34 } from "zod";
+import { z as z32 } from "zod";
 var SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var HEX_RE = /^#[0-9a-fA-F]{6}$/;
-var UpdateBrandingSchema = z34.object({
-  brandSlug: z34.string().regex(SLUG_RE, "Slug inv\xE1lido (solo min\xFAsculas, n\xFAmeros y guiones)").max(40).nullable().optional(),
-  brandName: z34.string().max(60).nullable().optional(),
-  brandLogoKey: z34.string().max(200).nullable().optional(),
-  brandPrimary: z34.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
-  brandSecondary: z34.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
+var UpdateBrandingSchema = z32.object({
+  brandSlug: z32.string().regex(SLUG_RE, "Slug inv\xE1lido (solo min\xFAsculas, n\xFAmeros y guiones)").max(40).nullable().optional(),
+  brandName: z32.string().max(60).nullable().optional(),
+  brandLogoKey: z32.string().max(200).nullable().optional(),
+  brandPrimary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
+  brandSecondary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
 });
-var ClientUpdateBrandingSchema = z34.object({
-  brandName: z34.string().max(60).nullable().optional(),
-  brandLogoKey: z34.string().max(200).nullable().optional(),
-  brandPrimary: z34.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
-  brandSecondary: z34.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
+var ClientUpdateBrandingSchema = z32.object({
+  brandName: z32.string().max(60).nullable().optional(),
+  brandLogoKey: z32.string().max(200).nullable().optional(),
+  brandPrimary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional(),
+  brandSecondary: z32.string().regex(HEX_RE, "Color hex inv\xE1lido (#RRGGBB)").nullable().optional()
 });
-var SlugParamSchema = z34.object({
-  slug: z34.string().min(1).max(40)
+var SlugParamSchema = z32.object({
+  slug: z32.string().min(1).max(40)
 });
 
 // src/modules/branding/branding.service.ts
-import { and as and37, asc as asc15, eq as eq46 } from "drizzle-orm";
+import { and as and35, asc as asc13, eq as eq40 } from "drizzle-orm";
 function logoUrl(key) {
   return key ? `${env.PUBLIC_API_URL}/api/files/${key}` : null;
 }
@@ -11742,14 +10389,25 @@ var brandingCols = {
   brandPrimary: clientAccount.brandPrimary,
   brandSecondary: clientAccount.brandSecondary
 };
+var companyBrandCols = {
+  brandName: company.brandName,
+  brandLogoKey: company.brandLogoKey,
+  brandPrimary: company.brandPrimary,
+  brandSecondary: company.brandSecondary
+};
 async function getBrandingBySlug(slug) {
-  const [row] = await db.select({
+  const [companyRow] = await db.select(companyBrandCols).from(company).where(and35(eq40(company.slug, slug), eq40(company.archived, false))).limit(1);
+  if (companyRow) return toPublicBranding(companyRow);
+  const [legacyRow] = await db.select({
     brandName: clientAccount.brandName,
     brandLogoKey: clientAccount.brandLogoKey,
     brandPrimary: clientAccount.brandPrimary,
     brandSecondary: clientAccount.brandSecondary
-  }).from(clientAccount).where(eq46(clientAccount.brandSlug, slug)).limit(1);
-  if (!row) return null;
+  }).from(clientAccount).where(eq40(clientAccount.brandSlug, slug)).limit(1);
+  if (!legacyRow) return null;
+  return toPublicBranding(legacyRow);
+}
+function toPublicBranding(row) {
   return {
     brandName: row.brandName,
     logoUrl: logoUrl(row.brandLogoKey),
@@ -11757,21 +10415,24 @@ async function getBrandingBySlug(slug) {
     secondaryColor: row.brandSecondary
   };
 }
+function toClientBrandingRow(identity, brand) {
+  return {
+    id: identity.id,
+    email: identity.email,
+    brandSlug: identity.brandSlug,
+    brandName: brand.brandName,
+    brandLogoKey: brand.brandLogoKey,
+    logoUrl: logoUrl(brand.brandLogoKey),
+    brandPrimary: brand.brandPrimary,
+    brandSecondary: brand.brandSecondary
+  };
+}
 async function listClientBranding(portalId) {
-  const rows = await db.select(brandingCols).from(clientAccount).where(eq46(clientAccount.portalId, portalId)).orderBy(asc15(clientAccount.email));
-  return rows.map((r) => ({
-    id: r.id,
-    email: r.email,
-    brandSlug: r.brandSlug,
-    brandName: r.brandName,
-    brandLogoKey: r.brandLogoKey,
-    logoUrl: logoUrl(r.brandLogoKey),
-    brandPrimary: r.brandPrimary,
-    brandSecondary: r.brandSecondary
-  }));
+  const rows = await db.select(brandingCols).from(clientAccount).where(eq40(clientAccount.portalId, portalId)).orderBy(asc13(clientAccount.email));
+  return rows.map((r) => toClientBrandingRow(r, r));
 }
 async function updateClientBranding(portalId, accountId, input) {
-  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and37(eq46(clientAccount.id, accountId), eq46(clientAccount.portalId, portalId))).limit(1);
+  const [exists] = await db.select({ id: clientAccount.id }).from(clientAccount).where(and35(eq40(clientAccount.id, accountId), eq40(clientAccount.portalId, portalId))).limit(1);
   if (!exists) throw Errors.notFound("Cuenta de cliente no encontrada");
   let row;
   try {
@@ -11782,65 +10443,58 @@ async function updateClientBranding(portalId, accountId, input) {
       brandLogoKey: input.brandLogoKey ?? null,
       brandPrimary: input.brandPrimary ?? null,
       brandSecondary: input.brandSecondary ?? null
-    }).where(eq46(clientAccount.id, accountId)).returning(brandingCols);
+    }).where(eq40(clientAccount.id, accountId)).returning(brandingCols);
   } catch {
     throw new AppError("SLUG_TAKEN", "Ese slug ya est\xE1 en uso por otro cliente", 409);
   }
   if (!row) throw Errors.internal("No se pudo actualizar el branding");
-  return {
-    id: row.id,
-    email: row.email,
-    brandSlug: row.brandSlug,
-    brandName: row.brandName,
-    brandLogoKey: row.brandLogoKey,
-    logoUrl: logoUrl(row.brandLogoKey),
-    brandPrimary: row.brandPrimary,
-    brandSecondary: row.brandSecondary
-  };
+  return toClientBrandingRow(row, row);
+}
+async function resolveClientCompanyId(clientId) {
+  const [row] = await db.select({ companyId: contact.companyId }).from(clientAccount).innerJoin(contact, eq40(contact.id, clientAccount.contactId)).where(eq40(clientAccount.id, clientId)).limit(1);
+  return row?.companyId ?? null;
+}
+async function resolveClientCompanyBranding(clientId) {
+  const companyId = await resolveClientCompanyId(clientId);
+  if (!companyId) return null;
+  const [companyRow] = await db.select(companyBrandCols).from(company).where(and35(eq40(company.id, companyId), eq40(company.archived, false))).limit(1);
+  return companyRow ?? null;
 }
 async function getOwnBranding(clientId) {
-  const [row] = await db.select(brandingCols).from(clientAccount).where(eq46(clientAccount.id, clientId)).limit(1);
+  const [row] = await db.select(brandingCols).from(clientAccount).where(eq40(clientAccount.id, clientId)).limit(1);
   if (!row) throw Errors.notFound("Cuenta no encontrada");
-  return {
-    id: row.id,
-    email: row.email,
-    brandSlug: row.brandSlug,
-    brandName: row.brandName,
-    brandLogoKey: row.brandLogoKey,
-    logoUrl: logoUrl(row.brandLogoKey),
-    brandPrimary: row.brandPrimary,
-    brandSecondary: row.brandSecondary
-  };
+  const companyBranding = await resolveClientCompanyBranding(clientId);
+  return toClientBrandingRow(row, companyBranding ?? row);
 }
 async function updateOwnBranding(clientId, input) {
-  const [row] = await db.update(clientAccount).set({
+  const [identity] = await db.select({ id: clientAccount.id, email: clientAccount.email, brandSlug: clientAccount.brandSlug }).from(clientAccount).where(eq40(clientAccount.id, clientId)).limit(1);
+  if (!identity) throw Errors.notFound("Cuenta no encontrada");
+  const patch = {
     brandName: input.brandName ?? null,
     brandLogoKey: input.brandLogoKey ?? null,
     brandPrimary: input.brandPrimary ?? null,
     brandSecondary: input.brandSecondary ?? null
-  }).where(eq46(clientAccount.id, clientId)).returning(brandingCols);
-  if (!row) throw Errors.notFound("Cuenta no encontrada");
-  return {
-    id: row.id,
-    email: row.email,
-    brandSlug: row.brandSlug,
-    brandName: row.brandName,
-    brandLogoKey: row.brandLogoKey,
-    logoUrl: logoUrl(row.brandLogoKey),
-    brandPrimary: row.brandPrimary,
-    brandSecondary: row.brandSecondary
   };
+  const companyId = await resolveClientCompanyId(clientId);
+  if (companyId) {
+    const [companyRow] = await db.update(company).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq40(company.id, companyId)).returning(companyBrandCols);
+    if (!companyRow) throw Errors.internal("No se pudo actualizar el branding de la empresa");
+    return toClientBrandingRow(identity, companyRow);
+  }
+  const [row] = await db.update(clientAccount).set(patch).where(eq40(clientAccount.id, clientId)).returning(brandingCols);
+  if (!row) throw Errors.internal("No se pudo actualizar el branding");
+  return toClientBrandingRow(row, row);
 }
 
 // src/modules/branding/branding.router.ts
-var TAG32 = "White-Label";
+var TAG30 = "White-Label";
 async function brandingPublicRoutes(app2) {
   const r = app2.withTypeProvider();
   r.get(
     "/:slug",
     {
       schema: {
-        tags: [TAG32],
+        tags: [TAG30],
         summary: "Branding por slug (p\xFAblico)",
         description: "Devuelve nombre, logo y colores de la marca asociada al slug. Para tematizar el portal antes de autenticar.",
         params: SlugParamSchema
@@ -11854,14 +10508,14 @@ async function brandingAdminRoutes(app2) {
   r.addHook("preHandler", authenticate);
   r.get(
     "/clients",
-    { schema: { tags: [TAG32], summary: "Listar branding por cliente", security: ADMIN_SECURITY } },
+    { schema: { tags: [TAG30], summary: "Listar branding por cliente", security: ADMIN_SECURITY } },
     async (request) => ok(await listClientBranding(request.hubUser.portalId))
   );
   r.patch(
     "/clients/:id",
     {
       schema: {
-        tags: [TAG32],
+        tags: [TAG30],
         summary: "Actualizar branding de un cliente",
         security: ADMIN_SECURITY,
         params: IdParamSchema,
@@ -11894,11 +10548,11 @@ async function brandingClientRoutes(app2) {
 }
 
 // src/modules/onboarding/onboarding.service.ts
-import { and as and38, desc as desc22, eq as eq47, inArray as inArray16, isNull as isNull4, sql as sql31 } from "drizzle-orm";
+import { and as and36, desc as desc21, eq as eq41, inArray as inArray15, isNull as isNull4, sql as sql30 } from "drizzle-orm";
 
 // src/modules/onboarding/emails/onboarding-completed.ts
 function onboardingCompletedHtml(p) {
-  const greeting = p.firstName ? `Hola ${escHtml5(p.firstName)},` : "Hola,";
+  const greeting = p.firstName ? `Hola ${escHtml6(p.firstName)},` : "Hola,";
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -11912,8 +10566,8 @@ function onboardingCompletedHtml(p) {
   <p>${greeting}</p>
   <p>
     Recibimos todo lo que necesit\xE1bamos para arrancar.
-    Tu proyecto <strong>${escHtml5(p.dealName)}</strong> ya est\xE1 en fase de
-    <strong>${escHtml5(p.stageLabel)}</strong>.
+    Tu proyecto <strong>${escHtml6(p.dealName)}</strong> ya est\xE1 en fase de
+    <strong>${escHtml6(p.stageLabel)}</strong>.
   </p>
   <p>
     A partir de ac\xE1 vas a ver los avances directamente en tu portal \u2014 sin tener que
@@ -11921,7 +10575,7 @@ function onboardingCompletedHtml(p) {
   </p>
 
   <p style="margin: 28px 0;">
-    <a href="${escAttr4(p.portalUrl)}"
+    <a href="${escAttr5(p.portalUrl)}"
        style="display: inline-block; padding: 12px 22px; background: #111; color: #fff; border-radius: 6px; text-decoration: none;">
       Ir a mi portal
     </a>
@@ -11934,27 +10588,27 @@ function onboardingCompletedHtml(p) {
 </body>
 </html>`;
 }
-function escHtml5(s) {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escHtml6(s2) {
+  if (!s2) return "";
+  return s2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function escAttr4(s) {
-  if (!s) return "#";
-  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+function escAttr5(s2) {
+  if (!s2) return "#";
+  return s2.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // src/modules/onboarding/onboarding.schema.ts
-import { z as z35 } from "zod";
+import { z as z33 } from "zod";
 var ONBOARDING_STATUS = {
   IN_PROGRESS: "in_progress",
   COMPLETED: "completed"
 };
-var OnboardingProgressSchema = z35.object({
-  step: z35.number().int().min(1, "Paso inv\xE1lido").max(4, "Paso inv\xE1lido")
+var OnboardingProgressSchema = z33.object({
+  step: z33.number().int().min(1, "Paso inv\xE1lido").max(4, "Paso inv\xE1lido")
 });
-var OnboardingSignatureSchema = z35.object({
-  fullName: z35.string({ required_error: "El nombre completo es requerido." }).min(3, "El nombre completo es requerido.").max(200, "Nombre demasiado largo."),
-  accepted: z35.literal(true, { errorMap: () => ({ message: "Deb\xE9s aceptar los t\xE9rminos para firmar." }) })
+var OnboardingSignatureSchema = z33.object({
+  fullName: z33.string({ required_error: "El nombre completo es requerido." }).min(3, "El nombre completo es requerido.").max(200, "Nombre demasiado largo."),
+  accepted: z33.literal(true, { errorMap: () => ({ message: "Deb\xE9s aceptar los t\xE9rminos para firmar." }) })
 });
 var DELIVERY_CHANNELS = [
   "whatsapp",
@@ -11966,18 +10620,18 @@ var DELIVERY_CHANNELS = [
   "kajabi",
   "otro"
 ];
-var stripControl = (s) => s.split("").filter((c) => {
+var stripControl = (s2) => s2.split("").filter((c) => {
   const code = c.charCodeAt(0);
   return code > 31 && code !== 127;
 }).join("");
-var freeText = (max) => z35.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).pipe(z35.string().min(1, "Requerido"));
-var freeTextOptional = (max) => z35.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s) => stripControl(s).trim()).optional();
-var OnboardingBriefSchema = z35.object({
+var freeText = (max) => z33.string({ required_error: "Requerido" }).max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).pipe(z33.string().min(1, "Requerido"));
+var freeTextOptional = (max) => z33.string().max(max, `M\xE1ximo ${max} caracteres.`).transform((s2) => stripControl(s2).trim()).optional();
+var OnboardingBriefSchema = z33.object({
   businessProgram: freeText(2e3),
   // q1
   activeClients: freeText(500),
   // q2
-  deliveryChannels: z35.array(z35.enum(DELIVERY_CHANNELS)).min(1, "Eleg\xED al menos un canal"),
+  deliveryChannels: z33.array(z33.enum(DELIVERY_CHANNELS)).min(1, "Eleg\xED al menos un canal"),
   // q3
   deliveryChannelsOther: freeTextOptional(200),
   worstChannel: freeText(2e3),
@@ -12007,10 +10661,10 @@ var OnboardingBriefSchema = z35.object({
   doubtsBeforeBuying: freeText(2e3)
   // q16
 });
-var MaterialItemSchema = z35.object({
-  done: z35.boolean(),
-  assetIds: z35.array(z35.string().min(1)).max(50, "M\xE1ximo 50 archivos por categor\xEDa.").optional(),
-  note: z35.string().max(500).optional()
+var MaterialItemSchema = z33.object({
+  done: z33.boolean(),
+  assetIds: z33.array(z33.string().min(1)).max(50, "M\xE1ximo 50 archivos por categor\xEDa.").optional(),
+  note: z33.string().max(500).optional()
 });
 var ONBOARDING_MATERIAL_CATEGORIES = [
   "logoBrand",
@@ -12018,16 +10672,16 @@ var ONBOARDING_MATERIAL_CATEGORIES = [
   "clientBase",
   "toolAccess"
 ];
-var OnboardingMaterialsSchema = z35.object({
-  materials: z35.object({
+var OnboardingMaterialsSchema = z33.object({
+  materials: z33.object({
     logoBrand: MaterialItemSchema,
     programContent: MaterialItemSchema,
     clientBase: MaterialItemSchema,
     toolAccess: MaterialItemSchema
   })
 });
-var OnboardingMaterialUploadQuerySchema = z35.object({
-  category: z35.enum(ONBOARDING_MATERIAL_CATEGORIES, {
+var OnboardingMaterialUploadQuerySchema = z33.object({
+  category: z33.enum(ONBOARDING_MATERIAL_CATEGORIES, {
     errorMap: () => ({ message: "Categor\xEDa de material inv\xE1lida" })
   })
 });
@@ -12040,16 +10694,16 @@ var CATEGORY_TO_ASSET_TYPE = {
   toolAccess: "acceso"
 };
 async function resolveActiveDeal(clientId) {
-  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq47(deal.id, clientDealAccess.dealId)).where(and38(eq47(clientDealAccess.clientId, clientId), eq47(deal.archived, false))).orderBy(desc22(deal.createdAt)).limit(1);
+  const [row] = await db.select({ id: deal.id, portalId: deal.portalId }).from(clientDealAccess).innerJoin(deal, eq41(deal.id, clientDealAccess.dealId)).where(and36(eq41(clientDealAccess.clientId, clientId), eq41(deal.archived, false))).orderBy(desc21(deal.createdAt)).limit(1);
   if (!row) throw Errors.notFound("No hay un proyecto activo asociado a esta cuenta");
   return row;
 }
 async function getOrCreateOnboarding(dbOrTx, portalId, dealId, clientId) {
-  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq47(clientOnboarding.dealId, dealId)).limit(1);
+  const [existing] = await dbOrTx.select().from(clientOnboarding).where(eq41(clientOnboarding.dealId, dealId)).limit(1);
   if (existing) return existing;
   const [created] = await dbOrTx.insert(clientOnboarding).values({ portalId, dealId, clientId }).onConflictDoNothing({ target: clientOnboarding.dealId }).returning();
   if (created) return created;
-  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq47(clientOnboarding.dealId, dealId)).limit(1);
+  const [row] = await dbOrTx.select().from(clientOnboarding).where(eq41(clientOnboarding.dealId, dealId)).limit(1);
   if (!row) throw Errors.internal("No se pudo crear el onboarding");
   return row;
 }
@@ -12060,7 +10714,7 @@ async function getOnboardingState(clientId) {
   const activeDeal = await resolveActiveDeal(clientId);
   const [onboarding, assets] = await Promise.all([
     getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId),
-    db.select().from(clientAsset).where(and38(eq47(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc22(clientAsset.uploadedAt))
+    db.select().from(clientAsset).where(and36(eq41(clientAsset.dealId, activeDeal.id), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
   ]);
   return { onboarding, assets };
 }
@@ -12073,7 +10727,7 @@ async function markStepProgress(clientId, step) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, Math.min(step + 1, 8)),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq47(clientOnboarding.id, row.id)).returning();
+  }).where(eq41(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo actualizar el progreso");
   return updated;
 }
@@ -12090,7 +10744,7 @@ async function submitSignature(clientId, fullName, ip) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 6),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq47(clientOnboarding.id, row.id)).returning();
+  }).where(eq41(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar la firma");
   return updated;
 }
@@ -12104,7 +10758,7 @@ async function submitBrief(clientId, answers) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 7),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq47(clientOnboarding.id, row.id)).returning();
+  }).where(eq41(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar el brief");
   return updated;
 }
@@ -12131,7 +10785,7 @@ async function submitMaterials(clientId, materials) {
   assertNotCompleted(row);
   const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? []);
   if (allAssetIds.length > 0) {
-    const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and38(eq47(clientAsset.dealId, activeDeal.id), inArray16(clientAsset.id, allAssetIds)));
+    const owned = await db.select({ id: clientAsset.id }).from(clientAsset).where(and36(eq41(clientAsset.dealId, activeDeal.id), inArray15(clientAsset.id, allAssetIds)));
     const ownedSet = new Set(owned.map((o) => o.id));
     const invalid = allAssetIds.filter((id) => !ownedSet.has(id));
     if (invalid.length > 0) {
@@ -12144,7 +10798,7 @@ async function submitMaterials(clientId, materials) {
     stepsCompleted,
     currentStep: Math.max(row.currentStep, 8),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where(eq47(clientOnboarding.id, row.id)).returning();
+  }).where(eq41(clientOnboarding.id, row.id)).returning();
   if (!updated) throw Errors.internal("No se pudo guardar los materiales");
   return updated;
 }
@@ -12162,7 +10816,7 @@ async function completeOnboarding(token) {
       throw Errors.badRequest(`Faltan completar pasos previos: ${missing.join(", ")}`, { missing });
     }
     const stepsCompleted = { ...row.stepsCompleted, "8": (/* @__PURE__ */ new Date()).toISOString() };
-    const [updatedOnboarding] = await tx.update(clientOnboarding).set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: /* @__PURE__ */ new Date(), stepsCompleted, currentStep: 8, updatedAt: /* @__PURE__ */ new Date() }).where(and38(eq47(clientOnboarding.id, row.id), eq47(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
+    const [updatedOnboarding] = await tx.update(clientOnboarding).set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: /* @__PURE__ */ new Date(), stepsCompleted, currentStep: 8, updatedAt: /* @__PURE__ */ new Date() }).where(and36(eq41(clientOnboarding.id, row.id), eq41(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS))).returning();
     if (!updatedOnboarding) {
       throw Errors.conflict("El onboarding ya est\xE1 completo");
     }
@@ -12180,7 +10834,7 @@ async function completeOnboarding(token) {
   } else {
     await notifyAdmins(activeDeal.portalId, notifyPayload);
   }
-  const [c] = await db.select({ email: contact.email, firstName: contact.firstName }).from(contact).where(eq47(contact.id, token.contactId)).limit(1);
+  const [c] = await db.select({ email: contact.email, firstName: contact.firstName }).from(contact).where(eq41(contact.id, token.contactId)).limit(1);
   if (c?.email) {
     await sendEmail({
       to: c.email,
@@ -12208,20 +10862,20 @@ function toAdminListItem(onboarding, dealName, clientEmail) {
   };
 }
 async function listOnboardings(portalId) {
-  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and38(eq47(deal.id, clientOnboarding.dealId), eq47(deal.archived, false))).innerJoin(clientAccount, eq47(clientAccount.id, clientOnboarding.clientId)).where(eq47(clientOnboarding.portalId, portalId)).orderBy(sql31`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc22(clientOnboarding.updatedAt));
+  const rows = await db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, and36(eq41(deal.id, clientOnboarding.dealId), eq41(deal.archived, false))).innerJoin(clientAccount, eq41(clientAccount.id, clientOnboarding.clientId)).where(eq41(clientOnboarding.portalId, portalId)).orderBy(sql30`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc21(clientOnboarding.updatedAt));
   return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail));
 }
 async function getOnboardingByDeal(portalId, dealId) {
   const [[row], assets] = await Promise.all([
-    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq47(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq47(clientAccount.id, clientOnboarding.clientId)).where(and38(eq47(clientOnboarding.portalId, portalId), eq47(clientOnboarding.dealId, dealId))).limit(1),
-    db.select().from(clientAsset).where(and38(eq47(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc22(clientAsset.uploadedAt))
+    db.select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email }).from(clientOnboarding).innerJoin(deal, eq41(deal.id, clientOnboarding.dealId)).innerJoin(clientAccount, eq41(clientAccount.id, clientOnboarding.clientId)).where(and36(eq41(clientOnboarding.portalId, portalId), eq41(clientOnboarding.dealId, dealId))).limit(1),
+    db.select().from(clientAsset).where(and36(eq41(clientAsset.dealId, dealId), isNull4(clientAsset.intakeId))).orderBy(desc21(clientAsset.uploadedAt))
   ]);
   if (!row) throw Errors.notFound("Onboarding no encontrado para este deal");
   return { onboarding: row.onboarding, assets, dealName: row.dealName, clientEmail: row.clientEmail };
 }
 
 // src/modules/onboarding/onboarding.router.ts
-var TAG33 = "Onboarding";
+var TAG31 = "Onboarding";
 async function onboardingAdminRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -12229,7 +10883,7 @@ async function onboardingAdminRoutes(app2) {
     "/",
     {
       schema: {
-        tags: [TAG33],
+        tags: [TAG31],
         summary: "Listar onboardings del portal",
         description: "Progreso del onboarding post-venta de cada deal. Orden: in_progress primero, luego por actualizaci\xF3n m\xE1s reciente.",
         security: ADMIN_SECURITY
@@ -12241,7 +10895,7 @@ async function onboardingAdminRoutes(app2) {
     "/deals/:id",
     {
       schema: {
-        tags: [TAG33],
+        tags: [TAG31],
         summary: "Onboarding completo de un deal",
         security: ADMIN_SECURITY,
         params: IdParamSchema
@@ -12252,7 +10906,7 @@ async function onboardingAdminRoutes(app2) {
 }
 
 // src/modules/onboarding/client-onboarding.router.ts
-var TAG34 = "Client Portal";
+var TAG32 = "Client Portal";
 async function clientOnboardingRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticateClient);
@@ -12260,7 +10914,7 @@ async function clientOnboardingRoutes(app2) {
     "/",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Estado del onboarding post-venta",
         description: "Lazy-create: si el cliente no tiene onboarding para su deal activo, se crea. Incluye los client_asset subidos en el paso de materiales.",
         security: CLIENT_SECURITY
@@ -12272,7 +10926,7 @@ async function clientOnboardingRoutes(app2) {
     "/progress",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Marcar un paso de orientaci\xF3n como completado (pasos 1-4)",
         security: CLIENT_SECURITY,
         body: OnboardingProgressSchema
@@ -12284,7 +10938,7 @@ async function clientOnboardingRoutes(app2) {
     "/signature",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Firmar el onboarding (paso 5)",
         description: "Checkbox de aceptaci\xF3n + nombre completo tipeado. Guarda timestamp + IP. No re-firmable (409 si ya est\xE1 firmado).",
         security: CLIENT_SECURITY,
@@ -12297,7 +10951,7 @@ async function clientOnboardingRoutes(app2) {
     "/brief",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Enviar el brief del proyecto (paso 6, 16 preguntas)",
         description: "Re-submit permitido mientras el onboarding no est\xE9 completo (sobreescribe).",
         security: CLIENT_SECURITY,
@@ -12310,7 +10964,7 @@ async function clientOnboardingRoutes(app2) {
     "/materials",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Registrar estado de materiales (paso 7)",
         description: "Los archivos se suben antes con POST /materials/upload; ac\xE1 solo se persisten los assetIds y el estado por categor\xEDa.",
         security: CLIENT_SECURITY,
@@ -12323,7 +10977,7 @@ async function clientOnboardingRoutes(app2) {
     "/materials/upload",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Subir un archivo de materiales (paso 7)",
         security: CLIENT_SECURITY
       }
@@ -12342,7 +10996,7 @@ async function clientOnboardingRoutes(app2) {
     "/complete",
     {
       schema: {
-        tags: [TAG34],
+        tags: [TAG32],
         summary: "Completar el onboarding (paso 8)",
         description: 'Gate: exige firma + brief + checklist de materiales enviado (400 con detalle si falta alguno). El checklist de materiales puede tener \xEDtems en `done: false` \u2014 el cliente puede no tener, p. ej., manual de marca a\xFAn; lo que exige el gate es haber ENVIADO el paso, no que todo est\xE9 "listo". Mueve el deal al pipeline Producci\xF3n / etapa Diagn\xF3stico y notifica al responsable asignado.',
         security: CLIENT_SECURITY
@@ -12353,9 +11007,9 @@ async function clientOnboardingRoutes(app2) {
 }
 
 // src/modules/calendar/calendar.public.router.ts
-import { z as z36 } from "zod";
-var TAG35 = "Calendario P\xFAblico";
-var ianaTimezone2 = z36.string().refine(
+import { z as z34 } from "zod";
+var TAG33 = "Calendario P\xFAblico";
+var ianaTimezone2 = z34.string().refine(
   (tz) => {
     try {
       Intl.DateTimeFormat(void 0, { timeZone: tz });
@@ -12366,9 +11020,9 @@ var ianaTimezone2 = z36.string().refine(
   },
   { message: "Zona horaria IANA inv\xE1lida (ej. America/Bogota, Europe/Madrid)" }
 );
-var EventTypeParamsSchema = z36.object({
-  portalId: z36.string().min(1, "portalId requerido"),
-  eventSlug: z36.string().min(1, "eventSlug requerido")
+var EventTypeParamsSchema = z34.object({
+  portalId: z34.string().min(1, "portalId requerido"),
+  eventSlug: z34.string().min(1, "eventSlug requerido")
 });
 async function calendarPublicRoutes(app2) {
   const r = app2.withTypeProvider();
@@ -12376,7 +11030,7 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Metadata p\xFAblica de un event type (sin auth)",
         description: "Devuelve nombre, duraci\xF3n, locaciones, preguntas custom y configuraci\xF3n de un event type activo. Disponible sin autenticaci\xF3n para que el invitado pueda cargar la p\xE1gina de booking.",
         params: EventTypeParamsSchema
@@ -12393,13 +11047,13 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug/slots",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Slots disponibles de un event type (sin auth)",
         description: "Calcula los slots libres del event type en el rango de fechas dado. Devuelve startUtc (UTC), endUtc (UTC) y startLocal (en la TZ del invitado).",
         params: EventTypeParamsSchema,
-        querystring: z36.object({
-          from: z36.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from debe ser YYYY-MM-DD"),
-          to: z36.string().regex(/^\d{4}-\d{2}-\d{2}$/, "to debe ser YYYY-MM-DD"),
+        querystring: z34.object({
+          from: z34.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from debe ser YYYY-MM-DD"),
+          to: z34.string().regex(/^\d{4}-\d{2}-\d{2}$/, "to debe ser YYYY-MM-DD"),
           tz: ianaTimezone2
         })
       },
@@ -12427,7 +11081,7 @@ async function calendarPublicRoutes(app2) {
     "/:portalId/:eventSlug/book",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Crear un booking (sin auth)",
         description: "Reserva un slot para el event type dado. Devuelve el booking creado con las URLs de cancelaci\xF3n y reprogramaci\xF3n para autoservicio. Si el slot ya fue tomado por concurrencia \u2192 409.",
         params: EventTypeParamsSchema,
@@ -12439,8 +11093,8 @@ async function calendarPublicRoutes(app2) {
       const { portalId, eventSlug } = request.params;
       const protocol = request.headers["x-forwarded-proto"] ?? "http";
       const frontendHost = process.env["NEXT_PUBLIC_APP_URL"] ?? `${protocol}://${request.headers["x-forwarded-host"] ?? "localhost:3000"}`;
-      const baseUrl = frontendHost.endsWith("/") ? frontendHost.slice(0, -1) : frontendHost;
-      const result = await createPublicBooking(portalId, eventSlug, request.body, baseUrl);
+      const baseUrl2 = frontendHost.endsWith("/") ? frontendHost.slice(0, -1) : frontendHost;
+      const result = await createPublicBooking(portalId, eventSlug, request.body, baseUrl2);
       return reply.status(201).send(ok(result));
     }
   );
@@ -12448,7 +11102,7 @@ async function calendarPublicRoutes(app2) {
     "/booking/cancel",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Cancelar un booking por token (sin auth)",
         description: "Cancela el booking asociado al token firmado de cancelaci\xF3n. El token va en el body (no en la URL). El slot queda libre autom\xE1ticamente (el constraint EXCLUDE solo aplica a status=confirmed).",
         body: CancelBookingSchema
@@ -12465,7 +11119,7 @@ async function calendarPublicRoutes(app2) {
     "/booking/reschedule",
     {
       schema: {
-        tags: [TAG35],
+        tags: [TAG33],
         summary: "Reprogramar un booking por token (sin auth)",
         description: "Cancela el booking original y crea uno nuevo en el slot indicado. El token va en el body (no en la URL). Devuelve el nuevo booking con nuevas URLs de autoservicio.",
         body: RescheduleByTokenSchema
@@ -12476,16 +11130,16 @@ async function calendarPublicRoutes(app2) {
       const { token, ...rescheduleData } = request.body;
       const protocol = request.headers["x-forwarded-proto"] ?? "http";
       const frontendHost = process.env["NEXT_PUBLIC_APP_URL"] ?? `${protocol}://${request.headers["x-forwarded-host"] ?? "localhost:3000"}`;
-      const baseUrl = frontendHost.endsWith("/") ? frontendHost.slice(0, -1) : frontendHost;
-      const result = await reschedulePublicBooking(token, rescheduleData, baseUrl);
+      const baseUrl2 = frontendHost.endsWith("/") ? frontendHost.slice(0, -1) : frontendHost;
+      const result = await reschedulePublicBooking(token, rescheduleData, baseUrl2);
       return reply.status(201).send(ok(result));
     }
   );
 }
 
 // src/modules/calendar/calendar.admin.router.ts
-var TAG36 = "Calendario Admin V2";
-var security30 = ADMIN_SECURITY;
+var TAG34 = "Calendario Admin V2";
+var security28 = ADMIN_SECURITY;
 async function calendarAdminRoutes(app2) {
   const r = app2.withTypeProvider();
   r.addHook("preHandler", authenticate);
@@ -12493,9 +11147,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Listar schedules de disponibilidad del portal",
-        security: security30
+        security: security28
       }
     },
     async (request) => ok(await listSchedules(request.hubUser.portalId))
@@ -12504,9 +11158,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Obtener un schedule por ID",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       }
     },
@@ -12516,9 +11170,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Crear schedule de disponibilidad",
-        security: security30,
+        security: security28,
         body: CreateScheduleSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12536,9 +11190,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Actualizar schedule",
-        security: security30,
+        security: security28,
         params: IdParamSchema,
         body: UpdateScheduleSchema
       },
@@ -12550,9 +11204,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Eliminar schedule",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12566,9 +11220,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Agregar intervalo a un schedule",
-        security: security30,
+        security: security28,
         params: ScheduleParamSchema,
         body: CreateIntervalSchema
       },
@@ -12587,9 +11241,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Reemplazar todos los intervalos de un schedule (at\xF3mico)",
-        security: security30,
+        security: security28,
         params: ScheduleParamSchema,
         body: ReplaceIntervalsSchema
       },
@@ -12607,9 +11261,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/intervals/:intervalId",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Eliminar un intervalo de un schedule",
-        security: security30,
+        security: security28,
         params: ScheduleIntervalParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12627,9 +11281,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/overrides",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Upsert de date override en un schedule",
-        security: security30,
+        security: security28,
         params: ScheduleParamSchema,
         body: DateOverrideInputSchema
       },
@@ -12647,9 +11301,9 @@ async function calendarAdminRoutes(app2) {
     "/schedules/:scheduleId/overrides/:overrideId",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Eliminar un date override de un schedule",
-        security: security30,
+        security: security28,
         params: ScheduleOverrideParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12667,9 +11321,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Listar event types V2 del portal",
-        security: security30
+        security: security28
       }
     },
     async (request) => ok(await listEventTypesV2(request.hubUser.portalId))
@@ -12678,9 +11332,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Obtener event type V2 por ID",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       }
     },
@@ -12690,9 +11344,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Crear event type V2",
-        security: security30,
+        security: security28,
         body: CreateEventTypeV2Schema
       },
       preHandler: [authorize("owner", "member")]
@@ -12710,9 +11364,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Actualizar event type V2",
-        security: security30,
+        security: security28,
         params: IdParamSchema,
         body: UpdateEventTypeV2Schema
       },
@@ -12724,9 +11378,9 @@ async function calendarAdminRoutes(app2) {
     "/event-types/:id",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Eliminar event type V2",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12740,9 +11394,9 @@ async function calendarAdminRoutes(app2) {
     "/bookings/week",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Bookings del portal en rango de fechas (vista semanal admin)",
-        security: security30,
+        security: security28,
         querystring: WeekBookingsQuerySchema
       }
     },
@@ -12755,9 +11409,9 @@ async function calendarAdminRoutes(app2) {
     "/bookings/:id/cancel",
     {
       schema: {
-        tags: [TAG36],
+        tags: [TAG34],
         summary: "Cancelar booking desde el admin",
-        security: security30,
+        security: security28,
         params: IdParamSchema
       },
       preHandler: [authorize("owner", "member")]
@@ -12791,8 +11445,8 @@ function buildApp() {
   app2.register(fastifySwagger, {
     openapi: {
       info: {
-        title: "API CRM DevD\xFAo",
-        description: "Documentaci\xF3n de la API del CRM interno de DevD\xFAo. Todos los endpoints (salvo autenticaci\xF3n y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.",
+        title: "API CRM Synous AI",
+        description: "Documentaci\xF3n de la API del CRM interno de Synous AI. Todos los endpoints (salvo autenticaci\xF3n y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.",
         version: "1.0.0"
       },
       servers: [{ url: "http://localhost:3001", description: "Desarrollo local" }],
@@ -12894,11 +11548,6 @@ function buildApp() {
   app2.register(webhooksRoutes, { prefix: "/webhooks" });
   app2.register(emailTrackingRoutes, { prefix: "/track" });
   app2.register(documentsRoutes, { prefix: "/api/documents" });
-  app2.register(setterRoutes, { prefix: "/api/setter" });
-  app2.register(setterApprovalRoutes, { prefix: "/api/setter" });
-  app2.register(setterWsRoutes);
-  app2.register(setterWhatsappWebhookRoutes, { prefix: "/webhooks" });
-  app2.register(prospectingRoutes, { prefix: "/api/prospecting" });
   app2.register(proposalPublicRoutes, { prefix: "/api/public/proposals" });
   app2.register(proposalAdminRoutes, { prefix: "/api/proposals" });
   app2.register(brandingAdminRoutes, { prefix: "/api/branding" });

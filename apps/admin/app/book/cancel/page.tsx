@@ -16,7 +16,7 @@
 
 import { useState, useEffect } from 'react'
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
-import { API_URL } from '@nous/shared'
+import { API_URL } from '@synous/shared'
 
 async function cancelBooking(token: string): Promise<void> {
   const res = await fetch(`${API_URL}/api/public/calendar/booking/cancel`, {

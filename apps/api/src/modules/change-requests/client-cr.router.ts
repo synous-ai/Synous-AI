@@ -18,11 +18,11 @@ export async function clientCrRoutes(app: FastifyInstance): Promise<void> {
     ok(await clientListCRs(req.clientAccount!.sub)),
   )
   r.post('/:id/approve', { schema: { tags: [TAG], summary: 'Aprobar CR', security, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
-    await clientDecision(req.clientAccount!.sub, req.params.id, 'approved', req.body.comment)
+    await clientDecision(req.clientAccount!.sub, req.params.id, 'approved', req.body?.comment)
     return ok({ success: true })
   })
   r.post('/:id/reject', { schema: { tags: [TAG], summary: 'Rechazar CR', security, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
-    await clientDecision(req.clientAccount!.sub, req.params.id, 'rejected', req.body.comment)
+    await clientDecision(req.clientAccount!.sub, req.params.id, 'rejected', req.body?.comment)
     return ok({ success: true })
   })
   r.post('/:id/comments', { schema: { tags: [TAG], summary: 'Comentar CR', security, params: IdParamSchema, body: CommentSchema } }, async (req, reply) =>

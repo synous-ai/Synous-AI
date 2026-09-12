@@ -6,14 +6,24 @@
  * Usa el componente PRE-ARMADO `<SignIn>` de Clerk (no headless): maneja login
  * por contraseña, "olvidé mi contraseña" y la verificación de dispositivo
  * (Client Trust) de forma nativa y segura. Se integra en el layout 2-columnas
- * con el branding NOUS (panel de marca a la izquierda).
+ * con el branding Synous (panel de marca a la izquierda).
  *
  * Por qué `<SignIn>` y no un form propio: el form headless con inputs `name`
  * podía caer a un submit NATIVO (GET) antes de hidratar y exponer credenciales
  * en la URL. `<SignIn>` no tiene ese riesgo y centraliza todo el flujo en Clerk.
+ *
+ * GUARD DE SESIÓN ACTIVA: el `<SignIn>` prearmado de Clerk NO se monta si el
+ * navegador ya tiene una sesión. Sin el guard de abajo, quien llegaba acá con
+ * una sesión que no es de hub_user (típico: haber entrado antes al portal como
+ * cliente en el mismo navegador) veía un panel VACÍO y no podía loguearse —
+ * parece un bug de la página, pero es Clerk haciendo lo suyo. Mismo fix que ya
+ * tiene app/portal/(auth)/login/page.tsx.
  */
 
-import { SignIn } from '@clerk/nextjs'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { SignIn, useAuth } from '@clerk/nextjs'
+import { apiGet } from '@/lib/api'
 
 // Apariencia del <SignIn> alineada al admin (monocromo, sin tinte azul de Clerk).
 const ADMIN_APPEARANCE = {
@@ -33,6 +43,31 @@ const ADMIN_APPEARANCE = {
 } as const
 
 export default function LoginPage() {
+  const { isLoaded, isSignedIn } = useAuth()
+  const router = useRouter()
+
+  // Con sesión activa NO redirigimos a ciegas al dashboard: si la sesión no es
+  // de un hub_user (p. ej. un cliente del portal), el backend devuelve 401 y se
+  // arma el ciclo login → dashboard → 401 → login. Verificamos contra
+  // /api/auth/me: si es del equipo → dashboard; si no, el onAuthFailure del
+  // api-client cierra la sesión huérfana y el <SignIn> se monta solo cuando
+  // isSignedIn pasa a false.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return
+    let cancelled = false
+    apiGet<{ id: string }>('/api/auth/me')
+      .then(() => {
+        if (!cancelled) router.replace('/dashboard')
+      })
+      .catch(() => {
+        // 401 → onAuthFailure ya cerró la sesión (sin navegar, porque estamos
+        // en /admin/login). El form aparece al flip de isSignedIn.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isLoaded, isSignedIn, router])
+
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
       {/* Panel de marca */}
@@ -50,7 +85,7 @@ export default function LoginPage() {
           <span className="flex h-9 w-9 items-center justify-center rounded-md border border-background/20 font-display text-lg font-medium text-background">
             N
           </span>
-          <span className="eyebrow text-background/70">NOUS · CRM interno</span>
+          <span className="eyebrow text-background/70">Synous · CRM interno</span>
         </div>
 
         <div className="relative">
@@ -66,7 +101,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <p className="relative font-mono text-xs text-background/40">app.nous.com</p>
+        <p className="relative font-mono text-xs text-background/40">app.synousai.com</p>
       </div>
 
       {/* Login (componente nativo de Clerk) */}
@@ -79,7 +114,7 @@ export default function LoginPage() {
           <div className="mt-6">
             <SignIn
               routing="hash"
-              forceRedirectUrl="/admin/dashboard"
+              forceRedirectUrl="/dashboard"
               appearance={ADMIN_APPEARANCE}
             />
           </div>

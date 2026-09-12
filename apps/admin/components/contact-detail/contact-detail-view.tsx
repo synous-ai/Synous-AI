@@ -65,9 +65,9 @@ const SCOPE_LABELS: Record<'leads' | 'clients' | 'contacts', string> = {
 }
 
 const SCOPE_BACK: Record<'leads' | 'clients' | 'contacts', string> = {
-  leads: '/admin/leads',
-  clients: '/admin/clients',
-  contacts: '/admin/contacts',
+  leads: '/leads',
+  clients: '/clients',
+  contacts: '/contacts',
 }
 
 // ─── Field row ──────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ export function ContactDetailView({
   async function handleConvertToClient() {
     if (!c) return
     await updateContact.mutateAsync({ id, input: { lifecycleStage: 'customer' } })
-    router.push('/admin/clients')
+    router.push('/clients')
   }
 
   async function addNote() {

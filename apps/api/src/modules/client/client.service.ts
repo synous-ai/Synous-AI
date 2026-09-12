@@ -40,13 +40,23 @@ export async function clientDeals(clientId: string): Promise<ClientDealDTO[]> {
 export async function clientDeliverables(clientId: string): Promise<DeliverableRow[]> {
   const ids = await clientDealIds(clientId)
   if (ids.length === 0) return []
-  return db.select().from(deliverable).where(inArray(deliverable.dealId, ids)).orderBy(desc(deliverable.createdAt))
+  return db
+    .select()
+    .from(deliverable)
+    .where(and(inArray(deliverable.dealId, ids), eq(deliverable.visibleToClient, true)))
+    .orderBy(desc(deliverable.createdAt))
 }
 
 async function assertClientDeliverable(clientId: string, deliverableId: string): Promise<DeliverableRow> {
   const ids = await clientDealIds(clientId)
   const [dv] = await db.select().from(deliverable).where(eq(deliverable.id, deliverableId)).limit(1)
-  if (!dv || !ids.includes(dv.dealId)) throw Errors.notFound('Entregable no encontrado')
+  // El chequeo de visibilidad va acá y no solo en el listado: sin esto, un
+  // cliente que conociera el id podría aprobar o rechazar un entregable interno
+  // aunque nunca lo viera en su Portal. Se responde 404 (no 403) para no
+  // confirmar que el entregable existe.
+  if (!dv || !ids.includes(dv.dealId) || !dv.visibleToClient) {
+    throw Errors.notFound('Entregable no encontrado')
+  }
   return dv
 }
 

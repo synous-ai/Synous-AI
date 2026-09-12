@@ -1,3 +1,16 @@
+/**
+ * ⚠️ LEGACY — los módulos de setter y prospecting fueron ELIMINADOS del código
+ * (commit d556e92). Este archivo NO tiene consumidores: ningún service, router
+ * ni query lo importa.
+ *
+ * Sigue existiendo por una sola razón: las tablas TODAVÍA ESTÁN en la base, con
+ * sus datos, porque se decidió conservarlas. El schema de Drizzle describe la
+ * BASE, no la aplicación — si se borra este archivo, el próximo `db:generate`
+ * detecta las tablas como eliminadas y emite DROP TABLE para todas.
+ *
+ * Para darlas de baja de verdad: borrar este archivo y APLICAR la migración de
+ * drop que drizzle genere. Mientras tanto, no tocar.
+ */
 import { pgTable, text, integer, numeric, jsonb, timestamp, index, check } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { portal } from './portal'

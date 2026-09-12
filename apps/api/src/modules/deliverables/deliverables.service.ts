@@ -57,6 +57,8 @@ export async function createDeliverable(
         type: input.type,
         url: input.url ?? null,
         description: input.description ?? null,
+        // Omitido → cae al default de la columna (true).
+        ...(input.visibleToClient === undefined ? {} : { visibleToClient: input.visibleToClient }),
         createdBy: userId,
       })
       .returning()

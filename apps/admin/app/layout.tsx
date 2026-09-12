@@ -9,8 +9,8 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-sans', display: 'swa
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'NOUS CRM — Admin',
-  description: 'Portal de administración del CRM de NOUS',
+  title: 'Synous CRM — Admin',
+  description: 'Portal de administración del CRM de Synous',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
      * por eso Clerk NO protege /portal/*: lo controla el middleware.
      * signInUrl apunta a la ruta headless del CRM, no a la UI de Clerk.
      */
-    <ClerkProvider signInUrl="/admin/login">
+    <ClerkProvider signInUrl="/login">
       <html lang="es" className={cn(inter.variable, mono.variable)} suppressHydrationWarning>
         <body>
           {/* Sin `disableTransitionOnChange`: queremos que el cambio dark↔light sea

@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiPatch, apiUpload } from './api'
+import { apiGet, apiPost, apiPatch, apiUpload, fetchFileObjectUrl } from './api'
 import type {
   Deal,
   Deliverable,
@@ -188,6 +189,22 @@ export function useSubmitOnboardingBrief() {
   })
 }
 
+/**
+ * Paso 6: guarda un borrador PARCIAL del brief (se llama al avanzar cada uno
+ * de los 5 bloques). Sin esto, los bloques que el cliente ya completó vivirían
+ * solo en memoria de React Hook Form hasta el submit final, y un reload —o
+ * cerrar la pestaña— se llevaría todo lo tipeado.
+ *
+ * No invalida la query a propósito: un refetch en medio del paso 6
+ * remontaría el formulario con nuevos `defaultValues` y le pisaría al cliente
+ * lo que está escribiendo. Lo guardado se lee al volver a montar el wizard.
+ */
+export function useSaveOnboardingBriefDraft() {
+  return useMutation<ClientOnboarding, Error, Partial<OnboardingBriefAnswers>>({
+    mutationFn: (partial) => apiPatch<ClientOnboarding>('/api/client/onboarding/brief/draft', partial),
+  })
+}
+
 /** Paso 7: sube un archivo de materiales para una categoría y devuelve el asset creado. */
 export function useUploadOnboardingMaterial() {
   const queryClient = useQueryClient()
@@ -211,6 +228,18 @@ export function useSubmitOnboardingMaterials() {
   })
 }
 
+/**
+ * Paso 7: guarda el estado parcial del checklist (al tildar una categoría,
+ * escribir una nota o terminar una subida) sin marcar el paso como completo.
+ * Misma razón que el borrador del brief: `done`/`note`/`assetIds` no pueden
+ * vivir solo en memoria hasta que el cliente apriete "Continuar".
+ */
+export function useSaveOnboardingMaterialsDraft() {
+  return useMutation<ClientOnboarding, Error, OnboardingMaterialsState>({
+    mutationFn: (materials) => apiPatch<ClientOnboarding>('/api/client/onboarding/materials/draft', { materials }),
+  })
+}
+
 /** Paso 8: gate final. 400 con `{ missing: string[] }` si falta firma/brief/materiales. */
 export function useCompleteOnboarding() {
   const queryClient = useQueryClient()
@@ -220,4 +249,59 @@ export function useCompleteOnboarding() {
       void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY })
     },
   })
+}
+
+// ─── Imágenes protegidas ─────────────────────────────────────────────────────
+
+/**
+ * Resuelve una URL de `/api/files/:key` a un object URL usable en `<img src>`.
+ *
+ * El backend devuelve el logo como `${PUBLIC_API_URL}/api/files/${key}`
+ * (branding.service.ts), pero ese endpoint exige el token de Clerk y un
+ * `<img>` no manda headers: el logo salía roto en el header del portal y en
+ * "Mi Marca". Este hook baja los bytes autenticado y libera el object URL al
+ * desmontar o al cambiar de imagen.
+ *
+ * Devuelve null mientras carga o si la descarga falla — el caller decide el
+ * fallback (monograma, placeholder, etc.).
+ *
+ * OJO: no sirve para la pantalla de login, que muestra el logo del tenant SIN
+ * sesión. Ese caso necesita una ruta pública de lectura para logos de marca.
+ */
+export function useAuthedImageUrl(fileUrl: string | null | undefined): string | null {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    const key = fileUrl?.match(/\/api\/files\/(.+)$/)?.[1]
+    if (!key) {
+      setObjectUrl(null)
+      return
+    }
+
+    let revoked = false
+    let created: string | null = null
+
+    void fetchFileObjectUrl(key)
+      .then((url) => {
+        // Si el efecto ya se limpió mientras la descarga estaba en vuelo,
+        // revocamos de una y no seteamos estado sobre un componente muerto.
+        if (revoked) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        created = url
+        setObjectUrl(url)
+      })
+      .catch(() => {
+        if (!revoked) setObjectUrl(null)
+      })
+
+    return () => {
+      revoked = true
+      if (created) URL.revokeObjectURL(created)
+      setObjectUrl(null)
+    }
+  }, [fileUrl])
+
+  return objectUrl
 }

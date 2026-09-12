@@ -40,7 +40,7 @@ export default function PipelinePage(): React.JSX.Element {
   )
 
   function openDetail(deal: Deal): void {
-    router.push(`/admin/deals/${deal.id}`)
+    router.push(`/deals/${deal.id}`)
   }
 
   return (

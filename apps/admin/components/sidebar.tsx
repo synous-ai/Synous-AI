@@ -7,7 +7,6 @@ import { useTheme } from 'next-themes'
 import {
   LayoutDashboard,
   BarChart3,
-  Inbox,
   Briefcase,
   FolderKanban,
   Wrench,
@@ -49,48 +48,56 @@ interface Group {
   items: SubItem[]
 }
 
-const STORAGE_KEY = 'nous-sidebar-collapsed'
+const STORAGE_KEY = 'synous-sidebar-collapsed'
 
 // Ítems sueltos (sin grupo) — cada uno = un destino real
-const DASHBOARD = { label: 'Dashboard', icon: LayoutDashboard, href: '/admin/dashboard' }
-const SETTER = { label: 'Setter', icon: Inbox, href: '/admin/setter' }
-const REPORTS = { label: 'Reportes', icon: BarChart3, href: '/admin/reports' }
-const CALENDAR = { label: 'Calendario', icon: Calendar, href: '/admin/calendar' }
-const STANDALONE = [DASHBOARD, SETTER, REPORTS, CALENDAR]
+const DASHBOARD = { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' }
+const REPORTS = { label: 'Reportes', icon: BarChart3, href: '/reports' }
+const CALENDAR = { label: 'Calendario', icon: Calendar, href: '/calendar' }
+const STANDALONE = [DASHBOARD, REPORTS, CALENDAR]
 
-// IA: un ítem = un destino real. Las sub-features (Entregables, Formularios, Change
-// Requests, Disponibilidad, Tipos de reunión) viven como TABS dentro de su entidad,
-// no como ítems de menú. Los filtros (clientes activos/potenciales) son controles
-// in-page. La Biblioteca es el hogar único de assets reutilizables.
+// IA: un ítem = un destino real. Las sub-features (Entregables, Formularios,
+// Disponibilidad, Tipos de reunión) viven como TABS dentro de su entidad, no como
+// ítems de menú. Los filtros (clientes activos/potenciales) son controles in-page.
+// La Biblioteca es el hogar único de assets reutilizables.
+//
+// Excepción a la regla del tab: Change Requests tiene TAMBIÉN un ítem propio.
+// Como tab dentro del deal responde "¿qué CRs tiene este proyecto?"; como ítem de
+// menú responde "¿qué CRs están esperando respuesta del cliente, en todos los
+// proyectos?" — una cola de trabajo, igual que Seguimientos o Tareas. Son dos
+// preguntas distintas: la segunda no se puede contestar entrando deal por deal.
 const GROUPS: Group[] = [
   {
     label: 'CRM',
     icon: Briefcase,
     items: [
-      { label: 'Pipeline', href: '/admin/pipeline' },
-      { label: 'Leads', href: '/admin/leads' },
-      { label: 'Clientes', href: '/admin/clients' },
-      { label: 'Contactos', href: '/admin/contacts' },
-      { label: 'Empresas', href: '/admin/companies' },
-      { label: 'Deals', href: '/admin/deals' },
-      { label: 'Seguimientos', href: '/admin/follow-ups' },
+      { label: 'Pipeline', href: '/pipeline' },
+      { label: 'Leads', href: '/leads' },
+      { label: 'Clientes', href: '/clients' },
+      { label: 'Contactos', href: '/contacts' },
+      { label: 'Empresas', href: '/companies' },
+      { label: 'Deals', href: '/deals' },
+      { label: 'Propuestas', href: '/proposals' },
+      { label: 'Seguimientos', href: '/follow-ups' },
     ],
   },
   {
     label: 'Proyectos',
     icon: FolderKanban,
     items: [
-      { label: 'Proyectos', href: '/admin/projects' },
-      { label: 'Tareas', href: '/admin/tasks' },
+      { label: 'Proyectos', href: '/projects' },
+      { label: 'Onboarding', href: '/onboarding' },
+      { label: 'Change Requests', href: '/change-requests' },
+      { label: 'Tareas', href: '/tasks' },
     ],
   },
   {
     label: 'Operaciones',
     icon: Wrench,
     items: [
-      { label: 'Bugs', href: '/admin/operations/bugs' },
-      { label: 'Mejoras', href: '/admin/operations/improvements' },
-      { label: 'Roadmap', href: '/admin/operations/roadmap' },
+      { label: 'Bugs', href: '/operations/bugs' },
+      { label: 'Mejoras', href: '/operations/improvements' },
+      { label: 'Roadmap', href: '/operations/roadmap' },
       // "Procesos" fue removido de Operaciones (PO3) — los procesos viven
       // ahora como SOPs en Biblioteca → /admin/library/sops.
     ],
@@ -99,13 +106,13 @@ const GROUPS: Group[] = [
     label: 'Finanzas',
     icon: Wallet,
     items: [
-      { label: 'Resumen', href: '/admin/finance/summary' },
+      { label: 'Resumen', href: '/finance/summary' },
       { label: 'INGRESOS', section: true },
-      { label: 'Facturas', href: '/admin/finance/invoices' },
-      { label: 'Cobros', href: '/admin/finance/cobros' },
-      { label: 'Retainers', href: '/admin/finance/retainers' },
+      { label: 'Facturas', href: '/finance/invoices' },
+      { label: 'Cobros', href: '/finance/cobros' },
+      { label: 'Retainers', href: '/finance/retainers' },
       { label: 'EGRESOS', section: true },
-      { label: 'Gastos', href: '/admin/finance/expenses' },
+      { label: 'Gastos', href: '/finance/expenses' },
       { label: 'ANÁLISIS', section: true },
       { label: 'Rentabilidad' },
       { label: 'Proyección' },
@@ -116,28 +123,27 @@ const GROUPS: Group[] = [
     label: 'Biblioteca',
     icon: Library,
     items: [
-      { label: 'Documentos', href: '/admin/library/documents' },
-      { label: 'Plantillas', href: '/admin/library/templates' },
-      { label: 'Contratos base', href: '/admin/library/contracts' },
-      { label: 'Propuestas base', href: '/admin/library/proposals' },
+      { label: 'Documentos', href: '/library/documents' },
+      { label: 'Plantillas', href: '/library/templates' },
+      { label: 'Contratos base', href: '/library/contracts' },
+      { label: 'Propuestas base', href: '/library/proposals' },
       // Checklists se fusionó en la sección 'sops' como `kind='checklist'`.
       // Ya no existe la ruta /library/checklists — el filtro vive en /library/sops.
-      { label: 'Procesos y checklists', href: '/admin/library/sops' },
-      { label: 'Documentación técnica', href: '/admin/library/tech-docs' },
+      { label: 'Procesos y checklists', href: '/library/sops' },
+      { label: 'Documentación técnica', href: '/library/tech-docs' },
     ],
   },
   {
     label: 'Configuración',
     icon: Settings,
     items: [
-      { label: 'General', href: '/admin/settings' },
-      { label: 'Prospección', href: '/admin/settings/prospecting' },
-      { label: 'White-Label', href: '/admin/settings/white-label' },
-      { label: 'Roles y permisos', href: '/admin/settings/roles' },
-      { label: 'Formularios', href: '/admin/settings/forms' },
-      { label: 'Campos personalizados', href: '/admin/settings/custom-fields' },
-      { label: 'Integraciones', href: '/admin/settings/integrations' },
-      { label: 'Portal de cliente', href: '/admin/settings/client-portal' },
+      { label: 'General', href: '/settings' },
+      { label: 'White-Label', href: '/settings/white-label' },
+      { label: 'Roles y permisos', href: '/settings/roles' },
+      { label: 'Formularios', href: '/settings/forms' },
+      { label: 'Campos personalizados', href: '/settings/custom-fields' },
+      { label: 'Integraciones', href: '/settings/integrations' },
+      { label: 'Portal de cliente', href: '/settings/client-portal' },
     ],
   },
 ]
@@ -316,8 +322,8 @@ export function Sidebar() {
   async function logout() {
     // Clerk destruye la sesión y las cookies __session.
     // El redirect lo maneja el middleware (clerkMiddleware) automáticamente.
-    await signOut({ redirectUrl: '/admin/login' })
-    router.replace('/admin/login')
+    await signOut({ redirectUrl: '/login' })
+    router.replace('/login')
   }
 
   const displayName =
@@ -339,7 +345,7 @@ export function Sidebar() {
           <span className="text-base font-semibold tracking-tight">N</span>
         ) : (
           <>
-            <span className="truncate text-base font-medium tracking-tight">NOUS</span>
+            <span className="truncate text-base font-medium tracking-tight">Synous</span>
             <div className="ml-auto">
               <NotificationBell />
             </div>

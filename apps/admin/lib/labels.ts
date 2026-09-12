@@ -2,8 +2,6 @@
 
 const SOURCE_LABELS: Record<string, string> = {
   onboarding: 'Onboarding',
-  prospecting: 'Prospección',
-  setter: 'Setter',
   whatsapp: 'WhatsApp',
   referral: 'Recomendación',
   web_form: 'Formulario web',

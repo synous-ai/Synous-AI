@@ -34,7 +34,7 @@ function generateStrongPassword(): string {
   // Sin Math.random aquí sería ideal, pero esto es un script CLI puntual fuera del runtime.
   let out = ''
   for (let i = 0; i < 20; i++) out += chars[Math.floor(Math.random() * chars.length)]
-  return `Nous-${out}`
+  return `Synous-${out}`
 }
 
 async function migrateClientsToClerk(): Promise<void> {

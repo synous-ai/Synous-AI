@@ -1,9 +1,10 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../../db'
-import { proposal, deal, contact, company, onboardingSubmission, setterTenant } from '../../db/schema'
+import { proposal, deal, contact, company, onboardingSubmission } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { env } from '../../config/env'
-import type { ModelProvider } from '../setter/agent/providers'
+import { slugify as baseSlugify } from '../../lib/slug'
+import type { ModelProvider } from '../../lib/ai'
 import type { ProposalContent } from './proposals.types'
 import {
   generateProposalContent,
@@ -33,14 +34,9 @@ function publicUrl(token: string): string {
   return `${base}/p/${token}`
 }
 
-/** Provider de IA configurado para el portal (Model Switcher del setter). */
-async function getModelProvider(portalId: string): Promise<ModelProvider> {
-  const [t] = await db
-    .select({ p: setterTenant.modelProvider })
-    .from(setterTenant)
-    .where(eq(setterTenant.portalId, portalId))
-    .limit(1)
-  return t?.p === 'claude' ? 'claude' : 'gemini'
+/** Provider de IA configurado para la instancia (env MODEL_PROVIDER, default gemini). */
+function getModelProvider(): ModelProvider {
+  return env.MODEL_PROVIDER
 }
 
 export interface ProposalDTO {
@@ -89,8 +85,8 @@ function toDTO(row: ProposalRow): ProposalDTO {
 
 /**
  * Genera una propuesta (status `draft`) para un deal, usando la data del
- * onboarding asociado + el deal/contacto/empresa. Reusa el Model Switcher del
- * setter. Si la IA falla, cae a una propuesta base editable (no rompe el flujo).
+ * onboarding asociado + el deal/contacto/empresa. Si la IA falla, cae a una
+ * propuesta base editable (no rompe el flujo).
  */
 export async function generateProposal(
   portalId: string,
@@ -151,7 +147,7 @@ export async function generateProposal(
   }
 
   // Generación con IA (con fallback si falla o no hay credenciales).
-  const provider = await getModelProvider(portalId)
+  const provider = getModelProvider()
   let content: ProposalContent
   let model: string
   try {
@@ -368,17 +364,16 @@ export async function getPublicProposal(token: string): Promise<PublicProposalDT
   }
 }
 
+/**
+ * Slug de archivo para el PDF descargable: reusa el `slugify` compartido
+ * (antes tenía su propia copia, ligeramente distinta — no eliminaba las
+ * marcas combinantes de NFD, solo confiaba en el filtro alfanumérico, lo que
+ * podía dejar guiones espurios en medio de palabras con tilde, ej. "María" →
+ * "mari-a" en vez de "maria") y le agrega el truncado a 60 chars + fallback
+ * "propuesta" que son específicos de nombre de archivo, no de slug genérico.
+ */
 function slugify(s: string): string {
-  // NFD descompone los acentos; el filtro alfanumérico de abajo descarta las
-  // marcas combinantes resultantes (no hace falta un regex de diacríticos).
-  return (
-    s
-      .normalize('NFD')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 60) || 'propuesta'
-  )
+  return baseSlugify(s).slice(0, 60) || 'propuesta'
 }
 
 /**

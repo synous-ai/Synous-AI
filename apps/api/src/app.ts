@@ -49,12 +49,7 @@ import { reportsRoutes } from './modules/reports/reports.router'
 import { webhooksRoutes } from './modules/webhooks/webhooks.router'
 import { emailTrackingRoutes } from './modules/email-tracking/email-tracking.router'
 import { documentsRoutes } from './modules/documents/documents.router'
-// --- Módulos nuevos: setter, prospecting, proposals, branding, onboarding, calendar público ---
-import { setterRoutes } from './modules/setter/setter.router'
-import { setterApprovalRoutes } from './modules/setter/setter.approval.router'
-import { setterWsRoutes } from './modules/setter/setter.ws'
-import { setterWhatsappWebhookRoutes } from './modules/setter/webhooks/whatsapp.webhook'
-import { prospectingRoutes } from './modules/prospecting/prospecting.router'
+// --- Módulos nuevos: proposals, branding, onboarding, calendar público ---
 import { proposalAdminRoutes, proposalPublicRoutes } from './modules/proposals/proposals.router'
 import { brandingAdminRoutes, brandingPublicRoutes, brandingClientRoutes } from './modules/branding/branding.router'
 import { onboardingAdminRoutes } from './modules/onboarding/onboarding.router'
@@ -83,12 +78,26 @@ export function buildApp(): FastifyInstance {
 
   // CORS: allowlist explícita (NUNCA `origin: true`, que reflejaría cualquier
   // origin con credenciales). Orígenes válidos = apps configuradas + localhost dev.
+  // `ALLOWED_ORIGINS` (lista separada por comas) cubre el caso de un mismo
+  // front servido desde varios dominios: el *.vercel.app del proyecto, el
+  // dominio propio y el subdominio del panel. Sin esto había que elegir UNO
+  // solo vía ADMIN_URL —que además se usa para armar los links de los emails—
+  // y el resto de los dominios quedaba con el preflight sin
+  // `access-control-allow-origin`, o sea el front entero sin poder hablarle a
+  // la API.
   const allowedOrigins = [
-    env.ADMIN_URL,
-    env.CLIENT_PORTAL_URL,
-    'http://localhost:3000',
-    'http://localhost:3002',
-  ].filter((o): o is string => Boolean(o))
+    ...new Set(
+      [
+        env.ADMIN_URL,
+        env.CLIENT_PORTAL_URL,
+        ...(env.ALLOWED_ORIGINS?.split(',') ?? []),
+        'http://localhost:3000',
+        'http://localhost:3002',
+      ]
+        .map((o) => o?.trim().replace(/\/+$/, '')) // sin barra final: el header Origin del browser nunca la trae
+        .filter((o): o is string => Boolean(o)),
+    ),
+  ]
   app.register(cors, { origin: allowedOrigins, credentials: true })
   app.register(cookie)
   app.register(fastifyWebsocket)
@@ -98,9 +107,9 @@ export function buildApp(): FastifyInstance {
   app.register(fastifySwagger, {
     openapi: {
       info: {
-        title: 'API CRM DevDúo',
+        title: 'API CRM Synous AI',
         description:
-          'Documentación de la API del CRM interno de DevDúo. Todos los endpoints (salvo autenticación y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.',
+          'Documentación de la API del CRM interno de Synous AI. Todos los endpoints (salvo autenticación y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.',
         version: '1.0.0',
       },
       servers: [{ url: 'http://localhost:3001', description: 'Desarrollo local' }],
@@ -210,18 +219,6 @@ export function buildApp(): FastifyInstance {
   app.register(webhooksRoutes, { prefix: '/webhooks' })
   app.register(emailTrackingRoutes, { prefix: '/track' })
   app.register(documentsRoutes, { prefix: '/api/documents' })
-
-  // --- Setter: health + bandeja de aprobación (admin) ---
-  app.register(setterRoutes, { prefix: '/api/setter' })
-  app.register(setterApprovalRoutes, { prefix: '/api/setter' })
-  // WebSocket del setter — sin prefijo (define su propio path absoluto /ws/setter/events)
-  app.register(setterWsRoutes)
-  // Webhook de WhatsApp (Evolution API) — prefijo /webhooks igual que Fathom;
-  // la ruta interna es /whatsapp → resultado final: POST /webhooks/whatsapp
-  app.register(setterWhatsappWebhookRoutes, { prefix: '/webhooks' })
-
-  // --- Prospecting (búsquedas IA y autopilot) ---
-  app.register(prospectingRoutes, { prefix: '/api/prospecting' })
 
   // --- Proposals: rutas públicas (token de cliente) y admin ---
   app.register(proposalPublicRoutes, { prefix: '/api/public/proposals' })
