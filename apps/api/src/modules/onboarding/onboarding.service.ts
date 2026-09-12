@@ -9,7 +9,20 @@ import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
 import { onboardingCompletedHtml } from './emails/onboarding-completed'
 import type { ClientTokenPayload } from '../../middleware/authenticate-client'
 import type { SavedFile } from '../files/files.service'
-import { ONBOARDING_STATUS, type OnboardingBriefDTO, type OnboardingMaterialCategory, type OnboardingMaterialsDTO } from './onboarding.schema'
+import {
+  ONBOARDING_STATUS,
+  type OnboardingBriefDTO,
+  type OnboardingBriefDraftDTO,
+  type OnboardingMaterialCategory,
+  type OnboardingMaterialsDTO,
+  type OnboardingMaterialsDraftDTO,
+} from './onboarding.schema'
+import {
+  ONBOARDING_TOTAL_STEPS,
+  assertStepPrerequisites,
+  stepsCompletedMerge,
+  derivedCurrentStep,
+} from './steps'
 
 /**
  * Onboarding POST-VENTA (post-pago): wizard de 8 pasos que el cliente completa
@@ -116,13 +129,14 @@ export async function markStepProgress(clientId: string, step: number): Promise<
   const activeDeal = await resolveActiveDeal(clientId)
   const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
   assertNotCompleted(row)
+  assertStepPrerequisites(row.stepsCompleted, step)
 
-  const stepsCompleted = { ...row.stepsCompleted, [String(step)]: new Date().toISOString() }
+  const merged = stepsCompletedMerge(step)
   const [updated] = await db
     .update(clientOnboarding)
     .set({
-      stepsCompleted,
-      currentStep: Math.max(row.currentStep, Math.min(step + 1, 8)),
+      stepsCompleted: merged,
+      currentStep: derivedCurrentStep(merged),
       updatedAt: new Date(),
     })
     .where(eq(clientOnboarding.id, row.id))
@@ -137,39 +151,78 @@ export async function submitSignature(clientId: string, fullName: string, ip: st
   const activeDeal = await resolveActiveDeal(clientId)
   const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
   assertNotCompleted(row)
+  assertStepPrerequisites(row.stepsCompleted, 5)
   if (row.signatureAcceptedAt) throw Errors.conflict('El onboarding ya fue firmado')
 
-  const stepsCompleted = { ...row.stepsCompleted, '5': new Date().toISOString() }
+  const merged = stepsCompletedMerge(5)
+  // WHERE ... signature_accepted_at IS NULL: el chequeo de arriba corre sobre
+  // una lectura previa, así que dos firmas concurrentes lo pasarían las dos.
+  // La condición en el UPDATE hace que solo una gane (Postgres serializa el
+  // lock de fila) — la otra no matchea y devuelve 409, en vez de pisar el
+  // nombre/timestamp/IP de la firma que ya quedó registrada.
   const [updated] = await db
     .update(clientOnboarding)
     .set({
       signatureName: fullName,
       signatureAcceptedAt: new Date(),
       signatureIp: ip,
-      stepsCompleted,
-      currentStep: Math.max(row.currentStep, 6),
+      stepsCompleted: merged,
+      currentStep: derivedCurrentStep(merged),
       updatedAt: new Date(),
     })
-    .where(eq(clientOnboarding.id, row.id))
+    .where(and(eq(clientOnboarding.id, row.id), isNull(clientOnboarding.signatureAcceptedAt)))
     .returning()
-  if (!updated) throw Errors.internal('No se pudo guardar la firma')
+  if (!updated) throw Errors.conflict('El onboarding ya fue firmado')
   return updated
 }
 
 // ── Cliente: Paso 6 — Brief (16 preguntas) ────────────────────────────────────
 
+/**
+ * Guarda un BORRADOR parcial del brief (se llama al avanzar cada uno de los 5
+ * bloques del paso 6). No valida las 16 respuestas ni marca el paso: solo
+ * persiste lo que el cliente ya tipeó para que un reload / cerrar la pestaña
+ * no se lleve puesto lo escrito hasta ahí.
+ *
+ * Merge en SQL (`||`) y no reemplazo: una actualización parcial NUNCA borra
+ * claves guardadas antes, y dos bloques enviados casi a la vez no se pisan.
+ */
+export async function saveBriefDraft(clientId: string, partial: OnboardingBriefDraftDTO): Promise<ClientOnboardingRow> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
+  assertNotCompleted(row)
+  assertStepPrerequisites(row.stepsCompleted, 6)
+
+  const [updated] = await db
+    .update(clientOnboarding)
+    .set({
+      // COALESCE: `brief_draft` arranca en NULL y `NULL || '{...}'` es NULL.
+      briefDraft: sql`COALESCE(${clientOnboarding.briefDraft}, '{}'::jsonb) || ${JSON.stringify(partial)}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(clientOnboarding.id, row.id))
+    .returning()
+  if (!updated) throw Errors.internal('No se pudo guardar el borrador del brief')
+  return updated
+}
+
 export async function submitBrief(clientId: string, answers: OnboardingBriefDTO): Promise<ClientOnboardingRow> {
   const activeDeal = await resolveActiveDeal(clientId)
   const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
   assertNotCompleted(row)
+  assertStepPrerequisites(row.stepsCompleted, 6)
 
-  const stepsCompleted = { ...row.stepsCompleted, '6': new Date().toISOString() }
+  const merged = stepsCompletedMerge(6)
   const [updated] = await db
     .update(clientOnboarding)
     .set({
       briefAnswers: answers,
-      stepsCompleted,
-      currentStep: Math.max(row.currentStep, 7),
+      // El borrador ya cumplió su función: las 16 respuestas validadas viven
+      // en briefAnswers. Dejarlo sería un segundo estado del mismo dato que
+      // se puede desincronizar.
+      briefDraft: null,
+      stepsCompleted: merged,
+      currentStep: derivedCurrentStep(merged),
       updatedAt: new Date(),
     })
     .where(eq(clientOnboarding.id, row.id))
@@ -211,6 +264,57 @@ export async function uploadMaterialAsset(
   return row
 }
 
+/**
+ * Los assetIds referenciados deben pertenecer al deal del cliente — si no, un
+ * cliente podría vincular client_asset de OTRO proyecto adivinando IDs.
+ */
+async function assertOwnedAssets(dealId: string, materials: Record<string, { assetIds?: string[] }>): Promise<void> {
+  const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? [])
+  if (allAssetIds.length === 0) return
+
+  const owned = await db
+    .select({ id: clientAsset.id })
+    .from(clientAsset)
+    .where(and(eq(clientAsset.dealId, dealId), inArray(clientAsset.id, allAssetIds)))
+  const ownedSet = new Set(owned.map((o) => o.id))
+  const invalid = allAssetIds.filter((id) => !ownedSet.has(id))
+  if (invalid.length > 0) {
+    throw Errors.badRequest('Uno o más archivos no pertenecen a este proyecto', { invalid })
+  }
+}
+
+/**
+ * Guarda el estado PARCIAL del checklist de materiales (se llama al tildar una
+ * categoría, al escribir una nota o al terminar una subida). No marca el paso
+ * 7: solo evita que el `done`/`note`/`assetIds` vivan únicamente en memoria
+ * hasta que el cliente apriete "Continuar".
+ *
+ * Escribe sobre la MISMA columna `materials` mergeando por categoría: lo que
+ * define si el paso 7 está hecho es `steps_completed['7']`, no el contenido de
+ * esta columna, así que no hace falta un segundo estado paralelo.
+ */
+export async function saveMaterialsDraft(
+  clientId: string,
+  materials: OnboardingMaterialsDraftDTO['materials'],
+): Promise<ClientOnboardingRow> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
+  assertNotCompleted(row)
+  assertStepPrerequisites(row.stepsCompleted, 7)
+  await assertOwnedAssets(activeDeal.id, materials)
+
+  const [updated] = await db
+    .update(clientOnboarding)
+    .set({
+      materials: sql`${clientOnboarding.materials} || ${JSON.stringify(materials)}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(clientOnboarding.id, row.id))
+    .returning()
+  if (!updated) throw Errors.internal('No se pudo guardar el borrador de materiales')
+  return updated
+}
+
 export async function submitMaterials(
   clientId: string,
   materials: OnboardingMaterialsDTO['materials'],
@@ -218,29 +322,16 @@ export async function submitMaterials(
   const activeDeal = await resolveActiveDeal(clientId)
   const row = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
   assertNotCompleted(row)
+  assertStepPrerequisites(row.stepsCompleted, 7)
+  await assertOwnedAssets(activeDeal.id, materials)
 
-  // Los assetIds referenciados deben pertenecer al deal del cliente (no dejar
-  // que el cliente vincule client_asset de otro deal por ID adivinado).
-  const allAssetIds = Object.values(materials).flatMap((m) => m.assetIds ?? [])
-  if (allAssetIds.length > 0) {
-    const owned = await db
-      .select({ id: clientAsset.id })
-      .from(clientAsset)
-      .where(and(eq(clientAsset.dealId, activeDeal.id), inArray(clientAsset.id, allAssetIds)))
-    const ownedSet = new Set(owned.map((o) => o.id))
-    const invalid = allAssetIds.filter((id) => !ownedSet.has(id))
-    if (invalid.length > 0) {
-      throw Errors.badRequest('Uno o más archivos no pertenecen a este proyecto', { invalid })
-    }
-  }
-
-  const stepsCompleted = { ...row.stepsCompleted, '7': new Date().toISOString() }
+  const merged = stepsCompletedMerge(7)
   const [updated] = await db
     .update(clientOnboarding)
     .set({
       materials,
-      stepsCompleted,
-      currentStep: Math.max(row.currentStep, 8),
+      stepsCompleted: merged,
+      currentStep: derivedCurrentStep(merged),
       updatedAt: new Date(),
     })
     .where(eq(clientOnboarding.id, row.id))
@@ -277,15 +368,13 @@ export async function completeOnboarding(token: ClientTokenPayload): Promise<Com
     const row = await getOrCreateOnboarding(tx, activeDeal.portalId, activeDeal.id, clientId)
     assertNotCompleted(row)
 
-    const missing: string[] = []
-    if (!row.stepsCompleted['5']) missing.push('firma')
-    if (!row.stepsCompleted['6']) missing.push('brief')
-    if (!row.stepsCompleted['7']) missing.push('materiales')
-    if (missing.length > 0) {
-      throw Errors.badRequest(`Faltan completar pasos previos: ${missing.join(', ')}`, { missing })
-    }
+    // Exige los pasos 1-7, no solo los que guardan datos (5/6/7). Un cliente
+    // que le pega a los endpoints a mano podía firmar, mandar brief y
+    // materiales, y completar el onboarding sin haber pasado NUNCA por la
+    // orientación — verificado contra la API real antes de este cambio.
+    assertStepPrerequisites(row.stepsCompleted, 8)
 
-    const stepsCompleted = { ...row.stepsCompleted, '8': new Date().toISOString() }
+    const merged = stepsCompletedMerge(8)
     // UPDATE condicional (WHERE ... status = 'in_progress'): idempotencia
     // ante doble click / retry concurrente. Si dos requests llegan casi
     // simultáneas, ambas pasan `assertNotCompleted` (todavía leen
@@ -296,7 +385,13 @@ export async function completeOnboarding(token: ClientTokenPayload): Promise<Com
     // moveDealToProduction, duplicando record_history/audit_log/notificación.
     const [updatedOnboarding] = await tx
       .update(clientOnboarding)
-      .set({ status: ONBOARDING_STATUS.COMPLETED, completedAt: new Date(), stepsCompleted, currentStep: 8, updatedAt: new Date() })
+      .set({
+        status: ONBOARDING_STATUS.COMPLETED,
+        completedAt: new Date(),
+        stepsCompleted: merged,
+        currentStep: ONBOARDING_TOTAL_STEPS,
+        updatedAt: new Date(),
+      })
       .where(and(eq(clientOnboarding.id, row.id), eq(clientOnboarding.status, ONBOARDING_STATUS.IN_PROGRESS)))
       .returning()
     if (!updatedOnboarding) {

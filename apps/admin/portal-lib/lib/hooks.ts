@@ -189,6 +189,22 @@ export function useSubmitOnboardingBrief() {
   })
 }
 
+/**
+ * Paso 6: guarda un borrador PARCIAL del brief (se llama al avanzar cada uno
+ * de los 5 bloques). Sin esto, los bloques que el cliente ya completó vivirían
+ * solo en memoria de React Hook Form hasta el submit final, y un reload —o
+ * cerrar la pestaña— se llevaría todo lo tipeado.
+ *
+ * No invalida la query a propósito: un refetch en medio del paso 6
+ * remontaría el formulario con nuevos `defaultValues` y le pisaría al cliente
+ * lo que está escribiendo. Lo guardado se lee al volver a montar el wizard.
+ */
+export function useSaveOnboardingBriefDraft() {
+  return useMutation<ClientOnboarding, Error, Partial<OnboardingBriefAnswers>>({
+    mutationFn: (partial) => apiPatch<ClientOnboarding>('/api/client/onboarding/brief/draft', partial),
+  })
+}
+
 /** Paso 7: sube un archivo de materiales para una categoría y devuelve el asset creado. */
 export function useUploadOnboardingMaterial() {
   const queryClient = useQueryClient()
@@ -209,6 +225,18 @@ export function useSubmitOnboardingMaterials() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY })
     },
+  })
+}
+
+/**
+ * Paso 7: guarda el estado parcial del checklist (al tildar una categoría,
+ * escribir una nota o terminar una subida) sin marcar el paso como completo.
+ * Misma razón que el borrador del brief: `done`/`note`/`assetIds` no pueden
+ * vivir solo en memoria hasta que el cliente apriete "Continuar".
+ */
+export function useSaveOnboardingMaterialsDraft() {
+  return useMutation<ClientOnboarding, Error, OnboardingMaterialsState>({
+    mutationFn: (materials) => apiPatch<ClientOnboarding>('/api/client/onboarding/materials/draft', { materials }),
   })
 }
 

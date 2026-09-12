@@ -226,6 +226,12 @@ export interface ClientOnboarding {
   signatureAcceptedAt: string | null
   signatureIp: string | null
   briefAnswers: OnboardingBriefAnswers | null
+  /**
+   * Borrador PARCIAL del brief (paso 6). El wizard lo guarda al avanzar cada
+   * bloque para que un reload no se lleve lo tipeado, y lo usa para rehidratar
+   * el formulario. Queda en `null` cuando el brief se envía completo.
+   */
+  briefDraft: Partial<OnboardingBriefAnswers> | null
   materials: OnboardingMaterialsState
   completedAt: string | null
   createdAt: string

@@ -6,6 +6,14 @@
  * React Hook Form + Zod con TODO el formulario montado (un solo `useForm`):
  * los bloques son simples secciones que se muestran/ocultan y se validan de a
  * grupos de campos con `trigger()`, así el estado no se pierde al ir y volver.
+ *
+ * PERSISTENCIA: ir y volver entre bloques no perdía nada, pero recargar la
+ * página SÍ — los 4 primeros bloques vivían solo en memoria de React Hook Form
+ * hasta el submit final. Ahora, al avanzar cada bloque se hace PATCH
+ * /brief/draft con lo tipeado y el formulario rehidrata desde `briefDraft`
+ * (o `briefAnswers` si el brief ya se envió alguna vez). El avance de bloque
+ * ESPERA a que el guardado termine: si falla, no se avanza y se muestra el
+ * error, así la pantalla nunca dice "listo" sobre algo que no se guardó.
  */
 
 import { useMemo, useState } from 'react'
@@ -19,7 +27,7 @@ import { Label } from '@portal/components/ui/label'
 import { Input } from '@portal/components/ui/input'
 import { Textarea } from '@portal/components/ui/textarea'
 import { StepHeader, WizardNav } from '@portal/components/onboarding/wizard-shell'
-import { useSubmitOnboardingBrief } from '@portal/lib/hooks'
+import { useSubmitOnboardingBrief, useSaveOnboardingBriefDraft } from '@portal/lib/hooks'
 import {
   ONBOARDING_DELIVERY_CHANNELS,
   type OnboardingBriefAnswers,
@@ -53,6 +61,12 @@ const OnboardingBriefFormSchema = z.object({
   howFoundUs: z.string().min(1, 'Requerido'),
   decisionTrigger: z.string().min(1, 'Requerido'),
   doubtsBeforeBuying: z.string().min(1, 'Requerido'),
+}).superRefine((value, ctx) => {
+  // Mismo refine que OnboardingBriefSchema en el backend: si eligió "otro",
+  // tiene que decir cuál (si no, q3 queda sin información útil).
+  if (value.deliveryChannels.includes('otro') && !value.deliveryChannelsOther?.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['deliveryChannelsOther'], message: 'Contanos cuál es el otro canal.' })
+  }
 })
 
 type BriefFormValues = z.infer<typeof OnboardingBriefFormSchema>
@@ -79,19 +93,24 @@ const EMPTY_DEFAULTS: BriefFormValues = {
 
 export function Step6Brief({
   briefAnswers,
+  briefDraft,
   onContinue,
   onBack,
 }: {
   briefAnswers: OnboardingBriefAnswers | null
+  briefDraft: Partial<OnboardingBriefAnswers> | null
   onContinue: () => void
   onBack: () => void
 }) {
   const [blockIndex, setBlockIndex] = useState(0)
   const submitBrief = useSubmitOnboardingBrief()
+  const saveDraft = useSaveOnboardingBriefDraft()
 
+  // Rehidratación al montar (incluye volver después de un reload o de días):
+  // el brief ya enviado como base y el borrador encima, que es lo más reciente.
   const defaultValues = useMemo<BriefFormValues>(
-    () => (briefAnswers ? { ...EMPTY_DEFAULTS, ...briefAnswers } : EMPTY_DEFAULTS),
-    [briefAnswers],
+    () => ({ ...EMPTY_DEFAULTS, ...(briefAnswers ?? {}), ...(briefDraft ?? {}) }),
+    [briefAnswers, briefDraft],
   )
 
   const {
@@ -100,6 +119,7 @@ export function Step6Brief({
     handleSubmit,
     trigger,
     watch,
+    getValues,
     formState: { errors },
   } = useForm<BriefFormValues>({
     resolver: zodResolver(OnboardingBriefFormSchema),
@@ -110,16 +130,45 @@ export function Step6Brief({
   const block = ONBOARDING_BRIEF_BLOCKS[blockIndex]!
   const isLastBlock = blockIndex === ONBOARDING_BRIEF_BLOCKS.length - 1
   const selectedChannels = watch('deliveryChannels')
+  // Un solo flag para el botón: el doble click queda bloqueado tanto mientras
+  // se guarda el borrador como durante el submit final.
+  const busy = submitBrief.isPending || saveDraft.isPending
 
   async function goNextBlock() {
     const fieldNames: (keyof BriefFormValues)[] = [...block.fields.map((f) => f.key)]
-    if (block.withChannels) fieldNames.push('deliveryChannels')
+    if (block.withChannels) fieldNames.push('deliveryChannels', 'deliveryChannelsOther')
     const valid = await trigger(fieldNames)
     if (!valid) return
     if (isLastBlock) {
       await handleSubmit(onSubmit)()
-    } else {
-      setBlockIndex((i) => i + 1)
+      return
+    }
+    // Persistir lo del bloque ANTES de avanzar. Si el guardado falla no se
+    // avanza: el cliente ve el error y puede reintentar sin haber perdido nada.
+    const saved = await saveCurrentBlockDraft(fieldNames)
+    if (!saved) return
+    setBlockIndex((i) => i + 1)
+  }
+
+  /** Manda al backend solo los campos del bloque actual (merge parcial en DB). */
+  async function saveCurrentBlockDraft(fieldNames: (keyof BriefFormValues)[]): Promise<boolean> {
+    const values = getValues()
+    const partial: Partial<OnboardingBriefAnswers> = {}
+    for (const key of fieldNames) {
+      const value = values[key]
+      if (key === 'deliveryChannels') {
+        partial.deliveryChannels = value as OnboardingDeliveryChannel[]
+      } else if (typeof value === 'string' && value.trim().length > 0) {
+        // El borrador no acepta strings vacíos: se omiten en vez de guardar ''.
+        partial[key as Exclude<keyof OnboardingBriefAnswers, 'deliveryChannels'>] = value
+      }
+    }
+    if (Object.keys(partial).length === 0) return true
+    try {
+      await saveDraft.mutateAsync(partial)
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -219,17 +268,19 @@ export function Step6Brief({
         )}
       </div>
 
-      {submitBrief.isError && (
+      {(submitBrief.isError || saveDraft.isError) && (
         <p role="alert" className="mt-4 text-sm text-destructive">
-          {submitBrief.error instanceof Error ? submitBrief.error.message : 'No se pudo guardar el brief.'}
+          {submitBrief.error instanceof Error
+            ? submitBrief.error.message
+            : 'No se pudieron guardar tus respuestas. Revisá tu conexión y probá de nuevo.'}
         </p>
       )}
 
       <WizardNav onBack={goPrevBlock}>
-        <ShinyButton onClick={goNextBlock} disabled={submitBrief.isPending}>
-          {submitBrief.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+        <ShinyButton onClick={goNextBlock} disabled={busy}>
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
           {isLastBlock ? 'Guardar y continuar' : 'Siguiente bloque'}
-          {!submitBrief.isPending && <ArrowRight className="h-4 w-4" />}
+          {!busy && <ArrowRight className="h-4 w-4" />}
         </ShinyButton>
       </WizardNav>
     </div>

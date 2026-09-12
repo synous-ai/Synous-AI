@@ -28,6 +28,14 @@ export default defineConfig({
       // ensureClerkUserType corta antes de cualquier llamada → createUser /
       // activateClientPortal NO pegan a Clerk real (no crean usuarios basura).
       CLERK_SECRET_KEY: '',
+      // Emails DESHABILITADOS en tests, por la misma razón que Clerk: con una
+      // RESEND_API_KEY real en `.env` (dotenv la carga y no la pisa), cada test
+      // que completa un onboarding, activa un portal o manda una invitación
+      // pegaba a la API de Resend de verdad — lento, dependiente de la red y,
+      // con el dominio verificado, mandando correo real desde la suite.
+      // Con la key vacía, sendEmail corta antes de salir a la red y loguea
+      // "[mailer] RESEND_API_KEY no configurada — email omitido".
+      RESEND_API_KEY: '',
     },
   },
 })

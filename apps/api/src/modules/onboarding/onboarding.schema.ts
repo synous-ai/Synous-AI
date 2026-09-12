@@ -74,7 +74,25 @@ const freeTextOptional = (max: number) =>
     .transform((s) => stripControl(s).trim())
     .optional()
 
-export const OnboardingBriefSchema = z.object({
+/**
+ * Si el cliente eligió el canal "otro", tiene que decir cuál — si no, la
+ * respuesta q3 queda sin información útil. Se aplica igual acá y en el
+ * frontend (portal-lib/components/onboarding/steps/step-6-brief.tsx).
+ */
+const requireOtherChannelDetail = (
+  value: { deliveryChannels: readonly string[]; deliveryChannelsOther?: string },
+  ctx: z.RefinementCtx,
+): void => {
+  if (value.deliveryChannels.includes('otro') && !value.deliveryChannelsOther) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['deliveryChannelsOther'],
+      message: 'Contanos cuál es el otro canal.',
+    })
+  }
+}
+
+const BriefFieldsSchema = z.object({
   businessProgram: freeText(2000), // q1
   activeClients: freeText(500), // q2
   deliveryChannels: z.array(z.enum(DELIVERY_CHANNELS)).min(1, 'Elegí al menos un canal'), // q3
@@ -93,7 +111,44 @@ export const OnboardingBriefSchema = z.object({
   decisionTrigger: freeText(2000), // q15
   doubtsBeforeBuying: freeText(2000), // q16
 })
+
+export const OnboardingBriefSchema = BriefFieldsSchema.superRefine(requireOtherChannelDetail)
 export type OnboardingBriefDTO = z.infer<typeof OnboardingBriefSchema>
+
+/**
+ * Borrador PARCIAL del brief (PATCH /brief/draft, se manda al avanzar cada uno
+ * de los 5 bloques del paso 6). Mismos límites de longitud y saneo que el
+ * submit final — pero TODO opcional y sin exigir contenido: es lo que el
+ * cliente lleva tipeado, no una respuesta terminada.
+ *
+ * `.strict()`: el merge va directo a una columna jsonb, así que no se aceptan
+ * claves fuera de las 16 conocidas (nadie infla la fila con basura arbitraria).
+ * Se exige al menos una clave para que un PATCH vacío no cuente como guardado.
+ */
+export const OnboardingBriefDraftSchema = BriefFieldsSchema.partial()
+  .extend({
+    businessProgram: freeTextOptional(2000),
+    activeClients: freeTextOptional(500),
+    worstChannel: freeTextOptional(2000),
+    weeklyTimeDrain: freeTextOptional(2000),
+    sixMonthConcern: freeTextOptional(2000),
+    idealDayToDay: freeTextOptional(2000),
+    desiredStudentFeeling: freeTextOptional(2000),
+    referenceApps: freeTextOptional(2000),
+    teamRoles: freeTextOptional(2000),
+    brandIdentity: freeTextOptional(500),
+    requiredIntegrations: freeTextOptional(2000),
+    existingClientBase: freeTextOptional(2000),
+    howFoundUs: freeTextOptional(2000),
+    decisionTrigger: freeTextOptional(2000),
+    doubtsBeforeBuying: freeTextOptional(2000),
+    // Sin el `.min(1)` del submit final: un borrador puede tener el selector
+    // de canales todavía vacío.
+    deliveryChannels: z.array(z.enum(DELIVERY_CHANNELS)).optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'El borrador no puede estar vacío.' })
+export type OnboardingBriefDraftDTO = z.infer<typeof OnboardingBriefDraftSchema>
 
 // ── Paso 7 — Materiales: POST /materials + POST /materials/upload ───────────
 const MaterialItemSchema = z.object({
@@ -119,6 +174,28 @@ export const OnboardingMaterialsSchema = z.object({
   }),
 })
 export type OnboardingMaterialsDTO = z.infer<typeof OnboardingMaterialsSchema>
+
+/**
+ * Borrador PARCIAL del checklist de materiales (PATCH /materials/draft). A
+ * diferencia del submit final, no exige las 4 categorías: el wizard manda solo
+ * la que cambió (tildar "listo", escribir una nota, terminar una subida) para
+ * que ese estado no viva solo en memoria hasta apretar "Continuar".
+ *
+ * `.strict()` + al menos una categoría: el merge va a una columna jsonb, así
+ * que no se aceptan claves desconocidas ni un PATCH vacío.
+ */
+export const OnboardingMaterialsDraftSchema = z.object({
+  materials: z
+    .object({
+      logoBrand: MaterialItemSchema.optional(),
+      programContent: MaterialItemSchema.optional(),
+      clientBase: MaterialItemSchema.optional(),
+      toolAccess: MaterialItemSchema.optional(),
+    })
+    .strict()
+    .refine((v) => Object.keys(v).length > 0, { message: 'No hay materiales para guardar.' }),
+})
+export type OnboardingMaterialsDraftDTO = z.infer<typeof OnboardingMaterialsDraftSchema>
 
 /** Querystring del upload de un material (multipart): a qué categoría pertenece el archivo. */
 export const OnboardingMaterialUploadQuerySchema = z.object({
