@@ -16,6 +16,7 @@ import type {
   OnboardingMaterialCategory,
   OnboardingAsset,
   CompleteOnboardingResultDTO,
+  ClientNotification,
 } from './types'
 
 // ─── Deals ──────────────────────────────────────────────────────────────────
@@ -304,4 +305,50 @@ export function useAuthedImageUrl(fileUrl: string | null | undefined): string | 
   }, [fileUrl])
 
   return objectUrl
+}
+
+// ─── Notificaciones ──────────────────────────────────────────────────────────
+// Ver apps/api/src/modules/notifications/notifications.router.ts
+// (prefix /api/client/notifications). El destinatario lo resuelve el backend
+// desde el token: no se manda ningún id.
+
+const NOTIFICATIONS_KEY = ['client', 'notifications'] as const
+
+export function useClientNotifications() {
+  return useQuery<ClientNotification[]>({
+    queryKey: NOTIFICATIONS_KEY,
+    queryFn: () => apiGet<ClientNotification[]>('/api/client/notifications?limit=20'),
+  })
+}
+
+export function useClientUnreadCount() {
+  return useQuery<{ count: number }>({
+    queryKey: [...NOTIFICATIONS_KEY, 'unread'],
+    queryFn: () => apiGet<{ count: number }>('/api/client/notifications/unread-count'),
+    // El portal no tiene WebSocket propio (el WS del backend hoy solo resuelve
+    // hub_user). Un refetch periódico mantiene el badge vivo sin sumar
+    // infraestructura; ver nota de realtime en el informe.
+    refetchInterval: 60_000,
+  })
+}
+
+function useInvalidateNotifications() {
+  const queryClient = useQueryClient()
+  return () => void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY })
+}
+
+export function useMarkNotificationRead() {
+  const invalidate = useInvalidateNotifications()
+  return useMutation<{ success: boolean }, Error, string>({
+    mutationFn: (id) => apiPost<{ success: boolean }>(`/api/client/notifications/${id}/read`),
+    onSuccess: invalidate,
+  })
+}
+
+export function useMarkAllNotificationsRead() {
+  const invalidate = useInvalidateNotifications()
+  return useMutation<{ success: boolean }, Error, void>({
+    mutationFn: () => apiPost<{ success: boolean }>('/api/client/notifications/read-all'),
+    onSuccess: invalidate,
+  })
 }

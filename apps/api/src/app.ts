@@ -33,7 +33,7 @@ import { deliverablesRoutes } from './modules/deliverables/deliverables.router'
 import { clientRoutes } from './modules/client/client.router'
 import { intakeRoutes } from './modules/intake/intake.router'
 import { clientIntakeRoutes } from './modules/intake/client-intake.router'
-import { notificationsRoutes } from './modules/notifications/notifications.router'
+import { notificationsRoutes, clientNotificationsRoutes } from './modules/notifications/notifications.router'
 import { notificationsWsRoutes } from './modules/notifications/notifications.ws'
 import { filesRoutes, clientFilesRoutes } from './modules/files/files.router'
 import { crRoutes } from './modules/change-requests/cr.router'
@@ -228,6 +228,8 @@ export function buildApp(): FastifyInstance {
   app.register(intakeRoutes, { prefix: '/api/intake' })
   app.register(clientIntakeRoutes, { prefix: '/api/client/intakes' })
   app.register(notificationsRoutes, { prefix: '/api/notifications' })
+  // Misma bandeja, audiencia distinta: el cliente del portal (client_account).
+  app.register(clientNotificationsRoutes, { prefix: '/api/client/notifications' })
   app.register(notificationsWsRoutes)
   app.register(filesRoutes, { prefix: '/api/files' })
   app.register(clientFilesRoutes, { prefix: '/api/client/files' })

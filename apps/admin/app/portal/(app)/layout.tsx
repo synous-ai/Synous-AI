@@ -31,6 +31,7 @@ import { cn } from '@portal/lib/utils'
 import { Button } from '@portal/components/ui/button'
 import { Skeleton } from '@portal/components/ui/skeleton'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
+import { ClientNotificationBell } from '@portal/components/portal/notification-bell'
 
 // Display font for the brand mark and every heading in the portal shell.
 // Paired with Plus Jakarta Sans (body) — two typefaces total, no more.
@@ -107,6 +108,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </Link>
 
           <div className="flex items-center gap-2">
+            <ClientNotificationBell />
             <UserButton
               appearance={{
                 elements: {

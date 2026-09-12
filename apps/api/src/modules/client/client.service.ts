@@ -4,6 +4,7 @@ import { deal, deliverable, invoice, payment, clientDealAccess, pipeline, pipeli
 import { Errors } from '../../lib/errors'
 import { clientDealIds } from '../../lib/portal-access'
 import { PRODUCTION_PIPELINE_LABEL } from '../onboarding/assignees'
+import { notifyAdmins } from '../notifications/notify'
 
 type DeliverableRow = typeof deliverable.$inferSelect
 
@@ -47,7 +48,10 @@ export async function clientDeliverables(clientId: string): Promise<DeliverableR
     .orderBy(desc(deliverable.createdAt))
 }
 
-async function assertClientDeliverable(clientId: string, deliverableId: string): Promise<DeliverableRow> {
+async function assertClientDeliverable(
+  clientId: string,
+  deliverableId: string,
+): Promise<DeliverableRow & { portalId: string }> {
   const ids = await clientDealIds(clientId)
   const [dv] = await db.select().from(deliverable).where(eq(deliverable.id, deliverableId)).limit(1)
   // El chequeo de visibilidad va acá y no solo en el listado: sin esto, un
@@ -57,23 +61,41 @@ async function assertClientDeliverable(clientId: string, deliverableId: string):
   if (!dv || !ids.includes(dv.dealId) || !dv.visibleToClient) {
     throw Errors.notFound('Entregable no encontrado')
   }
-  return dv
+  // `deliverable` no guarda portalId: cuelga del deal. Se resuelve acá para que
+  // los callers no tengan que repetir el lookup.
+  const [d] = await db.select({ portalId: deal.portalId }).from(deal).where(eq(deal.id, dv.dealId)).limit(1)
+  if (!d) throw Errors.notFound('Entregable no encontrado')
+  return { ...dv, portalId: d.portalId }
 }
 
 export async function approveDeliverable(clientId: string, deliverableId: string): Promise<void> {
-  await assertClientDeliverable(clientId, deliverableId)
+  const dv = await assertClientDeliverable(clientId, deliverableId)
   await db
     .update(deliverable)
     .set({ status: 'approved', reviewedBy: clientId, reviewedAt: new Date(), feedback: null })
     .where(eq(deliverable.id, deliverableId))
+
+  // Después del UPDATE y sin await bloqueante sobre el resultado: notify nunca
+  // lanza, así que la aprobación no puede fallar por un problema de avisos.
+  await notifyAdmins(dv.portalId, 'deliverable_approved', { dealId: dv.dealId, deliverableTitle: dv.title }, {
+    entity: { type: 'deliverable', id: deliverableId },
+    dedupeKey: `deliverable_approved:${deliverableId}`,
+  })
 }
 
 export async function requestChanges(clientId: string, deliverableId: string, feedback: string): Promise<void> {
-  await assertClientDeliverable(clientId, deliverableId)
+  const dv = await assertClientDeliverable(clientId, deliverableId)
   await db
     .update(deliverable)
     .set({ status: 'changes_requested', reviewedBy: clientId, reviewedAt: new Date(), feedback })
     .where(eq(deliverable.id, deliverableId))
+
+  // Sin dedupeKey a propósito: el cliente puede pedir cambios varias veces
+  // sobre el mismo entregable (segunda vuelta de revisión) y cada pedido es un
+  // evento nuevo que el equipo tiene que ver.
+  await notifyAdmins(dv.portalId, 'deliverable_changes_requested', { dealId: dv.dealId, deliverableTitle: dv.title }, {
+    entity: { type: 'deliverable', id: deliverableId },
+  })
 }
 
 // ─── Invoices ─────────────────────────────────────────────────────────────────

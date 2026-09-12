@@ -260,6 +260,13 @@
       "when": 1789086803104,
       "tag": "0036_famous_scarecrow",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789181173145,
+      "tag": "0037_skinny_bill_hollister",
+      "breakpoints": true
     }
   ]
 }
