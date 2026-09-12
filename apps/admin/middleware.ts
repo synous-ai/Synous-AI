@@ -7,6 +7,8 @@ import { SLUG_RESERVED } from '@synous/shared'
  * Middleware unificado de la app web (landing + admin + portal de cliente).
  *
  * Orden de responsabilidades:
+ *  0. Host del panel (admin.*): sirve SOLO el admin, con URLs sin el prefijo
+ *     /admin (admin.synousai.com/login, /dashboard, …). Rewrite a /admin/*.
  *  1. Tenant white-label: subdominio o path /c/<slug> → rewrite a /portal/*.
  *  2. Conveniencia: /login → /admin/login (back-compat).
  *  3. Protección admin: Clerk protege TODO /admin/* EXCEPTO /admin/login.
@@ -50,6 +52,45 @@ const isPortalProtected = createRouteMatcher(['/portal', '/portal/(.*)'])
 const isPortalPublic = createRouteMatcher(PORTAL_PUBLIC_PREFIXES.map((p) => `${p}(.*)`))
 function isPortalPublicPath(pathname: string): boolean {
   return PORTAL_PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
+
+// ─── Host del panel interno (admin.*) ────────────────────────────────────────
+
+/**
+ * Label de subdominio que sirve el panel interno. Está en `SLUG_RESERVED`
+ * (packages/shared/src/slug.ts), así que `getSubdomain()` ya lo descarta como
+ * tenant white-label y ninguna empresa puede quedarse con este slug.
+ */
+const ADMIN_HOST_LABEL = 'admin'
+
+/** ¿La request entra por el host del panel (admin.synousai.com, admin.localhost)? */
+function isAdminHost(host: string): boolean {
+  const hostname = (host.split(':')[0] || '').toLowerCase()
+  return hostname.startsWith(`${ADMIN_HOST_LABEL}.`)
+}
+
+/**
+ * Mapea el path "limpio" del host del panel al path real del App Router.
+ *
+ * En `admin.synousai.com` las URLs no llevan el prefijo `/admin`: la raíz es
+ * el dashboard y el login es `/login`. Las páginas siguen viviendo en
+ * `app/admin/*`, así que acá se traduce con un rewrite (no un redirect: el
+ * usuario tiene que ver la URL limpia en la barra).
+ *
+ * Los paths que YA vienen con `/admin/...` se dejan pasar tal cual: los ~70
+ * links internos de la app apuntan ahí y seguir funcionando sin tocarlos
+ * mantiene el cambio acotado al ruteo.
+ */
+function adminHostTarget(pathname: string): string {
+  // `/admin` y `/admin/` no son páginas (los route groups (auth)/(dashboard) no
+  // aportan segmento de URL), así que van al dashboard igual que la raíz.
+  if (pathname === '/' || pathname === '/admin' || pathname === '/admin/') return '/admin/dashboard'
+  if (pathname.startsWith('/admin/')) return pathname
+  return `/admin${pathname}`
+}
+
+function isAdminLoginPath(path: string): boolean {
+  return path === '/admin/login' || path.startsWith('/admin/login/')
 }
 
 // ─── Helpers de tenant ────────────────────────────────────────────────────────
@@ -153,6 +194,40 @@ function resolveTenant(req: NextRequest): NextResponse | null {
 
 export default clerkMiddleware(async (auth, req) => {
   const { pathname } = req.nextUrl
+
+  // 0. Host del panel interno (admin.*): sirve SOLO el admin, con URLs limpias.
+  //    Va antes que todo lo demás porque decide el destino de la request entera.
+  //    Sin esta rama, `admin.synousai.com/` caía en el passthrough final y
+  //    servía la LANDING: `admin` está en SLUG_RESERVED, así que no resuelve
+  //    como tenant, pero tampoco matcheaba ninguna ruta de /admin/*.
+  if (isAdminHost(req.headers.get('host') ?? '')) {
+    const target = adminHostTarget(pathname)
+
+    if (!isAdminLoginPath(target)) {
+      // Protección ANTES del rewrite: Next no vuelve a correr el middleware
+      // sobre el destino, así que si no se chequea acá no se chequea nunca.
+      // `unauthenticatedUrl` apunta a la URL limpia del propio host.
+      await auth.protect({ unauthenticatedUrl: new URL('/login', req.url).toString() })
+
+      // Un cliente logueado no tiene nada que hacer en el panel: se lo manda al
+      // portal, que vive en OTRO dominio (app.synousai.com). Sin el salto
+      // cross-domain quedaría redirigido a /portal de este mismo host, que acá
+      // no existe. Si no hay dominio de portal configurado, cae al login del
+      // panel y que decida el backend.
+      const { sessionClaims } = await auth()
+      const claims = sessionClaims as (Record<string, unknown> & { publicMetadata?: { userType?: string } }) | null
+      const userType = (claims?.['userType'] as string | undefined) ?? claims?.publicMetadata?.userType
+      if (userType === 'client') {
+        const portalUrl = process.env['NEXT_PUBLIC_APP_URL']
+        return NextResponse.redirect(portalUrl ? `${portalUrl.replace(/\/+$/, '')}/portal` : new URL('/login', req.url))
+      }
+    }
+
+    if (target === pathname) return NextResponse.next()
+    const url = req.nextUrl.clone()
+    url.pathname = target
+    return NextResponse.rewrite(url)
+  }
 
   // 1. Tenant white-label: si corresponde a portal → proteger primero, luego rewrite.
   //    Next.js NO vuelve a correr el middleware sobre el destino de un rewrite, así que
