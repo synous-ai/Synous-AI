@@ -78,12 +78,26 @@ export function buildApp(): FastifyInstance {
 
   // CORS: allowlist explícita (NUNCA `origin: true`, que reflejaría cualquier
   // origin con credenciales). Orígenes válidos = apps configuradas + localhost dev.
+  // `ALLOWED_ORIGINS` (lista separada por comas) cubre el caso de un mismo
+  // front servido desde varios dominios: el *.vercel.app del proyecto, el
+  // dominio propio y el subdominio del panel. Sin esto había que elegir UNO
+  // solo vía ADMIN_URL —que además se usa para armar los links de los emails—
+  // y el resto de los dominios quedaba con el preflight sin
+  // `access-control-allow-origin`, o sea el front entero sin poder hablarle a
+  // la API.
   const allowedOrigins = [
-    env.ADMIN_URL,
-    env.CLIENT_PORTAL_URL,
-    'http://localhost:3000',
-    'http://localhost:3002',
-  ].filter((o): o is string => Boolean(o))
+    ...new Set(
+      [
+        env.ADMIN_URL,
+        env.CLIENT_PORTAL_URL,
+        ...(env.ALLOWED_ORIGINS?.split(',') ?? []),
+        'http://localhost:3000',
+        'http://localhost:3002',
+      ]
+        .map((o) => o?.trim().replace(/\/+$/, '')) // sin barra final: el header Origin del browser nunca la trae
+        .filter((o): o is string => Boolean(o)),
+    ),
+  ]
   app.register(cors, { origin: allowedOrigins, credentials: true })
   app.register(cookie)
   app.register(fastifyWebsocket)

@@ -22,6 +22,18 @@ const envSchema = z.object({
   FROM_EMAIL: z.string().email().optional(),
   ADMIN_URL: z.string().url().optional(),
   CLIENT_PORTAL_URL: z.string().url().optional(),
+  /**
+   * Orígenes EXTRA permitidos por CORS, separados por coma. `ADMIN_URL` y
+   * `CLIENT_PORTAL_URL` ya entran solos en la allowlist, pero son UN valor cada
+   * una y además cumplen otra función (`ADMIN_URL` es la base con la que se
+   * arman los links de emails, propuestas y reservas — no se puede cambiar solo
+   * para habilitar un origin). Cuando el mismo front se sirve desde varios
+   * dominios a la vez (el *.vercel.app del proyecto, el dominio propio y el
+   * subdominio del panel), el resto va acá.
+   *
+   * Ej: "https://synous-ai-admin.vercel.app,https://admin.synousai.com"
+   */
+  ALLOWED_ORIGINS: z.string().optional(),
   API_URL: z.string().url().optional(),
 
   // Fathom webhook — opcional; sin secret configurado el webhook responde 401
