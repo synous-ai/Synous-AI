@@ -1,16 +1,16 @@
-import ColorBends from '@/components/color-bends/color-bends'
-import { AnnouncementBars } from '@/components/announcement-bars'
-import { LetterScene } from '@/components/letter-scene'
+import ColorBends from '@/components/proposal/color-bends/color-bends'
+import { AnnouncementBars } from '@/components/proposal/announcement-bars'
+import { LetterScene } from '@/components/proposal/letter-scene'
 
-/** Destination for the envelope. Point this at the proposal landing once it exists. */
-const PROPOSAL_URL = '/propuesta'
+/** Destination for the envelope. Point this at the full proposal once it exists. */
+const PROPOSAL_URL = '#'
 
 /** Backdrop palette, drawn from the FrontPackPro navy and accent blues. */
 const BEND_COLORS = ['#010511', '#0b1430', '#1c73ca', '#96c0ff']
 
 /**
- * Per-client copy. This page is a template: swapping these three values is all
- * it takes to address the proposal to someone else.
+ * Placeholder copy. Once the proposal table exists this comes from the tenant
+ * resolved by the middleware, so each client sees their own letter.
  */
 const LETTER = {
   dateLabel: 'MARZO 2026',
@@ -18,12 +18,11 @@ const LETTER = {
   statement: 'Convertimos metodologías en productos y operaciones en sistemas.',
 }
 
-/** The client's name rides the bars alongside the standing line. */
 const ANNOUNCEMENTS = ['Tu propuesta está lista', LETTER.recipient]
 
-export default function HomePage() {
+export default function ProposalPage() {
   return (
-    <main className="stage">
+    <main className="proposal-stage stage">
       <div className="stage-backdrop" aria-hidden="true">
         <ColorBends
           colors={BEND_COLORS}

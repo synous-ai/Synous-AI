@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import TextType from '@/components/text-type/text-type'
+import TextType from '@/components/proposal/text-type/text-type'
 
 function DiagonalArrow() {
   return (

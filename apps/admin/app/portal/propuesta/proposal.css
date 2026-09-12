@@ -1,7 +1,7 @@
 /* Palette and value structure adapted from the FrontPackPro landing:
    near-black navy base, surfaces a few points lighter, low-contrast borders and
    a pale blue accent that carries the type. */
-:root {
+.proposal-stage {
   --void: #010511;
   --surface: #030520;
   --surface-raised: #090d1d;
@@ -23,17 +23,19 @@
   --paper: var(--title);
 }
 
-body {
+.proposal-stage {
   background: var(--void);
   color: var(--body-text);
+  font-family: var(--font-proposal-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-svg {
+.proposal-stage svg {
   display: block;
   flex-shrink: 0;
 }
 
-::selection {
+.proposal-stage ::selection {
   color: var(--void);
   background: var(--accent);
 }
@@ -41,7 +43,7 @@ svg {
 /* Film grain over the whole page. A 1px dot tiled every 3px builds the texture,
    and plus-lighter adds light to the surface underneath instead of veiling it.
    Sits above every layer but stays inert, so clicks still reach the envelope. */
-body::after {
+.proposal-stage::after {
   content: '';
   position: fixed;
   top: 0;
@@ -286,7 +288,7 @@ body::after {
 }
 
 .sheet-header > span:last-child {
-  font-family: var(--font-mono), monospace;
+  font-family: var(--font-proposal-mono), monospace;
   font-size: 10px;
   line-height: 1.6;
   letter-spacing: 0.6px;
