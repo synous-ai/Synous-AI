@@ -98,7 +98,32 @@ export function buildApp(): FastifyInstance {
         .filter((o): o is string => Boolean(o)),
     ),
   ]
-  app.register(cors, { origin: allowedOrigins, credentials: true })
+
+  /**
+   * Además de la lista fija, se permite cualquier SUBDOMINIO del dominio raíz
+   * de tenants: cada empresa tiene el suyo (`<slug>.synousai.com`) y se crean
+   * solos, así que enumerarlos es imposible de mantener.
+   *
+   * El anclaje del patrón importa: `^https://<label>.<raíz>$` con el punto
+   * escapado. Sin anclar, `evil-synousai.com` o `synousai.com.attacker.net`
+   * pasarían el filtro y podrían leer respuestas autenticadas desde el
+   * browser de un cliente.
+   */
+  const tenantOriginPattern = env.TENANT_ROOT_DOMAIN
+    ? new RegExp(`^https://[a-z0-9-]+\\.${env.TENANT_ROOT_DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+    : null
+
+  app.register(cors, {
+    origin(origin, cb) {
+      // Sin header Origin (curl, server-to-server, same-origin): no hay nada
+      // que reflejar, no es una request cross-origin del browser.
+      if (!origin) return cb(null, true)
+      if (allowedOrigins.includes(origin.replace(/\/+$/, ''))) return cb(null, true)
+      if (tenantOriginPattern?.test(origin)) return cb(null, true)
+      cb(null, false)
+    },
+    credentials: true,
+  })
   app.register(cookie)
   app.register(fastifyWebsocket)
   app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } })
