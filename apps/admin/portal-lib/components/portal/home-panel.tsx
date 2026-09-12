@@ -1,10 +1,7 @@
 'use client'
 
 import {
-  useClientDeliverables,
-  useClientIntakes,
-  useClientChangeRequests,
-  useClientInvoices,
+  usePortalPendingCounts,
   useClientProject,
 } from '@portal/lib/hooks'
 import type { ClientProjectUpdate } from '@portal/lib/types'
@@ -182,18 +179,12 @@ function AllClear() {
 // ─── Panel ────────────────────────────────────────────────────────────────────
 
 export function HomePanel({ onNavigate }: HomePanelProps) {
-  const deliverablesQuery = useClientDeliverables()
-  const intakesQuery = useClientIntakes()
-  const crQuery = useClientChangeRequests()
-  const invoicesQuery = useClientInvoices()
+  // Los criterios de "pendiente" viven en el hook, compartidos con los badges
+  // del sidebar. Sin eso, el badge y la tarjeta podrían decir cosas distintas
+  // sobre lo mismo en cuanto alguien tocara un filtro.
+  const pending = usePortalPendingCounts()
 
-  const isLoading =
-    deliverablesQuery.isLoading ||
-    intakesQuery.isLoading ||
-    crQuery.isLoading ||
-    invoicesQuery.isLoading
-
-  if (isLoading) {
+  if (pending.isLoading) {
     return (
       <div className="space-y-8">
         <ProjectSection />
@@ -202,13 +193,7 @@ export function HomePanel({ onNavigate }: HomePanelProps) {
     )
   }
 
-  const isError =
-    deliverablesQuery.isError ||
-    intakesQuery.isError ||
-    crQuery.isError ||
-    invoicesQuery.isError
-
-  if (isError) {
+  if (pending.isError) {
     return (
       <div className="space-y-8">
         <ProjectSection />
@@ -219,24 +204,10 @@ export function HomePanel({ onNavigate }: HomePanelProps) {
     )
   }
 
-  const deliverables = deliverablesQuery.data ?? []
-  const intakes = intakesQuery.data ?? []
-  const changeRequests = crQuery.data ?? []
-  const invoices = invoicesQuery.data ?? []
-
-  // Count items that need client action
-  const pendingDeliverables = deliverables.filter(
-    (d) => d.status === 'pending_review' || d.status === 'changes_requested',
-  )
-  const pendingForms = intakes.filter(
-    (i) => i.status === 'pending' || i.status === 'in_progress',
-  )
-  const pendingCRs = changeRequests.filter((cr) =>
-    (['sent', 'negotiating'] as string[]).includes(cr.status),
-  )
-  const alertInvoices = invoices.filter(
-    (inv) => inv.status === 'sent' || inv.status === 'overdue',
-  )
+  const pendingDeliverables = pending.deliverables
+  const pendingForms = pending.forms
+  const pendingCRs = pending.requests
+  const alertInvoices = pending.invoices
 
   const hasAnything =
     pendingDeliverables.length > 0 ||
