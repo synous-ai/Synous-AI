@@ -4,11 +4,16 @@ import type { ProposalContent } from './proposals.types'
 /**
  * Generación de propuestas con IA.
  *
- * Usa el abstractor de providers de LLM (lib/ai, Gemini/Claude):
- * arma un prompt con la data del onboarding + deal y pide al LLM una propuesta
- * estructurada en JSON, que parseamos a `ProposalContent`. Si el LLM falla o
- * devuelve algo no parseable, se cae a una propuesta base (fallback) para que el
- * admin nunca quede sin nada que editar.
+ * Usa el abstractor de providers de LLM (lib/ai, Gemini/Claude): arma un prompt
+ * con la data del onboarding + deal y pide al LLM el contenido de la propuesta
+ * en JSON, que parseamos a `ProposalContent`. Si el LLM falla o devuelve algo no
+ * parseable, se cae a una propuesta base (fallback) para que el admin nunca
+ * quede sin nada que editar.
+ *
+ * El modelo genera SOLO la parte variable: a quién va dirigida, qué se
+ * construye, cuánto sale y la letra chica del proyecto. El método, las
+ * garantías, el portfolio y el equipo son fijos y viven en la landing — si la
+ * IA los reescribiera por cliente, dejarían de leerse como un proceso.
  */
 
 export interface ProposalGenerationInput {
@@ -53,32 +58,54 @@ const PRIORITY_LABEL: Record<string, string> = {
   escalabilidad: 'la escalabilidad',
 }
 
+/** Sello de fecha de la portada: "SEPTIEMBRE 2026". */
+function currentDateLabel(): string {
+  const now = new Date()
+  const month = now.toLocaleDateString('es-AR', { month: 'long' }).toUpperCase()
+  return `${month} ${now.getFullYear()}`
+}
+
 // Instrucción de sistema: la voz de Synous (agencia rioplatense de software a
 // medida, 2 personas). Directa, profesional, sin buzzwords vacíos.
 const SYSTEM_INSTRUCTION = `Sos el redactor comercial de Synous, una agencia rioplatense de desarrollo de software a medida (web apps, CRMs, automatizaciones, portales). Escribís propuestas claras, concretas y profesionales, en español rioplatense (voseo), sin relleno ni buzzwords vacíos. Hablás de valor de negocio, no de tecnología por la tecnología. Sos honesto y específico: nada de promesas genéricas.
 
+Escribís SOLO la parte de la propuesta que cambia entre clientes. El método de trabajo, las garantías, los casos de éxito y el equipo ya están escritos en la plantilla: NO los generes ni los menciones como si fueran nuevos.
+
 Devolvés SIEMPRE y ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del JSON) con esta forma exacta:
 {
-  "title": string,            // ej: "Propuesta — CRM a medida para Acme"
-  "clientName": string,
-  "companyName": string,      // "" si no hay
-  "tagline": string,          // una línea de gancho
-  "summary": string,          // 1 párrafo, resumen ejecutivo
-  "understanding": string,    // qué entendimos de su situación (2-4 frases)
-  "objectives": string[],     // 3-5 objetivos del proyecto
-  "solution": string,         // qué vamos a construir (1-2 párrafos)
-  "scope": [{ "title": string, "description": string }],   // 4-6 entregables
-  "timeline": [{ "phase": string, "duration": string, "detail": string }], // 3-5 fases
-  "pricing": {
-    "items": [{ "label": string, "amount": number }],      // desglose
-    "total": number,          // total en USD, DENTRO del rango de presupuesto del cliente
-    "currency": "USD",
-    "note": string            // condiciones de pago, ej "50% al inicio, 50% a la entrega"
-  },
-  "whyUs": string[],          // 3-4 diferenciales de Synous
-  "nextSteps": string,        // cierre / próximos pasos
-  "terms": string             // términos breves (validez, revisiones, etc.)
-}`
+  "clientName": string,        // empresa a la que va dirigida, como se muestra en portada
+  "heroLede": string,          // 1-2 frases: qué se construye. Sin saludo ni "esta propuesta"
+
+  "scopeHeading": string,      // titular corto del alcance, ej "Dos proyectos."
+  "scopeLede": string,         // 1-2 frases que enmarcan el alcance
+  "scopePhases": [             // 1-3 bloques de lo que se construye
+    { "label": string,         // "FASE 01"
+      "title": string,         // nombre corto del entregable
+      "body": string }         // qué incluye, 2-4 frases concretas
+  ],
+
+  "investmentHeading": string, // titular del bloque de precios
+  "investmentPhases": [        // una entrada por fase cotizada
+    { "name": string,
+      "price": string,         // "USD 2.000". Omitir si usás "options"
+      "includes": string[],    // 5-10 items concretos de lo que entra
+      "payment": string,       // condiciones, ej "50% al inicio · 50% antes del lanzamiento"
+      "options": [             // SOLO si la fase admite varias formas de pago
+        { "label": string, "price": string, "terms": string }
+      ]
+    }
+  ],
+  "investmentNote": string,    // aclaración de cierre del bloque de precios
+
+  "termsNote": string,         // qué condiciona las fechas acordadas
+  "exclusions": string[],      // 4-8 cosas que NO entran en esta cotización
+
+  "extraFaq": [                // 0-3 preguntas propias de ESTE proyecto
+    { "question": string, "answer": string }
+  ]
+}
+
+El total de la inversión DEBE caer dentro del rango de presupuesto del cliente.`
 
 function buildPrompt(input: ProposalGenerationInput): string {
   const lines: string[] = []
@@ -94,14 +121,14 @@ function buildPrompt(input: ProposalGenerationInput): string {
   if (input.deadline) lines.push(`Fecha límite: ${input.deadline}`)
   if (input.clarity) lines.push(`Nivel de claridad del cliente: ${input.clarity}`)
 
-  return `Generá una propuesta comercial para este lead. El total de la inversión DEBE caer dentro de su rango de presupuesto. Sé específico para SU caso (no genérico).
+  return `Generá el contenido variable de la propuesta para este lead. Sé específico para SU caso (no genérico).
 
 DATOS DEL LEAD:
 ${lines.join('\n')}`
 }
 
 /**
- * Parseo tolerante: el modelo a veces envuelve el JSON en ```json … ``` o agrega
+ * Parseo tolerante: el modelo a veces envuelve el JSON en \`\`\`json … \`\`\` o agrega
  * texto. Sacamos las fences y, si hace falta, recortamos al primer `{` … `}`.
  */
 function safeJsonParse(text: string): unknown {
@@ -135,53 +162,55 @@ export async function generateProposalContent(
     temperature: 0.8,
     maxOutputTokens: 8192,
   })
-  const parsed = safeJsonParse(result.text) as ProposalContent
-  // Normalización mínima: garantizamos arrays y currency.
+  const parsed = safeJsonParse(result.text) as Partial<ProposalContent>
+
+  // Normalización: el modelo puede omitir campos o devolver null. La fecha nunca
+  // la genera — sale del reloj, no del prompt.
   return {
-    title: parsed.title ?? `Propuesta para ${input.contactName}`,
-    clientName: parsed.clientName ?? input.contactName,
-    companyName: parsed.companyName || input.companyName,
-    tagline: parsed.tagline,
-    summary: parsed.summary ?? '',
-    understanding: parsed.understanding ?? '',
-    objectives: parsed.objectives ?? [],
-    solution: parsed.solution ?? '',
-    scope: parsed.scope ?? [],
-    timeline: parsed.timeline ?? [],
-    pricing: {
-      items: parsed.pricing?.items ?? [],
-      total: parsed.pricing?.total ?? 0,
-      currency: parsed.pricing?.currency ?? 'USD',
-      note: parsed.pricing?.note,
-    },
-    whyUs: parsed.whyUs ?? [],
-    nextSteps: parsed.nextSteps ?? '',
-    terms: parsed.terms,
+    clientName: parsed.clientName || input.companyName || input.contactName,
+    dateLabel: currentDateLabel(),
+    heroLede: parsed.heroLede ?? '',
+
+    scopeHeading: parsed.scopeHeading ?? 'Alcance del proyecto.',
+    scopeLede: parsed.scopeLede ?? '',
+    scopePhases: parsed.scopePhases ?? [],
+    ...(parsed.scopePaths?.length ? { scopePaths: parsed.scopePaths } : {}),
+
+    investmentHeading: parsed.investmentHeading ?? 'Inversión.',
+    investmentPhases: parsed.investmentPhases ?? [],
+    ...(parsed.investmentNote ? { investmentNote: parsed.investmentNote } : {}),
+
+    termsNote: parsed.termsNote ?? '',
+    exclusions: parsed.exclusions ?? [],
+
+    ...(parsed.extraFaq?.length ? { extraFaq: parsed.extraFaq } : {}),
   }
 }
 
 /**
  * Propuesta base (fallback) cuando no hay IA disponible o falla la generación.
- * Deja una estructura editable para que el admin la complete a mano.
+ * Deja la estructura armada para que el admin la complete a mano: es un punto
+ * de partida editable, no un borrador presentable.
  */
 export function fallbackProposalContent(input: ProposalGenerationInput): ProposalContent {
-  const projectLabel = input.projectType ? PROJECT_TYPE_LABEL[input.projectType] ?? 'Proyecto a medida' : 'Proyecto a medida'
+  const projectLabel = input.projectType
+    ? PROJECT_TYPE_LABEL[input.projectType] ?? 'Proyecto a medida'
+    : 'Proyecto a medida'
+
   return {
-    title: `Propuesta — ${projectLabel}${input.companyName ? ` para ${input.companyName}` : ''}`,
-    clientName: input.contactName,
-    companyName: input.companyName,
-    tagline: 'Software a medida para tu negocio',
-    summary: 'Completá este resumen con el enfoque propuesto para el cliente.',
-    understanding: input.currentSolution ?? '',
-    objectives: [],
-    solution: '',
-    scope: [],
-    timeline: [],
-    pricing: { items: [], total: 0, currency: 'USD' },
-    whyUs: [
-      'Equipo chico y senior: hablás directo con quien construye.',
-      'Software a medida, sin plantillas ni ataduras.',
-    ],
-    nextSteps: 'Coordinemos una llamada para repasar la propuesta y arrancar.',
+    clientName: input.companyName || input.contactName,
+    dateLabel: currentDateLabel(),
+    heroLede: `${projectLabel} para ${input.companyName || input.contactName}.`,
+
+    scopeHeading: 'Alcance del proyecto.',
+    scopeLede: input.currentSolution ?? '',
+    scopePhases: [],
+
+    investmentHeading: 'Inversión.',
+    investmentPhases: [],
+
+    termsNote:
+      'Las fechas se confirman en el kickoff y requieren que los materiales y las aprobaciones se entreguen en los tiempos acordados.',
+    exclusions: [],
   }
 }

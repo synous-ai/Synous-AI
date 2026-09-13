@@ -1,71 +1,86 @@
 /**
- * Contenido estructurado de una propuesta comercial.
+ * Contenido de una propuesta comercial: SOLO lo que cambia entre clientes.
  *
- * Cada bloque mapea a una "slide" de la presentación pública. La IA lo genera a
- * partir del onboarding + deal + contacto; el admin lo puede editar antes de
- * aceptarlo. Es la única fuente de verdad del contenido (se guarda en
- * `proposal.content` como jsonb).
+ * La landing pública (`/p/<token>`) mezcla dos clases de contenido. Lo que
+ * describe cómo trabaja Synous —las seis fases del método, las garantías, el
+ * portfolio, el equipo, las preguntas frecuentes— vive en el código de la
+ * landing y es idéntico en toda propuesta: si la IA lo regenerara por cliente,
+ * el método se leería distinto cada vez y dejaría de parecer un proceso.
+ *
+ * Acá va lo otro: a quién va dirigida, qué se construye, cuánto sale y la letra
+ * chica de ESE proyecto. Es lo que la IA genera desde el onboarding, lo que el
+ * equipo edita antes de enviar, y lo único que se guarda por fila en
+ * `proposal.content`.
  */
 export interface ProposalContent {
-  // Portada
-  title: string // ej. "Propuesta — CRM a medida para Acme"
-  clientName: string // nombre del contacto
-  companyName?: string // empresa/marca, si la informó
-  logoUrl?: string // logo del cliente/empresa (ruta /api/files/… o URL absoluta)
-  tagline?: string // una línea de gancho bajo el título
+  // ── Portada ──────────────────────────────────────────────────────────────
+  /** Empresa a la que va dirigida, tal como se muestra: "UIRTUS Consultoría Evolutiva". */
+  clientName: string
+  /** Sello de fecha de la portada y del sobre: "SEPTIEMBRE 2026". */
+  dateLabel: string
+  /** Bajada del hero: qué se construye, en una o dos frases. */
+  heroLede: string
 
-  // Resumen ejecutivo (1 párrafo)
-  summary: string
+  // ── Alcance: qué se construye ────────────────────────────────────────────
+  scopeHeading: string
+  scopeLede: string
+  scopePhases: ProposalScopePhase[]
+  /** Caminos posibles después del MVP. Opcional: no toda propuesta los ofrece. */
+  scopePaths?: ProposalScopePath[]
 
-  // Entendimiento de su situación (lo que captamos del onboarding)
-  understanding: string
+  // ── Inversión: cuánto sale ───────────────────────────────────────────────
+  investmentHeading: string
+  investmentPhases: ProposalInvestmentPhase[]
+  /** Nota al pie del bloque de precios. */
+  investmentNote?: string
 
-  // Objetivos del proyecto (bullets)
-  objectives: string[]
+  // ── Información importante: la letra chica de este proyecto ──────────────
+  /** Qué condiciona las fechas acordadas. */
+  termsNote: string
+  /** Qué queda fuera de esta cotización. */
+  exclusions: string[]
 
-  // Solución propuesta (qué vamos a construir, 1-2 párrafos)
-  solution: string
-
-  // Alcance / entregables concretos
-  scope: ProposalScopeItem[]
-
-  // Fases del proyecto (timeline)
-  timeline: ProposalPhase[]
-
-  // Inversión
-  pricing: ProposalPricing
-
-  // Por qué Synous (diferenciales, bullets)
-  whyUs: string[]
-
-  // Próximos pasos (cierre / call to action)
-  nextSteps: string
-
-  // Términos y condiciones (opcional)
-  terms?: string
+  // ── Preguntas ────────────────────────────────────────────────────────────
+  /**
+   * Preguntas propias de este proyecto. Se suman a las fijas de la landing en
+   * vez de reemplazarlas, así las respuestas de siempre no cambian por cliente.
+   */
+  extraFaq?: ProposalFaqEntry[]
 }
 
-export interface ProposalScopeItem {
-  title: string
-  description: string
-}
-
-export interface ProposalPhase {
-  phase: string // ej. "Fase 1 — Descubrimiento"
-  duration: string // ej. "1 semana"
-  detail: string
-}
-
-export interface ProposalPricing {
-  items: ProposalPricingItem[]
-  total: number
-  currency: string // ISO 4217, ej. "USD"
-  note?: string // ej. "50% al inicio, 50% a la entrega"
-}
-
-export interface ProposalPricingItem {
+export interface ProposalScopePhase {
+  /** Etiqueta corta: "FASE 01". */
   label: string
-  amount: number
+  title: string
+  body: string
+}
+
+export interface ProposalScopePath {
+  icon: 'modules' | 'versions'
+  title: string
+  body: string
+}
+
+export interface ProposalInvestmentPhase {
+  name: string
+  /** Precio único. Se omite cuando la fase ofrece varias formas de pago. */
+  price?: string
+  includes: string[]
+  /** Condiciones de pago del precio único. */
+  payment?: string
+  /** Alternativas de pago, cuando la fase se puede encarar de varias formas. */
+  options?: ProposalPricingOption[]
+}
+
+export interface ProposalPricingOption {
+  label: string
+  price: string
+  terms: string
+}
+
+export interface ProposalFaqEntry {
+  question: string
+  answer: string
 }
 
 /** Estados del ciclo de vida de una propuesta. */

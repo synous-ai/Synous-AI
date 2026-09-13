@@ -4,47 +4,66 @@ import { z } from 'zod'
  * Schemas Zod del módulo de propuestas. `ProposalContentSchema` valida el
  * contenido editable (el mismo shape que `ProposalContent`), tanto al recibir
  * ediciones del admin como para tipar la respuesta.
+ *
+ * Cubre SOLO lo que cambia entre clientes: el método, las garantías, el
+ * portfolio y el equipo viven en el código de la landing (ver
+ * `proposals.types.ts`).
  */
 
-const ProposalScopeItemSchema = z.object({
+const ProposalScopePhaseSchema = z.object({
+  label: z.string().max(40),
   title: z.string().max(160),
-  description: z.string().max(1000),
+  body: z.string().max(1200),
 })
 
-const ProposalPhaseSchema = z.object({
-  phase: z.string().max(160),
-  duration: z.string().max(80),
-  detail: z.string().max(1000),
+const ProposalScopePathSchema = z.object({
+  icon: z.enum(['modules', 'versions']),
+  title: z.string().max(160),
+  body: z.string().max(1200),
 })
 
-const ProposalPricingItemSchema = z.object({
-  label: z.string().max(200),
-  amount: z.number().nonnegative(),
+const ProposalPricingOptionSchema = z.object({
+  label: z.string().max(120),
+  price: z.string().max(60),
+  terms: z.string().max(300),
 })
 
-const ProposalPricingSchema = z.object({
-  items: z.array(ProposalPricingItemSchema).max(30),
-  total: z.number().nonnegative(),
-  currency: z.string().min(1).max(3),
-  note: z.string().max(400).optional(),
+const ProposalInvestmentPhaseSchema = z.object({
+  name: z.string().max(200),
+  price: z.string().max(60).optional(),
+  includes: z.array(z.string().max(300)).max(30),
+  payment: z.string().max(300).optional(),
+  options: z.array(ProposalPricingOptionSchema).max(6).optional(),
+})
+
+const ProposalFaqEntrySchema = z.object({
+  question: z.string().max(300),
+  answer: z.string().max(2000),
 })
 
 export const ProposalContentSchema = z.object({
-  title: z.string().max(200),
+  // Portada
   clientName: z.string().max(160),
-  companyName: z.string().max(160).optional(),
-  logoUrl: z.string().max(500).optional(),
-  tagline: z.string().max(200).optional(),
-  summary: z.string().max(2000),
-  understanding: z.string().max(2000),
-  objectives: z.array(z.string().max(400)).max(12),
-  solution: z.string().max(3000),
-  scope: z.array(ProposalScopeItemSchema).max(20),
-  timeline: z.array(ProposalPhaseSchema).max(12),
-  pricing: ProposalPricingSchema,
-  whyUs: z.array(z.string().max(400)).max(10),
-  nextSteps: z.string().max(2000),
-  terms: z.string().max(3000).optional(),
+  dateLabel: z.string().max(60),
+  heroLede: z.string().max(600),
+
+  // Alcance
+  scopeHeading: z.string().max(200),
+  scopeLede: z.string().max(1000),
+  scopePhases: z.array(ProposalScopePhaseSchema).max(8),
+  scopePaths: z.array(ProposalScopePathSchema).max(4).optional(),
+
+  // Inversión
+  investmentHeading: z.string().max(200),
+  investmentPhases: z.array(ProposalInvestmentPhaseSchema).max(8),
+  investmentNote: z.string().max(1000).optional(),
+
+  // Información importante
+  termsNote: z.string().max(1000),
+  exclusions: z.array(z.string().max(400)).max(20),
+
+  // Preguntas propias de este proyecto
+  extraFaq: z.array(ProposalFaqEntrySchema).max(10).optional(),
 })
 
 /** Body para generar una propuesta a partir de un deal. */

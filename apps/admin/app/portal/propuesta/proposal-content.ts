@@ -63,70 +63,8 @@ export const proposal = {
     primaryCta: 'Ver la propuesta',
   },
 
-  startingPoint: {
-    eyebrow: 'PUNTO DE PARTIDA',
-    heading: 'UIRTUS ya construyó más de lo que muestra.',
-    lede: 'Nueve años, cinco áreas de trabajo y un método propio documentado. Lo que falta no es contenido: es el lugar donde todo eso viva junto.',
-    blocks: [
-      {
-        title: 'El Diagnóstico UIRTUS es un producto, no un formulario',
-        body: '45 preguntas repartidas en cinco áreas, con un modelo de puntuación propio que ustedes documentaron: cuánto vale cada respuesta, qué prioridades devuelve, qué herramienta recomendar según el resultado.\n\nEso es una metodología de evaluación empresarial convertida en herramienta. Hoy vive en un link que no se puede mostrar en un evento.',
-      },
-      {
-        title: 'El ecosistema existe, pero no tiene casa',
-        body: 'Plantillas financieras, un podcast, un libro por publicar, el panel de clientes con reuniones, objetivos, documentos y tareas, la calculadora de punto de equilibrio. Cada pieza funciona. Ninguna tiene un lugar oficial donde vivir junta.',
-      },
-      {
-        title: 'Lo que falta no es criterio, es la capa técnica',
-        body: 'UIRTUS tiene contadores, administradores, abogados. No tiene área de IT. Por eso el diagnóstico está publicado a fuerza de tutoriales — y por eso también salió bien: el criterio del negocio estaba claro, faltaban las herramientas para bajarlo.',
-      },
-    ] satisfies TitledBlock[],
-    closing:
-      'En noviembre UIRTUS cumple nueve años y presenta su Diagnóstico por primera vez, frente a los corporativos de La Pampa. Esa fecha es la que ordena toda esta propuesta.',
-  },
 
-  gap: {
-    eyebrow: 'LA BRECHA',
-    heading: 'Tener las piezas no es tener un sistema.',
-    lede: 'Nos comentaron que en esencia el trabajo era pasar a una página lo que ya está armado. Visto desde afuera tiene toda la lógica. Pero entre lo que existe hoy y el embudo que ustedes diseñaron hay tres cosas que todavía no están.',
-    blocks: [
-      {
-        title: 'No hay puerta de entrada',
-        body: 'Alguien que llega a UIRTUS por el evento, por Instagram o por recomendación tiene que caer en un lugar que represente nueve años de consultoría. Hoy los busca y no encuentra nada.',
-      },
-      {
-        title: 'El diagnóstico no tiene dónde apoyarse',
-        body: 'Un link suelto a un formulario no sostiene una herramienta que van a presentar en un hotel frente a empresas. El mismo diagnóstico, dentro de un sitio oficial, cambia de categoría.',
-      },
-      {
-        title: 'Cada cambio depende de alguien técnico',
-        body: 'La calculadora de punto de equilibrio se actualiza todo el tiempo. Los objetivos de cada reunión cambian. Si para eso hay que tocar código, el sistema se rompe solo.',
-      },
-    ] satisfies TitledBlock[],
-    closing:
-      'Por eso esta propuesta empieza por el sitio y no por la app. No porque la app importe menos, sino porque es el orden que hace que la app tenga sentido cuando llegue.',
-  },
 
-  destination: {
-    eyebrow: 'PUNTO DE LLEGADA',
-    heading: 'Cómo queda funcionando.',
-    blocks: [
-      {
-        title: 'Una sola puerta',
-        body: 'El sitio es la entrada oficial. Desde ahí se llega al Diagnóstico y al panel de clientes, sin links sueltos ni dominios prestados.',
-      },
-      {
-        title: 'El diagnóstico como captación real',
-        body: 'Deja de ser una herramienta interna y pasa a ser el primer paso de una conversación de consultoría.',
-      },
-      {
-        title: 'El equipo edita sin pedir permiso',
-        body: 'Textos, fotos, entradas, objetivos de reunión. Todo administrable desde un panel propio.',
-      },
-    ] satisfies TitledBlock[],
-    closing:
-      'Y una arquitectura pensada para que la app y los módulos que vengan después se apoyen en esto, en lugar de empezar de nuevo.',
-  },
 
   method: {
     eyebrow: 'CÓMO TRABAJAMOS',
