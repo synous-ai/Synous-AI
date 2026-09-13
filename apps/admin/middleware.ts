@@ -43,12 +43,14 @@ const isAdminPublic = createRouteMatcher(['/admin/login(.*)'])
 // la rama de tenant white-label (que calcula el destino del rewrite a mano) —
 // duplicar el cálculo dejaba `/portal/accept-invitation` protegida en esa rama
 // aunque estuviera exenta acá.
-// `/portal/propuesta` es pública a propósito: es la carta que se le manda a un
-// prospecto ANTES de que exista una cuenta, así que exigir sesión la volvería
-// inalcanzable justo para quien está destinada.
+// `/portal/bienvenida` (la carta) y `/portal/propuesta` (la propuesta completa)
+// son públicas a propósito: las recibe un prospecto ANTES de que exista su
+// cuenta, así que exigir sesión las volvería inalcanzables justo para quien
+// están destinadas.
 const PORTAL_PUBLIC_PREFIXES = [
   '/portal/login',
   '/portal/accept-invitation',
+  '/portal/bienvenida',
   '/portal/propuesta',
 ] as const
 // OJO con el patrón: `/portal/(.*)` NO matchea `/portal` pelado (la barra es

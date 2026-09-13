@@ -1,0 +1,2591 @@
+/**
+ * Proposal landing. Palette and tokens come from ../_brand/brand-tokens.css;
+ * this file only lays out the page.
+ *
+ * Every rule stays under `.proposal-page` so nothing reaches the portal theme
+ * that owns `:root` and `body` in this app.
+ */
+
+.proposal-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* The header floats over the page, so anchored sections stop below it instead
+   of landing under the pill. */
+.proposal-page [id]:not(.proposal-page) {
+  scroll-margin-top: 120px;
+}
+
+.proposal-page .shell {
+  width: min(1180px, calc(100% - 96px));
+  margin-inline: auto;
+}
+
+.proposal-page a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.proposal-page h1,
+.proposal-page h2,
+.proposal-page h3,
+.proposal-page p {
+  margin: 0;
+}
+
+/* ── Mono label system ────────────────────────────────────────────────── */
+
+/**
+ * Mono is the page's second voice: it labels, numbers and stamps. Left to
+ * defaults it renders at weight 400 with ad-hoc tracking and reads as fallback
+ * monospace rather than a decision — so every label pulls from one of three
+ * steps below instead of setting its own size and spacing.
+ *
+ * `tnum` fixes digit width, so phase numbers and prices align column to column
+ * across cards. `ss02`/`cv02` give JetBrains its straight-leg forms, which sit
+ * better under uppercase tracking than the default hooked ones.
+ */
+.proposal-page [class*='-eyebrow'],
+.proposal-page [class*='-badge'],
+.proposal-page [class*='-label'],
+.proposal-page [class*='-index'],
+.proposal-page [class*='-kind'],
+.proposal-page .phase-step,
+.proposal-page .header-date,
+.proposal-page .footer-meta {
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Step 1 — micro stamps: labels set inline inside a paragraph or list. These
+   stay flat on purpose — a pill here would break the line they sit in. */
+.proposal-page .case-proves span,
+.proposal-page .tier-payment span {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+}
+
+/* Step 2 — page furniture: the header date and the footer's signature stamp. */
+.proposal-page .header-date,
+.proposal-page .footer-meta {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+/* Step 3 — pill badges: the loudest mono, sitting inside a bordered chip.
+   `.badge` is the shared shell; `.badge-lg` is the section-announcing size. */
+.proposal-page .badge,
+.proposal-page .method-badge,
+.proposal-page .phase-step,
+.proposal-page .case-kind,
+.proposal-page .card-index,
+.proposal-page .section-eyebrow,
+.proposal-page .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 100px;
+  background: #0a0f2199;
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--accent);
+  user-select: none;
+}
+
+/* The section-level size: heavier border, more air, brighter label. */
+.proposal-page .badge-lg,
+.proposal-page .method-badge,
+.proposal-page .section-eyebrow {
+  gap: 10px;
+  padding: 12px 20px 12px 12px;
+  border-width: 2px;
+  border-color: var(--edge);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--body-text);
+}
+
+/* The in-card size: the section badge's build, scaled down.
+   It takes the 2px border and lit label of `.badge-lg` rather than the flat
+   accent pill, so a phase announces itself the way a section does — sized to
+   sit inside a card instead of over one. */
+.proposal-page .phase-step {
+  gap: 8px;
+  padding: 7px 14px 7px 7px;
+  border-width: 2px;
+  border-color: var(--edge);
+  background: var(--surface);
+  font-size: 10px;
+  color: var(--body-text);
+}
+
+.proposal-page .phase-step .badge-orb {
+  width: 17px;
+  height: 17px;
+}
+
+/* Badges are inline-flex, so in normal flow the next element would ride up
+   beside them. These sit alone on their line by design. */
+.proposal-page .section-eyebrow,
+.proposal-page .case-kind,
+.proposal-page .card-index,
+.proposal-page .eyebrow {
+  display: flex;
+}
+
+/* The live element every badge shares: a drifting mesh gradient. */
+.proposal-page .badge-orb {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 100px;
+  background: url('/MeshGradient.webp') center center / 200% 200%;
+  animation: method-orb-drift 2s ease-in-out infinite;
+  will-change: background-position;
+}
+
+.proposal-page .badge-lg .badge-orb {
+  width: 25px;
+  height: 25px;
+  animation: method-orb-drift 2s ease-in-out infinite, method-orb-pulse 2s linear infinite;
+  will-change: background-position, box-shadow;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proposal-page .badge-orb {
+    animation: none;
+  }
+}
+
+/* ── Header ───────────────────────────────────────────────────────────── */
+
+/* A floating pill centred over the page, not a full-width bar. */
+.proposal-header {
+  position: fixed;
+  top: 26px;
+  left: 50%;
+  z-index: 60;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 28px;
+  width: min(760px, calc(100% - 40px));
+  height: 72px;
+  padding-inline: 24px;
+  border: 1px solid var(--edge-lit);
+  background: #070b1ccc;
+  box-shadow: inset 0 0 15px 4px #1c2542a6;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Corner ticks: two-sided brackets that step outward on hover, so the header
+   reads as a bracketed instrument rather than a plain rounded bar. */
+.proposal-header .tick {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: 2px solid var(--accent);
+  transition: top 0.2s ease, bottom 0.2s ease, left 0.2s ease, right 0.2s ease,
+    transform 0.2s ease;
+  pointer-events: none;
+}
+
+.proposal-header .tick-1 {
+  top: -2px;
+  left: -2px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.proposal-header .tick-2 {
+  bottom: -2px;
+  left: -2px;
+  border-right: none;
+  border-top: none;
+}
+
+.proposal-header .tick-3 {
+  top: -2px;
+  right: -2px;
+  border-left: none;
+  border-bottom: none;
+}
+
+.proposal-header .tick-4 {
+  bottom: -2px;
+  right: -2px;
+  border-left: none;
+  border-top: none;
+}
+
+.proposal-header:hover .tick {
+  transform: scale(1.05);
+  animation: header-tick-blink 1s linear;
+}
+
+.proposal-header:hover .tick-1 {
+  top: -6px;
+  left: -6px;
+}
+
+.proposal-header:hover .tick-2 {
+  bottom: -6px;
+  left: -6px;
+}
+
+.proposal-header:hover .tick-3 {
+  top: -6px;
+  right: -6px;
+}
+
+.proposal-header:hover .tick-4 {
+  bottom: -6px;
+  right: -6px;
+}
+
+@keyframes header-tick-blink {
+  0%,
+  10%,
+  20%,
+  40%,
+  50%,
+  100% {
+    opacity: 1;
+  }
+  15%,
+  45% {
+    opacity: 0;
+  }
+}
+
+.header-logo-link {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.header-logo {
+  height: 24px;
+  width: auto;
+  object-fit: contain;
+  transition: transform 0.8s ease, filter 0.8s ease;
+}
+
+.header-logo-link:hover .header-logo {
+  transform: scale(0.9);
+  filter: brightness(1.4);
+}
+
+/* Masked edges so links fade out rather than colliding with the pill border. */
+.header-nav {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  mask: linear-gradient(to right, transparent 0%, #000 9%, #000 91%, transparent 100%);
+  -webkit-mask: linear-gradient(to right, transparent 0%, #000 9%, #000 91%, transparent 100%);
+}
+
+.header-nav ul {
+  display: flex;
+  justify-content: center;
+  gap: 34px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.header-nav li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  color: var(--muted);
+  transition: color 0.5s ease;
+}
+
+.header-nav a {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* Underline that lights along the bottom of the pill on hover. */
+.header-nav li::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 150%;
+  height: 1px;
+  border-radius: 100px;
+  background: linear-gradient(to right, transparent, var(--accent), transparent);
+  box-shadow: 0 0 10px var(--accent);
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 1s ease;
+  pointer-events: none;
+}
+
+.header-nav li:hover::before {
+  opacity: 1;
+}
+
+.header-nav li:hover {
+  color: var(--title);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proposal-header .tick,
+  .header-logo {
+    transition: none;
+  }
+
+  .proposal-header:hover .tick {
+    animation: none;
+  }
+}
+
+/* Below the nav breakpoint the pill keeps only the logo. */
+@media (max-width: 860px) {
+  .proposal-header {
+    width: auto;
+    gap: 0;
+    padding-inline: 22px;
+  }
+
+  .header-nav {
+    display: none;
+  }
+}
+
+.header-date {
+  font-family: var(--font-proposal-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+/* ── Hero ─────────────────────────────────────────────────────────────── */
+
+/* Top padding clears the floating header pill (26px offset + 72px tall). */
+.proposal-page .hero {
+  position: relative;
+  padding-block: clamp(130px, 11vw, 180px) clamp(60px, 9vw, 120px);
+  text-align: center;
+}
+
+/* Halo that lifts the hero off an otherwise flat navy field. */
+.proposal-page .hero::before {
+  content: '';
+  position: absolute;
+  inset: -10% -20% 20%;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 30%, #1c73ca38 0%, transparent 68%);
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+/* Box and type come from the badge system; the hero only recentres it. */
+.proposal-page .eyebrow {
+  margin-inline: auto;
+}
+
+.proposal-page .hero h1 {
+  max-width: 15ch;
+  margin: 26px auto 0;
+  font-size: clamp(36px, 5.6vw, 68px);
+  line-height: 1.06;
+  letter-spacing: -0.04em;
+  font-weight: 500;
+  color: var(--title);
+}
+
+/* The FrontPackPro gesture: white settling into the accent blue. */
+.accent-text {
+  background: linear-gradient(to top, var(--accent), #ffffff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.proposal-page .lede {
+  max-width: 56ch;
+  margin: 28px auto 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 36px;
+}
+
+/* ── Glow CTA ─────────────────────────────────────────────────────────── */
+
+/**
+ * Two layers. The shell carries two blurred halos that bleed past its edges
+ * and trade opacity as the pointer crosses; the face carries a soft light that
+ * slides under the label. Both are driven by custom properties the component
+ * writes on pointer move, and both rest in a complete state when it doesn't.
+ */
+.glow-button {
+  position: relative;
+  z-index: 5;
+  width: fit-content;
+  border-radius: 10px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.glow-button::before,
+.glow-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 108%;
+  height: 125%;
+  transform: translate(-50%, -50%);
+  border-radius: 10px;
+  filter: blur(12px);
+  transition: opacity 0.35s ease-out;
+  will-change: filter;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.glow-button::before {
+  background: linear-gradient(to right, transparent 30%, var(--accent) 80%, var(--accent) 95%);
+  opacity: var(--halo-right, 1);
+}
+
+.glow-button::after {
+  background: linear-gradient(to left, transparent 30%, var(--accent) 80%, var(--accent) 95%);
+  opacity: var(--halo-left, 0);
+}
+
+.glow-button-face {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 18px 30px;
+  border: 3px solid #e8f1ff;
+  border-radius: 10px;
+  /* The face itself stays transparent: its fill is painted by ::after, so the
+     travelling light can sit between that fill and the label. A background
+     here would bury the light instead. */
+  background: transparent;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  /* Near-black with a blue cast on a near-white face: the one high-contrast
+     surface on the page. It has to stay legible where the travelling light
+     passes under it, so it sits far darker than the page's navy. */
+  color: #06183a !important;
+  overflow: hidden;
+  isolation: isolate;
+  cursor: pointer;
+}
+
+/* The label and icon ride above the travelling light, never under it. */
+.glow-button-face > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Layer 1 — the solid face, beneath everything else in the button. */
+.glow-button-face::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #e8f1ff;
+  z-index: -2;
+  pointer-events: none;
+}
+
+/* Layer 2 — the light riding over that face, under the label. Parked left of
+   centre until the pointer moves it. */
+.glow-button-face::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 300px;
+  height: 150px;
+  transform: translate(var(--light-x, -10%), -50%);
+  border-radius: 100%;
+  background: radial-gradient(
+    43.3% 44.23% at 50% 49.51%,
+    #ffffff 29%,
+    var(--accent) 48.5%,
+    var(--accent) 60.71%,
+    #96c0ff00 100%
+  );
+  filter: blur(5px);
+  transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* While tracking, the light keeps up with the pointer instead of easing. */
+.glow-button-face.is-tracking::before {
+  transition: transform 0.15s ease-out;
+}
+
+.glow-button-face svg {
+  width: 24px;
+  height: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow-button-face::before,
+  .glow-button-face.is-tracking::before,
+  .glow-button::before,
+  .glow-button::after {
+    transition: none;
+  }
+}
+
+.button-primary,
+.button-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  height: 50px;
+  padding-inline: 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.button-primary svg,
+.button-ghost svg {
+  width: 17px;
+  height: 17px;
+}
+
+.button-primary {
+  background: linear-gradient(165deg, #bcd8ff, var(--accent) 50%, #5c93e6);
+  color: #06183a;
+  box-shadow: inset 0 1px 0 #ffffffbf, 0 8px 22px #00030d80;
+}
+
+.button-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 #ffffffd9, 0 12px 30px #00030d99, 0 0 26px #96c0ff59;
+}
+
+.button-ghost {
+  border: 1px solid var(--edge-lit);
+  background: #96c0ff0a;
+  color: var(--title);
+}
+
+.button-ghost:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-deep);
+  background: #96c0ff17;
+}
+
+/* ── Sections ─────────────────────────────────────────────────────────── */
+
+.proposal-page .section {
+  padding-block: clamp(56px, 8vw, 104px);
+}
+
+.section-head {
+  max-width: 62ch;
+}
+
+/* Centred variant: the badge and heading sit on the section's axis, for
+   sections whose content below is symmetrical rather than left-anchored. */
+.section-head-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-inline: auto;
+  text-align: center;
+}
+
+/* Box, size and colour come from the badge system at the top of this file. */
+.section-eyebrow {
+  margin-bottom: 4px;
+}
+
+.proposal-page .section h2 {
+  margin-top: 16px;
+  font-size: clamp(26px, 3.2vw, 40px);
+  line-height: 1.14;
+  letter-spacing: -0.03em;
+  font-weight: 500;
+  color: var(--title);
+}
+
+/* 15px under the heading: enough to read as its own paragraph rather than a
+   second line of the title, without detaching from the block it belongs to. */
+.section-lede {
+  margin-top: 15px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* ── Section ornaments ────────────────────────────────────────────────── */
+
+/**
+ * Backdrops that sit behind a centred heading. Both are inert decoration:
+ * `aria-hidden`, no pointer events, and stacked under the content so the
+ * heading always wins.
+ *
+ * Sections carrying one need `position: relative` and `isolation: isolate`,
+ * or the ornament escapes into whatever stacking context is above it.
+ */
+/* The investment section already declares this for its own orbit backdrop. */
+.guarantees-section {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Dotted arc, faded at the edges so it reads as texture rather than a pasted
+   graphic with a hard boundary. */
+.section-dots {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: -1;
+  width: min(400px, 86%);
+  height: auto;
+  transform: translateX(-50%);
+  opacity: 0.5;
+  mask: radial-gradient(ellipse at 50% 40%, #000 35%, transparent 75%);
+  -webkit-mask: radial-gradient(ellipse at 50% 40%, #000 35%, transparent 75%);
+  pointer-events: none;
+}
+
+@media (max-width: 680px) {
+  .section-dots {
+    top: 4px;
+    width: 300px;
+  }
+}
+
+/* ── Cards ────────────────────────────────────────────────────────────── */
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+  margin-top: 42px;
+}
+
+.card-grid-tight {
+  gap: 14px;
+}
+
+.card {
+  padding: 26px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: linear-gradient(165deg, var(--surface-raised), var(--surface));
+  box-shadow: inset 0 1px 0 #96c0ff1a;
+}
+
+.card h3 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--title);
+}
+
+.card p {
+  margin-top: 14px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.card-rule {
+  display: block;
+  width: 34px;
+  height: 2px;
+  margin-bottom: 18px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent), transparent);
+}
+
+/* ── Outcome bento ────────────────────────────────────────────────────── */
+
+/**
+ * Asymmetric grid for the outcome blocks: a narrow signal cell beside the lead
+ * block, then a wide/narrow pair below. Rows collapse to one column on small
+ * screens, where an asymmetric grid would only squeeze the copy.
+ */
+.bento {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 42px;
+}
+
+.bento-row {
+  display: grid;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.bento-row:first-child {
+  grid-template-columns: 30fr 70fr;
+}
+
+.bento-row:last-child {
+  grid-template-columns: 60fr 40fr;
+}
+
+.bento-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 18px;
+  min-height: 340px;
+  padding: 30px;
+  border: 2px solid var(--edge);
+  border-radius: 28px;
+  background: linear-gradient(165deg, var(--surface-raised), var(--surface));
+  box-shadow: inset 0 0 60px 0 #010316;
+  overflow: hidden;
+  transition: border-color 0.4s ease;
+}
+
+.bento-cell:hover {
+  border-color: var(--edge-lit);
+}
+
+/* Filled dots inset from each corner, the bento's own registration marks. */
+.bento-dot {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--edge);
+  border-radius: 50px;
+  background: var(--surface-raised);
+  z-index: 9;
+}
+
+.bento-dot-1 {
+  top: 22px;
+  left: 22px;
+}
+
+.bento-dot-2 {
+  top: 22px;
+  right: 22px;
+}
+
+.bento-dot-3 {
+  bottom: 22px;
+  right: 22px;
+}
+
+.bento-dot-4 {
+  bottom: 22px;
+  left: 22px;
+}
+
+.bento-copy {
+  position: relative;
+  z-index: 5;
+}
+
+.proposal-page .bento-copy h3 {
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--title);
+}
+
+.proposal-page .bento-copy p {
+  margin-top: 14px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+/* A case cell leads with its kind badge, so the name follows it tightly. It
+   labels a card rather than announcing a section, so it drops back to the
+   small pill scale instead of inheriting the section-level size. */
+.proposal-page .bento-copy .case-kind {
+  gap: 7px;
+  margin-top: 0;
+  margin-bottom: 14px;
+  padding: 5px 11px 5px 5px;
+  border-width: 1px;
+  border-color: var(--edge-lit);
+  background: #0a0f2199;
+  font-size: 10px;
+  color: var(--accent);
+}
+
+.proposal-page .bento-copy .case-kind .badge-orb {
+  width: 14px;
+  height: 14px;
+  animation: method-orb-drift 2s ease-in-out infinite;
+}
+
+.proposal-page .bento-copy .case-proves {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--body-text);
+}
+
+/* ── Signal cell ──────────────────────────────────────────────────────── */
+
+.bento-cell-signal {
+  justify-content: center;
+  align-items: center;
+  min-height: 260px;
+  padding: 0;
+}
+
+.bento-rings {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* Four rings turning at one speed but offset in phase, so the set reads as a
+   single mechanism rather than four loose circles. */
+.bento-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 46%;
+  aspect-ratio: 1;
+  border: 1px solid #96c0ff40;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) rotate(0deg);
+  animation: bento-ring-spin 3s linear infinite;
+}
+
+.bento-ring-2 {
+  width: 66%;
+  border-top-color: #96c0ffb3;
+  animation-delay: 0.5s;
+}
+
+.bento-ring-3 {
+  width: 86%;
+  border-top-color: #96c0ff80;
+  animation-delay: 1s;
+}
+
+.bento-ring-4 {
+  width: 106%;
+  border-top-color: #96c0ff4d;
+  animation-delay: 1.5s;
+}
+
+/* The lit centre the rings orbit. */
+/* The lit centre the rings orbit: the brand mark, held in a dark well so the
+   rings read as orbiting it rather than sitting on top of it. */
+.bento-ring-core {
+  position: relative;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #101a38, #05081a);
+  box-shadow: 0 0 40px #1448b866, inset 0 1px 0 #96c0ff26;
+}
+
+.bento-ring-core img {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 0 18px #1448b8);
+  transition: filter 1s ease;
+}
+
+.bento-cell-signal:hover .bento-ring-core img {
+  filter: drop-shadow(0 0 26px #3e6fda);
+}
+
+@keyframes bento-ring-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bento-ring,
+  .bento-ring-core {
+    animation: none;
+  }
+}
+
+/* ── Visual stages ────────────────────────────────────────────────────── */
+
+/* Decorative mockup stage shared by the bento compositions. */
+.bento-stage {
+  position: absolute;
+  top: -14%;
+  left: 50%;
+  width: 78%;
+  transform: translateX(-50%);
+  opacity: 0.5;
+  pointer-events: none;
+  mask: linear-gradient(to bottom, #000 35%, transparent 92%);
+  -webkit-mask: linear-gradient(to bottom, #000 35%, transparent 92%);
+}
+
+.bento-stage .mockup {
+  margin-bottom: 0;
+}
+
+/* Portfolio cases replace the abstract stage with two real, full-card images. */
+.portfolio-backdrop {
+  inset: 0;
+  z-index: 1;
+  width: auto;
+  transform: none;
+  opacity: 1;
+  mask: none;
+  -webkit-mask: none;
+}
+
+.portfolio-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(to bottom, #02050d00 12%, #0306161f 42%, #05091bcf 72%, #05091bf7 100%);
+  pointer-events: none;
+}
+
+.portfolio-mockup {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  z-index: 1;
+  opacity: 0;
+  filter: saturate(0.96) brightness(1.04);
+  transform: scale(1.025);
+  will-change: opacity, transform;
+}
+
+.portfolio-light {
+  position: absolute;
+  inset: -8%;
+  z-index: 2;
+  width: 116%;
+  height: 116%;
+  object-fit: cover;
+  opacity: 0.42;
+  mix-blend-mode: screen;
+  filter: saturate(1.15);
+  animation: portfolio-light-drift 7s ease-in-out infinite alternate;
+}
+
+.portfolio-mockup-1 {
+  animation: portfolio-mockup-one 10s ease-in-out infinite;
+}
+
+.portfolio-mockup-2 {
+  animation: portfolio-mockup-two 10s ease-in-out infinite;
+}
+
+.portfolio-backdrop-delay-1 .portfolio-mockup {
+  animation-delay: 1.25s;
+}
+
+.portfolio-backdrop-delay-2 .portfolio-mockup {
+  animation-delay: 2.5s;
+}
+
+@keyframes portfolio-mockup-one {
+  0%,
+  42% {
+    opacity: 0.9;
+    transform: scale(1.025);
+  }
+  50%,
+  92% {
+    opacity: 0;
+    transform: scale(1.055);
+  }
+  100% {
+    opacity: 0.9;
+    transform: scale(1.025);
+  }
+}
+
+@keyframes portfolio-mockup-two {
+  0%,
+  42% {
+    opacity: 0;
+    transform: scale(1.055);
+  }
+  50%,
+  92% {
+    opacity: 0.9;
+    transform: scale(1.025);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.055);
+  }
+}
+
+@keyframes portfolio-light-drift {
+  from {
+    opacity: 0.34;
+    transform: translate3d(-1.5%, -1%, 0) scale(1.02);
+  }
+  to {
+    opacity: 0.5;
+    transform: translate3d(1.5%, 1%, 0) scale(1.08);
+  }
+}
+
+.bento-cell-lead {
+  justify-content: flex-end;
+  padding-top: 200px;
+}
+
+.bento-stage-inline {
+  top: auto;
+  bottom: -18%;
+  left: auto;
+  right: -6%;
+  width: 46%;
+  transform: none;
+  opacity: 0.4;
+}
+
+.bento-cell-wide {
+  justify-content: flex-end;
+}
+
+.bento-cell-wide .bento-copy {
+  max-width: 62%;
+}
+
+.portfolio-card.bento-cell-wide .bento-copy {
+  max-width: 72%;
+}
+
+.bento-cell-narrow {
+  padding-top: 180px;
+}
+
+/* ── Panel cell ───────────────────────────────────────────────────────── */
+
+/* Stacked rows standing in for an editable admin list. */
+.bento-panel {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 66%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.bento-panel-row {
+  height: 13px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: #0a0f21;
+}
+
+.bento-panel-row-lit {
+  border-color: #96c0ff59;
+  background: linear-gradient(to right, #96c0ff2e, transparent);
+}
+
+@media (max-width: 900px) {
+  .bento-row:first-child,
+  .bento-row:last-child {
+    grid-template-columns: 1fr;
+  }
+
+  .bento-cell-lead {
+    padding-top: 170px;
+  }
+
+  .bento-cell-wide .bento-copy {
+    max-width: 100%;
+  }
+
+  .bento-stage-inline {
+    display: none;
+  }
+}
+
+/* ── Method section ───────────────────────────────────────────────────── */
+
+/* The only full-bleed section on the page: it breaks out of `.shell` so the
+   backdrop video can span the viewport, and re-centres its own content. */
+.method-section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  /* Every other section draws its rule inside `.shell`; this one is full-bleed,
+     so the rule moves onto the inner wrapper to keep the page rhythm. */
+  border-top: 0;
+}
+
+.method-inner::before {
+  content: '';
+  position: absolute;
+  top: calc(clamp(56px, 8vw, 104px) * -1);
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: var(--edge);
+}
+
+/* Screen blend adds the video's light to the section instead of covering it,
+   and the blur keeps it a glow rather than a picture competing with the text. */
+.method-backdrop {
+  position: absolute;
+  top: 48px;
+  width: min(1000px, 130%);
+  height: auto;
+  object-fit: contain;
+  opacity: 1;
+  filter: blur(4px) saturate(0.6) brightness(1.1);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.method-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.method-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+@keyframes method-orb-drift {
+  0% {
+    background-position: 0% 20%;
+  }
+  25% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 50% 70%;
+  }
+  100% {
+    background-position: 0% 20%;
+  }
+}
+
+@keyframes method-orb-pulse {
+  0% {
+    box-shadow: 0 0 10px -15px var(--accent);
+  }
+  90% {
+    box-shadow: 0 0 5px 15px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.proposal-page .method-head h2 {
+  max-width: 24ch;
+  margin-top: 22px;
+}
+
+.method-inner > .reveal + .reveal .phase-grid {
+  margin-top: 48px;
+}
+
+@media (max-width: 680px) {
+  .method-backdrop {
+    top: 24px;
+    width: 160%;
+  }
+}
+
+/* ── Phase cards ──────────────────────────────────────────────────────── */
+
+.phase-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin-top: 42px;
+  border: 1px solid var(--edge);
+  border-radius: 18px;
+  overflow: hidden;
+  /* Translucent so the backdrop video reads through the panel. */
+  background: #070b1c80;
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+}
+
+/* Cards share hairlines instead of each carrying its own border, so the grid
+   reads as one instrument panel rather than five detached tiles. */
+.phase-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 0 1px var(--edge);
+  /* The glass lives on `.phase-grid`, which blurs what is behind the panel. A
+     card that paints itself near-opaque sits on top of that blur and cancels
+     it, so these stay genuinely translucent: the frosted panel is the effect,
+     and the cards are the tint over it, not a second surface. */
+  background: linear-gradient(165deg, #0b112273, #03052052);
+  transition: opacity 0.8s ease, background 0.6s ease;
+}
+
+.phase-card:hover {
+  background: linear-gradient(165deg, #101838a6, #050a2480);
+}
+
+/* Dim every sibling so the hovered card is the only lit one on the panel. */
+.phase-grid:hover .phase-card:not(:hover) {
+  opacity: 0.22;
+}
+
+/* Registration marks at the card corners. Each is a crosshair built from two
+   bars, the way a spec sheet marks its cut lines. */
+.phase-mark {
+  position: absolute;
+  z-index: 2;
+}
+
+.phase-mark-tl {
+  top: 0;
+  left: 0;
+}
+
+.phase-mark-tr {
+  top: 0;
+  right: 0;
+}
+
+.phase-mark-br {
+  bottom: 0;
+  right: 0;
+}
+
+.phase-mark-bl {
+  bottom: 0;
+  left: 0;
+}
+
+.phase-mark::before,
+.phase-mark::after {
+  content: '';
+  position: absolute;
+  /* Darker than the accent wash they carried: these are cut marks, and at the
+     brighter value they pulled the eye to the corners instead of the glyph. */
+  background: #3d5675;
+}
+
+.phase-mark::before {
+  width: 1px;
+  height: 11px;
+  top: -5px;
+  left: -1px;
+}
+
+.phase-mark::after {
+  width: 11px;
+  height: 1px;
+  top: -1px;
+  left: -5px;
+}
+
+/* Rail holding the glyph, with a horizontal hairline running off to the card
+   edge and a vertical one dropping from the top. */
+.phase-glyph-rail {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 30px 0 0 36px;
+}
+
+.phase-glyph-rail::before,
+.phase-glyph-rail::after {
+  content: '';
+  position: absolute;
+}
+
+.phase-glyph-rail::before {
+  top: 65%;
+  left: 50%;
+  width: 100%;
+  height: 1px;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(to right, transparent -20%, var(--edge-lit) 20%, transparent 95%);
+}
+
+.phase-glyph-rail::after {
+  top: 25px;
+  left: 76px;
+  width: 1px;
+  height: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(to bottom, transparent 5%, var(--edge-lit) 50%);
+}
+
+.phase-ring-outer {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 80px;
+  border: 3px solid var(--edge);
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: inset 0 0 20px #1c73ca29;
+}
+
+/* Nodes pinned to the outer ring's bounding box — the counterpart to the
+   card's crosshairs, closing the frame around the glyph. */
+.phase-node {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  /* Dim: these mark the frame, they should not compete with the glyph. */
+  background: #0e2c4d;
+}
+
+.phase-node-tl {
+  top: -5px;
+  left: -5px;
+}
+
+.phase-node-tr {
+  top: -5px;
+  right: -5px;
+}
+
+.phase-node-br {
+  bottom: -5px;
+  right: -5px;
+}
+
+.phase-node-bl {
+  bottom: -5px;
+  left: -5px;
+}
+
+.phase-ring-mid {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--surface-high);
+  overflow: hidden;
+}
+
+/* Two conic wedges rotating as one: the arc that keeps tracing the ring. */
+.phase-ring-mid::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 45%;
+  width: 63px;
+  height: 63px;
+  background:
+    conic-gradient(from 0deg at 50.12% 50%, transparent 0deg, var(--accent) 60deg, transparent 60.1deg),
+    conic-gradient(from 0deg at 50.12% 50%, transparent 190deg, var(--accent) 250deg, transparent 250.1deg);
+  transform: translate(-50%, -50%) rotate(0deg);
+  animation: phase-ring-trace 2s linear infinite;
+}
+
+/* Hover spins the arc up, so the card the reader is on is visibly the live one. */
+.phase-card:hover .phase-ring-mid::before {
+  animation-duration: 0.4s;
+}
+
+@keyframes phase-ring-trace {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase-ring-mid::before,
+  .phase-card:hover .phase-ring-mid::before {
+    animation: none;
+  }
+}
+
+.phase-ring-core {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(165deg, #121a33, #080d1e);
+  color: var(--accent);
+}
+
+.phase-ring-core svg {
+  width: 22px;
+  height: 22px;
+}
+
+.phase-content {
+  display: flex;
+  flex-direction: column;
+  padding: 36px 30px 40px;
+}
+
+/* The title belongs to the badge above it, so it sits close. */
+.phase-card h3 {
+  margin-top: 12px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--title);
+}
+
+/* The gap under a heading has to beat the gap between its own lines, or the
+   first line of copy reads as one more line of the title. */
+.phase-text {
+  margin-top: 18px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+/* Six cards split evenly into 2+2+2 before they collapse to a single column. */
+@media (max-width: 1024px) {
+  .phase-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .phase-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1024px) {
+  /* Touch has no hover, so dimming siblings would only ever hide content. */
+  .phase-grid:hover .phase-card:not(:hover) {
+    opacity: 1;
+  }
+}
+
+/* ── Investment ───────────────────────────────────────────────────────── */
+
+.investment-section {
+  position: relative;
+  isolation: isolate;
+}
+
+.pricing-orbit {
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  z-index: -1;
+  width: min(820px, 86vw);
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 46%, #1c73ca24 47%, transparent 48%),
+    radial-gradient(circle, #1448b82e 0%, #0713291f 38%, transparent 70%);
+  filter: blur(1px);
+  pointer-events: none;
+}
+
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  max-width: 1120px;
+  margin: 64px auto 0;
+}
+
+.tier {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: clamp(34px, 4vw, 52px);
+  border: 1px solid var(--edge);
+  border-radius: 24px;
+  background: #01040f;
+  box-shadow: inset 0 0 80px #171e36, 0 28px 90px #0005115c;
+  transition: border-color 0.45s ease, box-shadow 0.45s ease, transform 0.45s ease;
+}
+
+.tier:hover {
+  border-color: #33466f;
+  box-shadow: inset 0 0 100px #1c2a4e, 0 34px 110px #00051173, 0 0 54px #1c73ca1f;
+  transform: translateY(-4px);
+}
+
+.pricing-card::before {
+  content: '';
+  position: absolute;
+  top: -330px;
+  left: 50%;
+  z-index: 0;
+  width: 560px;
+  height: 560px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #5c8fff4a;
+  filter: blur(120px);
+  pointer-events: none;
+}
+
+.pricing-card-featured {
+  border-color: #26385f;
+  box-shadow: inset 0 0 90px #1b2a4c, 0 28px 90px #00051166, 0 0 48px #1c73ca1c;
+}
+
+.pricing-light {
+  position: absolute;
+  top: -8%;
+  left: 50%;
+  z-index: 0;
+  width: 150%;
+  max-width: none;
+  transform: translateX(-50%);
+  opacity: 0.44;
+  mix-blend-mode: screen;
+  filter: hue-rotate(310deg) saturate(1.1) brightness(1.15);
+  transition: opacity 0.8s ease, filter 0.8s ease;
+  pointer-events: none;
+}
+
+.pricing-card:nth-child(2) .pricing-light {
+  transform: translateX(-50%) scaleX(-1);
+}
+
+.pricing-card:hover .pricing-light {
+  opacity: 0.6;
+  filter: hue-rotate(310deg) saturate(1.2) brightness(1.45);
+}
+
+.pricing-dot-field {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background-image: radial-gradient(#ffffff 0.8px, transparent 0.8px);
+  background-size: 5px 5px;
+  mix-blend-mode: overlay;
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+.pricing-dot {
+  position: absolute;
+  z-index: 8;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #2b3c60;
+  border-radius: 50%;
+  background: #071022;
+  transition: top 0.35s ease, right 0.35s ease, bottom 0.35s ease, left 0.35s ease, border-color 0.35s ease;
+}
+
+.pricing-dot-tl {
+  top: 18px;
+  left: 18px;
+}
+
+.pricing-dot-tr {
+  top: 18px;
+  right: 18px;
+}
+
+.pricing-dot-br {
+  right: 18px;
+  bottom: 18px;
+}
+
+.pricing-dot-bl {
+  bottom: 18px;
+  left: 18px;
+}
+
+.pricing-card:hover .pricing-dot-tl {
+  top: 11px;
+  left: 11px;
+}
+
+.pricing-card:hover .pricing-dot-tr {
+  top: 11px;
+  right: 11px;
+}
+
+.pricing-card:hover .pricing-dot-br {
+  right: 11px;
+  bottom: 11px;
+}
+
+.pricing-card:hover .pricing-dot-bl {
+  bottom: 11px;
+  left: 11px;
+}
+
+.pricing-card > .tier-name,
+.pricing-card > .tier-includes,
+.pricing-card > .pricing-single,
+.pricing-card > .option-list {
+  position: relative;
+  z-index: 3;
+}
+
+.pricing-single {
+  display: grid;
+  margin-top: auto;
+  padding-top: 26px;
+  border-top: 1px solid var(--edge);
+}
+
+.pricing-single .tier-price {
+  margin-top: 0;
+}
+
+.pricing-single .tier-payment {
+  margin-top: 18px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.tier-name {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 9px;
+  width: fit-content;
+  margin-top: 12px;
+  padding: 9px 14px 9px 9px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 999px;
+  background: #01040fad;
+  font-family: var(--font-proposal-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--body-text);
+  backdrop-filter: blur(12px);
+}
+
+.tier-name .badge-orb {
+  width: 18px;
+  height: 18px;
+}
+
+.tier-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 28px;
+  font-size: clamp(44px, 5vw, 68px);
+  letter-spacing: -0.055em;
+  font-weight: 500;
+  color: transparent;
+  background: linear-gradient(180deg, #ffffff, #9cc2f1);
+  background-clip: text;
+  text-shadow: 0 0 35px #6cabf74d;
+}
+
+.tier-price span {
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.tier-includes {
+  margin: 32px 0 0;
+  padding: 28px 0 0;
+  border-top: 1px solid var(--edge);
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.tier-includes li {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--body-text);
+}
+
+.tier-includes svg {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  padding: 3px;
+  border: 1px solid #96c0ff66;
+  border-radius: 50%;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+/* ── FAQ ──────────────────────────────────────────────────────────────── */
+
+.faq-list {
+  margin-top: 42px;
+  border-top: 1px solid var(--edge);
+}
+
+.faq-item {
+  border-bottom: 1px solid var(--edge);
+}
+
+.faq-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+  padding-block: 22px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--title);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.faq-trigger:hover,
+.faq-trigger:focus-visible {
+  color: var(--accent);
+}
+
+/* Plus that becomes a minus when the entry opens. */
+.faq-marker {
+  position: relative;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.faq-marker::before,
+.faq-marker::after {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: transform 0.25s ease;
+}
+
+.faq-marker::after {
+  transform: rotate(90deg);
+}
+
+.faq-item.is-open .faq-marker::after {
+  transform: rotate(0deg);
+}
+
+.faq-answer {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-7px);
+  transition:
+    grid-template-rows 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.28s ease,
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.faq-item.is-open .faq-answer {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.faq-answer-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.faq-answer p {
+  max-width: 74ch;
+  padding-bottom: 24px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* ── Important information ────────────────────────────────────────────── */
+
+/* Two panels: the terms that govern the dates, and what the quote leaves out.
+   Both carry the same weight — the reader should take them equally seriously. */
+.important-grid {
+  display: grid;
+  grid-template-columns: 40fr 60fr;
+  gap: 18px;
+  margin-top: 42px;
+  align-items: start;
+}
+
+.important-card {
+  padding: 32px;
+  border: 1px solid var(--edge);
+  border-radius: 18px;
+  background: linear-gradient(165deg, var(--surface-raised), var(--surface));
+  box-shadow: inset 0 1px 0 #96c0ff1a;
+}
+
+.important-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 22px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 13px;
+  background: linear-gradient(145deg, #96c0ff1f, #1c73ca0d);
+  color: var(--accent);
+  box-shadow: inset 0 1px 0 #ffffff14, 0 0 28px #1c73ca17;
+}
+
+.important-icon svg {
+  width: 23px;
+  height: 23px;
+}
+
+.proposal-page .important-card h3 {
+  margin-bottom: 20px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--title);
+}
+
+.proposal-page .important-card > p {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .important-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+
+/** Signature and copyright only — no contact band, no internal rules. */
+/* The bottom padding clears the fixed blur gradient (7rem): without it the
+   signature sits inside the blur and reads as cut off at the page edge. */
+.proposal-footer {
+  position: relative;
+  border-top: 1px solid var(--edge);
+  padding-block: clamp(46px, 6vw, 64px) 150px;
+}
+
+.proposal-footer::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 40%;
+  z-index: 0;
+  background: radial-gradient(ellipse at 50% 0%, #1c73ca24 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.proposal-footer-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.footer-sign {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 20px;
+  font-size: 12px;
+  color: var(--muted-dim);
+}
+
+.footer-logo {
+  height: 22px;
+  width: auto;
+}
+
+/* Pushed to the far end so the signature reads left-to-right: who, what, for whom. */
+.footer-meta {
+  margin-left: auto;
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
+  letter-spacing: 1px;
+}
+
+.proposal-page .footer-copyright {
+  font-size: 12px;
+  color: var(--muted-dim);
+}
+
+@media (max-width: 680px) {
+  .footer-meta {
+    margin-left: 0;
+  }
+}
+
+/* ── Scroll reveal ────────────────────────────────────────────────────── */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal.is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Hero backdrop ────────────────────────────────────────────────────── */
+
+.proposal-page .hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.hero-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+}
+
+/* Sinks the shader into the page so the hero blends into the section below
+   instead of ending on a hard edge. The aurora builds its horizon in the lower
+   half of the canvas, so the veil stays light until the last stretch — an
+   earlier opaque stop would cover the very band the effect lives in. */
+.hero-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, #01051166 0%, #01051133 45%, #0105118c 80%, var(--void) 100%);
+}
+
+.hero-inner {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Process diagram ──────────────────────────────────────────────────── */
+
+/* The marker column carries both the node and the rail that links it to the
+   next step, so the line always starts and ends on a circle. */
+
+/* ── Project mockups ──────────────────────────────────────────────────── */
+
+.mockup {
+  margin-bottom: 22px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 10px;
+  background: linear-gradient(165deg, #0a1024, #060a18);
+  overflow: hidden;
+}
+
+.mockup-bar {
+  display: flex;
+  gap: 5px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--edge);
+  background: #0c1226;
+}
+
+.mockup-bar span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--edge-lit);
+}
+
+.mockup-bar span:first-child {
+  background: #96c0ff59;
+}
+
+.mockup-body {
+  display: flex;
+  gap: 9px;
+  height: 116px;
+  padding: 11px;
+}
+
+.mockup-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 34px;
+  flex-shrink: 0;
+}
+
+.mockup-pill {
+  height: 7px;
+  border-radius: 3px;
+  background: var(--edge-lit);
+}
+
+.mockup-pill-lit {
+  background: #96c0ff66;
+}
+
+.mockup-main {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mockup-main-empty {
+  justify-content: center;
+  opacity: 0.45;
+}
+
+.mockup-hero {
+  height: 34px;
+  border-radius: 5px;
+  background: linear-gradient(120deg, #1c73ca4d, #96c0ff1f);
+}
+
+.mockup-row {
+  display: flex;
+  gap: 7px;
+  flex: 1;
+}
+
+.mockup-tile {
+  flex: 1;
+  border-radius: 5px;
+  background: #96c0ff14;
+  border: 1px solid var(--edge);
+}
+
+.mockup-line {
+  height: 6px;
+  width: 72%;
+  border-radius: 3px;
+  background: var(--edge-lit);
+}
+
+.mockup-line-wide {
+  width: 100%;
+}
+
+.mockup-line-short {
+  width: 44%;
+}
+
+/* ── Long-form blocks ─────────────────────────────────────────────────── */
+
+.stack {
+  display: grid;
+  gap: 2px;
+  margin-top: 42px;
+  border-top: 1px solid var(--edge);
+}
+
+.block {
+  padding-block: 30px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.block h3 {
+  max-width: 46ch;
+  font-size: clamp(17px, 1.7vw, 21px);
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--title);
+}
+
+.block-body {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  max-width: 72ch;
+}
+
+.block-body p {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.8;
+  color: var(--muted);
+}
+
+.section-closing {
+  max-width: 68ch;
+  margin-top: 34px;
+  padding-left: 20px;
+  border-left: 2px solid var(--accent-deep);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--body-text);
+}
+
+.subheading {
+  margin-top: 54px;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--title);
+}
+
+.scope-phase-card .phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: 0 0 18px;
+  padding: 7px 11px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 999px;
+  background: #96c0ff0d;
+  font-family: var(--font-proposal-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 1.1px;
+  color: var(--body-text);
+}
+
+.scope-phase-card .phase-badge + h3 {
+  font-size: 18px;
+}
+
+.scope-paths {
+  margin-top: clamp(64px, 8vw, 92px);
+}
+
+.scope-paths .subheading {
+  margin-top: 0;
+  text-align: center;
+  font-size: clamp(21px, 2.4vw, 28px);
+  letter-spacing: -0.025em;
+}
+
+.scope-paths .card-grid {
+  margin-top: 34px;
+}
+
+.path-card-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 20px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #96c0ff1f, #1c73ca12);
+  color: var(--accent);
+  box-shadow: inset 0 1px 0 #ffffff12;
+}
+
+.path-card-icon svg {
+  width: 23px;
+  height: 23px;
+}
+
+.path-card .path-card-icon + h3 {
+  font-size: 18px;
+}
+
+.guarantee-bento {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 18px;
+  margin-top: 42px;
+}
+
+.guarantee-bento .card:nth-child(1),
+.guarantee-bento .card:nth-child(4) {
+  grid-column: span 7;
+}
+
+.guarantee-bento .card:nth-child(2),
+.guarantee-bento .card:nth-child(3) {
+  grid-column: span 5;
+}
+
+/* ── Card variants ────────────────────────────────────────────────────── */
+
+.card-grid-two {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.card-index {
+  margin-bottom: 14px;
+}
+
+.case-kind {
+  margin-top: 14px;
+}
+
+
+.case-proves {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--edge);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--body-text);
+}
+
+.case-proves span {
+  display: block;
+  margin-bottom: 5px;
+  font-family: var(--font-proposal-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.team-body {
+  display: grid;
+  gap: 16px;
+  max-width: 68ch;
+  margin-top: 30px;
+}
+
+.team-body p {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.8;
+  color: var(--muted);
+}
+
+.card .team-member-title {
+  margin-top: 8px;
+  font-family: var(--font-proposal-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.checklist-block {
+  margin-top: 42px;
+  padding: 26px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.checklist {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--body-text);
+}
+
+.checklist svg {
+  width: 15px;
+  height: 15px;
+  margin-top: 3px;
+  color: var(--accent);
+}
+
+/* ── Investment extras ────────────────────────────────────────────────── */
+
+.tier-payment {
+  margin-top: auto;
+  padding: 24px 18px 0;
+  text-align: center;
+  border-top: 1px solid var(--edge);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--body-text);
+}
+
+.tier-payment span {
+  display: block;
+  margin-bottom: 5px;
+  font-family: var(--font-proposal-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.option-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 30px;
+  padding-top: 26px;
+  border-top: 1px solid var(--edge);
+}
+
+.option {
+  padding: 20px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 14px;
+  background: linear-gradient(145deg, #96c0ff12, #030716b8);
+  text-align: center;
+  box-shadow: inset 0 1px 0 #ffffff0d;
+}
+
+.option-label {
+  font-family: var(--font-proposal-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.option-price {
+  margin-top: 8px;
+  font-size: clamp(30px, 3.5vw, 42px);
+  letter-spacing: -0.045em;
+  font-weight: 500;
+  color: transparent;
+  background: linear-gradient(180deg, #ffffff, #9cc2f1);
+  background-clip: text;
+  text-shadow: 0 0 28px #6cabf740;
+}
+
+.option-terms {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.investment-section .section-closing {
+  max-width: 78ch;
+  margin: 34px auto 0;
+  padding-left: 0;
+  border-left: 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* ── Exclusions ───────────────────────────────────────────────────────── */
+
+.exclusion-list {
+  display: grid;
+  gap: 13px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exclusion-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.exclusion-list svg {
+  width: 15px;
+  height: 15px;
+  margin-top: 4px;
+  color: var(--edge-lit);
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .proposal-page .shell {
+    width: calc(100% - 48px);
+  }
+
+  /* The nav would wrap into the logo before it ran out of room. */
+  .header-nav {
+    display: none;
+  }
+
+  .process-step {
+    grid-template-columns: 38px 1fr;
+    gap: 16px;
+  }
+
+  .process-node {
+    width: 34px;
+    height: 34px;
+    font-size: 11px;
+  }
+
+  .process-rail {
+    top: 34px;
+  }
+
+  .guarantee-bento {
+    grid-template-columns: 1fr;
+  }
+
+  .guarantee-bento .card:nth-child(n) {
+    grid-column: auto;
+  }
+
+  .tier-grid {
+    grid-template-columns: 1fr;
+    max-width: 680px;
+  }
+
+  .pricing-orbit {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .proposal-page .shell {
+    width: calc(100% - 32px);
+  }
+
+  .header-logo {
+    height: 21px;
+  }
+
+  .section-closing {
+    padding-left: 16px;
+  }
+
+  .checklist-block,
+  .option {
+    padding: 18px;
+  }
+
+  .cta-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .button-primary,
+  .button-ghost {
+    justify-content: space-between;
+  }
+
+  .card,
+  .tier {
+    padding: 22px;
+  }
+
+  .tier-name {
+    max-width: calc(100% - 24px);
+    text-align: center;
+  }
+
+  .pricing-light {
+    top: -8%;
+    width: 210%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proposal-page *,
+  .proposal-page *::before,
+  .proposal-page *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .portfolio-mockup-1 {
+    opacity: 0.9;
+    transform: scale(1.025);
+  }
+
+  .portfolio-mockup-2 {
+    display: none;
+  }
+}
