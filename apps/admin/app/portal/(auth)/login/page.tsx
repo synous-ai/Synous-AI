@@ -145,12 +145,12 @@ export default function PortalLoginPage() {
     <div className="portal-login">
       {/* Panel de marca */}
       <aside className="portal-login-brand">
-        <div className="portal-login-grid" aria-hidden="true" />
+        <div className="portal-login-grain" aria-hidden="true" />
         <div className="portal-login-halo" aria-hidden="true" />
 
         <div className="portal-login-head">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="portal-login-logo" src="/brand/logotipo-ink.svg" alt="Synous AI" />
+          <img className="portal-login-logo" src="/brand/logotipo.svg" alt="Synous AI" />
         </div>
 
         <div className="portal-login-body">
@@ -161,19 +161,20 @@ export default function PortalLoginPage() {
           <h1 className="portal-login-title">
             {brandName ? (
               <>
-                Hola, <span className="portal-login-title-accent">{brandName}</span>.
+                El sistema de{' '}
+                <span className="portal-login-title-accent">{brandName}</span>.
               </>
             ) : (
               <>
-                Tu proyecto,
+                Su sistema,
                 <br />
-                siempre a la <span className="portal-login-title-accent">vista</span>.
+                y todo lo que pasa <span className="portal-login-title-accent">adentro</span>.
               </>
             )}
           </h1>
           <p className="portal-login-lede">
-            Seguí el avance, revisá entregables y aprobá cambios. Todo en un solo lugar,
-            construido por Synous.
+            Acá vive el proyecto: en qué anda, qué se entregó, qué espera una decisión suya.
+            Sin pedirnos novedades por mensaje.
           </p>
         </div>
 
@@ -186,7 +187,10 @@ export default function PortalLoginPage() {
 
       {/* Login (componente nativo de Clerk) */}
       <main className="portal-login-form-side">
+        <div className="portal-login-dots" aria-hidden="true" />
+
         <div className="portal-login-form-inner">
+          {/* Variante en tinta: sobre papel, el logotipo claro desaparece. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="portal-login-logo portal-login-logo-mobile"

@@ -1,36 +1,47 @@
 /**
- * Login del portal de cliente — el mismo diseño que el del panel interno, en
- * claro. Mismo layout de dos columnas, mismo badge con orbe, mismo tratamiento
- * del form de Clerk; lo que cambia es el valor.
+ * Login del portal de cliente — el mismo del panel interno: mismos tokens,
+ * mismo layout, mismo grano, mismo halo, mismo badge.
  *
- * El panel es navy porque el equipo vive ahí todo el día; el portal es claro
- * porque el cliente entra un rato, muchas veces desde el teléfono y a veces con
- * sol de frente. La diferencia de luminosidad es además lo que hace que una
- * pestaña se reconozca de un vistazo, sin leer.
+ * La única diferencia es de qué lado cae la luz. El panel es navy en las dos
+ * columnas; acá el navy queda en el panel de marca y la columna del form va en
+ * blanco: el cliente entra un rato, muchas veces desde el teléfono y a veces
+ * con sol de frente, y esa mitad clara es la que lee. Es además lo que hace que
+ * una pestaña se reconozca de un vistazo, sin leer cuál es cuál.
  *
- * Todo queda bajo `.portal-login` para no tocar el resto del portal.
+ * Todo queda bajo `.portal-login`, así el resto del portal (que usa los tokens
+ * de shadcn) no se entera de estos.
  */
 
 .portal-login {
+  --void: #010511;
+  --surface: #030520;
+  --surface-raised: #090d1d;
+
+  --edge: #181d31;
+  --edge-lit: #1c2542;
+
+  --title: #d5e5f9;
+  --body-text: #dadff5;
+  --muted: #c3cede;
+  --muted-dim: #93a1b4;
+
+  --accent: #96c0ff;
+  --accent-deep: #1c73ca;
+
+  /* Valores de la mitad clara. */
   --paper: #ffffff;
   --paper-tint: #f5f8fd;
   --ink: #0f1729;
   --ink-soft: #33405a;
   --ink-mute: #5c6b82;
-
   --line: #dbe4f0;
-  --line-soft: #e8eef7;
-
-  --blue: #1c73ca;
-  --blue-light: #96c0ff;
-  --blue-wash: #eaf2fe;
 
   display: grid;
   grid-template-columns: 1.05fr 1fr;
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--paper);
-  color: var(--ink-soft);
+  background: var(--void);
+  color: var(--body-text);
   font-family: var(--font-portal-sans), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -45,22 +56,19 @@
   gap: 48px;
   padding: 48px;
   overflow: hidden;
-  border-right: 1px solid var(--line);
-  background: linear-gradient(165deg, var(--paper-tint), var(--paper) 72%);
+  border-right: 1px solid var(--edge);
+  background: linear-gradient(165deg, var(--surface-raised), var(--void) 70%);
 }
 
-/* Grilla en CSS, la contraparte clara del grano del panel interno: sobre papel
-   una textura de luz no se ve, así que el carácter lo dan las líneas. */
-.portal-login-grid {
+/* Mismo grano que las páginas de marca: 1px cada 3px, sumando luz. */
+.portal-login-grain {
   position: absolute;
   inset: 0;
-  z-index: 0;
-  background-image:
-    linear-gradient(var(--line-soft) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
-  background-size: 64px 64px, 64px 64px;
-  mask: radial-gradient(ellipse 80% 70% at 40% 35%, #000 20%, transparent 78%);
-  -webkit-mask: radial-gradient(ellipse 80% 70% at 40% 35%, #000 20%, transparent 78%);
+  z-index: 1;
+  background-image: radial-gradient(at 20% 80%, #fff 1px, transparent 0);
+  background-size: 3px 3px;
+  opacity: 0.045;
+  mix-blend-mode: plus-lighter;
   pointer-events: none;
 }
 
@@ -72,7 +80,7 @@
   aspect-ratio: 1;
   z-index: 0;
   border-radius: 50%;
-  background: radial-gradient(circle, #96c0ff4d 0%, transparent 68%);
+  background: radial-gradient(circle, #1c73ca3d 0%, transparent 68%);
   filter: blur(60px);
   pointer-events: none;
 }
@@ -81,7 +89,7 @@
 .portal-login-body,
 .portal-login-marks {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .portal-login-logo {
@@ -93,6 +101,7 @@
   display: none;
 }
 
+/* Badge con el orbe vivo, el mismo de las páginas de propuesta. */
 .portal-login-badge {
   display: inline-flex;
   align-items: center;
@@ -100,15 +109,15 @@
   width: fit-content;
   margin: 0 0 26px;
   padding: 10px 18px 10px 10px;
-  border: 2px solid var(--line);
+  border: 2px solid var(--edge);
   border-radius: 100px;
-  background: var(--paper);
+  background: var(--surface);
   font-family: var(--font-portal-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.8px;
   text-transform: uppercase;
-  color: var(--ink-soft);
+  color: var(--body-text);
   user-select: none;
 }
 
@@ -142,16 +151,15 @@
   line-height: 1.08;
   letter-spacing: -0.04em;
   font-weight: 500;
-  color: var(--ink);
+  color: var(--title);
   /* El nombre de un negocio puede ser largo y no siempre trae espacios donde
      convenga cortar. */
   overflow-wrap: anywhere;
 }
 
-/* Mismo gesto que el hero, invertido: el azul cae hacia el profundo en vez de
-   subir al blanco, que sobre papel se perdería. */
+/* El mismo gesto que el hero de la propuesta: blanco cayendo en el accent. */
 .portal-login-title-accent {
-  background: linear-gradient(to bottom, var(--blue-light), var(--blue));
+  background: linear-gradient(to top, var(--accent), #ffffff);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -163,9 +171,10 @@
   font-size: 16px;
   font-weight: 500;
   line-height: 1.7;
-  color: var(--ink-mute);
+  color: var(--muted);
 }
 
+/* Tres marcas de registro al pie, como sello del portal. */
 .portal-login-marks {
   display: flex;
   gap: 8px;
@@ -175,37 +184,58 @@
   width: 26px;
   height: 2px;
   border-radius: 999px;
-  background: var(--line);
+  background: var(--edge-lit);
 }
 
 .portal-login-mark:first-child {
   width: 44px;
-  background: var(--blue);
+  background: var(--accent);
 }
 
 /* ── Columna del form ─────────────────────────────────────────────────── */
 
-/**
- * La columna del form va en el azul claro de marca, y el form dentro de una
- * tarjeta blanca. Sobre el azul directo el texto secundario queda en 2.9:1 y el
- * botón primario en 2.6:1 — los dos reprueban AA; la tarjeta devuelve el
- * contraste sin perder el color de fondo.
- */
+/* La mitad clara: papel con el mismo puntillismo del panel de marca, acá en
+   tinta en vez de en luz. */
 .portal-login-form-side {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 40px 24px;
-  background: var(--blue-light);
+  overflow: hidden;
+  background: linear-gradient(165deg, var(--paper), var(--paper-tint) 78%);
+}
+
+.portal-login-dots {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: radial-gradient(at 20% 80%, var(--ink) 1px, transparent 0);
+  background-size: 3px 3px;
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+/* Halo de la mitad clara: el mismo gesto, teñido en azul sobre papel. */
+.portal-login-form-side::before {
+  content: '';
+  position: absolute;
+  bottom: -25%;
+  left: -20%;
+  width: 65%;
+  aspect-ratio: 1;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #96c0ff5c 0%, transparent 68%);
+  filter: blur(60px);
+  pointer-events: none;
 }
 
 .portal-login-form-inner {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  max-width: 420px;
-  padding: 40px;
-  border-radius: 18px;
-  background: var(--paper);
-  box-shadow: 0 1px 2px #0f172914, 0 18px 44px #0f172921;
+  max-width: 400px;
 }
 
 .portal-login-heading {
@@ -230,6 +260,7 @@
 
 /* ── Clerk ────────────────────────────────────────────────────────────── */
 
+/* El form viene con su propio ancho y padding de tarjeta: acá ocupa la columna. */
 .portal-login-clerk .clerk-card {
   width: 100%;
   padding: 0;
@@ -255,19 +286,19 @@
 
 .portal-login-clerk .clerk-input:focus,
 .portal-login-clerk .clerk-input:focus-within {
-  border-color: var(--blue);
+  border-color: var(--accent-deep);
   box-shadow: 0 0 0 3px #1c73ca26;
   outline: none;
 }
 
-/* Botón de envío: azul plano. Clerk le monta sus propios estados (spinner,
-   disabled, éxito) encima, así que no lleva capas ni brillo — una animación
-   propia acá pelea con las suyas. */
+/* Botón de envío: el navy del panel, plano. Clerk le monta sus propios estados
+   (spinner, disabled, éxito) encima, así que no lleva capas ni brillo — una
+   animación propia acá pelea con las suyas. */
 .portal-login-clerk .clerk-submit {
   height: 46px;
   border: none;
   border-radius: 10px;
-  background: var(--blue);
+  background: var(--ink);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.1px;
@@ -277,12 +308,12 @@
 }
 
 .portal-login-clerk .clerk-submit:hover {
-  background: #1863ad;
+  background: #1b2740;
 }
 
 .portal-login-clerk .clerk-link {
   font-weight: 600;
-  color: var(--blue);
+  color: var(--accent-deep);
 }
 
 .portal-login-clerk .clerk-link:hover {
@@ -306,8 +337,8 @@
 }
 
 .portal-login-clerk .clerk-social:hover {
-  border-color: var(--blue);
-  background: var(--blue-wash);
+  border-color: var(--accent-deep);
+  background: #eaf2fe;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -330,21 +361,5 @@
   .portal-login-logo-mobile {
     display: block;
     margin-bottom: 32px;
-  }
-
-  /* En pantalla chica la tarjeta ocupa casi todo: sin el respiro del azul
-     alrededor, su sombra y su radio dejan de aportar y sólo encajonan. */
-  .portal-login-form-inner {
-    padding: 32px 24px;
-  }
-}
-
-@media (max-width: 560px) {
-  .portal-login-form-side {
-    padding: 20px 16px;
-  }
-
-  .portal-login-form-inner {
-    padding: 28px 20px;
   }
 }
