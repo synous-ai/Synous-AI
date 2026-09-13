@@ -145,6 +145,8 @@ export default function PortalLoginPage() {
     <div className="portal-login">
       {/* Panel de marca */}
       <aside className="portal-login-brand">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="portal-login-light" src="/light4.webp" alt="" aria-hidden="true" />
         <div className="portal-login-grain" aria-hidden="true" />
         <div className="portal-login-halo" aria-hidden="true" />
 
@@ -161,20 +163,19 @@ export default function PortalLoginPage() {
           <h1 className="portal-login-title">
             {brandName ? (
               <>
-                El sistema de{' '}
+                Bienvenido,{' '}
                 <span className="portal-login-title-accent">{brandName}</span>.
               </>
             ) : (
               <>
-                Su sistema,
-                <br />
-                y todo lo que pasa <span className="portal-login-title-accent">adentro</span>.
+                Bienvenido a tu{' '}
+                <span className="portal-login-title-accent">espacio</span>.
               </>
             )}
           </h1>
           <p className="portal-login-lede">
-            Acá vive el proyecto: en qué anda, qué se entregó, qué espera una decisión suya.
-            Sin pedirnos novedades por mensaje.
+            Tu espacio para ver cómo avanza tu Sistema Operativo Digital: hitos, demos,
+            próximos pasos y documentación importante.
           </p>
         </div>
 

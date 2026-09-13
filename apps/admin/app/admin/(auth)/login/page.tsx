@@ -99,6 +99,8 @@ export default function LoginPage() {
     <div className="login-page">
       {/* Panel de marca */}
       <aside className="login-brand">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="login-light" src="/light4.webp" alt="" aria-hidden="true" />
         <div className="login-grain" aria-hidden="true" />
         <div className="login-halo" aria-hidden="true" />
 

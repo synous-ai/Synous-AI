@@ -60,6 +60,26 @@
   background: linear-gradient(165deg, var(--surface-raised), var(--void) 70%);
 }
 
+/**
+ * Arco de luz sobre el borde superior. `screen` suma su luz al navy en vez de
+ * apoyarse encima como imagen, y el `hue-rotate` lo lleva del violeta original
+ * al azul de marca. Sangra a los lados a propósito: un arco completo y centrado
+ * se leería como una figura, y esto tiene que ser iluminación.
+ */
+.portal-login-light {
+  position: absolute;
+  top: -14%;
+  left: 50%;
+  z-index: 0;
+  width: 150%;
+  max-width: none;
+  transform: translateX(-50%);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  filter: hue-rotate(310deg) saturate(1.1) brightness(1.15);
+  pointer-events: none;
+}
+
 /* Mismo grano que las páginas de marca: 1px cada 3px, sumando luz. */
 .portal-login-grain {
   position: absolute;
