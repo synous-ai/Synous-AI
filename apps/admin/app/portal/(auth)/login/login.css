@@ -185,17 +185,27 @@
 
 /* ── Columna del form ─────────────────────────────────────────────────── */
 
+/**
+ * La columna del form va en el azul claro de marca, y el form dentro de una
+ * tarjeta blanca. Sobre el azul directo el texto secundario queda en 2.9:1 y el
+ * botón primario en 2.6:1 — los dos reprueban AA; la tarjeta devuelve el
+ * contraste sin perder el color de fondo.
+ */
 .portal-login-form-side {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 40px 24px;
-  background: var(--paper);
+  background: var(--blue-light);
 }
 
 .portal-login-form-inner {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
+  padding: 40px;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 1px 2px #0f172914, 0 18px 44px #0f172921;
 }
 
 .portal-login-heading {
@@ -320,5 +330,21 @@
   .portal-login-logo-mobile {
     display: block;
     margin-bottom: 32px;
+  }
+
+  /* En pantalla chica la tarjeta ocupa casi todo: sin el respiro del azul
+     alrededor, su sombra y su radio dejan de aportar y sólo encajonan. */
+  .portal-login-form-inner {
+    padding: 32px 24px;
+  }
+}
+
+@media (max-width: 560px) {
+  .portal-login-form-side {
+    padding: 20px 16px;
+  }
+
+  .portal-login-form-inner {
+    padding: 28px 20px;
   }
 }
