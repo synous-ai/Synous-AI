@@ -246,63 +246,25 @@
 }
 
 /**
- * Botón de envío: la misma cara clara del CTA de la propuesta. El relleno lo
- * pinta `::after` por debajo del texto para que el brillo de `::before` pueda
- * viajar entre los dos — con un `background` propio quedaría tapado.
+ * Botón de envío: cara clara plana. Clerk le monta sus propios estados
+ * (spinner, disabled, éxito) encima, así que no lleva capas ni brillo — una
+ * animación propia acá pelea con las suyas.
  */
 .login-clerk .clerk-submit {
-  position: relative;
   height: 46px;
   border: none;
   border-radius: 10px;
-  background: transparent;
+  background: #e8f1ff;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.1px;
   color: #03080f;
-  overflow: hidden;
-  isolation: isolate;
   text-transform: none;
   box-shadow: none;
-  transition: transform 0.2s ease;
 }
 
-.login-clerk .clerk-submit::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  background: #e8f1ff;
-}
-
-.login-clerk .clerk-submit::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: -1;
-  width: 220px;
-  height: 120px;
-  transform: translate(-60%, -50%);
-  border-radius: 100%;
-  background: radial-gradient(
-    43.3% 44.23% at 50% 49.51%,
-    #ffffff 29%,
-    var(--accent) 48.5%,
-    var(--accent) 60.71%,
-    #96c0ff00 100%
-  );
-  filter: blur(6px);
-  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
-}
-
-.login-clerk .clerk-submit:hover::before {
-  transform: translate(-40%, -50%);
-}
-
-.login-clerk .clerk-submit:active {
-  transform: translateY(1px);
+.login-clerk .clerk-submit:hover {
+  background: #ffffff;
 }
 
 .login-clerk .clerk-link {
@@ -338,10 +300,6 @@
 @media (prefers-reduced-motion: reduce) {
   .login-badge-orb {
     animation: none;
-  }
-
-  .login-clerk .clerk-submit::before {
-    transition: none;
   }
 }
 

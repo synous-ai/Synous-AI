@@ -1,0 +1,324 @@
+/**
+ * Login del portal de cliente — el mismo diseño que el del panel interno, en
+ * claro. Mismo layout de dos columnas, mismo badge con orbe, mismo tratamiento
+ * del form de Clerk; lo que cambia es el valor.
+ *
+ * El panel es navy porque el equipo vive ahí todo el día; el portal es claro
+ * porque el cliente entra un rato, muchas veces desde el teléfono y a veces con
+ * sol de frente. La diferencia de luminosidad es además lo que hace que una
+ * pestaña se reconozca de un vistazo, sin leer.
+ *
+ * Todo queda bajo `.portal-login` para no tocar el resto del portal.
+ */
+
+.portal-login {
+  --paper: #ffffff;
+  --paper-tint: #f5f8fd;
+  --ink: #0f1729;
+  --ink-soft: #33405a;
+  --ink-mute: #5c6b82;
+
+  --line: #dbe4f0;
+  --line-soft: #e8eef7;
+
+  --blue: #1c73ca;
+  --blue-light: #96c0ff;
+  --blue-wash: #eaf2fe;
+
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--font-portal-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Panel de marca ───────────────────────────────────────────────────── */
+
+.portal-login-brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 48px;
+  padding: 48px;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  background: linear-gradient(165deg, var(--paper-tint), var(--paper) 72%);
+}
+
+/* Grilla en CSS, la contraparte clara del grano del panel interno: sobre papel
+   una textura de luz no se ve, así que el carácter lo dan las líneas. */
+.portal-login-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px;
+  mask: radial-gradient(ellipse 80% 70% at 40% 35%, #000 20%, transparent 78%);
+  -webkit-mask: radial-gradient(ellipse 80% 70% at 40% 35%, #000 20%, transparent 78%);
+  pointer-events: none;
+}
+
+.portal-login-halo {
+  position: absolute;
+  top: -20%;
+  right: -25%;
+  width: 70%;
+  aspect-ratio: 1;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #96c0ff4d 0%, transparent 68%);
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+.portal-login-head,
+.portal-login-body,
+.portal-login-marks {
+  position: relative;
+  z-index: 1;
+}
+
+.portal-login-logo {
+  height: 26px;
+  width: auto;
+}
+
+.portal-login-logo-mobile {
+  display: none;
+}
+
+.portal-login-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  margin: 0 0 26px;
+  padding: 10px 18px 10px 10px;
+  border: 2px solid var(--line);
+  border-radius: 100px;
+  background: var(--paper);
+  font-family: var(--font-portal-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  user-select: none;
+}
+
+.portal-login-orb {
+  width: 22px;
+  height: 22px;
+  border-radius: 100px;
+  background: url('/MeshGradient.webp') center center / 200% 200%;
+  animation: portal-login-orb-drift 2s ease-in-out infinite;
+  will-change: background-position;
+}
+
+@keyframes portal-login-orb-drift {
+  0% {
+    background-position: 0% 20%;
+  }
+  25% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 50% 70%;
+  }
+  100% {
+    background-position: 0% 20%;
+  }
+}
+
+.portal-login-title {
+  margin: 0;
+  font-size: clamp(34px, 3.6vw, 52px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  font-weight: 500;
+  color: var(--ink);
+  /* El nombre de un negocio puede ser largo y no siempre trae espacios donde
+     convenga cortar. */
+  overflow-wrap: anywhere;
+}
+
+/* Mismo gesto que el hero, invertido: el azul cae hacia el profundo en vez de
+   subir al blanco, que sobre papel se perdería. */
+.portal-login-title-accent {
+  background: linear-gradient(to bottom, var(--blue-light), var(--blue));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.portal-login-lede {
+  max-width: 42ch;
+  margin: 22px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--ink-mute);
+}
+
+.portal-login-marks {
+  display: flex;
+  gap: 8px;
+}
+
+.portal-login-mark {
+  width: 26px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.portal-login-mark:first-child {
+  width: 44px;
+  background: var(--blue);
+}
+
+/* ── Columna del form ─────────────────────────────────────────────────── */
+
+.portal-login-form-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  background: var(--paper);
+}
+
+.portal-login-form-inner {
+  width: 100%;
+  max-width: 400px;
+}
+
+.portal-login-heading {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.portal-login-sub {
+  margin: 10px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-mute);
+}
+
+.portal-login-clerk {
+  margin-top: 28px;
+}
+
+/* ── Clerk ────────────────────────────────────────────────────────────── */
+
+.portal-login-clerk .clerk-card {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.portal-login-clerk .clerk-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.portal-login-clerk .clerk-input {
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  font-size: 15px;
+  color: var(--ink);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.portal-login-clerk .clerk-input:focus,
+.portal-login-clerk .clerk-input:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px #1c73ca26;
+  outline: none;
+}
+
+/* Botón de envío: azul plano. Clerk le monta sus propios estados (spinner,
+   disabled, éxito) encima, así que no lleva capas ni brillo — una animación
+   propia acá pelea con las suyas. */
+.portal-login-clerk .clerk-submit {
+  height: 46px;
+  border: none;
+  border-radius: 10px;
+  background: var(--blue);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: #ffffff;
+  text-transform: none;
+  box-shadow: none;
+}
+
+.portal-login-clerk .clerk-submit:hover {
+  background: #1863ad;
+}
+
+.portal-login-clerk .clerk-link {
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.portal-login-clerk .clerk-link:hover {
+  color: #14548f;
+}
+
+.portal-login-clerk .clerk-divider-line {
+  background: var(--line);
+}
+
+.portal-login-clerk .clerk-divider-text {
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+
+.portal-login-clerk .clerk-social {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink-soft);
+}
+
+.portal-login-clerk .clerk-social:hover {
+  border-color: var(--blue);
+  background: var(--blue-wash);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-login-orb {
+    animation: none;
+  }
+}
+
+/* Bajo el breakpoint el panel de marca se va: en una pantalla chica compite con
+   el form en vez de acompañarlo, y el logo pasa a encabezar la columna. */
+@media (max-width: 900px) {
+  .portal-login {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-login-brand {
+    display: none;
+  }
+
+  .portal-login-logo-mobile {
+    display: block;
+    margin-bottom: 32px;
+  }
+}
