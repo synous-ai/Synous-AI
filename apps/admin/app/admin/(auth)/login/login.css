@@ -1,0 +1,363 @@
+/**
+ * Login del panel, sobre el lenguaje visual de las páginas de marca.
+ *
+ * Los tokens se declaran acá y no se importan de `_brand/brand-tokens.css`
+ * porque esa hoja pinta `background` y `color` sobre `.brand-surface` y arrastra
+ * el grano de toda la superficie — acá sólo hacen falta los valores.
+ *
+ * Todo queda bajo `.login-page`, así el resto del panel (que usa los tokens de
+ * shadcn) no se entera de estos.
+ */
+
+.login-page {
+  --void: #010511;
+  --surface: #030520;
+  --surface-raised: #090d1d;
+
+  --edge: #181d31;
+  --edge-lit: #1c2542;
+
+  --title: #d5e5f9;
+  --body-text: #dadff5;
+  --muted: #c3cede;
+  --muted-dim: #93a1b4;
+
+  --accent: #96c0ff;
+  --accent-deep: #1c73ca;
+
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--void);
+  color: var(--body-text);
+  font-family: var(--font-proposal-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Panel de marca ───────────────────────────────────────────────────── */
+
+.login-brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 48px;
+  padding: 48px;
+  overflow: hidden;
+  border-right: 1px solid var(--edge);
+  background: linear-gradient(165deg, var(--surface-raised), var(--void) 70%);
+}
+
+/* Mismo grano que las páginas de marca: 1px cada 3px, sumando luz. */
+.login-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background-image: radial-gradient(at 20% 80%, #fff 1px, transparent 0);
+  background-size: 3px 3px;
+  opacity: 0.045;
+  mix-blend-mode: plus-lighter;
+  pointer-events: none;
+}
+
+.login-halo {
+  position: absolute;
+  top: -20%;
+  right: -25%;
+  width: 70%;
+  aspect-ratio: 1;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #1c73ca3d 0%, transparent 68%);
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+.login-brand-head,
+.login-brand-body,
+.login-marks {
+  position: relative;
+  z-index: 2;
+}
+
+.login-logo {
+  height: 26px;
+  width: auto;
+}
+
+.login-logo-mobile {
+  display: none;
+}
+
+/* Badge con el orbe vivo, el mismo de las páginas de propuesta. */
+.login-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  margin: 0 0 26px;
+  padding: 10px 18px 10px 10px;
+  border: 2px solid var(--edge);
+  border-radius: 100px;
+  background: var(--surface);
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--body-text);
+  user-select: none;
+}
+
+.login-badge-orb {
+  width: 22px;
+  height: 22px;
+  border-radius: 100px;
+  background: url('/MeshGradient.webp') center center / 200% 200%;
+  animation: login-orb-drift 2s ease-in-out infinite;
+  will-change: background-position;
+}
+
+@keyframes login-orb-drift {
+  0% {
+    background-position: 0% 20%;
+  }
+  25% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 50% 70%;
+  }
+  100% {
+    background-position: 0% 20%;
+  }
+}
+
+.login-title {
+  margin: 0;
+  font-size: clamp(34px, 3.6vw, 52px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  font-weight: 500;
+  color: var(--title);
+}
+
+/* El mismo gesto que el hero de la propuesta: blanco cayendo en el accent. */
+.login-title-accent {
+  background: linear-gradient(to top, var(--accent), #ffffff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.login-lede {
+  max-width: 42ch;
+  margin: 22px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* Tres marcas de registro al pie, como sello del panel. */
+.login-marks {
+  display: flex;
+  gap: 8px;
+}
+
+.login-mark {
+  width: 26px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--edge-lit);
+}
+
+.login-mark:first-child {
+  width: 44px;
+  background: var(--accent);
+}
+
+/* ── Columna del form ─────────────────────────────────────────────────── */
+
+.login-form-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.login-form-inner {
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-heading {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-weight: 500;
+  color: var(--title);
+}
+
+.login-sub {
+  margin: 10px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.login-clerk {
+  margin-top: 28px;
+}
+
+/* ── Clerk ────────────────────────────────────────────────────────────── */
+
+/* El form viene con su propio ancho y padding de tarjeta: acá ocupa la columna. */
+.login-clerk .clerk-card {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.login-clerk .clerk-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.login-clerk .clerk-input {
+  height: 46px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 10px;
+  background: #0a0f21;
+  font-size: 15px;
+  color: var(--body-text);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-clerk .clerk-input:focus,
+.login-clerk .clerk-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #96c0ff26;
+  outline: none;
+}
+
+/**
+ * Botón de envío: la misma cara clara del CTA de la propuesta. El relleno lo
+ * pinta `::after` por debajo del texto para que el brillo de `::before` pueda
+ * viajar entre los dos — con un `background` propio quedaría tapado.
+ */
+.login-clerk .clerk-submit {
+  position: relative;
+  height: 46px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: #03080f;
+  overflow: hidden;
+  isolation: isolate;
+  text-transform: none;
+  box-shadow: none;
+  transition: transform 0.2s ease;
+}
+
+.login-clerk .clerk-submit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: #e8f1ff;
+}
+
+.login-clerk .clerk-submit::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: -1;
+  width: 220px;
+  height: 120px;
+  transform: translate(-60%, -50%);
+  border-radius: 100%;
+  background: radial-gradient(
+    43.3% 44.23% at 50% 49.51%,
+    #ffffff 29%,
+    var(--accent) 48.5%,
+    var(--accent) 60.71%,
+    #96c0ff00 100%
+  );
+  filter: blur(6px);
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.login-clerk .clerk-submit:hover::before {
+  transform: translate(-40%, -50%);
+}
+
+.login-clerk .clerk-submit:active {
+  transform: translateY(1px);
+}
+
+.login-clerk .clerk-link {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.login-clerk .clerk-link:hover {
+  color: #ffffff;
+}
+
+.login-clerk .clerk-divider-line {
+  background: var(--edge);
+}
+
+.login-clerk .clerk-divider-text {
+  font-size: 12px;
+  color: var(--muted-dim);
+}
+
+.login-clerk .clerk-social {
+  border: 1px solid var(--edge-lit);
+  border-radius: 10px;
+  background: #0a0f21;
+  color: var(--body-text);
+}
+
+.login-clerk .clerk-social:hover {
+  border-color: var(--accent);
+  background: #96c0ff14;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-badge-orb {
+    animation: none;
+  }
+
+  .login-clerk .clerk-submit::before {
+    transition: none;
+  }
+}
+
+/* Bajo el breakpoint el panel de marca se va: en una pantalla chica compite con
+   el form en vez de acompañarlo, y el logo pasa a encabezar la columna. */
+@media (max-width: 900px) {
+  .login-page {
+    grid-template-columns: 1fr;
+  }
+
+  .login-brand {
+    display: none;
+  }
+
+  .login-logo-mobile {
+    display: block;
+    margin-bottom: 32px;
+  }
+}

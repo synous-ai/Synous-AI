@@ -24,21 +24,48 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { SignIn, useAuth } from '@clerk/nextjs'
 import { apiGet } from '@/lib/api'
+import './login.css'
 
-// Apariencia del <SignIn> alineada al admin (monocromo, sin tinte azul de Clerk).
+/**
+ * Apariencia del `<SignIn>` sobre la superficie de marca: Clerk trae su propio
+ * tema claro, así que acá se le pasan los tokens del navy para que el form no
+ * se vea como una tarjeta blanca pegada encima.
+ *
+ * Los `elements` apuntan a clases propias definidas en `login.css`, en vez de
+ * repetir utilidades sueltas: el form de Clerk tiene muchas partes y mantener
+ * su estilo en una hoja aparte deja ver el conjunto de una.
+ */
 const ADMIN_APPEARANCE = {
   variables: {
-    colorPrimary: '#0a0a0a',
-    borderRadius: '0.625rem',
+    colorPrimary: '#96c0ff',
+    colorBackground: 'transparent',
+    colorText: '#dadff5',
+    colorTextSecondary: '#93a1b4',
+    colorInputBackground: '#0a0f21',
+    colorInputText: '#dadff5',
+    colorDanger: '#ff9a9a',
+    borderRadius: '10px',
+    fontFamily: 'var(--font-proposal-sans), ui-sans-serif, system-ui, sans-serif',
   },
   elements: {
-    // White-label: ocultamos el footer "Secured by Clerk" y el card propio
-    // (lo montamos dentro de nuestra columna).
+    // White-label: el footer "Secured by Clerk" y el card propio se ocultan
+    // porque el form se monta dentro de nuestra columna.
     footer: 'hidden',
     cardBox: 'shadow-none',
-    card: 'shadow-none bg-transparent',
+    card: 'clerk-card',
     headerTitle: 'hidden',
     headerSubtitle: 'hidden',
+    formFieldLabel: 'clerk-label',
+    formFieldInput: 'clerk-input',
+    formButtonPrimary: 'clerk-submit',
+    footerActionLink: 'clerk-link',
+    formFieldAction: 'clerk-link',
+    identityPreviewEditButton: 'clerk-link',
+    formResendCodeLink: 'clerk-link',
+    dividerLine: 'clerk-divider-line',
+    dividerText: 'clerk-divider-text',
+    socialButtonsBlockButton: 'clerk-social',
+    otpCodeFieldInput: 'clerk-input',
   },
 } as const
 
@@ -69,57 +96,54 @@ export default function LoginPage() {
   }, [isLoaded, isSignedIn, router])
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
+    <div className="login-page">
       {/* Panel de marca */}
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-foreground p-12 text-background lg:flex">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.06]"
-          style={{
-            backgroundImage: 'radial-gradient(hsl(var(--background)) 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-          }}
-        />
-        <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-background/10 blur-[80px]" />
+      <aside className="login-brand">
+        <div className="login-grain" aria-hidden="true" />
+        <div className="login-halo" aria-hidden="true" />
 
-        <div className="relative flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-md border border-background/20 font-display text-lg font-medium text-background">
-            N
-          </span>
-          <span className="eyebrow text-background/70">Synous · CRM interno</span>
+        <div className="login-brand-head">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="login-logo" src="/brand/logotipo.svg" alt="Synous AI" />
         </div>
 
-        <div className="relative">
-          <h1 className="font-display text-6xl font-medium leading-[0.95] tracking-tight">
-            El negocio,
+        <div className="login-brand-body">
+          <p className="login-badge">
+            <span className="login-badge-orb" aria-hidden="true" />
+            PANEL INTERNO
+          </p>
+          <h1 className="login-title">
+            Todo el negocio,
             <br />
-            de punta
-            <br />
-            a punta.
+            en un solo <span className="login-title-accent">lugar</span>.
           </h1>
-          <p className="mt-6 max-w-sm text-background/60">
-            Pipeline, contactos, empresas y deals — todo en una sola herramienta hecha a medida.
+          <p className="login-lede">
+            Pipeline, contactos, empresas y deals. La herramienta que construimos para
+            trabajar como queremos trabajar.
           </p>
         </div>
 
-        <p className="relative font-mono text-xs text-background/40">app.synousai.com</p>
-      </div>
+        <div className="login-marks" aria-hidden="true">
+          <span className="login-mark" />
+          <span className="login-mark" />
+          <span className="login-mark" />
+        </div>
+      </aside>
 
       {/* Login (componente nativo de Clerk) */}
-      <div className="flex items-center justify-center p-6">
-        <div className="w-full max-w-sm">
-          <p className="eyebrow">Acceso</p>
-          <h2 className="mt-2 font-display text-3xl font-medium tracking-tight">Iniciá sesión</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Entrá con tu cuenta del equipo.</p>
+      <main className="login-form-side">
+        <div className="login-form-inner">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="login-logo login-logo-mobile" src="/brand/logotipo.svg" alt="Synous AI" />
 
-          <div className="mt-6">
-            <SignIn
-              routing="hash"
-              forceRedirectUrl="/dashboard"
-              appearance={ADMIN_APPEARANCE}
-            />
+          <h2 className="login-heading">Iniciá sesión</h2>
+          <p className="login-sub">Entrá con tu cuenta del equipo.</p>
+
+          <div className="login-clerk">
+            <SignIn routing="hash" forceRedirectUrl="/dashboard" appearance={ADMIN_APPEARANCE} />
           </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }
