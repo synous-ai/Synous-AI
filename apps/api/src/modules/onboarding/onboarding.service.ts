@@ -3,12 +3,13 @@ import type { ListQuery } from '../../lib/crm-schemas'
 import { type Paginated } from '../../lib/pagination'
 import { z } from 'zod'
 import { db, type DB } from '../../db'
-import { clientOnboarding, clientAsset, deal, clientAccount, clientDealAccess, contact } from '../../db/schema'
+import { clientOnboarding, clientAsset, deal, clientAccount, clientDealAccess, contact, company } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import type { Tx } from '../../lib/audit'
 import { notifyUser, notifyAdmins } from '../notifications/notify'
 import { moveDealToProduction } from '../deals/stage.service'
 import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
+import { tenantPortalUrl } from '../../lib/portal-url'
 import { onboardingCompletedHtml } from './emails/onboarding-completed'
 import type { ClientTokenPayload } from '../../middleware/authenticate-client'
 import { claimUpload, prepareUploadClaim } from '../uploads/uploads.service'
@@ -478,6 +479,12 @@ export async function completeOnboarding(token: ClientTokenPayload): Promise<Com
     // Best-effort: el onboarding ya quedó completado; un fallo del email no
     // puede devolverle un error al cliente sobre algo que sí se guardó.
     try {
+      const [dealCompany] = await db
+        .select({ slug: company.slug })
+        .from(deal)
+        .innerJoin(company, eq(company.id, deal.companyId))
+        .where(eq(deal.id, activeDeal.id))
+        .limit(1)
       await sendEmail({
         to: c.email,
         subject: `Arrancamos con ${result.dealName}`,
@@ -485,7 +492,7 @@ export async function completeOnboarding(token: ClientTokenPayload): Promise<Com
           firstName: c.firstName,
           dealName: result.dealName,
           stageLabel: result.stageLabel,
-          portalUrl: `${clientPortalBaseUrl()}/portal`,
+          portalUrl: tenantPortalUrl(dealCompany?.slug) ?? `${clientPortalBaseUrl()}/portal`,
         }),
       })
     } catch (err) {

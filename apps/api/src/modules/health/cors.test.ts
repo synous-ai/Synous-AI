@@ -16,8 +16,8 @@ vi.mock('../../config/env', async (importOriginal) => {
     ...actual,
     env: {
       ...actual.env,
-      ADMIN_URL: 'https://app.synousai.com',
-      ALLOWED_ORIGINS: 'https://admin.synousai.com,https://synous-ai-admin.vercel.app',
+      ADMIN_URL: 'https://admin.synousai.com',
+      ALLOWED_ORIGINS: 'https://synous-ai-admin.vercel.app',
       TENANT_ROOT_DOMAIN: 'synousai.com',
     },
   }
@@ -38,7 +38,7 @@ const preflight = (origin: string) =>
 
 describe('CORS — orígenes permitidos', () => {
   it('permite los orígenes de la lista fija', async () => {
-    for (const o of ['https://app.synousai.com', 'https://admin.synousai.com', 'https://synous-ai-admin.vercel.app']) {
+    for (const o of ['https://admin.synousai.com', 'https://synous-ai-admin.vercel.app']) {
       const res = await preflight(o)
       expect(res.headers['access-control-allow-origin'], o).toBe(o)
     }
