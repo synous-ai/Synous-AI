@@ -363,7 +363,7 @@ Vercel intercepta el `listen()`). Lo que se deploya es su bundle
 | `framework` | `fastify` | Fija el preset aunque cambie la detección automática |
 | `buildCommand` | `pnpm run build:bundle` | `tsup src/server.ts` → `dist/server.js` (config en `tsup.config.ts`) |
 | `outputDirectory` | `dist` | El preset busca el entrypoint (`server.js`) PRIMERO ahí, después de correr el build |
-| `crons` | `/api/cron/reminders`, `*/15 * * * *` | Recordatorios (ver abajo) |
+| `crons` | `/api/cron/reminders`, `0 11 * * *` | Recordatorios, una vez por día (ver abajo) |
 
 Con `VERCEL` definido, `server.ts` no arranca el worker de BullMQ ni instala
 handlers de SIGINT/SIGTERM que llamen a `process.exit`: el ciclo de vida de la
@@ -421,9 +421,12 @@ buildea el mismo bundle y falla si `@synous/shared` quedó como import externo.
 `runReminderScan()` (tareas vencidas/hoy, deals estancados, recordatorios de
 reunión) es idempotente (`dedupeKey` + claim-before-send). Dos disparadores:
 
-- **Vercel:** Vercel Cron llama `GET /api/cron/reminders` cada 15 min (UTC) con
+- **Vercel:** Vercel Cron llama `GET /api/cron/reminders` una vez por día, 11:00 UTC
+  (el plan Hobby no acepta más frecuencia), con
   `Authorization: Bearer <CRON_SECRET>`. Header ausente o inválido → `401` sin
-  body; `CRON_SECRET` sin configurar → `503 CRON_NOT_CONFIGURED`.
+  body; `CRON_SECRET` sin configurar → `503 CRON_NOT_CONFIGURED`. Con una corrida
+  diaria el recordatorio de reunión de 24 h sale (hasta un día antes), pero el de
+  1 h solo alcanza a las reuniones que empiezan en la hora siguiente a la corrida.
 - **Long-running (local o host propio):** `server.ts` arranca el worker de
   BullMQ (`jobs/reminders.queue.ts`) si hay `REDIS_URL`.
 
@@ -444,8 +447,8 @@ sandbox.
    notificación desde otra sesión y ver la campana actualizarse sin esperar el
    polling de 60 s.
 5. **Cron:** `CRON_SECRET` cargado en Production; `/api/cron/reminders` aparece
-   en Settings → Cron Jobs y la ejecución responde 200. En plan Hobby los crons
-   son como mucho diarios y `*/15` no se acepta.
+   en Settings → Cron Jobs y la ejecución responde 200. El plan Hobby solo acepta
+   crons diarios.
 6. **Duración:** la reconexión del admin a los ~300 s no genera errores visibles.
 
 ### Rollback

@@ -23,15 +23,15 @@ Estas cinco cosas no se pueden resolver desde el repositorio y son las más urge
 | 1 | **Rotar la contraseña de la base Neon de producción** (`neondb_owner`, host `ep-silent-haze-av0bjj1j`). | Está commiteada en `.env.example` desde `e33d2a0` (11/09) y pusheada a `origin/main` en GitHub. Borrarla del archivo no la saca del historial. |
 | 2 | Reemplazar en `.env.example` todos los valores reales (`DATABASE_URL`, `PGPASSWORD`, `POSTGRES_*`, hosts `*.neon.tech`) por placeholders. | La edición automática de archivos `.env*` está bloqueada por permisos. |
 | 3 | Borrar `apps/api/.env.bak.1789257089` y verificar que no se haya sincronizado a Time Machine / iCloud / Dropbox. | Backup con secretos reales. Ya quedó cubierto por `.gitignore` (nunca llegó al historial). |
-| 4 | Antes de desplegar la migración `0038`: `SELECT portal_id, number, count(*) FROM invoice GROUP BY 1,2 HAVING count(*) > 1;` | La migración agrega `UNIQUE(portal_id, number)` y falla si ya existen facturas duplicadas (posible por el bug C5). |
-| 5 | Provisionar Redis del Marketplace de Vercel (`vercel integration accept-terms redis`, lo acepta una persona) y conectarlo a `synous-ai-api`. | Topología decidida (C10): WebSockets de Vercel + Redis pub/sub + Vercel Cron. Sin `REDIS_URL` el bus queda en memoria y un evento solo llega a los sockets de la misma instancia. |
-| 6 | Antes de desplegar `0040`: nada que chequear (solo crea `file_upload` e índices). Orden de deploy: **migraciones → API → admin**. | El admin nuevo llama a rutas de archivos que la API vieja no tiene. |
+| 4 | ~~Chequear facturas duplicadas antes de la `UNIQUE`~~ **Hecho 13/09:** 0 duplicados; migraciones `0038`–`0041` aplicadas en producción (42 en total). | La migración agrega `UNIQUE(portal_id, number)` y falla si ya existen facturas duplicadas (posible por el bug C5). |
+| 5 | ~~Provisionar Redis del Marketplace de Vercel~~ **Hecho 13/09:** `synous-ai-redis` (iad1) conectado a `synous-ai-api` en Production y Preview. | Fan-out de `/ws/notifications` entre instancias (C10). |
+| 6 | Orden de deploy: **migraciones (hecho) → API → admin**. | El admin nuevo llama a rutas de archivos que la API vieja no tiene. |
 | 7 | Agregar a `.env.example` los placeholders de Blob: `BLOB_READ_WRITE_TOKEN=`, `BLOB_STORE_ID=`, `BLOB_WEBHOOK_PUBLIC_KEY=` (sin valores). | Edición de `.env*` bloqueada por permisos. |
 | 8 | Verificar la integración de Blob con el checklist de `docs/STORAGE.md` → Deploy. | El modo `blob` solo está probado con el SDK mockeado. **Ojo:** los Preview de `synous-ai-api` usan la base de PRODUCCIÓN (no hay branch de Neon por preview) y no tienen `ACCESS_TOKEN_SECRET`; no son un sandbox. |
-| 9 | Resolver el cron de recordatorios frente al plan **Hobby** (solo permite crons diarios): pasar a Pro o bajar `apps/api/vercel.json` → `crons` a una frecuencia diaria. | Con `*/15 * * * *` Vercel rechaza el deploy del API en Hobby. |
 | 9 | Cargar `ACCESS_TOKEN_SECRET` (y el resto de las variables obligatorias) en el ambiente **Preview** de `synous-ai-api`. | Hoy Preview no la tiene: `env.ts` falla al arrancar y cualquier deploy de Preview queda caído. |
 | 10 | Configurar `DOCUSEAL_API_KEY` y `DOCUSEAL_WEBHOOK_SECRET` en Production si la firma de contratos ya se usa. | No están definidas: los endpoints responden 503 y el webhook rechaza todo. |
 | 11 | Quitar `DATABASE_URL`/`PGPASSWORD`/`POSTGRES_*` del proyecto Vercel `synous-ai-admin`, y borrar `apps/api/.env.local`. | El admin nunca habla con la DB (superficie de secretos innecesaria). El `.env.local` lo creó la CLI de Vercel al vincular el store y la API no lo usa. |
+| 12 | ~~Resolver el cron de recordatorios frente al plan Hobby~~ **Hecho:** cron diario (`0 11 * * *`). | Con `*/15 * * * *` Vercel rechazaba el deploy en Hobby. Consecuencia: el recordatorio de reunión de 1 h solo alcanza a las reuniones de la hora siguiente a la corrida. |
 
 ---
 

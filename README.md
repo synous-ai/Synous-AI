@@ -457,7 +457,7 @@ Localmente: `pnpm typecheck`, `pnpm --filter api test`, `pnpm --filter admin lin
 - **Admin** (`apps/admin`) — build estándar de Next.js.
 - **Tiempo real y recordatorios** — `/ws/notifications` reparte eventos entre instancias
   vía Redis pub/sub (`REDIS_URL`, Redis del Marketplace de Vercel) y los recordatorios
-  corren por Vercel Cron (`GET /api/cron/reminders` cada 15 min, protegido con
+  corren por Vercel Cron (`GET /api/cron/reminders` una vez por día, protegido con
   `CRON_SECRET`). Los WebSockets de Vercel están en beta y cortan la conexión a la
   duración máxima de la Function: la campana del admin reconecta sola.
 - Migraciones Drizzle son forward-only; antes de deployar una que agregue un
