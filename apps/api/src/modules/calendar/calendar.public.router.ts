@@ -19,7 +19,7 @@ import type { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 import { ok } from '../../lib/response'
-import { adminBaseUrl } from '../../lib/portal-url'
+import { publicSiteBaseUrl } from '../../lib/portal-url'
 import { CreateBookingSchema, CancelBookingSchema, RescheduleByTokenSchema } from './calendar.schema'
 import {
   getPublicEventType,
@@ -178,7 +178,7 @@ export async function calendarPublicRoutes(app: FastifyInstance): Promise<void> 
       // Los links de cancel/reschedule llevan el token firmado y viajan por
       // email: su origen sale de configuración, nunca de headers del request
       // (con X-Forwarded-Host un atacante recibía los tokens en su dominio).
-      const result = await createPublicBooking(portalId, eventSlug, request.body, adminBaseUrl())
+      const result = await createPublicBooking(portalId, eventSlug, request.body, publicSiteBaseUrl())
       return reply.status(201).send(ok(result))
     },
   )
@@ -268,7 +268,7 @@ export async function calendarPublicRoutes(app: FastifyInstance): Promise<void> 
     async (request, reply) => {
       const { token, ...rescheduleData } = request.body
 
-      const result = await reschedulePublicBooking(token, rescheduleData, adminBaseUrl())
+      const result = await reschedulePublicBooking(token, rescheduleData, publicSiteBaseUrl())
       return reply.status(201).send(ok(result))
     },
   )

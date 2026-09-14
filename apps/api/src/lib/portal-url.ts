@@ -10,6 +10,10 @@
  * armar los links del email mandaría a los clientes a una app que no es la que
  * está desplegada.
  *
+ * Con `TENANT_ROOT_DOMAIN` configurado, la dirección canónica del portal es el
+ * subdominio de la empresa (`tenantPortalUrl`) y las páginas públicas van al
+ * apex (`publicSiteBaseUrl`). Las funciones con prefijo quedan como respaldo.
+ *
  * White-label: si el `client_account` tiene `brandSlug`, el portal se sirve en
  * `/c/<slug>/*`, que el middleware reescribe a `/portal/*` seteando la cookie de
  * tenant. Sin slug, se usa `/portal/*` directo.
@@ -42,6 +46,30 @@ export function adminBaseUrl(): string {
     return DEV_FALLBACK
   }
   return env.ADMIN_URL.replace(/\/+$/, '')
+}
+
+function rootDomain(): string | null {
+  return env.TENANT_ROOT_DOMAIN?.trim().replace(/\/+$/, '') || null
+}
+
+/**
+ * Portal del cliente en el subdominio de su empresa: `https://<slug>.<raíz>`.
+ * `null` si falta `TENANT_ROOT_DOMAIN` o la empresa todavía no tiene slug; el
+ * caller cae entonces a la base con prefijo.
+ */
+export function tenantPortalUrl(companySlug?: string | null): string | null {
+  const root = rootDomain()
+  return root && companySlug ? `https://${companySlug}.${root}` : null
+}
+
+/**
+ * Base del sitio público (el apex): propuestas (`/p/*`) y reservas (`/book/*`).
+ * El panel (`admin.*`) no sirve esas páginas. Sin dominio raíz (dev) cae a
+ * `ADMIN_URL`, donde la app sirve todo junto.
+ */
+export function publicSiteBaseUrl(): string {
+  const root = rootDomain()
+  return root ? `https://${root}` : adminBaseUrl()
 }
 
 /** Prefijo del portal según sea white-label (`/c/<slug>`) o genérico (`/portal`). */
