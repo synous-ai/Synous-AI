@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ListQuerySchema } from '../../lib/crm-schemas'
 
 // ── Notas ──────────────────────────────────────────────
 export const CreateNoteSchema = z.object({
@@ -13,7 +14,7 @@ export const NoteQuerySchema = z.object({
   contactId: z.string().min(1).optional(),
   dealId: z.string().min(1).optional(),
   companyId: z.string().min(1).optional(),
-})
+}).merge(ListQuerySchema)
 export type NoteQuery = z.infer<typeof NoteQuerySchema>
 
 // ── Tareas ─────────────────────────────────────────────
@@ -48,5 +49,5 @@ export const TaskQuerySchema = z.object({
   assignedTo: z.string().min(1).optional(),
   contactId: z.string().min(1).optional(),
   dealId: z.string().min(1).optional(),
-})
+}).merge(ListQuerySchema)
 export type TaskQuery = z.infer<typeof TaskQuerySchema>

@@ -19,7 +19,7 @@ import {
   deliverable,
   document,
 } from '../../db/schema'
-import { ensurePortalAndUser, ensurePipeline, loginToken, type PipelineContext } from '../../test/helpers'
+import { ensurePortalAndUser, ensurePipeline, loginToken, type PipelineContext, listenForSupertest } from '../../test/helpers'
 
 const app = buildApp()
 
@@ -36,7 +36,7 @@ let archivedDealId: string
 let archivedDeliverableId: string
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
 
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId

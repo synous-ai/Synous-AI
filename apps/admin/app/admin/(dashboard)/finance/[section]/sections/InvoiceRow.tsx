@@ -5,6 +5,7 @@ import { Loader2, Trash2, CreditCard } from 'lucide-react'
 import { useInvoiceTransition, useArchiveInvoice } from '@/lib/hooks'
 import type { Invoice, InvoiceStatus } from '@/lib/types'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   Select,
   SelectContent,
@@ -37,14 +38,15 @@ export function InvoiceRow({
   const transition = useInvoiceTransition()
   const archive = useArchiveInvoice()
   const [deleting, setDeleting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const company = companies?.find((c) => c.id === inv.companyId)
 
   async function handleArchive() {
-    if (!window.confirm(`¿Archivar la factura #${inv.number}?`)) return
     setDeleting(true)
     try {
       await archive.mutateAsync(inv.id)
+      setConfirmOpen(false)
     } finally {
       setDeleting(false)
     }
@@ -103,7 +105,7 @@ export function InvoiceRow({
           type="button"
           variant="ghost"
           size="icon"
-          onClick={handleArchive}
+          onClick={() => setConfirmOpen(true)}
           disabled={deleting}
           className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
           title="Archivar"
@@ -111,6 +113,16 @@ export function InvoiceRow({
           {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`¿Archivar la factura #${inv.number}?`}
+        confirmLabel="Archivar"
+        destructive
+        pending={deleting}
+        onConfirm={() => void handleArchive()}
+      />
     </div>
   )
 }

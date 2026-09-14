@@ -1,6 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { Plus, Loader2, Trash2, Pencil, Settings2 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -8,9 +11,8 @@ import {
   useCreateCustomField,
   useUpdateCustomField,
   useDeleteCustomField,
-  type CreateCustomFieldInput,
-  type UpdateCustomFieldInput,
 } from '@/lib/hooks'
+import { ApiError } from '@/lib/api'
 import type { CustomField, CustomFieldEntityType } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -68,16 +70,37 @@ function slugifyKey(label: string): string {
   )
 }
 
-interface FieldFormState {
-  label: string
-  key: string
-  fieldType: string
-  options: string[]
-  displayOrder: string
+// ── Schema (espeja CreateCustomFieldSchema / UpdateCustomFieldSchema de apps/api) ──
+
+const OptionSchema = z.object({ value: z.string() })
+
+const baseFieldShape = {
+  label: z.string().min(1, 'La etiqueta es requerida'),
+  fieldType: z.enum(['text', 'number', 'date', 'select', 'boolean']),
+  options: z.array(OptionSchema),
+  displayOrder: z.coerce
+    .number({ invalid_type_error: 'Debe ser un número' })
+    .int('Debe ser un número entero')
+    .min(0, 'Debe ser mayor o igual a 0'),
 }
 
-function emptyFieldForm(): FieldFormState {
-  return { label: '', key: '', fieldType: 'text', options: [''], displayOrder: '0' }
+const NewFieldSchema = z.object({
+  ...baseFieldShape,
+  key: z
+    .string()
+    .min(1, 'La clave es requerida')
+    .regex(
+      /^[a-z][a-z0-9_]*$/,
+      'La clave debe comenzar con una letra minúscula y contener solo letras, números y guion bajo',
+    ),
+})
+type NewFieldValues = z.infer<typeof NewFieldSchema>
+
+const EditFieldSchema = z.object(baseFieldShape)
+type EditFieldValues = z.infer<typeof EditFieldSchema>
+
+function emptyOptions(options?: string[] | null): { value: string }[] {
+  return options && options.length > 0 ? options.map((v) => ({ value: v })) : [{ value: '' }]
 }
 
 interface EditDialogProps {
@@ -87,35 +110,45 @@ interface EditDialogProps {
 
 function EditFieldDialog({ field, onClose }: EditDialogProps) {
   const update = useUpdateCustomField()
-  const [form, setForm] = useState<FieldFormState>({
-    label: field.label,
-    key: field.key,
-    fieldType: field.fieldType,
-    options: field.options && field.options.length > 0 ? field.options : [''],
-    displayOrder: String(field.displayOrder),
-  })
   const [error, setError] = useState<string | null>(null)
 
-  async function save() {
+  const form = useForm<EditFieldValues>({
+    resolver: zodResolver(EditFieldSchema),
+    defaultValues: {
+      label: field.label,
+      fieldType: field.fieldType,
+      options: emptyOptions(field.options),
+      displayOrder: field.displayOrder as unknown as number,
+    },
+  })
+  const {
+    register,
+    control,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+  } = form
+  const { fields: optionFields, append, remove } = useFieldArray({ control, name: 'options' })
+  const fieldType = watch('fieldType')
+
+  async function onSubmit(values: EditFieldValues): Promise<void> {
     setError(null)
-    if (!form.label.trim()) {
-      setError('La etiqueta es requerida')
-      return
-    }
-    const input: UpdateCustomFieldInput = {
-      label: form.label.trim(),
-      fieldType: form.fieldType as UpdateCustomFieldInput['fieldType'],
-      displayOrder: parseInt(form.displayOrder, 10) || 0,
-      options:
-        form.fieldType === 'select'
-          ? form.options.map((o) => o.trim()).filter(Boolean)
-          : null,
-    }
     try {
-      await update.mutateAsync({ id: field.id, input })
+      await update.mutateAsync({
+        id: field.id,
+        input: {
+          label: values.label.trim(),
+          fieldType: values.fieldType,
+          displayOrder: values.displayOrder,
+          options:
+            values.fieldType === 'select'
+              ? values.options.map((o) => o.value.trim()).filter(Boolean)
+              : null,
+        },
+      })
       onClose()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo guardar')
+      setError(e instanceof ApiError ? e.message : 'No se pudo guardar')
     }
   }
 
@@ -128,62 +161,62 @@ function EditFieldDialog({ field, onClose }: EditDialogProps) {
             Formulario para editar un campo personalizado.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Etiqueta</Label>
+            <Label htmlFor="edit-field-label">Etiqueta</Label>
             <Input
-              value={form.label}
-              onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+              id="edit-field-label"
+              aria-invalid={!!errors.label}
+              aria-describedby={errors.label ? 'edit-field-label-error' : undefined}
+              {...register('label')}
             />
+            {errors.label && (
+              <p id="edit-field-label-error" className="text-sm text-destructive">
+                {errors.label.message}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
-            <Label>
+            <Label htmlFor="edit-field-key">
               Clave{' '}
               <span className="font-mono text-xs text-muted-foreground">(no editable)</span>
             </Label>
-            <Input value={form.key} disabled className="font-mono text-sm opacity-60" />
+            <Input id="edit-field-key" value={field.key} disabled className="font-mono text-sm opacity-60" />
           </div>
           <div className="space-y-1.5">
-            <Label>Tipo de campo</Label>
-            <Select
-              value={form.fieldType}
-              onValueChange={(v) => setForm((f) => ({ ...f, fieldType: v }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(FIELD_TYPE_LABELS).map(([v, l]) => (
-                  <SelectItem key={v} value={v}>{l}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="edit-field-type">Tipo de campo</Label>
+            <Controller
+              control={control}
+              name="fieldType"
+              render={({ field: f }) => (
+                <Select value={f.value} onValueChange={f.onChange}>
+                  <SelectTrigger id="edit-field-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(FIELD_TYPE_LABELS).map(([v, l]) => (
+                      <SelectItem key={v} value={v}>{l}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
           </div>
-          {form.fieldType === 'select' && (
+          {fieldType === 'select' && (
             <div className="space-y-2">
               <Label>Opciones</Label>
-              {form.options.map((opt, i) => (
-                <div key={i} className="flex gap-2">
+              {optionFields.map((opt, i) => (
+                <div key={opt.id} className="flex gap-2">
                   <Input
                     className="flex-1"
-                    value={opt}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        options: f.options.map((o, idx) => (idx === i ? e.target.value : o)),
-                      }))
-                    }
+                    {...register(`options.${i}.value`)}
                     placeholder={`Opción ${i + 1}`}
                   />
                   <Button
+                    type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={() =>
-                      setForm((f) => ({
-                        ...f,
-                        options: f.options.length === 1 ? f.options : f.options.filter((_, idx) => idx !== i),
-                      }))
-                    }
+                    onClick={() => (optionFields.length === 1 ? undefined : remove(i))}
                     className="text-muted-foreground hover:text-destructive"
                     aria-label="Quitar opción"
                   >
@@ -191,34 +224,37 @@ function EditFieldDialog({ field, onClose }: EditDialogProps) {
                   </Button>
                 </div>
               ))}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setForm((f) => ({ ...f, options: [...f.options, ''] }))}
-              >
+              <Button type="button" variant="ghost" size="sm" onClick={() => append({ value: '' })}>
                 <Plus className="mr-1 h-4 w-4" />
                 Opción
               </Button>
             </div>
           )}
           <div className="space-y-1.5">
-            <Label>Orden de visualización</Label>
+            <Label htmlFor="edit-field-order">Orden de visualización</Label>
             <Input
+              id="edit-field-order"
               type="number"
               min={0}
-              value={form.displayOrder}
-              onChange={(e) => setForm((f) => ({ ...f, displayOrder: e.target.value }))}
+              aria-invalid={!!errors.displayOrder}
+              aria-describedby={errors.displayOrder ? 'edit-field-order-error' : undefined}
+              {...register('displayOrder')}
             />
+            {errors.displayOrder && (
+              <p id="edit-field-order-error" className="text-sm text-destructive">
+                {errors.displayOrder.message}
+              </p>
+            )}
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>Cancelar</Button>
-            <Button onClick={save} disabled={update.isPending}>
-              {update.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               Guardar
             </Button>
           </div>
-        </div>
+        </form>
       </DialogContent>
     </Dialog>
   )
@@ -232,45 +268,51 @@ export function CamposSection() {
   const [open, setOpen] = useState(false)
   const [editField, setEditField] = useState<CustomField | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
-  const [form, setForm] = useState<FieldFormState>(emptyFieldForm())
   const [keyEdited, setKeyEdited] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function handleLabelChange(label: string) {
-    setForm((f) => ({
-      ...f,
-      label,
-      key: keyEdited ? f.key : slugifyKey(label),
-    }))
+  const newFieldDefaults: NewFieldValues = {
+    label: '',
+    key: '',
+    fieldType: 'text',
+    options: [{ value: '' }],
+    displayOrder: 0 as unknown as number,
   }
 
-  async function saveNew() {
+  const form = useForm<NewFieldValues>({
+    resolver: zodResolver(NewFieldSchema),
+    defaultValues: newFieldDefaults,
+  })
+  const {
+    register,
+    control,
+    handleSubmit,
+    watch,
+    setValue,
+    reset,
+    formState: { errors, isSubmitting },
+  } = form
+  const { fields: optionFields, append, remove } = useFieldArray({ control, name: 'options' })
+  const fieldType = watch('fieldType')
+
+  async function saveNew(values: NewFieldValues): Promise<void> {
     setError(null)
-    if (!form.label.trim()) {
-      setError('La etiqueta es requerida')
-      return
-    }
-    if (!form.key.trim()) {
-      setError('La clave es requerida')
-      return
-    }
-    const input: CreateCustomFieldInput = {
-      entityType: entity,
-      key: form.key.trim(),
-      label: form.label.trim(),
-      fieldType: form.fieldType as CreateCustomFieldInput['fieldType'],
-      displayOrder: parseInt(form.displayOrder, 10) || 0,
-      ...(form.fieldType === 'select' && {
-        options: form.options.map((o) => o.trim()).filter(Boolean),
-      }),
-    }
     try {
-      await create.mutateAsync(input)
-      setForm(emptyFieldForm())
+      await create.mutateAsync({
+        entityType: entity,
+        key: values.key.trim(),
+        label: values.label.trim(),
+        fieldType: values.fieldType,
+        displayOrder: values.displayOrder,
+        ...(values.fieldType === 'select' && {
+          options: values.options.map((o) => o.value.trim()).filter(Boolean),
+        }),
+      })
+      reset(newFieldDefaults)
       setKeyEdited(false)
       setOpen(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo crear el campo')
+      setError(e instanceof ApiError ? e.message : 'No se pudo crear el campo')
     }
   }
 
@@ -437,109 +479,122 @@ export function CamposSection() {
       {/* New field form */}
       {open && (
         <Card>
-          <CardContent className="space-y-4 p-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Etiqueta</Label>
-                <Input
-                  value={form.label}
-                  onChange={(e) => handleLabelChange(e.target.value)}
-                  placeholder="Ej: Presupuesto"
-                />
+          <form onSubmit={handleSubmit(saveNew)}>
+            <CardContent className="space-y-4 p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-field-label">Etiqueta</Label>
+                  <Input
+                    id="new-field-label"
+                    placeholder="Ej: Presupuesto"
+                    aria-invalid={!!errors.label}
+                    aria-describedby={errors.label ? 'new-field-label-error' : undefined}
+                    {...register('label', {
+                      onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+                        if (!keyEdited) setValue('key', slugifyKey(e.target.value))
+                      },
+                    })}
+                  />
+                  {errors.label && (
+                    <p id="new-field-label-error" className="text-[11px] text-destructive">
+                      {errors.label.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-field-key">Clave (slug)</Label>
+                  <Input
+                    id="new-field-key"
+                    placeholder="presupuesto"
+                    className="font-mono text-sm"
+                    aria-invalid={!!errors.key}
+                    aria-describedby={errors.key ? 'new-field-key-error' : undefined}
+                    {...register('key', { onChange: () => setKeyEdited(true) })}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Solo minúsculas, números y guion bajo. No se puede cambiar después.
+                  </p>
+                  {errors.key && (
+                    <p id="new-field-key-error" className="text-[11px] text-destructive">
+                      {errors.key.message}
+                    </p>
+                  )}
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label>Clave (slug)</Label>
-                <Input
-                  value={form.key}
-                  onChange={(e) => { setKeyEdited(true); setForm((f) => ({ ...f, key: e.target.value })) }}
-                  placeholder="presupuesto"
-                  className="font-mono text-sm"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Solo minúsculas, números y guion bajo. No se puede cambiar después.
-                </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-field-type">Tipo de campo</Label>
+                  <Controller
+                    control={control}
+                    name="fieldType"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger id="new-field-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(FIELD_TYPE_LABELS).map(([v, l]) => (
+                            <SelectItem key={v} value={v}>{l}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-field-order">Orden de visualización</Label>
+                  <Input
+                    id="new-field-order"
+                    type="number"
+                    min={0}
+                    aria-invalid={!!errors.displayOrder}
+                    aria-describedby={errors.displayOrder ? 'new-field-order-error' : undefined}
+                    {...register('displayOrder')}
+                  />
+                  {errors.displayOrder && (
+                    <p id="new-field-order-error" className="text-[11px] text-destructive">
+                      {errors.displayOrder.message}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Tipo de campo</Label>
-                <Select
-                  value={form.fieldType}
-                  onValueChange={(v) => setForm((f) => ({ ...f, fieldType: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(FIELD_TYPE_LABELS).map(([v, l]) => (
-                      <SelectItem key={v} value={v}>{l}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Orden de visualización</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={form.displayOrder}
-                  onChange={(e) => setForm((f) => ({ ...f, displayOrder: e.target.value }))}
-                />
-              </div>
-            </div>
-            {form.fieldType === 'select' && (
-              <div className="space-y-2">
-                <Label>Opciones</Label>
-                {form.options.map((opt, i) => (
-                  <div key={i} className="flex gap-2">
-                    <Input
-                      className="flex-1"
-                      value={opt}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          options: f.options.map((o, idx) => (idx === i ? e.target.value : o)),
-                        }))
-                      }
-                      placeholder={`Opción ${i + 1}`}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() =>
-                        setForm((f) => ({
-                          ...f,
-                          options:
-                            f.options.length === 1
-                              ? f.options
-                              : f.options.filter((_, idx) => idx !== i),
-                        }))
-                      }
-                      className="text-muted-foreground hover:text-destructive"
-                      aria-label="Quitar opción"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setForm((f) => ({ ...f, options: [...f.options, ''] }))}
-                >
-                  <Plus className="mr-1 h-4 w-4" />
-                  Opción
+              {fieldType === 'select' && (
+                <div className="space-y-2">
+                  <Label>Opciones</Label>
+                  {optionFields.map((opt, i) => (
+                    <div key={opt.id} className="flex gap-2">
+                      <Input
+                        className="flex-1"
+                        {...register(`options.${i}.value`)}
+                        placeholder={`Opción ${i + 1}`}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => (optionFields.length === 1 ? undefined : remove(i))}
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label="Quitar opción"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button type="button" variant="ghost" size="sm" onClick={() => append({ value: '' })}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    Opción
+                  </Button>
+                </div>
+              )}
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <div className="flex justify-end">
+                <Button type="submit" size="sm" disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                  Crear Campo
                 </Button>
               </div>
-            )}
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <div className="flex justify-end">
-              <Button size="sm" onClick={saveNew} disabled={!form.label.trim() || create.isPending}>
-                {create.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                Crear Campo
-              </Button>
-            </div>
-          </CardContent>
+            </CardContent>
+          </form>
         </Card>
       )}
 

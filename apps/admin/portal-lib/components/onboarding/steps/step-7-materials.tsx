@@ -11,15 +11,14 @@ import {
   useUploadOnboardingMaterial,
   useSaveOnboardingMaterialsDraft,
 } from '@portal/lib/hooks'
-import { downloadFile } from '@portal/lib/api'
+import { openFile, FILE_PURPOSE_ACCEPT } from '@portal/lib/files'
 import type { OnboardingAsset, OnboardingMaterialCategory, OnboardingMaterialsState } from '@portal/lib/types'
 import { ONBOARDING_MATERIAL_CATEGORIES, type OnboardingMaterialCategoryDef } from '@portal/lib/onboarding-content'
 import { cn, formatSize } from '@portal/lib/utils'
 
 /**
- * Un adjunto ya subido. Es un botón y no un `<a href>` porque
- * `GET /api/files/:key` exige el token de Clerk y un anchor no manda headers
- * (ver downloadFile en lib/api.ts).
+ * Un adjunto ya subido. Es un botón y no un `<a href>` porque abrirlo requiere
+ * pedir una URL de acceso temporal autenticada (ver openFile en lib/files.ts).
  */
 function AssetLink({ asset }: { asset: OnboardingAsset }) {
   const [downloading, setDownloading] = useState(false)
@@ -29,7 +28,7 @@ function AssetLink({ asset }: { asset: OnboardingAsset }) {
     setDownloading(true)
     setFailed(false)
     try {
-      await downloadFile(asset.storageKey, asset.name)
+      await openFile(asset.storageKey)
     } catch {
       setFailed(true)
     } finally {
@@ -70,6 +69,7 @@ function CategoryCard({
   onNoteChange,
   onUpload,
   uploading,
+  progress,
 }: {
   def: OnboardingMaterialCategoryDef
   state: LocalMaterialItem
@@ -78,6 +78,7 @@ function CategoryCard({
   onNoteChange: (note: string) => void
   onUpload: (files: FileList) => void
   uploading: boolean
+  progress?: FileUploadProgress[]
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -116,6 +117,7 @@ function CategoryCard({
           ref={inputRef}
           type="file"
           multiple
+          accept={FILE_PURPOSE_ACCEPT.onboarding_material}
           className="sr-only"
           onChange={(e) => {
             if (e.target.files && e.target.files.length > 0) onUpload(e.target.files)
@@ -127,6 +129,24 @@ function CategoryCard({
           Subir archivo{uploading ? '…' : 's'}
         </Button>
       </div>
+
+      {/* Progreso por archivo mientras esta categoría tiene una subida en vuelo. */}
+      {progress && progress.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {progress.map((p, i) => (
+            <li key={i} className="flex items-center gap-1.5 text-xs">
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{p.name}</span>
+              {p.error ? (
+                <span role="alert" className="shrink-0 text-destructive">
+                  {p.error}
+                </span>
+              ) : (
+                <span className="shrink-0 text-muted-foreground">{p.percent}%</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <Textarea
         rows={2}
@@ -143,6 +163,13 @@ interface LocalMaterialItem {
   done: boolean
   assetIds: string[]
   note: string
+}
+
+/** Progreso de subida de UN archivo dentro de una categoría (ver handleUpload). */
+interface FileUploadProgress {
+  name: string
+  percent: number
+  error: string | null
 }
 
 type LocalMaterials = Record<OnboardingMaterialCategory, LocalMaterialItem>
@@ -169,6 +196,8 @@ export function Step7Materials({
 }) {
   const [state, setState] = useState<LocalMaterials>(() => buildInitialState(materials))
   const [uploadingCategory, setUploadingCategory] = useState<OnboardingMaterialCategory | null>(null)
+  /** Progreso por archivo, por categoría — se limpia unos segundos después de terminar. */
+  const [uploadProgress, setUploadProgress] = useState<Partial<Record<OnboardingMaterialCategory, FileUploadProgress[]>>>({})
   const uploadMaterial = useUploadOnboardingMaterial()
   const submitMaterials = useSubmitOnboardingMaterials()
   const saveDraft = useSaveOnboardingMaterialsDraft()
@@ -250,15 +279,43 @@ export function Step7Materials({
 
   async function handleUpload(category: OnboardingMaterialCategory, files: FileList) {
     setUploadingCategory(category)
+    const fileArray = Array.from(files)
+    setUploadProgress((p) => ({
+      ...p,
+      [category]: fileArray.map((f) => ({ name: f.name, percent: 0, error: null })),
+    }))
     try {
       // Subidas en paralelo (no secuenciales): con allSettled, un archivo que
-      // falla no bloquea ni descarta los que sí se subieron bien.
+      // falla no bloquea ni descarta los que sí se subieron bien. El progreso
+      // y el error se llevan por índice — así cada fila sabe cuál falló y por qué.
       const results = await Promise.allSettled(
-        Array.from(files).map((file) => uploadMaterial.mutateAsync({ category, file })),
+        fileArray.map((file, idx) =>
+          uploadMaterial.mutateAsync({
+            category,
+            file,
+            onProgress: (percent) =>
+              setUploadProgress((p) => {
+                const list = p[category] ? [...p[category]!] : []
+                if (list[idx]) list[idx] = { ...list[idx], percent }
+                return { ...p, [category]: list }
+              }),
+          }),
+        ),
       )
-      const uploadedIds = results
-        .filter((r): r is PromiseFulfilledResult<OnboardingAsset> => r.status === 'fulfilled')
-        .map((r) => r.value.id)
+      const uploadedIds: string[] = []
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') {
+          uploadedIds.push(r.value.id)
+        } else {
+          setUploadProgress((p) => {
+            const list = p[category] ? [...p[category]!] : []
+            if (list[idx]) {
+              list[idx] = { ...list[idx], error: r.reason instanceof Error ? r.reason.message : 'No se pudo subir' }
+            }
+            return { ...p, [category]: list }
+          })
+        }
+      })
       if (uploadedIds.length > 0) {
         updateCategory(
           category,
@@ -269,6 +326,9 @@ export function Step7Materials({
       // Si alguno falló, uploadMaterial.isError queda en true y se muestra el aviso abajo.
     } finally {
       setUploadingCategory(null)
+      // Deja la lista de progreso visible un momento (para que se vea el 100%
+      // o el error) y después la limpia — no queda como estado permanente.
+      setTimeout(() => setUploadProgress((p) => ({ ...p, [category]: undefined })), 3000)
     }
   }
 
@@ -313,6 +373,7 @@ export function Step7Materials({
             state={state[def.key]}
             assets={assetsByCategory(def.key)}
             uploading={uploadingCategory === def.key}
+            progress={uploadProgress[def.key]}
             onToggleDone={() => updateCategory(def.key, { done: !state[def.key].done }, persistCategory)}
             onNoteChange={(note) => updateCategory(def.key, { note }, persistNoteDebounced)}
             onUpload={(files) => void handleUpload(def.key, files)}

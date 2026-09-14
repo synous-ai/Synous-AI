@@ -12,6 +12,13 @@ import * as schema from './schema'
 neonConfig.webSocketConstructor = ws
 
 /**
+ * Límites explícitos del pool. Con los defaults del driver no hay timeout de
+ * conexión (un Postgres saturado cuelga el request en vez de fallar) ni de
+ * inactividad, y el máximo lo decide el driver.
+ */
+const POOL_TIMEOUTS = { idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000 }
+
+/**
  * Driver de Postgres bifurcado por entorno: local dev sigue con node-postgres
  * contra el Postgres de Docker (rápido, sin red, cero setup); cualquier
  * DATABASE_URL de Neon (deploy) usa el driver serverless de Neon — necesario
@@ -26,13 +33,18 @@ neonConfig.webSocketConstructor = ws
  */
 function createDb(): { pool: PgPool | NeonPool; db: NodePgDatabase<typeof schema> } {
   if (env.DATABASE_URL.includes('neon.tech')) {
-    const pool = new NeonPool({ connectionString: env.DATABASE_URL })
+    // Serverless: cada instancia abre su propio pool, así que el máximo por
+    // instancia va bajo (15 instancias × 10 conexiones ya pasan el límite).
+    // Sin `statement_timeout` a propósito: el pooler de Neon (PgBouncer) puede
+    // rechazar parámetros de arranque desconocidos y tirar todas las conexiones.
+    const pool = new NeonPool({ connectionString: env.DATABASE_URL, ...POOL_TIMEOUTS, max: 5 })
     const db = drizzleNeon(pool, { schema, casing: 'snake_case' }) as unknown as NodePgDatabase<
       typeof schema
     >
     return { pool, db }
   }
-  const pool = new PgPool({ connectionString: env.DATABASE_URL })
+  // Proceso de larga vida: una query colgada no puede retener la conexión para siempre.
+  const pool = new PgPool({ connectionString: env.DATABASE_URL, ...POOL_TIMEOUTS, max: 10, statement_timeout: 30_000 })
   const db = drizzleNodePostgres(pool, { schema, casing: 'snake_case' })
   return { pool, db }
 }

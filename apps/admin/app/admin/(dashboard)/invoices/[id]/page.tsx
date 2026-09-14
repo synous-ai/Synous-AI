@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { SkeletonGroup } from '@/components/ui/loading-region'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TableSkeleton, ListSkeleton } from '@/components/ui/skeletons'
@@ -149,6 +150,7 @@ export default function InvoiceDetailPage() {
   const archive = useArchiveInvoice()
 
   const [payDialogOpen, setPayDialogOpen] = useState(false)
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [downloading, setDownloading] = useState(false)
 
@@ -180,15 +182,10 @@ export default function InvoiceDetailPage() {
 
   async function handleArchive() {
     if (!data) return
-    if (
-      !window.confirm(
-        `¿Archivar la factura #${data.invoice.number}? Esta acción no se puede deshacer.`,
-      )
-    )
-      return
     setArchiving(true)
     try {
       await archive.mutateAsync(data.invoice.id)
+      setArchiveConfirmOpen(false)
       toast.success(`Factura #${data.invoice.number} archivada`)
       router.push('/finance/invoices')
     } catch {
@@ -394,7 +391,7 @@ export default function InvoiceDetailPage() {
               size="sm"
               className="w-full justify-start gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               disabled={archiving}
-              onClick={handleArchive}
+              onClick={() => setArchiveConfirmOpen(true)}
             >
               {archiving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -540,6 +537,17 @@ export default function InvoiceDetailPage() {
         onClose={() => setPayDialogOpen(false)}
         preselectedInvoiceId={data.invoice.id}
         invoices={allInvoices ?? []}
+      />
+
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        onOpenChange={setArchiveConfirmOpen}
+        title={`¿Archivar la factura #${data.invoice.number}?`}
+        description="Esta acción no se puede deshacer."
+        confirmLabel="Archivar"
+        destructive
+        pending={archiving}
+        onConfirm={() => void handleArchive()}
       />
     </>,
     <span className="font-mono font-medium text-foreground">#{data.invoice.number}</span>,

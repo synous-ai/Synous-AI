@@ -1,4 +1,4 @@
-import { pgTable, text, integer, numeric, date, timestamp, boolean, index, check } from 'drizzle-orm/pg-core'
+import { pgTable, text, integer, numeric, date, timestamp, boolean, index, check, unique } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { portal } from './portal'
 import { deal } from './deals'
@@ -73,6 +73,10 @@ export const invoice = pgTable('invoice', {
 }, (table) => [
   check('invoice_status_check', sql`${table.status} IN ('draft','sent','paid','overdue','void')`),
   check('invoice_currency_check', sql`${table.currency} IN ('USD','ARS')`),
+  // Red de seguridad de la numeración (nextInvoiceNumber serializa con un advisory lock).
+  // Migración propia (0039): si producción ya tiene duplicados falla sola, sin
+  // arrastrar el rollback de las columnas de soft delete de la 0038.
+  unique('invoice_portal_id_number_unique').on(table.portalId, table.number),
   index('idx_invoice_portal_status').on(table.portalId, table.status),
   index('idx_invoice_retainer').on(table.retainerId),
   index('idx_invoice_deal').on(table.dealId),
@@ -159,4 +163,5 @@ export const expense = pgTable('expense', {
   index('idx_expense_portal_date').on(table.portalId, table.expenseDate),
   index('idx_expense_deal').on(table.dealId),
   index('idx_expense_category').on(table.category),
+  index('idx_expense_storage_key').on(table.storageKey),
 ])

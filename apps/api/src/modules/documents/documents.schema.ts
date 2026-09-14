@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ListQuerySchema } from '../../lib/crm-schemas'
 
 export const DocumentTypeEnum = z.enum(['contract', 'proposal', 'invoice', 'other'])
 export type DocumentType = z.infer<typeof DocumentTypeEnum>
@@ -21,7 +22,7 @@ export type CreateDocumentDTO = z.infer<typeof CreateDocumentSchema>
 
 export const ListDocumentsQuerySchema = z.object({
   dealId: z.string().min(1).optional(),
-})
+}).merge(ListQuerySchema)
 
 export type ListDocumentsQueryDTO = z.infer<typeof ListDocumentsQuerySchema>
 

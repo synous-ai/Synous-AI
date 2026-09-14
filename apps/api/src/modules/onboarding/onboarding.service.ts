@@ -1,4 +1,7 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import type { ListQuery } from '../../lib/crm-schemas'
+import { type Paginated } from '../../lib/pagination'
+import { z } from 'zod'
 import { db, type DB } from '../../db'
 import { clientOnboarding, clientAsset, deal, clientAccount, clientDealAccess, contact } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -8,7 +11,7 @@ import { moveDealToProduction } from '../deals/stage.service'
 import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
 import { onboardingCompletedHtml } from './emails/onboarding-completed'
 import type { ClientTokenPayload } from '../../middleware/authenticate-client'
-import type { SavedFile } from '../files/files.service'
+import { claimUpload, prepareUploadClaim } from '../uploads/uploads.service'
 import {
   ONBOARDING_STATUS,
   type OnboardingBriefDTO,
@@ -234,34 +237,45 @@ export async function submitBrief(clientId: string, answers: OnboardingBriefDTO)
 // ── Cliente: Paso 7 — Materiales ──────────────────────────────────────────────
 
 /**
- * Sube un archivo de material (multipart, ya guardado en disco por
- * files.service.saveUpload) y crea el client_asset que lo vincula al deal
- * activo del cliente. El id devuelto es el que el wizard manda en
+ * Crea el client_asset de un archivo de materiales ya subido y lo vincula al
+ * deal activo del cliente. El id devuelto es el que el wizard manda en
  * `materials.<categoria>.assetIds` al llamar a submitMaterials.
+ *
+ * `claimUpload` exige que la key la haya subido ESTE cliente para este portal:
+ * sin eso, un cliente podía registrar como material propio el archivo de otro.
  */
-export async function uploadMaterialAsset(
+export async function attachMaterialAsset(
   clientId: string,
   category: OnboardingMaterialCategory,
-  saved: SavedFile,
+  storageKey: string,
 ): Promise<ClientAssetRow> {
   const activeDeal = await resolveActiveDeal(clientId)
-  const [row] = await db
-    .insert(clientAsset)
-    .values({
-      portalId: activeDeal.portalId,
-      dealId: activeDeal.id,
-      clientId,
-      intakeId: null,
-      fieldName: category,
-      name: saved.name,
-      type: CATEGORY_TO_ASSET_TYPE[category],
-      mimeType: saved.mimeType,
-      storageKey: saved.storageKey,
-      sizeBytes: saved.sizeBytes,
-    })
-    .returning()
-  if (!row) throw Errors.internal('No se pudo guardar el archivo')
-  return row
+  const preparedClaim = await prepareUploadClaim({
+    storageKey,
+    portalId: activeDeal.portalId,
+    actor: { kind: 'client', clientId, portalId: activeDeal.portalId },
+    purpose: 'onboarding_material',
+  })
+  return db.transaction(async (tx) => {
+    const upload = await claimUpload(tx, preparedClaim)
+    const [row] = await tx
+      .insert(clientAsset)
+      .values({
+        portalId: activeDeal.portalId,
+        dealId: activeDeal.id,
+        clientId,
+        intakeId: null,
+        fieldName: category,
+        name: upload.originalName,
+        type: CATEGORY_TO_ASSET_TYPE[category],
+        mimeType: upload.contentType,
+        storageKey: upload.storageKey,
+        sizeBytes: upload.sizeBytes,
+      })
+      .returning()
+    if (!row) throw Errors.internal('No se pudo guardar el archivo')
+    return row
+  })
 }
 
 /**
@@ -430,16 +444,25 @@ export async function completeOnboarding(token: ClientTokenPayload): Promise<Com
     .where(eq(contact.id, token.contactId))
     .limit(1)
   if (c?.email) {
-    await sendEmail({
-      to: c.email,
-      subject: `Arrancamos con ${result.dealName}`,
-      html: onboardingCompletedHtml({
-        firstName: c.firstName,
-        dealName: result.dealName,
-        stageLabel: result.stageLabel,
-        portalUrl: `${clientPortalBaseUrl()}/portal`,
-      }),
-    })
+    // Best-effort: el onboarding ya quedó completado; un fallo del email no
+    // puede devolverle un error al cliente sobre algo que sí se guardó.
+    try {
+      await sendEmail({
+        to: c.email,
+        subject: `Arrancamos con ${result.dealName}`,
+        html: onboardingCompletedHtml({
+          firstName: c.firstName,
+          dealName: result.dealName,
+          stageLabel: result.stageLabel,
+          portalUrl: `${clientPortalBaseUrl()}/portal`,
+        }),
+      })
+    } catch (err) {
+      console.error('[onboarding.service] No se pudo enviar la confirmación de onboarding', {
+        dealId: activeDeal.id,
+        error: (err as Error)?.message ?? err,
+      })
+    }
   }
 
   return result
@@ -471,17 +494,65 @@ function toAdminListItem(onboarding: ClientOnboardingRow, dealName: string, clie
   }
 }
 
+/**
+ * Cursor del listado admin. El orden no es (createdAt, id) sino (in_progress
+ * primero, updatedAt desc, id desc), así que el cursor lleva los tres valores
+ * de la última fila. `updatedAt` viaja con microsegundos (texto de Postgres, no
+ * un `Date` de JS): truncado a milisegundos, las filas del mismo milisegundo
+ * que la última se saltearían entre páginas.
+ */
+const OnboardingCursorSchema = z.object({
+  bucket: z.number().int().min(0).max(1),
+  updatedAt: z.string().datetime(),
+  id: z.string().min(1),
+})
+type OnboardingCursor = z.infer<typeof OnboardingCursorSchema>
+
+function encodeOnboardingCursor(cursor: OnboardingCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url')
+}
+
+function decodeOnboardingCursor(cursor?: string): OnboardingCursor | undefined {
+  if (!cursor) return undefined
+  try {
+    const parsed = OnboardingCursorSchema.safeParse(JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')))
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Listado para la vista admin de progreso: in_progress primero, luego por updatedAt desc. */
-export async function listOnboardings(portalId: string): Promise<AdminOnboardingListItemDTO[]> {
+export async function listOnboardings(portalId: string, query: ListQuery): Promise<Paginated<AdminOnboardingListItemDTO>> {
+  const bucket = sql<number>`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`
+  const updatedAtKey = sql<string>`to_char(${clientOnboarding.updatedAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
+  const cursor = decodeOnboardingCursor(query.cursor)
   const rows = await db
-    .select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email })
+    .select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email, bucket, updatedAtKey })
     .from(clientOnboarding)
     .innerJoin(deal, and(eq(deal.id, clientOnboarding.dealId), eq(deal.archived, false)))
     .innerJoin(clientAccount, eq(clientAccount.id, clientOnboarding.clientId))
-    .where(eq(clientOnboarding.portalId, portalId))
-    .orderBy(sql`CASE WHEN ${clientOnboarding.status} = ${ONBOARDING_STATUS.IN_PROGRESS} THEN 0 ELSE 1 END`, desc(clientOnboarding.updatedAt))
+    .where(
+      and(
+        eq(clientOnboarding.portalId, portalId),
+        cursor
+          ? sql`(${bucket} > ${cursor.bucket} OR (${bucket} = ${cursor.bucket} AND (${clientOnboarding.updatedAt}, ${clientOnboarding.id}) < (${cursor.updatedAt}::timestamptz, ${cursor.id})))`
+          : undefined,
+      ),
+    )
+    .orderBy(bucket, desc(clientOnboarding.updatedAt), desc(clientOnboarding.id))
+    .limit(query.limit + 1)
 
-  return rows.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail))
+  const hasMore = rows.length > query.limit
+  const page = hasMore ? rows.slice(0, query.limit) : rows
+  const last = page.at(-1)
+  return {
+    items: page.map(({ onboarding, dealName, clientEmail }) => toAdminListItem(onboarding, dealName, clientEmail)),
+    nextCursor:
+      hasMore && last
+        ? encodeOnboardingCursor({ bucket: Number(last.bucket), updatedAt: last.updatedAtKey, id: last.onboarding.id })
+        : null,
+  }
 }
 
 export interface AdminOnboardingDetailDTO {

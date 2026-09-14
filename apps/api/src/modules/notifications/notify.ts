@@ -75,7 +75,10 @@ async function insertOne(args: InsertArgs): Promise<void> {
   // destinatario ya fue notificado de este mismo evento.
   if (!row) return
 
-  emitNotification({
+  // Awaited a propósito: en Vercel la instancia se congela al responder, y un
+  // PUBLISH a Redis sin esperar puede no salir nunca. emitNotification no
+  // rechaza y tiene su propio timeout.
+  await emitNotification({
     portalId: row.portalId,
     userId: row.userId,
     type: row.type,

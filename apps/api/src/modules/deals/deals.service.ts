@@ -3,13 +3,14 @@ import { db } from '../../db'
 import { deal, pipeline, pipelineStage, contact, company, dealContact, note, task, recordHistory, clientAccount } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
+import { assertCompanyInPortal, assertContactInPortal, assertHubUsersInPortal } from '../../lib/portal-access'
 import { decodeCursor, paginateRows, cursorWhere } from '../../lib/pagination'
 import type { ListQuery } from '../../lib/crm-schemas'
 import { buildFilter, type FieldMap, type SearchBody } from '../../lib/filter'
 import type { CreateDealDTO, UpdateDealDTO } from './deals.schema'
 
 // Re-export stage functions so existing imports from 'deals.service' continue to work.
-export { changeStage, activateClientPortal, activateClientPortalManually } from './stage.service'
+export { changeStage, activateClientPortal, activateClientPortalManually, completeClientPortalActivation } from './stage.service'
 export type { ActivatePortalResultDTO, ActivatePortalStatus } from './stage.service'
 
 const ENTITY = 'deal'
@@ -18,6 +19,16 @@ type DealRow = typeof deal.$inferSelect
 /** numeric de Postgres se mapea a string en Drizzle: convertimos amount. */
 function toAmount(amount?: number): string | undefined {
   return amount === undefined ? undefined : amount.toFixed(2)
+}
+
+async function assertDealRelationsInPortal(
+  tx: Tx,
+  portalId: string,
+  input: Pick<UpdateDealDTO, 'companyId' | 'primaryContactId' | 'ownerId'>,
+): Promise<void> {
+  await assertCompanyInPortal(portalId, input.companyId, tx)
+  await assertContactInPortal(portalId, input.primaryContactId, tx)
+  await assertHubUsersInPortal(portalId, [input.ownerId], tx)
 }
 
 async function assertStageInPipeline(tx: Tx, pipelineId: string, stageId: string): Promise<typeof pipelineStage.$inferSelect> {
@@ -61,6 +72,7 @@ export async function createDeal(portalId: string, userId: string, input: Create
       .limit(1)
     if (!pl) throw Errors.badRequest('Pipeline inexistente')
     await assertStageInPipeline(tx, input.pipelineId, input.stageId)
+    await assertDealRelationsInPortal(tx, portalId, input)
 
     const [row] = await tx
       .insert(deal)
@@ -80,6 +92,7 @@ export async function updateDeal(portalId: string, userId: string, id: string, i
       .where(and(eq(deal.portalId, portalId), eq(deal.id, id), eq(deal.archived, false)))
       .limit(1)
     if (!existing) throw Errors.notFound('Deal no encontrado')
+    await assertDealRelationsInPortal(tx, portalId, input)
 
     const patch = { ...input, amount: toAmount(input.amount) }
     const [updated] = await tx
@@ -149,7 +162,11 @@ export async function getDealDetail(portalId: string, id: string): Promise<DealD
 
   let companyRow: typeof company.$inferSelect | null = null
   if (dealRow.companyId) {
-    const [c] = await db.select().from(company).where(eq(company.id, dealRow.companyId)).limit(1)
+    const [c] = await db
+      .select()
+      .from(company)
+      .where(and(eq(company.id, dealRow.companyId), eq(company.portalId, portalId)))
+      .limit(1)
     companyRow = c ?? null
   }
 
@@ -169,13 +186,13 @@ export async function getDealDetail(portalId: string, id: string): Promise<DealD
   const notes = await db
     .select()
     .from(note)
-    .where(and(eq(note.portalId, portalId), eq(note.dealId, id)))
+    .where(and(eq(note.portalId, portalId), eq(note.dealId, id), eq(note.archived, false)))
     .orderBy(desc(note.createdAt))
     .limit(50)
   const tasks = await db
     .select()
     .from(task)
-    .where(and(eq(task.portalId, portalId), eq(task.dealId, id)))
+    .where(and(eq(task.portalId, portalId), eq(task.dealId, id), eq(task.archived, false)))
     .orderBy(desc(task.createdAt))
     .limit(50)
   const history = await db

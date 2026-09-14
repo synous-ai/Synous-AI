@@ -1,4 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm'
+import type { ListQuery } from '../../lib/crm-schemas'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import { proposal, deal, contact, company, onboardingSubmission } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -183,7 +185,15 @@ export async function generateProposal(
   try {
     content = await generateProposalContent(input, provider)
     model = provider
-  } catch {
+  } catch (err) {
+    // El fallback es correcto, pero tiene que dejar rastro: sin este log una IA
+    // caída (key vencida, cuota, JSON inválido) producía semanas de propuestas
+    // de plantilla sin que nadie se enterara.
+    console.error('[proposals] Falló la generación con IA, se usa la plantilla', {
+      dealId,
+      provider,
+      error: (err as Error)?.message ?? err,
+    })
     content = fallbackProposalContent(input)
     model = 'manual'
   }
@@ -226,14 +236,16 @@ export async function generateProposal(
 
 // ─── Lectura / edición (admin) ───────────────────────────────────────────────
 
-export async function listProposals(portalId: string): Promise<ProposalDTO[]> {
+export async function listProposals(portalId: string, query: ListQuery): Promise<Paginated<ProposalDTO>> {
+  const cursor = decodeCursor(query.cursor)
   const rows = await db
     .select()
     .from(proposal)
-    .where(eq(proposal.portalId, portalId))
-    .orderBy(desc(proposal.createdAt))
-    .limit(500)
-  return rows.map(toDTO)
+    .where(and(eq(proposal.portalId, portalId), cursor ? cursorWhere(proposal.createdAt, proposal.id, cursor) : undefined))
+    .orderBy(desc(proposal.createdAt), desc(proposal.id))
+    .limit(query.limit + 1)
+  const { items, nextCursor } = paginateRows(rows, query.limit)
+  return { items: items.map(toDTO), nextCursor }
 }
 
 export async function getProposal(portalId: string, id: string): Promise<ProposalDTO> {

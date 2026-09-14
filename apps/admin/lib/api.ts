@@ -11,6 +11,21 @@
 import { createApiClient, ApiError as _ApiError } from '@synous/api-client'
 
 /**
+ * Lo que usamos del singleton que ClerkProvider inyecta en `window`. Se accede
+ * fuera de React (mutation functions, uploads), donde no hay hooks de Clerk.
+ */
+interface BrowserClerk {
+  loaded?: boolean
+  load?: () => Promise<void>
+  session?: { getToken: () => Promise<string | null> } | null
+  signOut?: () => Promise<void>
+}
+
+function browserClerk(): BrowserClerk | undefined {
+  return (window as unknown as { Clerk?: BrowserClerk }).Clerk
+}
+
+/**
  * Obtiene el Clerk session token fresco para adjuntar como Bearer.
  *
  * Usa `window.Clerk` (el singleton inyectado por ClerkProvider) para poder
@@ -20,10 +35,9 @@ import { createApiClient, ApiError as _ApiError } from '@synous/api-client'
  * Devuelve null si no hay sesión activa o si Clerk no está disponible
  * (SSR, primer render antes de que ClerkProvider hidrate).
  */
-async function getAdminToken(): Promise<string | null> {
+export async function getAdminToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const clerk = (window as any).Clerk
+  const clerk = browserClerk()
   if (!clerk) return null
   // Esperar a que Clerk TERMINE de cargar antes de leer la sesión. Sin esto hay
   // un race en el primer render: los hooks de TanStack Query disparan antes de
@@ -38,7 +52,7 @@ async function getAdminToken(): Promise<string | null> {
   }
   if (!clerk.session) return null
   try {
-    return await (clerk.session.getToken() as Promise<string | null>)
+    return await clerk.session.getToken()
   } catch {
     return null
   }
@@ -62,7 +76,7 @@ const client = createApiClient({
     console.warn(
       '[admin-auth] 401 del backend con sesión de Clerk activa — sesión sin hub_user vinculado; cerrando sesión para evitar quedar trabado en el login',
     )
-    const clerk = (window as unknown as { Clerk?: { session?: unknown; signOut?: () => Promise<void> } }).Clerk
+    const clerk = browserClerk()
     const goLogin = (): void => {
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login'

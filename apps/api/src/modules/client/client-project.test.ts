@@ -11,6 +11,7 @@ import {
   loginToken,
   type PipelineContext,
   type FullProductionPipelineContext,
+  listenForSupertest,
 } from '../../test/helpers'
 
 const app = buildApp()
@@ -25,7 +26,7 @@ let dealId: string
 let clientToken: string
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
 
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId

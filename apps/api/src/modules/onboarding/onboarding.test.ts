@@ -13,6 +13,7 @@ import {
   loginToken,
   type PipelineContext,
   type ProductionPipelineContext,
+  listenForSupertest,
 } from '../../test/helpers'
 
 const app = buildApp()
@@ -28,7 +29,7 @@ let dealId: string
 let clientToken: string
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
 
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
@@ -283,11 +284,21 @@ describe('changeStage — reasignación automática por fase en Producción', ()
 
 describe('admin onboarding — listado y detalle', () => {
   it('GET /api/onboarding lista el onboarding del deal como completed', async () => {
-    const res = await request(app.server).get('/api/onboarding').set(adminAuth())
-    expect(res.status).toBe(200)
-    const item = res.body.data.find((o: { dealId: string }) => o.dealId === dealId)
+    // Listado paginado: la base de test acumula onboardings de otras corridas.
+    const all: Array<{ dealId: string; status: string }> = []
+    let cursor: string | undefined
+    do {
+      const res = await request(app.server)
+        .get('/api/onboarding')
+        .query({ limit: 100, ...(cursor ? { cursor } : {}) })
+        .set(adminAuth())
+      expect(res.status).toBe(200)
+      all.push(...res.body.data)
+      cursor = res.body.meta.nextCursor ?? undefined
+    } while (cursor)
+    const item = all.find((o) => o.dealId === dealId)
     expect(item).toBeTruthy()
-    expect(item.status).toBe('completed')
+    expect(item?.status).toBe('completed')
   })
 
   it('GET /api/onboarding/deals/:dealId devuelve el detalle', async () => {

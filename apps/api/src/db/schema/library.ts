@@ -39,4 +39,5 @@ export const libraryItem = pgTable('library_item', {
     sql`${table.kind} IS NULL OR ${table.kind} IN ('procedure','checklist')`,
   ),
   index('idx_library_item_portal_type').on(table.portalId, table.type),
+  index('idx_library_item_storage_key').on(table.storageKey),
 ])

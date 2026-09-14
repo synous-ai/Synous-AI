@@ -3,7 +3,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { ok } from '../../lib/response'
 import { authenticate } from '../../middleware/authenticate'
 import { authorize } from '../../middleware/authorize'
-import { IdParamSchema } from '../../lib/crm-schemas'
+import { IdParamSchema, ListQuerySchema } from '../../lib/crm-schemas'
 import { CreateMeetingTypeSchema, UpdateMeetingTypeSchema, CreateAvailabilityRuleSchema } from './calendar.schema'
 import {
   listMeetingTypes,
@@ -78,7 +78,10 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
   // Reuniones agendadas
   r.get(
     '/bookings',
-    { schema: { tags: [TAG], summary: 'Listar reuniones agendadas', security } },
-    async (request) => ok(await listBookings(request.hubUser!.portalId)),
+    { schema: { tags: [TAG], summary: 'Listar reuniones agendadas', description: 'Orden cronológico, paginado por cursor.', security, querystring: ListQuerySchema } },
+    async (request) => {
+      const { items, nextCursor } = await listBookings(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 }

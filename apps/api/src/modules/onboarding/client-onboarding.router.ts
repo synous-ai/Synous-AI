@@ -1,16 +1,14 @@
 import type { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { ok } from '../../lib/response'
-import { Errors } from '../../lib/errors'
 import { authenticateClient } from '../../middleware/authenticate-client'
 import { CLIENT_SECURITY } from '../../lib/http'
-import { saveUpload } from '../files/files.service'
 import {
   OnboardingProgressSchema,
   OnboardingSignatureSchema,
   OnboardingBriefSchema,
   OnboardingMaterialsSchema,
-  OnboardingMaterialUploadQuerySchema,
+  OnboardingMaterialAssetSchema,
   OnboardingBriefDraftSchema,
   OnboardingMaterialsDraftSchema,
 } from './onboarding.schema'
@@ -22,7 +20,7 @@ import {
   saveBriefDraft,
   submitMaterials,
   saveMaterialsDraft,
-  uploadMaterialAsset,
+  attachMaterialAsset,
   completeOnboarding,
 } from './onboarding.service'
 
@@ -111,7 +109,7 @@ export async function clientOnboardingRoutes(app: FastifyInstance): Promise<void
       schema: {
         tags: [TAG],
         summary: 'Registrar estado de materiales (paso 7)',
-        description: 'Los archivos se suben antes con POST /materials/upload; acá solo se persisten los assetIds y el estado por categoría.',
+        description: 'Los archivos se vinculan antes con POST /materials/assets; acá solo se persisten los assetIds y el estado por categoría.',
         security: CLIENT_SECURITY,
         body: OnboardingMaterialsSchema,
       },
@@ -133,29 +131,20 @@ export async function clientOnboardingRoutes(app: FastifyInstance): Promise<void
     async (request) => ok(await saveMaterialsDraft(request.clientAccount!.sub, request.body.materials)),
   )
 
-  // Multipart: sube un archivo de materiales y crea el client_asset vinculado
-  // al deal activo del cliente. Mismo storage que clientFilesRoutes
-  // (files.service.saveUpload). No usa ZodTypeProvider para el body (es
-  // multipart, no JSON) — la categoría viaja por querystring para no depender
-  // del orden de los campos del form-data.
-  app.post(
-    '/materials/upload',
+  // El archivo ya está subido (POST /api/client/uploads + subida directa): acá
+  // solo se reclama la key y se crea el client_asset del deal activo.
+  r.post(
+    '/materials/assets',
     {
       schema: {
         tags: [TAG],
-        summary: 'Subir un archivo de materiales (paso 7)',
+        summary: 'Vincular un archivo subido a los materiales (paso 7)',
         security: CLIENT_SECURITY,
+        body: OnboardingMaterialAssetSchema,
       },
     },
     async (request, reply) => {
-      const query = OnboardingMaterialUploadQuerySchema.safeParse(request.query)
-      if (!query.success) throw Errors.badRequest('Categoría de material inválida', query.error.flatten())
-
-      const file = await request.file()
-      if (!file) throw Errors.badRequest('No se envió ningún archivo')
-
-      const saved = await saveUpload(await file.toBuffer(), file.filename, file.mimetype)
-      const asset = await uploadMaterialAsset(request.clientAccount!.sub, query.data.category, saved)
+      const asset = await attachMaterialAsset(request.clientAccount!.sub, request.body.category, request.body.storageKey)
       return reply.status(201).send(ok(asset))
     },
   )

@@ -85,6 +85,7 @@ export async function getFollowUps(
   // Base conditions: open tasks within the portal
   const baseConds = [
     eq(task.portalId, portalId),
+    eq(task.archived, false),
     inArray(task.status, ['pending', 'in_progress']),
     isNotNull(task.dueDate),
     lte(task.dueDate, sevenDaysEnd), // only up to 7 days out
@@ -215,6 +216,7 @@ export async function getDealsNeedingAttention(
     .where(
       and(
         eq(task.portalId, portalId),
+        eq(task.archived, false),
         inArray(task.status, ['pending', 'in_progress']),
         inArray(task.dealId, dealIds),
       ),
@@ -253,7 +255,7 @@ export async function getDealsNeedingAttention(
     db
       .select({ dealId: note.dealId, maxDate: sql<string>`max(${note.createdAt})` })
       .from(note)
-      .where(and(eq(note.portalId, portalId), inArray(note.dealId, dealIds)))
+      .where(and(eq(note.portalId, portalId), eq(note.archived, false), inArray(note.dealId, dealIds)))
       .groupBy(note.dealId),
 
     // tasks (any task, completed too): max(completedAt ?? createdAt)
@@ -263,7 +265,7 @@ export async function getDealsNeedingAttention(
         maxDate: sql<string>`max(coalesce(${task.completedAt}, ${task.createdAt}))`,
       })
       .from(task)
-      .where(and(eq(task.portalId, portalId), inArray(task.dealId, dealIds)))
+      .where(and(eq(task.portalId, portalId), eq(task.archived, false), inArray(task.dealId, dealIds)))
       .groupBy(task.dealId),
   ])
 

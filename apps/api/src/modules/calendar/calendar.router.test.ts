@@ -42,11 +42,14 @@ import {
 } from '../../db/schema'
 import { createId } from '../../lib/id'
 import { env } from '../../config/env'
-import { ensurePortalAndUser, loginToken } from '../../test/helpers'
+import { ensurePortalAndUser, listenForSupertest, loginToken } from '../../test/helpers'
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
-const app = buildApp()
+// Este suite reserva y reprograma decenas de veces por minuto desde la misma IP:
+// con el rate limit activo los tests chocarían con el 429. El límite en sí se
+// verifica abajo, con una instancia que lo tiene encendido.
+const app = buildApp({ rateLimit: false })
 
 let portalId: string
 let userId: string
@@ -67,7 +70,7 @@ const TEST_SLOT_START = `${TEST_DATE}T14:00:00.000Z` // 09:00 AM Bogotá (UTC-5)
 const TEST_SLOT_END = `${TEST_DATE}T14:30:00.000Z`
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
   userId = ctx.userId
@@ -666,5 +669,35 @@ describe('F4b — GET /api/calendar/bookings/week (admin)', () => {
     await request(app.server)
       .post(`/api/calendar/bookings/${createId()}/cancel`)
       .expect(401)
+  })
+})
+
+// ── Rate limit de las rutas públicas ──────────────────────────────────────────
+
+describe('rate limit de rutas públicas de booking', () => {
+  // Instancia propia con el límite ACTIVO (el default de producción). Antes el
+  // plugin no estaba registrado y `config.rateLimit` se ignoraba en silencio:
+  // este test es el que detecta que vuelva a pasar.
+  const limitedApp = buildApp()
+
+  beforeAll(async () => {
+    await listenForSupertest(limitedApp)
+  })
+
+  afterAll(async () => {
+    await limitedApp.close()
+  })
+
+  it('POST /booking/cancel responde 429 al superar 10 intentos por minuto', async () => {
+    const statuses: number[] = []
+    for (let i = 0; i < 11; i++) {
+      const res = await request(limitedApp.server)
+        .post('/api/public/calendar/booking/cancel')
+        .send({ token: 'token-invalido' })
+      statuses.push(res.status)
+    }
+
+    expect(statuses.slice(0, 10)).not.toContain(429)
+    expect(statuses[10]).toBe(429)
   })
 })

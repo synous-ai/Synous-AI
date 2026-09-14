@@ -17,6 +17,9 @@ let worker: Worker | null = null
  *   - Upserts a repeatable job that fires every 15 minutes.
  *   - Starts a Worker that calls `runReminderScan()` on each tick.
  *
+ * Solo en modo long-running (`pnpm dev` o un host propio): en Vercel server.ts no
+ * lo arranca y el mismo scan lo dispara Vercel Cron vía GET /api/cron/reminders.
+ *
  * BullMQ creates its own ioredis connections internally from the options object,
  * so we avoid passing pre-built Redis instances (which would cause ioredis
  * version conflicts in the TypeScript type system).

@@ -3,7 +3,8 @@
  *
  * Diseño lazy: el cliente Resend se instancia solo si RESEND_API_KEY está presente.
  * Si no está configurada (dev / CI / test) → se loguea y se omite el envío sin lanzar error.
- * Esto garantiza que el flujo de booking NO se rompa por un email fallido.
+ * Si Resend rechaza el envío → LANZA, para que nadie registre como enviado un
+ * email que no salió.
  *
  * Uso:
  *   import { sendEmail } from '../../lib/mailer'
@@ -14,6 +15,7 @@
 
 import { Resend } from 'resend'
 import { env } from '../config/env'
+import { AppError } from './errors'
 
 /**
  * Raíz del Client Portal, sin trailing slash, para armar links en emails.
@@ -52,9 +54,10 @@ function getResend(): Resend | null {
  * Si RESEND_API_KEY no está configurada:
  *  - Loguea el intento y devuelve sin error (modo dev/test seguro).
  *
- * Si Resend devuelve un error:
- *  - Loguea el error completo (código + mensaje) sin propagarlo.
- *  - El caller decide si reintentar o ignorar (best-effort).
+ * Si Resend devuelve un error, lanza `EMAIL_SEND_FAILED`. El SDK de Resend no
+ * rechaza la promesa: devuelve `{ error }`. Antes ese error se logueaba y se
+ * tragaba acá, así que los `try/catch` best-effort de los callers nunca se
+ * ejecutaban y, por ejemplo, `inviteSentAt` se sellaba igual con el envío fallido.
  */
 export async function sendEmail(params: SendEmailParams): Promise<void> {
   const client = getResend()
@@ -78,11 +81,6 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
   })
 
   if (error) {
-    // Loguear pero NO propagar — el email es best-effort
-    console.error('[mailer] Error al enviar email via Resend', {
-      to: params.to,
-      subject: params.subject,
-      error,
-    })
+    throw new AppError('EMAIL_SEND_FAILED', `Resend rechazó el envío "${params.subject}": ${error.message}`, 502)
   }
 }

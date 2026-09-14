@@ -150,7 +150,7 @@ export const OnboardingBriefDraftSchema = BriefFieldsSchema.partial()
   .refine((v) => Object.keys(v).length > 0, { message: 'El borrador no puede estar vacío.' })
 export type OnboardingBriefDraftDTO = z.infer<typeof OnboardingBriefDraftSchema>
 
-// ── Paso 7 — Materiales: POST /materials + POST /materials/upload ───────────
+// ── Paso 7 — Materiales: POST /materials + POST /materials/assets ───────────
 const MaterialItemSchema = z.object({
   done: z.boolean(),
   assetIds: z.array(z.string().min(1)).max(50, 'Máximo 50 archivos por categoría.').optional(),
@@ -197,10 +197,14 @@ export const OnboardingMaterialsDraftSchema = z.object({
 })
 export type OnboardingMaterialsDraftDTO = z.infer<typeof OnboardingMaterialsDraftSchema>
 
-/** Querystring del upload de un material (multipart): a qué categoría pertenece el archivo. */
-export const OnboardingMaterialUploadQuerySchema = z.object({
+/**
+ * Vincula un archivo YA subido (intent + subida directa) a una categoría de
+ * materiales. Nombre, tipo y tamaño salen del ledger, nunca del body.
+ */
+export const OnboardingMaterialAssetSchema = z.object({
   category: z.enum(ONBOARDING_MATERIAL_CATEGORIES, {
     errorMap: () => ({ message: 'Categoría de material inválida' }),
   }),
+  storageKey: z.string().min(1).max(500),
 })
-export type OnboardingMaterialUploadQueryDTO = z.infer<typeof OnboardingMaterialUploadQuerySchema>
+export type OnboardingMaterialAssetDTO = z.infer<typeof OnboardingMaterialAssetSchema>

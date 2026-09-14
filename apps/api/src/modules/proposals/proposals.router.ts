@@ -3,7 +3,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { ok } from '../../lib/response'
 import { authenticate } from '../../middleware/authenticate'
 import { authorize } from '../../middleware/authorize'
-import { IdParamSchema } from '../../lib/crm-schemas'
+import { IdParamSchema, ListQuerySchema } from '../../lib/crm-schemas'
 import { ADMIN_SECURITY } from '../../lib/http'
 import {
   GenerateProposalSchema,
@@ -39,6 +39,9 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
         summary: 'Ver una propuesta por su token (público)',
         params: ProposalTokenParamSchema,
       },
+      // Público y direccionado por token: sin límite es un blanco barato para
+      // enumerar tokens.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request) => ok(await getPublicProposal(request.params.token)),
   )
@@ -52,6 +55,9 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
         summary: 'Marcar que el cliente terminó la presentación (público)',
         params: ProposalTokenParamSchema,
       },
+      // Público y direccionado por token: sin límite es un blanco barato para
+      // enumerar tokens.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request) => {
       await markProposalCompleted(request.params.token)
@@ -91,8 +97,11 @@ export async function proposalAdminRoutes(app: FastifyInstance): Promise<void> {
 
   r.get(
     '/',
-    { schema: { tags: [TAG], summary: 'Listar propuestas', security: ADMIN_SECURITY } },
-    async (request) => ok(await listProposals(request.hubUser!.portalId)),
+    { schema: { tags: [TAG], summary: 'Listar propuestas', description: 'Listado paginado por cursor.', security: ADMIN_SECURITY, querystring: ListQuerySchema } },
+    async (request) => {
+      const { items, nextCursor } = await listProposals(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 
   r.get(
@@ -112,6 +121,7 @@ export async function proposalAdminRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: UpdateProposalSchema,
       },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => ok(await updateProposal(request.hubUser!.portalId, request.params.id, request.body)),
   )

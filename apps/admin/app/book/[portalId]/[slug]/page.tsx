@@ -26,6 +26,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { API_URL } from '@synous/shared'
 import { BookingPageSkeleton, SlotsSkeleton } from '../../_components/booking-skeletons'
+import { formatInTz, formatTimeInTz, toLocalDate, getMonthDays, firstDayOfWeek } from '../../_lib/calendar'
 
 // ---------------------------------------------------------------------------
 // Tipos locales (no requieren auth del admin — solo datos públicos)
@@ -102,89 +103,6 @@ const COMMON_TIMEZONES = [
   'Pacific/Auckland',
   'UTC',
 ]
-
-// ---------------------------------------------------------------------------
-// Helpers de fecha
-// ---------------------------------------------------------------------------
-
-/** Formatea una fecha ISO UTC al timezone dado, mostrando fecha + hora. */
-function formatInTz(isoUtc: string, tz: string, opts?: Intl.DateTimeFormatOptions): string {
-  try {
-    return new Intl.DateTimeFormat('es', {
-      timeZone: tz,
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZoneName: 'short',
-      ...opts,
-    }).format(new Date(isoUtc))
-  } catch {
-    return isoUtc
-  }
-}
-
-/** Formatea solo la hora en un timezone. */
-function formatTimeInTz(isoUtc: string, tz: string): string {
-  try {
-    return new Intl.DateTimeFormat('es', {
-      timeZone: tz,
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(isoUtc))
-  } catch {
-    return isoUtc
-  }
-}
-
-/** Devuelve YYYY-MM-DD de un objeto Date en el TZ local del invitee. */
-function toLocalDate(date: Date, tz: string): string {
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(date)
-    const y = parts.find((p) => p.type === 'year')?.value ?? ''
-    const m = parts.find((p) => p.type === 'month')?.value ?? ''
-    const d = parts.find((p) => p.type === 'day')?.value ?? ''
-    return `${y}-${m}-${d}`
-  } catch {
-    return date.toISOString().slice(0, 10)
-  }
-}
-
-/** Obtiene YYYY-MM para el mes de una fecha. */
-function toYearMonth(date: Date, tz: string): { year: number; month: number } {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-  }).formatToParts(date)
-  return {
-    year: Number(parts.find((p) => p.type === 'year')?.value ?? 0),
-    month: Number(parts.find((p) => p.type === 'month')?.value ?? 0),
-  }
-}
-
-/** Genera los días del mes para mostrar en el calendario. */
-function getMonthDays(year: number, month: number): Date[] {
-  const days: Date[] = []
-  // month es 1-indexed
-  const daysInMonth = new Date(year, month, 0).getDate()
-  for (let d = 1; d <= daysInMonth; d++) {
-    days.push(new Date(year, month - 1, d))
-  }
-  return days
-}
-
-/** Día de semana del primer día del mes (0=dom…6=sáb). */
-function firstDayOfWeek(year: number, month: number): number {
-  return new Date(year, month - 1, 1).getDay()
-}
 
 // ---------------------------------------------------------------------------
 // Fetchers públicos (sin auth)
@@ -394,19 +312,23 @@ export default function BookingPage({
     setSelectedSlot(null)
   }, [])
 
-  // Determinar si un día está en el pasado (relativo al TZ del invitee)
+  // Determinar si un día está en el pasado (relativo al TZ del invitee). `ds` de
+  // cada día del calendario ya viene resuelto por `getMonthDays` a partir de los
+  // enteros año/mes/día (no del TZ del navegador) — ver `_lib/calendar.ts`.
   const todayStr = toLocalDate(new Date(), inviteeTz)
-  function isDayPast(day: Date): boolean {
-    const dayStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
-    return dayStr < todayStr
-  }
-  function dayStr(day: Date): string {
-    return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
-  }
 
   // Enviar booking
   async function handleBook() {
     if (!selectedSlot || !meta) return
+    // Defensa además del `disabled` del botón: por si el form se envía por otra
+    // vía (Enter, submit programático) sin pasar por el chequeo del botón.
+    const missingRequired = meta.customQuestions.some(
+      (q) => q.required && !(answers[q.id] ?? '').trim(),
+    )
+    if (!(form['name'] ?? '').trim() || !(form['email'] ?? '').trim() || missingRequired) {
+      setSubmitError('Completá todos los campos requeridos.')
+      return
+    }
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -457,6 +379,13 @@ export default function BookingPage({
     // la estructura ya está en pantalla cuando llega la metadata (CLS ≈ 0).
     return <BookingPageSkeleton />
   }
+
+  // Preguntas custom requeridas sin responder (o solo con espacios). Antes el botón
+  // de submit solo chequeaba nombre/email — las preguntas `required: true` mostraban
+  // un asterisco pero no bloqueaban nada, así que se podían enviar vacías.
+  const missingRequiredAnswers = meta.customQuestions.some(
+    (q) => q.required && !(answers[q.id] ?? '').trim(),
+  )
 
   const { year, month } = currentMonth
   const days = getMonthDays(year, month)
@@ -567,9 +496,8 @@ export default function BookingPage({
                     {Array.from({ length: firstDay }).map((_, i) => (
                       <div key={`empty-${i}`} />
                     ))}
-                    {days.map((day) => {
-                      const ds = dayStr(day)
-                      const past = isDayPast(day)
+                    {days.map(({ date, ds }) => {
+                      const past = ds < todayStr
                       const selected = ds === selectedDay
                       return (
                         <button
@@ -590,7 +518,7 @@ export default function BookingPage({
                               : undefined
                           }
                         >
-                          {day.getDate()}
+                          {date.getDate()}
                         </button>
                       )
                     })}
@@ -784,7 +712,12 @@ export default function BookingPage({
                   {/* CTA */}
                   <Button
                     onClick={handleBook}
-                    disabled={submitting || !(form['name'] ?? '').trim() || !(form['email'] ?? '').trim()}
+                    disabled={
+                      submitting ||
+                      !(form['name'] ?? '').trim() ||
+                      !(form['email'] ?? '').trim() ||
+                      missingRequiredAnswers
+                    }
                     className="w-full"
                     style={{
                       backgroundColor: meta.color ?? '#3b82f6',

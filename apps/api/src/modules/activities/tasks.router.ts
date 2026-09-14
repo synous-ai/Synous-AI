@@ -5,7 +5,7 @@ import { authenticate } from '../../middleware/authenticate'
 import { authorize } from '../../middleware/authorize'
 import { IdParamSchema } from '../../lib/crm-schemas'
 import { CreateTaskSchema, UpdateTaskSchema, TaskQuerySchema } from './activities.schema'
-import { createTask, listTasks, updateTask, deleteTask } from './activities.service'
+import { createTask, listTasks, updateTask, archiveTask } from './activities.service'
 import { ADMIN_SECURITY } from '../../lib/http'
 
 const TAG = 'Tareas'
@@ -26,7 +26,10 @@ export async function tasksRoutes(app: FastifyInstance): Promise<void> {
         querystring: TaskQuerySchema,
       },
     },
-    async (request) => ok(await listTasks(request.hubUser!.portalId, request.query)),
+    async (request) => {
+      const { items, nextCursor } = await listTasks(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 
   r.post(
@@ -66,11 +69,11 @@ export async function tasksRoutes(app: FastifyInstance): Promise<void> {
   r.delete(
     '/:id',
     {
-      schema: { tags: [TAG], summary: 'Eliminar tarea', description: 'Borra una tarea.', security, params: IdParamSchema },
+      schema: { tags: [TAG], summary: 'Eliminar tarea', description: 'Archiva una tarea (soft delete): deja de aparecer en listados, detalles, timeline, foco y recordatorios.', security, params: IdParamSchema },
       preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
-      await deleteTask(request.hubUser!.portalId, request.params.id)
+      await archiveTask(request.hubUser!.portalId, request.hubUser!.sub, request.params.id)
       return ok({ success: true })
     },
   )

@@ -19,6 +19,7 @@ import type { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 import { ok } from '../../lib/response'
+import { adminBaseUrl } from '../../lib/portal-url'
 import { CreateBookingSchema, CancelBookingSchema, RescheduleByTokenSchema } from './calendar.schema'
 import {
   getPublicEventType,
@@ -174,17 +175,10 @@ export async function calendarPublicRoutes(app: FastifyInstance): Promise<void> 
     async (request, reply) => {
       const { portalId, eventSlug } = request.params
 
-      // Armar la base URL del FRONTEND para los links de cancel/reschedule en los emails.
-      // DISEÑO: usamos el origen del request (o env NEXT_PUBLIC_APP_URL si está configurado)
-      // para que los links apunten al frontend Next.js (/book/cancel, /book/reschedule)
-      // y no al API. En dev la API corre en :3001 pero el front en :3000.
-      const protocol = request.headers['x-forwarded-proto'] ?? 'http'
-      const frontendHost = process.env['NEXT_PUBLIC_APP_URL']
-        ?? `${protocol}://${request.headers['x-forwarded-host'] ?? 'localhost:3000'}`
-      // baseUrl = raíz del frontend (sin trailing slash)
-      const baseUrl = frontendHost.endsWith('/') ? frontendHost.slice(0, -1) : frontendHost
-
-      const result = await createPublicBooking(portalId, eventSlug, request.body, baseUrl)
+      // Los links de cancel/reschedule llevan el token firmado y viajan por
+      // email: su origen sale de configuración, nunca de headers del request
+      // (con X-Forwarded-Host un atacante recibía los tokens en su dominio).
+      const result = await createPublicBooking(portalId, eventSlug, request.body, adminBaseUrl())
       return reply.status(201).send(ok(result))
     },
   )
@@ -274,13 +268,7 @@ export async function calendarPublicRoutes(app: FastifyInstance): Promise<void> 
     async (request, reply) => {
       const { token, ...rescheduleData } = request.body
 
-      // Construir base URL del frontend (igual que en /book)
-      const protocol = request.headers['x-forwarded-proto'] ?? 'http'
-      const frontendHost = process.env['NEXT_PUBLIC_APP_URL']
-        ?? `${protocol}://${request.headers['x-forwarded-host'] ?? 'localhost:3000'}`
-      const baseUrl = frontendHost.endsWith('/') ? frontendHost.slice(0, -1) : frontendHost
-
-      const result = await reschedulePublicBooking(token, rescheduleData, baseUrl)
+      const result = await reschedulePublicBooking(token, rescheduleData, adminBaseUrl())
       return reply.status(201).send(ok(result))
     },
   )

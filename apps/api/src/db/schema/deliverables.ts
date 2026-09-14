@@ -32,6 +32,8 @@ export const deliverable = pgTable('deliverable', {
   reviewedBy: text('reviewed_by').references(() => clientAccount.id),
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   createdBy: text('created_by').references(() => hubUser.id),
+  archived: boolean('archived').notNull().default(false),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check('deliverable_type_check', sql`${table.type} IN ('design','prototype','staging','final')`),

@@ -35,6 +35,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -368,6 +369,7 @@ function WorkItemRow({
   const updateItem = useUpdateWorkItem()
   const deleteItem = useDeleteWorkItem()
   const [deleting, setDeleting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const assignee = item.assignedTo ? users?.find((u) => u.id === item.assignedTo) : null
   const deal = item.dealId ? deals?.find((d) => d.id === item.dealId) : null
@@ -377,10 +379,10 @@ function WorkItemRow({
   }
 
   async function handleDelete() {
-    if (!window.confirm(`¿Eliminar "${item.title}"?`)) return
     setDeleting(true)
     try {
       await deleteItem.mutateAsync(item.id)
+      setConfirmOpen(false)
     } finally {
       setDeleting(false)
     }
@@ -444,7 +446,7 @@ function WorkItemRow({
           type="button"
           variant="ghost"
           size="icon"
-          onClick={handleDelete}
+          onClick={() => setConfirmOpen(true)}
           disabled={deleting}
           className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
           title="Eliminar"
@@ -452,6 +454,16 @@ function WorkItemRow({
           {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`¿Eliminar "${item.title}"?`}
+        confirmLabel="Eliminar"
+        destructive
+        pending={deleting}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   )
 }
@@ -475,6 +487,7 @@ function RoadmapCard({
   const updateItem = useUpdateWorkItem()
   const deleteItem = useDeleteWorkItem()
   const [deleting, setDeleting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const assignee = item.assignedTo ? users?.find((u) => u.id === item.assignedTo) : null
   const deal = item.dealId ? deals?.find((d) => d.id === item.dealId) : null
@@ -484,10 +497,10 @@ function RoadmapCard({
   }
 
   async function handleDelete() {
-    if (!window.confirm(`¿Eliminar "${item.title}"?`)) return
     setDeleting(true)
     try {
       await deleteItem.mutateAsync(item.id)
+      setConfirmOpen(false)
     } finally {
       setDeleting(false)
     }
@@ -539,13 +552,23 @@ function RoadmapCard({
           variant="ghost"
           size="icon"
           className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-          onClick={handleDelete}
+          onClick={() => setConfirmOpen(true)}
           disabled={deleting}
           title="Eliminar"
         >
           {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`¿Eliminar "${item.title}"?`}
+        confirmLabel="Eliminar"
+        destructive
+        pending={deleting}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   )
 }

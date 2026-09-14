@@ -1,4 +1,6 @@
 import { and, asc, desc, eq, getTableColumns, inArray, ne, sql } from 'drizzle-orm'
+import type { ListQuery } from '../../lib/crm-schemas'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import {
   changeRequest,
@@ -11,9 +13,29 @@ import { Errors } from '../../lib/errors'
 import { toDecimal } from '../../lib/money'
 import { clientDealIds, assertDealInPortal } from '../../lib/portal-access'
 import { notifyAdmins, notifyDealClients } from '../notifications/notify'
-import type { CreateCRDTO, UpdateCRDTO, AddItemDTO } from './cr.schema'
+import type { CreateCRDTO, UpdateCRDTO, AddItemDTO, CRListQuery } from './cr.schema'
 
 type CRRow = typeof changeRequest.$inferSelect
+
+/**
+ * Transiciones que el equipo puede aplicar desde cada estado. Es la misma
+ * matriz que ofrece la UI del admin (change-requests/[id]/page.tsx): el enum de
+ * Zod solo valida que el estado exista, no que el salto sea legal, y sin esto
+ * una CR completada podía volver a borrador con una llamada directa a la API.
+ */
+const ADMIN_TRANSITIONS: Record<string, readonly string[]> = {
+  draft: ['sent'],
+  sent: ['approved', 'approved_verbally', 'negotiating', 'disputed', 'rejected'],
+  negotiating: ['approved', 'approved_verbally', 'disputed', 'rejected', 'sent'],
+  approved_verbally: ['approved', 'completed'],
+  approved: ['completed'],
+  disputed: ['negotiating', 'rejected'],
+  rejected: [],
+  completed: [],
+}
+
+/** Estados en los que la CR espera la decisión del cliente (WAITING_CLIENT en la UI). */
+const CLIENT_DECIDABLE_STATUSES: readonly string[] = ['sent', 'negotiating']
 
 async function getCRInPortal(portalId: string, id: string): Promise<CRRow> {
   const [cr] = await db
@@ -35,13 +57,22 @@ async function getCRInPortal(portalId: string, id: string): Promise<CRRow> {
  */
 export type CRListRow = CRRow & { dealName: string | null }
 
-export async function listCRs(portalId: string, dealId?: string): Promise<CRListRow[]> {
-  return db
+export async function listCRs(portalId: string, query: CRListQuery): Promise<Paginated<CRListRow>> {
+  const cursor = decodeCursor(query.cursor)
+  const rows = await db
     .select({ ...getTableColumns(changeRequest), dealName: deal.name })
     .from(changeRequest)
     .leftJoin(deal, eq(deal.id, changeRequest.dealId))
-    .where(dealId ? and(eq(changeRequest.portalId, portalId), eq(changeRequest.dealId, dealId)) : eq(changeRequest.portalId, portalId))
-    .orderBy(desc(changeRequest.createdAt))
+    .where(
+      and(
+        eq(changeRequest.portalId, portalId),
+        query.dealId ? eq(changeRequest.dealId, query.dealId) : undefined,
+        cursor ? cursorWhere(changeRequest.createdAt, changeRequest.id, cursor) : undefined,
+      ),
+    )
+    .orderBy(desc(changeRequest.createdAt), desc(changeRequest.id))
+    .limit(query.limit + 1)
+  return paginateRows(rows, query.limit)
 }
 
 export async function getCRDetail(portalId: string, id: string) {
@@ -63,6 +94,11 @@ export async function getCRDetail(portalId: string, id: string) {
 export async function createCR(portalId: string, userId: string, input: CreateCRDTO): Promise<CRRow> {
   await assertDealInPortal(portalId, input.dealId)
   return db.transaction(async (tx) => {
+    // MAX+1 bajo READ COMMITTED no ve las inserciones en curso de otras
+    // transacciones: dos creates simultáneos en el mismo deal calculaban el
+    // mismo número y el segundo rompía el UNIQUE(deal_id, number). El lock por
+    // deal los serializa sin bloquear CRs de otros deals.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`change-request-number:${input.dealId}`}))`)
     const numRows = await tx
       .select({ next: sql<number>`coalesce(max(${changeRequest.number}), 0) + 1` })
       .from(changeRequest)
@@ -135,10 +171,23 @@ export async function deleteItem(portalId: string, id: string, itemId: string): 
 /** Transición de estado del lado admin (incl. send). Registra historial. */
 export async function transitionCR(portalId: string, userId: string, id: string, status: string, comment?: string): Promise<CRRow> {
   const cr = await getCRInPortal(portalId, id)
+  if (!ADMIN_TRANSITIONS[cr.status]?.includes(status)) {
+    throw Errors.conflict(`No se puede pasar una change request de "${cr.status}" a "${status}"`)
+  }
   const patch: Partial<typeof changeRequest.$inferInsert> = { status, updatedAt: new Date() }
   if (status === 'completed') patch.completedAt = new Date()
-  const [row] = await db.update(changeRequest).set(patch).where(eq(changeRequest.id, id)).returning()
-  await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: status, comment, changedByUser: userId })
+  const row = await db.transaction(async (tx) => {
+    // Condicionado al estado leído: dos transiciones concurrentes no pueden
+    // aplicarse las dos sobre el mismo estado de origen.
+    const [updated] = await tx
+      .update(changeRequest)
+      .set(patch)
+      .where(and(eq(changeRequest.id, id), eq(changeRequest.status, cr.status)))
+      .returning()
+    if (!updated) throw Errors.conflict('La change request cambió de estado mientras tanto. Recargá e intentá de nuevo.')
+    await tx.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: status, comment, changedByUser: userId })
+    return updated
+  })
 
   // Al pasar a 'sent' la pelota queda del lado del cliente: necesita decidir.
   if (status === 'sent' && cr.status !== 'sent') {
@@ -148,7 +197,7 @@ export async function transitionCR(portalId: string, userId: string, id: string,
       title: cr.title,
     }, { entity: { type: 'change_request', id }, dedupeKey: `cr_sent:${id}` })
   }
-  return row!
+  return row
 }
 
 export async function addComment(portalId: string, userId: string, id: string, body: string) {
@@ -167,31 +216,53 @@ export async function addComment(portalId: string, userId: string, id: string, b
 async function getClientCR(clientId: string, id: string): Promise<CRRow> {
   const ids = await clientDealIds(clientId)
   const [cr] = await db.select().from(changeRequest).where(eq(changeRequest.id, id)).limit(1)
-  if (!cr || !ids.includes(cr.dealId)) throw Errors.notFound('Change request no encontrada')
+  // Un borrador no existe para el cliente (el listado ya lo oculta): 404 y no
+  // 403, para no confirmar que la CR existe.
+  if (!cr || !ids.includes(cr.dealId) || cr.status === 'draft') throw Errors.notFound('Change request no encontrada')
   return cr
 }
 
-export async function clientListCRs(clientId: string): Promise<CRRow[]> {
+export async function clientListCRs(clientId: string, query: ListQuery): Promise<Paginated<CRRow>> {
   const ids = await clientDealIds(clientId)
-  if (ids.length === 0) return []
-  return db
+  if (ids.length === 0) return { items: [], nextCursor: null }
+  const cursor = decodeCursor(query.cursor)
+  const rows = await db
     .select()
     .from(changeRequest)
-    .where(and(inArray(changeRequest.dealId, ids), ne(changeRequest.status, 'draft')))
-    .orderBy(desc(changeRequest.createdAt))
+    .where(
+      and(
+        inArray(changeRequest.dealId, ids),
+        ne(changeRequest.status, 'draft'),
+        cursor ? cursorWhere(changeRequest.createdAt, changeRequest.id, cursor) : undefined,
+      ),
+    )
+    .orderBy(desc(changeRequest.createdAt), desc(changeRequest.id))
+    .limit(query.limit + 1)
+  return paginateRows(rows, query.limit)
 }
 
 export async function clientDecision(clientId: string, id: string, decision: 'approved' | 'rejected', comment?: string): Promise<void> {
   const cr = await getClientCR(clientId, id)
-  await db
-    .update(changeRequest)
-    .set({
-      status: decision,
-      updatedAt: new Date(),
-      ...(decision === 'approved' ? { approvedAt: new Date(), approvedBy: clientId } : {}),
-    })
-    .where(eq(changeRequest.id, id))
-  await db.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: decision, comment, changedByClient: clientId })
+  // La aprobación del cliente fija alcance y precio: solo vale sobre una CR que
+  // el equipo le envió y que todavía espera respuesta, nunca para re-decidir.
+  if (!CLIENT_DECIDABLE_STATUSES.includes(cr.status)) {
+    throw Errors.conflict('Esta change request no está esperando tu decisión')
+  }
+  const applied = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(changeRequest)
+      .set({
+        status: decision,
+        updatedAt: new Date(),
+        ...(decision === 'approved' ? { approvedAt: new Date(), approvedBy: clientId } : {}),
+      })
+      .where(and(eq(changeRequest.id, id), eq(changeRequest.status, cr.status)))
+      .returning({ id: changeRequest.id })
+    if (!row) return false
+    await tx.insert(changeRequestHistory).values({ changeRequestId: id, fromStatus: cr.status, toStatus: decision, comment, changedByClient: clientId })
+    return true
+  })
+  if (!applied) throw Errors.conflict('Esta change request no está esperando tu decisión')
   // Antes esto llamaba a createNotification SIN userId ni clientId: la fila
   // quedaba sin destinatario y ninguna query de listado la devolvía nunca — el
   // equipo no se enteraba de la decisión del cliente. Era una de las fuentes de

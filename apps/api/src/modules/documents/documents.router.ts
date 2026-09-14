@@ -3,10 +3,11 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 import { ok } from '../../lib/response'
 import { authenticate } from '../../middleware/authenticate'
+import { authorize } from '../../middleware/authorize'
 import { IdParamSchema } from '../../lib/crm-schemas'
 import { ADMIN_SECURITY } from '../../lib/http'
 import { CreateDocumentSchema, ListDocumentsQuerySchema } from './documents.schema'
-import { listDocuments, createDocument, deleteDocument } from './documents.service'
+import { listDocuments, createDocument, archiveDocument } from './documents.service'
 import { sendForSignature, getSignedDocuments } from './docuseal.service'
 import { SendForSignatureSchema } from './documents.schema'
 
@@ -29,8 +30,8 @@ export async function documentsRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
-      const docs = await listDocuments(request.hubUser!.portalId, request.query)
-      return ok(docs)
+      const { items, nextCursor } = await listDocuments(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
     },
   )
 
@@ -43,6 +44,7 @@ export async function documentsRoutes(app: FastifyInstance): Promise<void> {
         security,
         body: CreateDocumentSchema,
       },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const doc = await createDocument(
@@ -60,12 +62,15 @@ export async function documentsRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: [TAG],
         summary: 'Eliminar documento',
+        description: 'Archiva el documento (soft delete): deja de listarse, pero se conserva el vínculo con DocuSeal.',
         security,
         params: IdParamSchema,
       },
+      // Un documento firmado guarda el único vínculo con el contrato en DocuSeal.
+      preHandler: [authorize('owner')],
     },
     async (request, reply) => {
-      await deleteDocument(request.hubUser!.portalId, request.params.id)
+      await archiveDocument(request.hubUser!.portalId, request.hubUser!.sub, request.params.id)
       return reply.status(204).send()
     },
   )
@@ -84,6 +89,7 @@ export async function documentsRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: SendForSignatureSchema,
       },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request, reply) => {
       const result = await sendForSignature(

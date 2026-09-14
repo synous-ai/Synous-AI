@@ -36,6 +36,11 @@ export default defineConfig({
       // Con la key vacía, sendEmail corta antes de salir a la red y loguea
       // "[mailer] RESEND_API_KEY no configurada — email omitido".
       RESEND_API_KEY: '',
+      // Storage en modo server (disco) en tests, por la misma razón: con
+      // credenciales de Vercel Blob en `.env` las subidas irían al store real.
+      // Los tests de modo blob mockean @vercel/blob y setean el token en `env`.
+      BLOB_READ_WRITE_TOKEN: '',
+      BLOB_STORE_ID: '',
     },
   },
 })

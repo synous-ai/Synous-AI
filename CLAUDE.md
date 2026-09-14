@@ -1,7 +1,9 @@
 # CLAUDE.md — SynousAI
 
 Este archivo es leído automáticamente por Claude Code al abrir el proyecto.
-La documentación completa está en `CRM_SYNOUS_DOCS.md`.
+La documentación completa está en `CRM_SYNOUS_DOCS.md`. Para arquitectura,
+modelo de auth/multi-tenant, flujos de negocio y limitaciones conocidas, ver
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 
 ---
 
@@ -64,7 +66,10 @@ services/            → servicios fuera del workspace de pnpm (whatsapp-gateway
 
 El portal de cliente NO es una app aparte: vive dentro de `apps/admin` bajo
 `/portal`, y el middleware resuelve el tenant por subdominio o por `/c/<slug>`.
-Existió un `apps/client-portal` standalone que quedó obsoleto y fue eliminado.
+Existió un `apps/client-portal` standalone que quedó obsoleto. La carpeta
+**sigue en disco** pero no está trackeada en git (`git ls-files` no la lista)
+y solo contiene caché de build (`.next/`, `.turbo/`, `node_modules/`) — no es
+un workspace de pnpm activo ni se despliega. Se puede borrar sin impacto.
 
 Cada módulo de la API sigue esta estructura:
 
@@ -89,7 +94,7 @@ src/modules/<nombre>/
 | Validación         | Zod en todos los endpoints sin excepción           |
 | Auth               | Clerk — hub_user y client_account por `userType`   |
 | Emails             | Resend                                             |
-| Archivos           | Vercel Blob (`@vercel/blob`)                       |
+| Archivos           | Vercel Blob privado (`@vercel/blob`), subida directa presignada; disco local en dev — ver `docs/STORAGE.md` |
 | Queue / Jobs       | BullMQ + Redis                                     |
 | WebSockets         | @fastify/websocket                                 |
 | Frontend           | Next.js 14 App Router + TypeScript                 |
@@ -140,6 +145,9 @@ src/modules/<nombre>/
   UPDATE deal SET custom = $1 WHERE id = $2
   ```
 - Nunca borrar registros del CRM. Siempre `archived = true` + `archived_at = now()`.
+  Cobertura real hoy: `deal`, `contact`, `company`, y desde la migración `0038`
+  también `document` y `deliverable`, y desde la `0041` `note` y `task` (antes se
+  borraban en duro; sus endpoints `DELETE` mantienen la ruta pero ahora archivan).
 - Cada cambio de campo en una entidad núcleo se registra en `record_history` (referencia polimórfica `entity_type` + `entity_id`, guarda `old_value` y `new_value`). Implementarlo en el service, no en el router.
 - Siempre filtrar `WHERE archived = false` en queries de listado.
 
@@ -150,6 +158,26 @@ src/modules/<nombre>/
 - Middleware `authenticateClient` → verifica token de cliente (client_account).
 - Un cliente NUNCA puede acceder a rutas del admin. Verificar en cada ruta.
 - Nunca loguear tokens, passwords, ni API keys.
+- **Guardia de FKs por tenant:** todo id que llega en el body de un request para
+  relacionar entidades (`companyId`, `primaryContactId`, `ownerId`, …) tiene que
+  validarse contra el `portalId` del caller ANTES de escribir. Postgres solo
+  garantiza que la fila exista, no que sea del mismo tenant — sin esto, un
+  usuario del portal A puede colgar de su deal una entidad del portal B.
+  Usar los helpers de `apps/api/src/lib/portal-access.ts`:
+  `assertDealInPortal`, `assertCompanyInPortal`, `assertContactInPortal`,
+  `assertHubUsersInPortal` (todos aceptan un `executor` opcional para pasarles
+  el `tx` cuando corren dentro de una transacción). `null`/`undefined` pasan
+  siempre: desvincular una relación es legítimo. Ya aplicado en `deals`,
+  `finance` (invoices/expenses), `documents` y `calendar` (event types); al
+  agregar un endpoint nuevo que reciba un FK-id en el body, agregar la guardia
+  correspondiente ahí también.
+- **Rate limit es opt-in por ruta.** `@fastify/rate-limit` está registrado con
+  `global: false`: una ruta NO queda limitada a menos que declare
+  `config: { rateLimit: { max, timeWindow } }` explícitamente. Se usa en rutas
+  públicas que mandan emails o validan tokens (booking del calendario,
+  propuestas públicas). El store es en memoria — bajo serverless con varias
+  instancias es defensa contra abuso desde una sola fuente, no un límite
+  global exacto.
 
 ---
 
@@ -175,18 +203,36 @@ const { number } = await db
   .where(eq(changeRequest.dealId, dealId));
 ```
 
-**Activación del Client Portal:**
-Se dispara automáticamente cuando:
+**Activación del Client Portal — dos fases:**
+Se dispara cuando:
 
 - El deal llega a una etapa con `is_won = true`, O
-- Llega el webhook de DocuSeal con `form.completed`
-  Llamar siempre a `activateClientPortal(tx, portalId, dealId)` en ambos casos.
-  Esta función: crea `client_account` + `client_deal_access`, marca el contacto
-  como `customer`, lo provisiona en Clerk y DEVUELVE los datos del email de
-  invitación — no lo manda ella. El envío lo dispara el caller DESPUÉS del
-  commit (si la transacción hace rollback, el email ya habría salido).
-  También existe `activateClientPortalManually` para invitar a mano desde el
-  detalle de deal en el admin.
+- Llega el webhook de DocuSeal con `form.completed` sobre un documento
+  `contract`, O
+- Un admin la dispara a mano (`activateClientPortalManually`) desde el detalle
+  de deal.
+
+Llamar siempre a `activateClientPortal(tx, portalId, dealId)` para la parte de
+DB: crea `client_account` + `client_deal_access` si no existen, y marca el
+contacto como `customer`. Es idempotente y **NO habla con Clerk ni manda
+email** — devuelve un descriptor `PortalActivation | null` (`null` si no hay
+nada que hacer: sin contacto/email, o cuenta ya vinculada a Clerk).
+
+Las llamadas a Clerk (crear usuario, invitar) y el envío del email van
+DESPUÉS del commit, en `completeClientPortalActivation(activation)` —
+best-effort, atrapa sus propios errores y loguea. Razón: correr HTTP a Clerk
+dentro de la transacción retenía el lock de la fila del deal durante el
+round-trip, y si la transacción hacía rollback el usuario de Clerk ya había
+quedado creado igual (no hay rollback de un side-effect externo). Si Clerk o
+Resend fallan en esta segunda fase, la cuenta ya existe en DB y una activación
+posterior reintenta el vínculo porque `needsClerkUser` sigue en `true`.
+
+Patrón siempre igual en los tres callers:
+```typescript
+const activation = await activateClientPortal(tx, portalId, dealId) // dentro de la tx
+// ... commit ...
+if (activation) await completeClientPortalActivation(activation) // después del commit
+```
 
 **Stage changes:**
 Nunca actualizar `stage_id` directamente en el router.
@@ -197,6 +243,23 @@ Siempre usar `dealService.changeStage(dealId, newStageId, userId)` que hace:
 3. Insert en `audit_log`
 4. Create notification
 5. Check si `is_won` para activar client portal
+
+**Envío de emails (`sendEmail`, `lib/mailer.ts`):**
+Cliente lazy de Resend — se instancia solo si `RESEND_API_KEY` está presente.
+
+- Sin `RESEND_API_KEY`: loguea el intento y retorna sin error (modo dev/test
+  seguro, no rompe nada).
+- Con la key configurada, si Resend devuelve `{ error }` (el SDK de Resend NO
+  rechaza la promesa ante un fallo, devuelve un objeto con `error`),
+  `sendEmail` **LANZA** `AppError('EMAIL_SEND_FAILED', ..., 502)`. Antes ese
+  error se tragaba silenciosamente adentro de `sendEmail`, así que el `catch`
+  best-effort del caller nunca se ejecutaba y campos como `inviteSentAt` se
+  sellaban igual aunque el envío hubiera fallado de verdad.
+- El caller SIEMPRE envuelve en `try/catch` y trata el envío como
+  best-effort — un email que no sale no debe hacer fallar el flujo de negocio
+  que lo dispara (stage change, invitación, etc.), pero si vas a marcar un
+  campo tipo `xSentAt`, hacelo DESPUÉS de que `sendEmail` resuelva sin lanzar,
+  nunca antes.
 
 ---
 
@@ -209,15 +272,19 @@ pnpm --filter api db:generate
 # Aplicar migraciones pendientes
 pnpm --filter api db:migrate
 
-# Ver estado de migraciones
-pnpm --filter api db:status
-
 # NUNCA editar archivos en /migrations/ manualmente
-# NUNCA usar db:push en producción
+# NUNCA usar db:push en producción (salvo dev local)
 ```
 
 El schema de Drizzle vive en `apps/api/src/db/schema/`.
 Un archivo por tabla o por grupo de tablas relacionadas.
+
+Las migraciones son **forward-only** (no hay `down`): un rollback en
+producción significa restaurar desde backup/PITR, no "deshacer" la migración.
+Antes de deployar una migración que agregue un `UNIQUE` sobre datos
+preexistentes (como la `0038`, que agrega `UNIQUE(portal_id, number)` en
+`invoice`), verificar que no haya duplicados o el `ALTER TABLE` falla en
+producción. Ver `docs/ARCHITECTURE.md` para el detalle.
 
 ---
 
@@ -290,60 +357,64 @@ Si la validación falla: responder `401` sin información de error (no revelar q
 
 ---
 
-## Módulos implementados
+## Mapa de módulos
 
-Actualizar este checklist a medida que se completan:
+Este checklist por fases quedó desactualizado (el producto avanzó mucho más
+rápido de lo que se actualizaba este archivo) y se reemplaza por un mapa del
+estado real del código. Fuente de verdad: `apps/api/src/modules/` (34
+directorios) y `apps/admin/app/` — correr `ls apps/api/src/modules` siempre da
+la lista completa y actualizada, más confiable que cualquier checklist a mano.
 
-### Fase 1 — Base
+**CRM núcleo:** `contacts`, `companies`, `deals`, `pipelines`, `leads`,
+`clients` (vistas filtradas de contactos), `activities` (notas/tareas/
+llamadas/reuniones), `timeline`, `focus` (follow-ups), `custom-fields`,
+`dashboard`, `reports`.
 
-- [x] Setup monorepo (Turborepo + pnpm)
-- [x] Fastify API skeleton + health check
-- [x] Drizzle schema + migraciones
-- [x] Auth con Clerk (hub_user y client_account, separados por `userType`)
-- [x] CRUD contacts
-- [x] CRUD companies
-- [x] CRUD deals
-- [x] Pipelines + stage changes con historial
-- [ ] Admin Portal: login
-- [ ] Admin Portal: pipeline kanban
+**Client Portal:** `client-auth` (sesión separada vía Clerk), `client` (vista
+agregada del portal), `deliverables`, `intake` (formularios + versión
+cliente), `branding` (white-label), `documents` (incl. DocuSeal). Frontend en
+`apps/admin/app/portal/(app)/*` (dashboard, deliverables, documents, forms,
+invoices, requests, marca) + `(auth)` (login, accept-invitation).
 
-### Fase 2 — Operaciones
+**Change Requests:** `change-requests` — CRUD, máquina de estados
+(`ADMIN_TRANSITIONS`), historial, comentarios, decisión del cliente
+(aprobar/rechazar/negociar). Ver `docs/ARCHITECTURE.md` para el detalle de la
+máquina de estados.
 
-- [ ] Actividades tipadas (calls, meetings, notes, tasks)
-- [ ] Asociaciones tipadas (deal_contact + FKs directas)
-- [ ] Campos custom (columna `custom jsonb`) — sin motor EAV
-- [ ] Búsqueda avanzada (filterBranch)
-- [ ] Admin Portal: vista de deal completa
+**Finanzas:** `finance` — facturas (USD+ARS, numeración con advisory lock),
+pagos, gastos, retainers, PDF con `pdfkit`. Frontend en
+`apps/admin/app/admin/(dashboard)/finance/*` e `invoices/*`.
 
-### Fase 3 — Client Portal
+**Integraciones:** `webhooks` (Fathom + DocuSeal), `email-tracking` (pixel +
+click con firma HMAC), `onboarding` (wizard post-venta de 8 pasos dentro del
+Client Portal + progreso en admin — NO es un wizard público pre-venta),
+`proposals` (generación con IA + PDF + vista pública por token), `calendar`
+(scheduling propio, admin + público).
 
-- [ ] client_account + auth separada
-- [ ] Intake forms + subida de archivos R2
-- [ ] Client Portal: dashboard + formularios
-- [ ] Deliverables + flujo de aprobación
-- [ ] Notificaciones WebSocket
+**Operación interna:** `library` (SOPs, plantillas, checklists),
+`work-items`, `users`, `settings`, `notifications` + `notification-prefs`,
+`files`, `auth`, `health`.
 
-### Fase 4 — Change Requests
+**Frontend — superficies bajo `apps/admin/app/`:**
 
-- [ ] CRUD change requests + ítems
-- [ ] Máquina de estados + historial
-- [ ] Hilo de comentarios
-- [ ] Client Portal: aprobar / rechazar / negociar
+- `admin/(auth)` y `admin/(dashboard)/*` — panel interno: calendar,
+  change-requests, clients, companies, contacts, dashboard, deals, finance,
+  follow-ups, invoices, leads, library, onboarding, operations, pipeline,
+  projects, proposals, reports, settings, tasks.
+- `portal/(auth)` y `portal/(app)/*` — portal del cliente.
+- `portal/propuesta` — carta de propuesta pública (sin login, pensada para un
+  prospecto que todavía no tiene cuenta).
+- `book/*` — reserva pública del calendario (incl. `cancel`, `reschedule`).
+- `p/[token]` — vista pública de propuesta por link tokenizado.
 
-### Fase 5 — Integraciones
+**Deuda / limitaciones conocidas** (no las repliques en código nuevo sin
+revisar `docs/ARCHITECTURE.md` primero):
 
-- [ ] DocuSeal: submissions + webhook
-- [ ] Activación automática client portal
-- [ ] Fathom: webhook + enriquecer meetings
-- [ ] Email tracking: pixel + link tracking
-- [ ] Calendario nativo: disponibilidad + bookings
-
-### Fase 6 — Business Intelligence
-
-- [ ] Dashboard métricas (recharts)
-- [ ] Revenue forecast ponderado
-- [ ] Leads fríos + alertas
-- [ ] Reportes exportables
+- En Vercel la API se deploya como bundle (`dist/server.js`, que Vercel genera con
+  `build:bundle`); no se commitea ningún artefacto. Un paquete del workspace que
+  exporte `.ts` tiene que quedar inlineado por tsup (`noExternal`). Tiempo real vía
+  Redis pub/sub y recordatorios vía Vercel Cron — ver "Procesamiento asíncrono,
+  tiempo real y deploy de la API" en `docs/ARCHITECTURE.md`.
 
 ---
 

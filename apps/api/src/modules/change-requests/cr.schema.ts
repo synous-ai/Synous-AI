@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ListQuerySchema } from '../../lib/crm-schemas'
 
 const ItemSchema = z.object({
   description: z.string().min(1),
@@ -33,7 +34,8 @@ export type UpdateCRDTO = z.infer<typeof UpdateCRSchema>
 export const AddItemSchema = ItemSchema
 export type AddItemDTO = z.infer<typeof AddItemSchema>
 
-export const CRListQuerySchema = z.object({ dealId: z.string().min(1).optional() })
+export const CRListQuerySchema = z.object({ dealId: z.string().min(1).optional() }).merge(ListQuerySchema)
+export type CRListQuery = z.infer<typeof CRListQuerySchema>
 
 const CR_STATUSES = ['draft', 'sent', 'approved', 'rejected', 'negotiating', 'approved_verbally', 'disputed', 'completed'] as const
 export const TransitionSchema = z.object({ status: z.enum(CR_STATUSES), comment: z.string().optional() })

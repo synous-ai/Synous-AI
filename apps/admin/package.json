@@ -31,6 +31,7 @@
     "@synous/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
     "@tanstack/react-table": "^8.20.6",
+    "@vercel/blob": "2.8.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",

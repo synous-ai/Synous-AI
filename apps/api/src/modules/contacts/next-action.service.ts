@@ -96,8 +96,12 @@ export async function suggestNextAction(portalId: string, contactId: string): Pr
       const provider = getModelProvider()
       const action = await suggestNextActionAI(ctx, provider)
       return { action, source: 'ai' }
-    } catch {
-      /* cae a reglas */
+    } catch (err) {
+      // Hay credenciales configuradas: si la IA falla es una integración rota, no
+      // un caso esperado. Se cae a reglas igual, pero queda en los logs.
+      console.error('[next-action] Falló la sugerencia con IA, se usan reglas', {
+        error: (err as Error)?.message ?? err,
+      })
     }
   }
   return { action: fallbackNextAction(ctx), source: 'rules' }

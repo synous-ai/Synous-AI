@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiList, apiPatch, apiPost, apiDelete } from '../api'
+import { apiGet, apiPatch, apiPost, apiDelete, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
 import type { Deal, DealDetail } from '../types'
 
 export function useDeals() {
   return useQuery({
     queryKey: ['deals'],
-    queryFn: async () => (await apiList<Deal[]>('/api/deals?limit=100')).data,
+    queryFn: () => fetchAllPages<Deal>(apiList, '/api/deals'),
   })
 }
 

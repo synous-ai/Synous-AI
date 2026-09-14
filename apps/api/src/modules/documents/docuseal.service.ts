@@ -8,13 +8,14 @@
  *  3. Cada cambio de `docuseal_status` se registra en `record_history` con
  *     `source_type = 'DOCUSEAL'`.
  */
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull, ne, or } from 'drizzle-orm'
 import { db } from '../../db'
 import { document, deal, contact } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges } from '../../lib/audit'
 import { sendEmail } from '../../lib/mailer'
-import { activateClientPortal, sendPortalInvitationEmail } from '../deals/stage.service'
+import { clientDealIds } from '../../lib/portal-access'
+import { activateClientPortal, completeClientPortalActivation } from '../deals/stage.service'
 import {
   createSubmission,
   fetchSubmissionDocuments,
@@ -128,9 +129,49 @@ export async function getSignedDocuments(portalId: string, documentId: string): 
   const [row] = await db
     .select({ submissionId: document.docusealSubmissionId, status: document.docusealStatus })
     .from(document)
-    .where(and(eq(document.id, documentId), eq(document.portalId, portalId)))
+    .where(and(eq(document.id, documentId), eq(document.portalId, portalId), eq(document.archived, false)))
     .limit(1)
   if (!row) throw Errors.notFound('Documento no encontrado')
+  if (!row.submissionId) throw Errors.badRequest('El documento no tiene una submission de DocuSeal asociada')
+  if (row.status !== 'completed') throw Errors.badRequest('El documento todavía no está firmado')
+
+  return fetchSubmissionDocuments(row.submissionId)
+}
+
+/**
+ * Igual que `getSignedDocuments`, pero para el portal de cliente: en vez de
+ * scopear por portalId (admin), valida que el documento pertenezca a un deal
+ * del cliente Y sea `visibleToClient`. Reutiliza `fetchSubmissionDocuments`
+ * para no duplicar la llamada a DocuSeal.
+ *
+ * Se responde 404 (no 403) cuando el documento no es del cliente o no es
+ * visible — mismo criterio que `assertClientDeliverable` (client.service.ts):
+ * no confirmar que el documento existe si no le corresponde.
+ *
+ * Misma regla de negocio que `getSignedDocuments`: la URL del PDF firmado
+ * NUNCA se persiste (caduca a los 40 minutos), así que se pide fresca acá.
+ */
+export async function getClientSignedDocuments(
+  clientId: string,
+  documentId: string,
+): Promise<DocusealDocument[]> {
+  const [row] = await db
+    .select({
+      dealId: document.dealId,
+      visibleToClient: document.visibleToClient,
+      submissionId: document.docusealSubmissionId,
+      status: document.docusealStatus,
+    })
+    .from(document)
+    .where(and(eq(document.id, documentId), eq(document.archived, false)))
+    .limit(1)
+  if (!row) throw Errors.notFound('Documento no encontrado')
+
+  const dealIds = await clientDealIds(clientId)
+  if (!row.dealId || !row.visibleToClient || !dealIds.includes(row.dealId)) {
+    throw Errors.notFound('Documento no encontrado')
+  }
+
   if (!row.submissionId) throw Errors.badRequest('El documento no tiene una submission de DocuSeal asociada')
   if (row.status !== 'completed') throw Errors.badRequest('El documento todavía no está firmado')
 
@@ -143,13 +184,13 @@ export async function getSignedDocuments(portalId: string, documentId: string): 
 const HANDLED_EVENTS = new Set(['form.completed', 'form.declined'])
 
 export interface DocusealWebhookPayload {
-  event_type?: string
+  event_type?: string | null
   data?: {
     /** slug del submitter — es lo que guardamos en docuseal_external_id. */
-    slug?: string
-    submission_id?: number
-    status?: string
-  }
+    slug?: string | null
+    submission_id?: number | null
+    status?: string | null
+  } | null
 }
 
 /**
@@ -191,14 +232,20 @@ export async function handleDocusealWebhook(payload: DocusealWebhookPayload): Pr
   // Activar el portal solo si es un CONTRATO completado y el deal existe.
   const shouldActivate = newStatus === 'completed' && row.type === 'contract' && Boolean(row.dealId)
 
-  const invitation = await db.transaction(async (tx) => {
-    await tx
+  const outcome = await db.transaction(async (tx) => {
+    // El UPDATE condicionado es el verdadero guard de idempotencia: el chequeo
+    // de arriba se lee fuera de la transacción, y dos entregas concurrentes del
+    // mismo evento lo pasaban las dos. Acá la segunda espera el lock de la fila,
+    // no matchea y no vuelve a activar el portal.
+    const [updated] = await tx
       .update(document)
       .set({
         docusealStatus: newStatus,
         signedAt: newStatus === 'completed' ? new Date() : null,
       })
-      .where(eq(document.id, row.id))
+      .where(and(eq(document.id, row.id), or(isNull(document.docusealStatus), ne(document.docusealStatus, newStatus))))
+      .returning({ id: document.id })
+    if (!updated) return { processed: false, activation: null }
 
     await recordFieldChanges({
       tx,
@@ -212,12 +259,14 @@ export async function handleDocusealWebhook(payload: DocusealWebhookPayload): Pr
       sourceType: 'DOCUSEAL',
     })
 
-    return shouldActivate ? activateClientPortal(tx, row.portalId, row.dealId!) : null
+    const activation = shouldActivate ? await activateClientPortal(tx, row.portalId, row.dealId!) : null
+    return { processed: true, activation }
   })
+  if (!outcome.processed) return
 
-  // Invitación al portal FUERA de la transacción, igual que en changeStage: si
-  // la transacción hiciera rollback, el email ya habría salido.
-  if (invitation) await sendPortalInvitationEmail(invitation)
+  // Clerk + invitación al portal FUERA de la transacción, igual que en
+  // changeStage: si la transacción hiciera rollback, no deben haber ocurrido.
+  if (outcome.activation) await completeClientPortalActivation(outcome.activation)
 
   // Aviso al equipo. Es el hito de venta más importante del sistema y hasta
   // ahora no lo comunicaba a nadie: el webhook activaba el portal y mandaba el

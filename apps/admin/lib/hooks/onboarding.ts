@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { apiGet } from '../api'
+import { apiGet, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
 import type { AdminOnboardingListItemDTO, AdminOnboardingDetailDTO } from '../types'
 
 /**
@@ -11,7 +12,7 @@ import type { AdminOnboardingListItemDTO, AdminOnboardingDetailDTO } from '../ty
 export function useOnboardingList() {
   return useQuery<AdminOnboardingListItemDTO[]>({
     queryKey: ['onboarding', 'list'],
-    queryFn: () => apiGet<AdminOnboardingListItemDTO[]>('/api/onboarding'),
+    queryFn: () => fetchAllPages<AdminOnboardingListItemDTO>(apiList, '/api/onboarding'),
   })
 }
 

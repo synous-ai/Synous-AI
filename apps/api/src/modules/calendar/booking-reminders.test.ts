@@ -2,7 +2,7 @@
  * booking-reminders.test.ts — Recordatorios de reunión (24h / 1h).
  *
  * Lo que importa verificar acá no es que "se mande un email", sino las dos
- * propiedades que hacen que el worker sea seguro corriendo cada 15 minutos:
+ * propiedades que hacen que el scan sea seguro corriendo repetidamente:
  *
  *  1. IDEMPOTENCIA — la segunda corrida sobre el mismo booking no manda nada.
  *  2. VENTANAS DISJUNTAS — un booking a 30 minutos vista recibe el de '1h' y
@@ -104,7 +104,7 @@ describe('sendDueBookingReminders', () => {
     expect(subjects.every((s) => s.startsWith('Mañana:'))).toBe(true)
   })
 
-  it('NO reenvía en la segunda corrida — el worker corre cada 15 minutos', async () => {
+  it('NO reenvía en la segunda corrida — el scan corre repetidamente', async () => {
     const now = new Date()
     await seedBooking(now, 20 * HOUR)
 

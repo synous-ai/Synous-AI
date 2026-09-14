@@ -174,9 +174,9 @@ export const booking = pgTable('booking', {
 /**
  * Recordatorios de reunión ya enviados.
  *
- * Existe SOLO para garantizar que cada recordatorio salga una vez. El worker de
- * reminders corre cada 15 minutos, así que sin esto un booking a 20 horas vista
- * recibiría el mismo email en cada tick.
+ * Existe SOLO para garantizar que cada recordatorio salga una vez. El scan de
+ * reminders corre repetidamente (BullMQ cada 15 minutos, Vercel Cron una vez por
+ * día), así que sin esto un booking recibiría el mismo email en cada corrida.
  *
  * El mecanismo es el UNIQUE (booking_id, kind): el scan hace el INSERT primero
  * con ON CONFLICT DO NOTHING y solo manda el email si la fila la insertó ÉL.

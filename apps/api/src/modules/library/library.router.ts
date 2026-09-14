@@ -47,7 +47,8 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
-      return ok(await listLibraryItems(request.hubUser!.portalId, request.query))
+      const { items, nextCursor } = await listLibraryItems(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
     },
   )
 
@@ -103,7 +104,7 @@ export async function libraryRoutes(app: FastifyInstance): Promise<void> {
       preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
-      return ok(await updateLibraryItem(request.hubUser!.portalId, request.params.id, request.body))
+      return ok(await updateLibraryItem(request.hubUser!.portalId, request.params.id, request.hubUser!.sub, request.body))
     },
   )
 

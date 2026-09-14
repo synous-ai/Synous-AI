@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ListQuerySchema } from '../../lib/crm-schemas'
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ export const ListInvoicesQuerySchema = z.object({
    */
   tab: z.enum(['all', 'por_cobrar', 'vencidas', 'pagadas', 'borradores']).optional(),
   status: InvoiceStatusEnum.optional(),
-})
+}).merge(ListQuerySchema)
 export type ListInvoicesQuery = z.infer<typeof ListInvoicesQuerySchema>
 
 export const ListPaymentsQuerySchema = z.object({
@@ -106,10 +107,13 @@ export const ListPaymentsQuerySchema = z.object({
   to: z.string().optional(),
   companyId: z.string().optional(),
   invoiceId: z.string().optional(),
-})
+}).merge(ListQuerySchema)
 export type ListPaymentsQuery = z.infer<typeof ListPaymentsQuerySchema>
 
 // ── Expenses ─────────────────────────────────────────────────────────────────
+
+/** Roles con acceso a finanzas (rutas y comprobantes en files.authz). */
+export const FINANCE_ROLES = ['owner', 'member'] as const
 
 export const CreateExpenseSchema = z.object({
   description: z.string().min(1),
@@ -129,7 +133,7 @@ export const CreateExpenseSchema = z.object({
   companyId: z.string().min(1).optional(),
   paymentMethod: PaymentMethodEnum.optional(),
   isRecurring: z.boolean().optional(),
-  storageKey: z.string().optional(),
+  storageKey: z.string().min(1).optional(),
   notes: z.string().optional(),
 })
 export type CreateExpenseDTO = z.infer<typeof CreateExpenseSchema>
@@ -146,7 +150,7 @@ export const ListExpensesQuerySchema = z.object({
     .string()
     .transform((v) => v === 'true')
     .optional(),
-})
+}).merge(ListQuerySchema)
 export type ListExpensesQuery = z.infer<typeof ListExpensesQuerySchema>
 
 // ── Retainers ─────────────────────────────────────────────────────────────────
@@ -182,7 +186,7 @@ export type UpdateRetainerDTO = z.infer<typeof UpdateRetainerSchema>
 export const ListRetainersQuerySchema = z.object({
   status: RetainerStatusEnum.optional(),
   companyId: z.string().optional(),
-})
+}).merge(ListQuerySchema)
 export type ListRetainersQuery = z.infer<typeof ListRetainersQuerySchema>
 
 // ── Summary ───────────────────────────────────────────────────────────────────

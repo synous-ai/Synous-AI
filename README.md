@@ -2,8 +2,8 @@
 
 CRM propio para una agencia de desarrollo web, construido **desde cero** sobre PostgreSQL.
 No usa ninguna librería externa de CRM: toda la lógica de negocio (pipeline, deals, portal
-del cliente, facturación, change requests, propuestas, agente de ventas con IA) está hecha
-a mano sobre un stack propio.
+del cliente, facturación, change requests, propuestas con IA) está hecha a mano sobre un
+stack propio.
 
 Monorepo gestionado con **pnpm workspaces + Turborepo**.
 
@@ -20,6 +20,8 @@ Monorepo gestionado con **pnpm workspaces + Turborepo**.
 - [Variables de entorno](#variables-de-entorno)
 - [Puertos en desarrollo](#puertos-en-desarrollo)
 - [Comandos útiles](#comandos-útiles)
+- [CI](#ci)
+- [Deployment](#deployment)
 - [Módulos de la API](#módulos-de-la-api)
 - [Integraciones externas](#integraciones-externas)
 - [Convenciones de código](#convenciones-de-código)
@@ -34,13 +36,11 @@ El producto cubre el ciclo completo de la agencia, de lead frío a cliente factu
 - **Auth 100% Clerk (admin y portal del cliente)** — no hay JWT propio de sesión: el token de Clerk se verifica y se resuelve `hub_user` (admin) o `client_account` (cliente) por `clerk_user_id`; se distinguen por `publicMetadata.userType` ('admin' | 'client') + lookup en DB. Roles del admin: `owner` / `member` / `collaborator` / `viewer`. El alta de un cliente se vincula a su cuenta de Clerk vía invitación (`accept-invitation`) + `client-account-linking` (ID-first por `publicMetadata.clientAccountId`, con fallback por email exacto).
 - **Pipeline de ventas** — contactos, empresas, deals, pipelines y etapas con historial de cambios.
 - **Calendario / Scheduling propio (estilo Calendly)** — tipos de evento, disponibilidad con rangos múltiples y date overrides, motor de slots con timezones/DST, página pública de reserva (`/book`), emails de confirmación/cancelación y anti-doble-booking a nivel DB.
-- **Onboarding pre-venta** — wizard público tokenizado que pre-carga el lead y crea/reusa su deal.
+- **Onboarding post-venta** — wizard de 8 pasos (firma, brief, materiales) dentro del Client Portal, autenticado con `client_account`. Al completarse mueve el deal al pipeline "Producción" (`moveDealToProduction`).
 - **Propuestas con IA** — generación de propuestas estructuradas (Gemini/Claude) con PDF y vista pública por token.
 - **Portal del cliente** — login separado, intake forms, archivos, deliverables, change requests y white-label.
 - **Change requests** — solicitudes de cambio de alcance con ítems, adjuntos, historial, comentarios y aprobación del cliente.
-- **Finanzas multimoneda (USD + ARS)** — facturas, cobros, gastos y retainers (MRR) con tipo de cambio congelado por movimiento (dolarapi), estados derivados, resumen con KPIs/gráficos y PDF de factura.
-- **Agente de ventas IA ("Setter")** — agente conversacional por WhatsApp (modos shadow / hybrid / autopilot) con cerebro LLM, aprobación humana y sincronización con el CRM.
-- **Prospección** — búsqueda de negocios vía Google Places + análisis con Vertex AI y autopilot programado.
+- **Finanzas multimoneda (USD + ARS)** — facturas, cobros, gastos y retainers (MRR) con tipo de cambio congelado por movimiento (dolarapi), estados derivados, resumen con KPIs/gráficos y PDF de factura (generado localmente con `pdfkit`).
 - **Operación diaria** — actividades tipadas (notas, tareas, llamadas, reuniones), follow-ups, focus, timeline unificado, reportes y dashboard.
 - **Notificaciones en tiempo real** — REST + WebSocket, con preferencias por canal.
 - **Email tracking** — pixel de apertura + redirect de clicks.
@@ -65,7 +65,7 @@ El producto cubre el ciclo completo de la agencia, de lead frío a cliente factu
 | Jobs / Queue        | BullMQ + Redis                                            |
 | WebSockets          | `@fastify/websocket`                                      |
 | Docs API            | OpenAPI 3 vía `@fastify/swagger` (`/docs`)                |
-| PDF                 | `pdfkit` (propuestas) · `easyinvoice` (facturas)          |
+| PDF                 | `pdfkit` (propuestas y facturas, renderizado local sin servicio externo) |
 | IA                  | Anthropic SDK (Claude) · `@google/genai` (Gemini / Vertex AI) |
 | Frontend            | Next.js 14 (App Router) + TypeScript                      |
 | Estilos             | Tailwind CSS + shadcn/ui (Radix) + Framer Motion          |
@@ -84,11 +84,13 @@ El producto cubre el ciclo completo de la agencia, de lead frío a cliente factu
 
 ```
 apps/
-  api/                 → Fastify + Drizzle + PostgreSQL (35 módulos de dominio)
+  api/                 → Fastify + Drizzle + PostgreSQL (34 módulos de dominio)
   admin/               → Next.js — incluye:
                            · panel de administración  → /admin
-                           · portal del cliente       → /portal
-                           · wizard de onboarding      → /onboarding (público)
+                           · portal del cliente       → /portal (incluye el wizard
+                             de onboarding post-venta y la propuesta pública en
+                             /portal/propuesta)
+                           · reserva pública de calendario → /book
                            · vista pública de propuesta → /p/[token]
 packages/
   shared/              → @synous/shared — tipos y utilidades compartidas
@@ -110,29 +112,38 @@ docker-compose.dev.yml → Postgres + Redis para desarrollo
 ```
 apps/api/src/
   app.ts          → buildApp(): registra plugins Fastify y todas las rutas
-  server.ts       → start(): listen + arranque de workers (reminders, setter, prospecting)
+  server.ts       → entrypoint único: listen + worker de recordatorios (BullMQ) en modo
+                    long-running; en Vercel se deploya bundleado (dist/server.js) y sin
+                    worker (ver Deployment)
   config/env.ts   → validación Zod de variables de entorno (fail-fast al arrancar)
   db/
-    index.ts      → conexión Drizzle + pg
-    schema/       → un archivo por dominio (~27 archivos)
-    migrations/   → migraciones SQL (0000–0024) — nunca editar a mano (salvo backfill
-                    de datos tras `db:generate`). Incluye 0015 (`clerk_user_id` en
-                    hub_user), 0016 (calendario: schedules / event types / bookings +
-                    `EXCLUDE USING gist` anti-overlap), 0017 (finanzas multimoneda:
-                    `expense`/`retainer` + `currency`/`exchange_rate`/`amount_base` en
-                    invoice/payment), 0022 (`steps` jsonb + `owner_id` en library_item),
-                    0023 (`kind` en library_item: SOP y Checklist consolidados) y
-                    0024 (rol `collaborator` en hub_user)
-    seed.ts       → seed inicial · seed.setter.ts → seed del agente Setter
+    index.ts      → conexión Drizzle: node-postgres en local/self-hosted, driver
+                    serverless de Neon cuando `DATABASE_URL` apunta a Neon (necesario
+                    para soportar `db.transaction()`, que `neon-http` no ofrece)
+    schema/       → un archivo por dominio. Incluye dos archivos LEGACY sin
+                    consumidores (`setter.ts`, `prospecting.ts`) de una feature de
+                    agente de ventas por WhatsApp que fue eliminada del código —
+                    quedan solo para no romper migraciones ya aplicadas
+    migrations/   → migraciones SQL (0000–0038), forward-only — nunca editar a mano
+                    ni usar `db:push` en producción. Ver `docs/ARCHITECTURE.md` para
+                    el detalle de la migración 0038 (soft-delete de document/
+                    deliverable + UNIQUE de numeración de factura) y el chequeo
+                    previo obligatorio antes de deployarla
+    seed.ts       → seed inicial · seed-portal-demo.ts → datos demo de un portal
   scripts/        → one-offs: migrate-users-to-clerk / migrate-clients-to-clerk
                     (import a Clerk), set-clerk-user-types (publicMetadata.userType),
                     create-admin (alta de admin), set-portal-timezone,
                     migrate-processes-to-library (procesos → SOPs, idempotente)
-  lib/            → errors (AppError), jwt (solo portal cliente), password (bcrypt),
-                    mailer (Resend), clerk-auth (verify + resolveHubUser), pagination, money, etc.
+  lib/            → errors (AppError), mailer (Resend, lanza si Resend rechaza el
+                    envío), clerk-auth (verify + resolveHubUser/resolveClientAccount),
+                    portal-access (guardias de FK por tenant), portal-url (URLs del
+                    portal, siempre desde ADMIN_URL, nunca de headers del request),
+                    notification-bus (Redis pub/sub por portal; en proceso sin REDIS_URL), pagination, money, fx, etc.
   middleware/     → authenticate (hub_user vía Clerk) · authenticate-client (client_account vía Clerk) · authorize
-  jobs/           → colas y workers BullMQ (reminders)
-  modules/        → 35 módulos de dominio (ver más abajo)
+  jobs/           → colas y workers BullMQ (reminders) — solo en modo long-running;
+                    en Vercel el mismo scan lo dispara Vercel Cron vía
+                    modules/cron (ver `docs/ARCHITECTURE.md`)
+  modules/        → 34 módulos de dominio (ver más abajo)
 ```
 
 ### Estructura interna del admin
@@ -141,12 +152,15 @@ apps/api/src/
 apps/admin/
   app/            → rutas Next.js App Router
     page.tsx           → landing pública de Synous
-    onboarding/        → wizard público pre-venta
     p/[token]/         → vista pública de propuesta (link tokenizado)
     book/              → reserva pública del calendario (slug del event type + cancel/reschedule)
-    admin/             → panel interno (login Clerk + dashboard con todas las secciones)
-    portal/            → portal del cliente (login vía Clerk + app, tema propio)
-  components/      → componentes por dominio (deals, contacts, finance, setter, ui shadcn, …)
+    admin/             → panel interno (login Clerk + dashboard con todas las secciones,
+                          incluido el progreso del onboarding post-venta por deal)
+    portal/            → portal del cliente (login vía Clerk + app, tema propio);
+                          incluye el wizard de onboarding post-venta (8 pasos) y
+                          `/portal/propuesta`, la carta de propuesta pública (sin
+                          login) para un prospecto que todavía no tiene cuenta
+  components/      → componentes por dominio (deals, contacts, finance, ui shadcn, …)
   lib/            → hooks (data layer con TanStack Query), store Zustand, api client
   portal-lib/     → librería propia del portal del cliente y del wizard de onboarding
 ```
@@ -154,6 +168,12 @@ apps/admin/
 ---
 
 ## Arquitectura
+
+> Esto es un resumen operativo (cómo se ve un módulo, cómo pega el frontend a la API).
+> Para el modelo de auth/multi-tenant, los flujos de negocio (activación del portal,
+> firma de DocuSeal, numeración de facturas), las integraciones externas con sus
+> timeouts/idempotencia, el tiempo real y los recordatorios en Vercel, y las
+> limitaciones conocidas, ver [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 
 **Backend.** Cada módulo de la API sigue la misma estructura por capas:
 
@@ -226,9 +246,9 @@ docker compose -f docker-compose.dev.yml up -d
 ### 4. Migraciones y seed
 
 ```bash
-pnpm --filter api db:migrate    # aplicar migraciones pendientes
-pnpm --filter api db:seed       # cargar datos iniciales
-pnpm --filter api db:seed:setter # (opcional) seed del agente Setter
+pnpm --filter api db:migrate         # aplicar migraciones pendientes
+pnpm --filter api db:seed            # cargar datos iniciales
+pnpm --filter api db:seed:portal-demo # (opcional) datos demo de un portal
 ```
 
 ### 5. Levantar el entorno de desarrollo
@@ -250,10 +270,10 @@ pnpm --filter admin dev   # Admin + portal cliente → http://localhost:3000
 
 ## Variables de entorno
 
-La API valida sus variables con Zod en `apps/api/src/config/env.ts`. Las **requeridas** mínimas
-para desarrollo local son `DATABASE_URL` y `ACCESS_TOKEN_SECRET`. `CLERK_SECRET_KEY` es
-requerida en producción (sin ella `verifyToken` falla y nadie autentica), pero tiene default
-`''` para no romper el boot/tests en local.
+La API valida sus variables con Zod en `apps/api/src/config/env.ts` — esa es la fuente de
+verdad, no este README. Solo **dos** son requeridas para que arranque (fail-fast): `DATABASE_URL`
+y `ACCESS_TOKEN_SECRET`. Todas las demás son opcionales o tienen default: su ausencia **no**
+rompe el arranque, apaga la feature correspondiente en silencio.
 
 ```bash
 # ── Entorno ────────────────────────────────────────────────
@@ -263,60 +283,102 @@ PORT=3001
 # ── Base de datos (REQUERIDO) ──────────────────────────────
 DATABASE_URL=postgresql://postgres:postgres@localhost:5433/nous
 
-# ── Redis (opcional — sin esto los workers BullMQ se deshabilitan) ─
+# ── Redis (opcional — sin esto no corren los workers BullMQ ni hay fan-out de
+#    notificaciones en tiempo real entre instancias) ─
 REDIS_URL=redis://localhost:6379
 
-# ── Clerk — auth de SESIÓN, admin y portal del cliente (REQUERIDO en prod) ─
+# ── Vercel Cron (producción) — sin esto GET /api/cron/reminders responde 503 ─
+CRON_SECRET=
+
+# ── Clerk — auth de SESIÓN, admin y portal del cliente ──────
 # Ambos se federan por clerk_user_id; no hay JWT propio de sesión en ningún lado.
+# Requerida en la PRÁCTICA en producción (sin ella verifyToken falla siempre y
+# nadie autentica), pero el schema le da default '' para no romper boot/tests en local.
 CLERK_SECRET_KEY=sk_test_...
-CLERK_WEBHOOK_SIGNING_SECRET=whsec_...      # opcional — sync user.created/updated/deleted
+CLERK_WEBHOOK_SIGNING_SECRET=whsec_...   # opcional — declarada en env.ts pero hoy
+                                          # SIN ruta de webhook registrada que la consuma
 # En apps/admin/.env.local además: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_... + CLERK_SECRET_KEY
 
 # ── ACCESS_TOKEN_SECRET (REQUERIDO, mínimo 32 caracteres) ──
 # NO es de sesión — firma tokens de NEGOCIO puntuales: booking (cancel/reschedule
-# en calendar.service.ts) y el token de onboarding. La auth de sesión (admin y
-# cliente) es 100% Clerk y no usa este secreto.
+# en calendar.service.ts) y la firma HMAC de los links de click-tracking
+# (email-tracking.service.ts). La auth de sesión (admin y cliente) es 100% Clerk.
 # Generá un secreto fuerte: openssl rand -base64 48
 ACCESS_TOKEN_SECRET=cambiar_por_un_secreto_de_al_menos_32_caracteres
 
-# ── URLs de las apps (opcional — emails, CORS, tracking) ───
+# ── URLs de las apps (opcional pero fuertemente recomendado en prod) ──
+# ADMIN_URL es la base de TODOS los links que salen en emails (booking, invitación
+# al portal) — sin ella, en producción, esos links apuntan a localhost.
 ADMIN_URL=http://localhost:3000
-CLIENT_PORTAL_URL=http://localhost:3002
+CLIENT_PORTAL_URL=http://localhost:3002   # hoy solo un origin extra de CORS (legacy)
 API_URL=http://localhost:3001
-PUBLIC_API_URL=http://localhost:3001
+PUBLIC_API_URL=http://localhost:3001      # base del pixel/link de email tracking
+ALLOWED_ORIGINS=                          # orígenes CORS extra, separados por coma
+TENANT_ROOT_DOMAIN=                       # dominio raíz de subdominios de tenant (ej. synousai.com)
 
 # ── Emails — Resend (opcional; sin API key se omite el envío con log) ──
-# Lo usan los emails de booking del calendario (confirmación / cancelación).
 RESEND_API_KEY=
 FROM_EMAIL=
-NEXT_PUBLIC_APP_URL=http://localhost:3000   # base de los links cancel/reschedule en emails
 
-# ── Webhooks (opcional — sin secret el webhook responde 401) ─
+# ── Webhooks externos (opcional — sin secret el webhook responde 401) ─
 FATHOM_WEBHOOK_SECRET=
 
-# ── Prospección con IA (opcional) ──────────────────────────
-GOOGLE_MAPS_API_KEY=
-GOOGLE_SERVICE_ACCOUNT_JSON=
-VERTEX_LOCATION=global
-VERTEX_MODEL=gemini-3.1-pro-preview
-
-# ── Setter AI / Claude (opcional) ──────────────────────────
+# ── IA: qué proveedor usan propuestas y sugerencia de próxima acción ──
+MODEL_PROVIDER=gemini   # 'gemini' | 'claude'
 ANTHROPIC_API_KEY=
-ANTHROPIC_MODEL=claude-sonnet-4-6
+ANTHROPIC_MODEL=
+VERTEX_LOCATION=
+VERTEX_MODEL=
+GOOGLE_SERVICE_ACCOUNT_JSON=
 
-# ── Setter AI / canal WhatsApp (Evolution API, opcional) ───
-EVOLUTION_API_URL=
-EVOLUTION_API_KEY=
-EVOLUTION_INSTANCE=
-EVOLUTION_WEBHOOK_SECRET=
+# ── DocuSeal (firma de contratos y propuestas) ──────────────
+# Sin DOCUSEAL_API_KEY los endpoints responden 503; sin el webhook secret,
+# el webhook responde 401 a todo. DOCUSEAL_URL (app pública, de donde sale el
+# link de firma) y DOCUSEAL_API_URL (API REST) son hosts DISTINTOS en cloud.
+DOCUSEAL_URL=https://docuseal.com
+DOCUSEAL_API_URL=https://api.docuseal.com
+DOCUSEAL_API_KEY=
+DOCUSEAL_WEBHOOK_SECRET=
 
-# ── Booking real del Setter (opcional) ─────────────────────
-GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON=
-GOOGLE_CALENDAR_ID=
+# ── Onboarding post-venta: asignación automática de responsable ────
+PRODUCTION_ASSIGNEE_DIAGNOSTICO_EMAIL=
+PRODUCTION_ASSIGNEE_DEFAULT_EMAIL=
+
+# ── Alta automática de subdominio de tenant en Vercel (opcional) ───
+VERCEL_API_TOKEN=
+VERCEL_PROJECT_ID=
+VERCEL_TEAM_ID=
+
+# ── Archivos — Vercel Blob (ver docs/STORAGE.md) ────────────
+# Sin ninguna de las dos, en local se usa disco (apps/api/uploads/). En
+# NODE_ENV=production sin credenciales, las subidas responden 503 en vez de
+# escribir al disco efímero de la Function. Solo en el proyecto de la API:
+# nunca en el admin ni bajo NEXT_PUBLIC_*.
+BLOB_READ_WRITE_TOKEN=     # la agrega Vercel al conectar el store (Production/Preview)
+BLOB_STORE_ID=             # alternativa OIDC sin secreto de larga vida; tiene precedencia
+BLOB_WEBHOOK_PUBLIC_KEY=   # opcional; hoy no se usan callbacks de subida
 ```
 
-> Las variables opcionales degradan con gracia: si falta `GOOGLE_MAPS_API_KEY` la prospección
-> responde `503`; sin `EVOLUTION_*` el canal de WhatsApp reporta `not_configured` sin romper el arranque.
+En `apps/admin` (Next.js), además: `NEXT_PUBLIC_ADMIN_URL`, `NEXT_PUBLIC_APP_URL`,
+`NEXT_PUBLIC_ROOT_DOMAIN` — no están validadas con Zod (son del lado del front), así que su
+ausencia no se detecta al arrancar.
+
+### Variables cuya ausencia rompe algo en producción sin avisar
+
+Ninguna de estas hace fallar el arranque, pero producción sin ellas queda roto de un modo que
+no se ve como error:
+
+| Variable | Qué se rompe si falta |
+| --- | --- |
+| `CLERK_SECRET_KEY` | Nadie puede loguearse (`verifyToken` falla en cada request) |
+| `RESEND_API_KEY` | No sale ningún email — se loguea y se omite en silencio |
+| `ADMIN_URL` | Los links de los emails apuntan a `localhost:3000` |
+| `PUBLIC_API_URL` | Los links de tracking apuntan a `localhost:3001` |
+| `DOCUSEAL_API_KEY` + `DOCUSEAL_WEBHOOK_SECRET` | El flujo de firma y la activación automática del portal por contrato quedan rotos |
+| `BLOB_READ_WRITE_TOKEN` (o `BLOB_STORE_ID`) | No falla en silencio: subidas y descargas responden `503 STORAGE_NOT_CONFIGURED` |
+
+Detalle completo (incl. variables no documentadas hasta ahora en `.env.example`) en
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#deploy-y-migraciones).
 
 ---
 
@@ -325,7 +387,7 @@ GOOGLE_CALENDAR_ID=
 | App / Servicio          | URL                              |
 | ----------------------- | -------------------------------- |
 | API                     | http://localhost:3001            |
-| Docs API (Swagger)      | http://localhost:3001/docs       |
+| Docs API (Swagger)      | http://localhost:3001/docs (solo fuera de `NODE_ENV=production`) |
 | Admin + portal cliente  | http://localhost:3000            |
 | PostgreSQL              | localhost:5433                   |
 | Redis                   | localhost:6379                   |
@@ -368,9 +430,47 @@ pnpm --filter api test:coverage # con cobertura
 
 ---
 
+## CI
+
+`.github/workflows/ci.yml` corre en cada pull request y en cada push a `main`, y es el
+gate antes de mergear:
+
+- **API**: typecheck, migraciones y tests de integración contra un Postgres 16 de
+  servicio, y build del bundle que deploya Vercel (`dist/server.js`, verificando que
+  `@synous/shared` quede inlineado).
+- **Admin**: typecheck, lint (`next lint`, config en `apps/admin/.eslintrc.json`) y build.
+
+Localmente: `pnpm typecheck`, `pnpm --filter api test`, `pnpm --filter admin lint` y
+`pnpm --filter admin build`. El CI valida pero no despliega ni migra producción.
+
+---
+
+## Deployment
+
+- **API** — se despliega en Vercel con el preset zero-config de Fastify, como una sola
+  Function. `apps/api/vercel.json` le indica a Vercel que corra `pnpm run build:bundle`
+  (tsup) y use `dist/server.js` como entrypoint: el bundle se genera en cada deploy y
+  **no se commitea**. Es el mismo `src/server.ts` de `pnpm dev`; con `VERCEL` definido
+  no arranca el worker de BullMQ ni instala handlers de señales. Por qué bundle y no el
+  `.ts` directo, checklist de verificación y rollback en
+  [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#procesamiento-asíncrono-tiempo-real-y-deploy-de-la-api).
+- **Admin** (`apps/admin`) — build estándar de Next.js.
+- **Tiempo real y recordatorios** — `/ws/notifications` reparte eventos entre instancias
+  vía Redis pub/sub (`REDIS_URL`, Redis del Marketplace de Vercel) y los recordatorios
+  corren por Vercel Cron (`GET /api/cron/reminders` una vez por día, protegido con
+  `CRON_SECRET`). Los WebSockets de Vercel están en beta y cortan la conexión a la
+  duración máxima de la Function: la campana del admin reconecta sola.
+- Migraciones Drizzle son forward-only; antes de deployar una que agregue un
+  `UNIQUE` sobre datos existentes, correr el chequeo de duplicados correspondiente
+  (ver [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#deploy-y-migraciones)).
+
+---
+
 ## Módulos de la API
 
-La API expone 35 módulos de dominio en `apps/api/src/modules/`:
+La API expone 34 módulos de dominio en `apps/api/src/modules/` — la lista de abajo
+resume qué hace cada uno; `ls apps/api/src/modules` siempre da el inventario exacto y
+actualizado:
 
 | Módulo               | Qué hace                                                                       |
 | -------------------- | ------------------------------------------------------------------------------ |
@@ -386,19 +486,18 @@ La API expone 35 módulos de dominio en `apps/api/src/modules/`:
 | `focus`              | Follow-ups: tareas vencidas/hoy, deals sin próxima acción o sin actividad      |
 | `dashboard`          | Métricas y resumen del portal                                                  |
 | `reports`            | Reportes de gestión: embudo, riesgo, conversión, cerrados/ganados              |
-| `onboarding`         | Wizard pre-venta público (submissions) + review/routing en admin              |
+| `onboarding`         | Wizard de onboarding **post-venta** (8 pasos: firma, brief, materiales) dentro del Client Portal + progreso/routing en admin. Al completarse mueve el deal al pipeline "Producción" |
 | `proposals`          | Generación de propuestas con IA + PDF (pdfkit) + vista pública por token       |
-| `prospecting`        | Búsqueda en Google Places + análisis con Vertex AI + autopilot                 |
-| `setter`             | Agente de ventas IA por WhatsApp (cerebro LLM, cola BullMQ, aprobación humana) |
-| `change-requests`    | Solicitudes de cambio de alcance (ítems, adjuntos, historial, comentarios)     |
-| `deliverables`       | Entregables asociados a deals con estado                                       |
-| `documents`          | Documentos vinculados a deals (referencia a DocuSeal)                          |
-| `finance`            | Facturas, ítems, pagos y PDF de factura (easyinvoice)                          |
+| `change-requests`    | Solicitudes de cambio de alcance (ítems, adjuntos, historial, comentarios) con máquina de estados server-side y decisión del cliente solo en estados `sent`/`negotiating` |
+| `deliverables`       | Entregables asociados a deals con estado (soft-delete desde la migración `0038`) |
+| `documents`          | Documentos vinculados a deals + cliente HTTP real de DocuSeal (firma de contratos/propuestas) |
+| `finance`            | Facturas (numeración con advisory lock), ítems, pagos, gastos, retainers y PDF de factura (`pdfkit`) |
 | `intake`             | Formularios de onboarding asignables a deals (admin + cliente)                 |
 | `client`             | Vista del portal del cliente (deal, files, intakes, CRs, branding)             |
 | `client-auth`        | Sesión del portal del cliente vía **Clerk**: `verifyToken` + lookup por `clerk_user_id` en `client_account`; endpoint `/me`. El alta se resuelve por invitación de Clerk + `client-account-linking` |
 | `branding`           | White-label por cliente (logo, nombre, colores)                                |
-| `files`              | Subida/descarga de archivos (disco local, límite 25 MB)                        |
+| `files`              | Autorización de lectura por recurso (`files.authz.ts`), `POST /api/files/access` (URL presignada de 5 min) y rutas públicas de logos. Los bytes nunca pasan por la API — ver [`docs/STORAGE.md`](./docs/STORAGE.md) |
+| `uploads`            | Subidas en tres pasos: intent validado por purpose, token presignado para subir directo a Vercel Blob, y `claimUpload` en el endpoint de dominio (ownership por actor + portal + purpose). Tabla `file_upload` |
 | `library`            | Biblioteca interna: documentos, plantillas, contratos/propuestas base, doc técnica y la entidad operativa **Procesos y checklists** (`type='sop'` con `kind: 'procedure' \| 'checklist'`, `steps[]` ordenados + `owner`). Es REFERENCIA pura, sin estado de ejecución (el "tildar" para un caso vive en Tareas/Proyecto) |
 | `work-items`         | Items de trabajo interno (bugs, mejoras, roadmap) — los procesos se movieron a Biblioteca |
 | `calendar`           | Scheduling estilo Calendly: event types, schedules (rangos múltiples + date overrides), motor de slots con timezones/DST (`slots.service`), reserva pública (`/api/public/calendar/*`), emails (Resend), cancel/reschedule por token y anti-doble-booking (`EXCLUDE USING gist`) |
@@ -406,8 +505,8 @@ La API expone 35 módulos de dominio en `apps/api/src/modules/`:
 | `notification-prefs` | Preferencias de notificación por tipo/canal                                    |
 | `custom-fields`      | Campos personalizables por entidad                                             |
 | `settings`           | Ajustes globales del portal                                                    |
-| `email-tracking`     | Pixel de apertura + redirect de clicks                                         |
-| `webhooks`           | Webhook de Fathom (HMAC-SHA256) → enriquece reuniones · webhook de **Clerk** (`user.created/updated/deleted` → sync `hub_user`) |
+| `email-tracking`     | Pixel de apertura + redirect de clicks firmado con HMAC (`ACCESS_TOKEN_SECRET`) para evitar open-redirect |
+| `webhooks`           | Webhook de Fathom (HMAC-SHA256) → enriquece reuniones · webhook de DocuSeal (token fijo) → estado de firma + activación del Client Portal |
 | `health`             | Health check de la API                                                         |
 
 ---
@@ -416,24 +515,21 @@ La API expone 35 módulos de dominio en `apps/api/src/modules/`:
 
 | Servicio                  | Estado          | Uso                                                                  |
 | ------------------------- | --------------- | -------------------------------------------------------------------- |
-| **Clerk**                 | ✅ Conectada     | Auth del panel admin (identidad federada con `hub_user`) + webhook de sync |
-| **Anthropic (Claude)**    | ✅ Conectada     | Provider del agente Setter, sugerencia de próxima acción, propuestas |
-| **Google GenAI / Vertex** | ✅ Conectada     | Análisis de prospección y cerebro del agente Setter (Gemini)         |
-| **Google Places**         | ✅ Conectada     | Búsqueda de negocios para prospección (vía axios)                    |
-| **Evolution API (WhatsApp)** | ✅ Conectada  | Canal de mensajería del Setter (degrada si no está configurado)      |
-| **Fathom**                | ✅ Conectada     | Webhook receptor (summary, transcript, action items de reuniones)    |
-| **easyinvoice**           | ✅ Conectada     | PDF de facturas                                                      |
-| **pdfkit**                | ✅ Conectada     | PDF de propuestas (server-side, sin Chromium)                        |
-| **BullMQ + Redis**        | ✅ Conectada     | Workers de recordatorios y cola del Setter                           |
+| **Clerk**                 | ✅ Conectada     | Auth de sesión de admin (`hub_user`) y portal de cliente (`client_account`); ambos federados por `clerk_user_id`, sin JWT propio de sesión |
+| **Anthropic (Claude) / Google GenAI (Gemini/Vertex)** | ✅ Conectada | Generación de propuestas y sugerencia de próxima acción, con timeout de 30s y fallback logueado; `MODEL_PROVIDER` elige el proveedor activo |
+| **DocuSeal**               | ✅ Conectada     | Cliente HTTP real (`docuseal.client.ts`) + webhook (`/webhooks/docuseal`) — firma de contratos/propuestas y activación automática del Client Portal. Guarda solo `docuseal_submission_id`; la URL del PDF firmado expira a los 40 min y se pide en el momento |
+| **Fathom**                | ✅ Conectada     | Webhook receptor HMAC-SHA256 (summary, transcript, action items de reuniones) |
+| **pdfkit**                | ✅ Conectada     | PDF de propuestas y de facturas, renderizado local (sin Chromium ni servicio externo) |
+| **Redis**                 | ⚠️ Parcial       | Fan-out de `/ws/notifications` entre instancias vía pub/sub (sin `REDIS_URL` el bus queda en memoria). BullMQ solo en el proceso long-running local; en Vercel los recordatorios corren con Vercel Cron (`/api/cron/reminders`) |
+| **Vercel Blob**           | ✅ Conectada     | Store privado `synous-ai-files` (Production y Preview). Subida y descarga directas desde el browser con tokens/URLs presignadas; disco local en dev. Ver [`docs/STORAGE.md`](./docs/STORAGE.md) |
+| **Resend (emails)**       | ✅ Conectada     | Emails de booking e invitación al portal; cliente lazy — sin `RESEND_API_KEY` omite el envío y loguea, y si Resend rechaza el envío `sendEmail` lanza en vez de tragarse el error |
 | **ReactBits SideRays (`ogl`)** | ✅ Conectada | Fondo WebGL animado del onboarding y la presentación de propuestas   |
-| **Resend (emails)**       | ✅ Conectada     | Emails de booking del calendario (confirmación / cancelación); cliente lazy — sin `RESEND_API_KEY` omite el envío y loguea |
-| **DocuSeal**              | 🟡 Solo modelado | La tabla `document` guarda los IDs de submission; falta el cliente HTTP |
-| **Google Calendar (Setter/booking)** | 🟡 Pendiente | Diferido (F5): free/busy + creación de evento; el motor de slots hoy es interno |
-| **Cloudflare R2 / S3**    | 🟡 Pendiente     | Hoy los archivos se guardan en disco local (`./uploads/`)            |
 
 > El **gateway de WhatsApp** (`services/whatsapp-gateway`, basado en `@open-wa/wa-automate`)
-> hoy **solo recibe**; el envío lo hace siempre un humano para minimizar el riesgo de baneo.
-> Es automatización no oficial de WhatsApp: leé su README antes de usarlo.
+> sigue en el repo como servicio aislado (no está en el workspace pnpm), pero hoy **no lo
+> consume ningún módulo de la API** — era el canal de un agente de ventas por WhatsApp
+> ("Setter") que fue eliminado del código. Antes de reactivarlo, confirmar si sigue siendo
+> necesario o es candidato a borrar junto con `services/whatsapp-gateway`.
 
 ---
 
@@ -446,7 +542,8 @@ Resumen — el detalle completo está en [`CLAUDE.md`](./CLAUDE.md):
 - **TypeScript:** `strict: true`, cero `any` implícitos, returns async tipados explícitamente.
 - **API:** todo endpoint valida con Zod; errores con `AppError`; respuestas `{ data, meta? }` / `{ error }`.
 - **DB:** operaciones multi-tabla en `db.transaction()`; merge JSONB con `||` **solo** sobre la columna `custom`;
-  nunca borrar (soft-delete `archived = true`); historial en `record_history`; siempre filtrar `archived = false`.
+  nunca borrar en entidades núcleo (soft-delete `archived = true`, con `note`/`task` como excepción conocida —
+  ver `CLAUDE.md`); historial en `record_history`; siempre filtrar `archived = false`.
 - **Seguridad:** admin (`hub_user`) y portal del cliente (`client_account`) se autentican con **Clerk**, pero son resoluciones completamente separadas (tablas y middlewares distintos); un cliente nunca accede a rutas del admin.
 - **Comentarios:** siempre en español; explican el **qué** y el **porqué**, no el cómo obvio.
 
@@ -454,9 +551,8 @@ Resumen — el detalle completo está en [`CLAUDE.md`](./CLAUDE.md):
 
 ## Documentación adicional
 
-- [`CLAUDE.md`](./CLAUDE.md) — convenciones de código, reglas de negocio críticas y arquitectura.
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — arquitectura: modelo de auth/multi-tenant, flujos de negocio, integraciones, procesamiento asíncrono y limitaciones conocidas.
+- [`CLAUDE.md`](./CLAUDE.md) — convenciones de código y reglas de negocio críticas.
 - [`CRM_SYNOUS_DOCS.md`](./CRM_SYNOUS_DOCS.md) — documentación funcional completa del producto.
 - [`docs/schema.sql`](./docs/schema.sql) — referencia del esquema de base de datos.
-- [`services/whatsapp-gateway/README.md`](./services/whatsapp-gateway/README.md) — gateway de WhatsApp.
-</content>
-</invoke>
+- [`services/whatsapp-gateway/README.md`](./services/whatsapp-gateway/README.md) — gateway de WhatsApp (hoy sin consumidor activo en la API).

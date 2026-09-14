@@ -1,28 +1,58 @@
 'use client'
 
 /**
- * Estado compartido de la navegación del Client Portal.
+ * Navegación del Client Portal: catálogo de secciones + estado compartido.
  *
- * Existe porque el sidebar y el contenido viven en archivos DISTINTOS desde
- * que el portal pasó a shell de app: el sidebar se renderiza en
- * `app/portal/(app)/layout.tsx` (rail izquierdo, debajo del header) y los
- * paneles en `app/portal/(app)/page.tsx`. Las secciones NO son rutas — son un
- * panel a la vez sobre el mismo estado — así que sin un contexto el layout no
- * tendría forma de saber qué sección está activa ni de cambiarla.
+ * ─── Las secciones son RUTAS, no estado ─────────────────────────────────────
+ * Cada sección tiene su propia URL (`/deliverables`, `/invoices`, …). El `id`
+ * de la sección ES el segmento de la URL: una sola fuente de verdad, así que no
+ * puede existir un link a una sección que el sidebar no conozca, ni al revés.
+ *
+ * Antes esto era `useState` + `?tab=`. Con rutas reales se gana lo que el
+ * estado local no puede dar: cada sección es enlazable, indexable por el
+ * historial del browser, y el `<ClientNotificationBell>` —que vive en el
+ * header, FUERA de este provider— puede mandarte a cualquier lado con un
+ * `router.push` sin saber que este contexto existe.
+ *
+ * ─── Los dos prefijos ───────────────────────────────────────────────────────
+ * El portal se sirve de dos formas y las dos son válidas a la vez:
+ *
+ *   uirtus.synousai.com/deliverables   ← host de tenant; el middleware hace
+ *                                        rewrite interno a /portal/deliverables
+ *   cualquier-host/portal/deliverables ← la ruta FÍSICA del App Router
+ *
+ * Por eso `portalBase()` mira el pathname visible en vez de adivinar por host o
+ * por cookie: si estamos bajo `/portal`, los links se arman con ese prefijo; si
+ * no, se arman limpios. El mismo componente sirve las dos formas sin ramas.
  *
  * También centraliza el gate del onboarding: el latch del wizard tiene que ser
- * UNO solo. Si el layout y la página lo calcularan por separado, el layout
- * podría seguir mostrando el sidebar mientras la página muestra el wizard.
+ * UNO solo, porque lo consume el layout (decide si monta el shell o el wizard).
  */
 
-import { createContext, useContext, useEffect, useMemo, useState, type ElementType } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ElementType,
+} from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { House, FileText, ClipboardList, GitPullRequest, Receipt, FolderOpen } from 'lucide-react'
 import { useClientOnboarding, usePortalPendingCounts, type PortalPending } from '@portal/lib/hooks'
 
-export type PortalTabId = 'home' | 'deliverables' | 'forms' | 'requests' | 'invoices' | 'documents'
+/** El id de la sección ES su segmento de URL. No hay mapa que mantener. */
+export type PortalTabId =
+  | 'dashboard'
+  | 'deliverables'
+  | 'forms'
+  | 'requests'
+  | 'invoices'
+  | 'documents'
 
 const TABS: { id: PortalTabId; label: string; Icon: ElementType }[] = [
-  { id: 'home', label: 'Inicio', Icon: House },
+  { id: 'dashboard', label: 'Inicio', Icon: House },
   { id: 'deliverables', label: 'Entregables', Icon: FileText },
   { id: 'forms', label: 'Formularios', Icon: ClipboardList },
   { id: 'requests', label: 'Solicitudes', Icon: GitPullRequest },
@@ -41,6 +71,30 @@ const BADGE_BY_TAB: Partial<Record<PortalTabId, (p: PortalPending) => number>> =
   invoices: (p) => p.counts.invoices,
 }
 
+const PORTAL_PREFIX = '/portal'
+
+/** `/portal` si la URL visible lleva el prefijo físico; string vacío si es limpia. */
+export function portalBase(pathname: string): string {
+  return pathname === PORTAL_PREFIX || pathname.startsWith(`${PORTAL_PREFIX}/`) ? PORTAL_PREFIX : ''
+}
+
+/** Arma el href de una sección respetando el prefijo con el que se está sirviendo. */
+export function portalHref(pathname: string, id: PortalTabId): string {
+  return `${portalBase(pathname)}/${id}`
+}
+
+/**
+ * Qué sección corresponde al pathname actual. `null` a propósito para rutas que
+ * NO son secciones (`/marca`): ahí el sidebar no marca ninguna como activa, en
+ * vez de mentir resaltando Inicio.
+ */
+function sectionFrom(pathname: string): PortalTabId | null {
+  const rest = pathname.slice(portalBase(pathname).length)
+  const segment = rest.split('/').filter(Boolean)[0]
+  if (!segment) return 'dashboard'
+  return TABS.some((t) => t.id === segment) ? (segment as PortalTabId) : null
+}
+
 export interface PortalNavItem {
   id: PortalTabId
   label: string
@@ -51,8 +105,10 @@ export interface PortalNavItem {
 
 interface PortalNavValue {
   items: PortalNavItem[]
-  activeTab: PortalTabId
-  setActiveTab: (id: PortalTabId) => void
+  /** Sección activa, o null si la ruta actual no es una sección. */
+  activeTab: PortalTabId | null
+  /** Navega a una sección respetando el prefijo actual. */
+  goTo: (id: PortalTabId) => void
   collapsed: boolean
   toggleCollapsed: () => void
   onboarding: {
@@ -67,7 +123,7 @@ const PortalNavContext = createContext<PortalNavValue | null>(null)
 
 /**
  * Gating del onboarding post-venta: mientras `client_onboarding.status !==
- * 'completed'`, el wizard de 8 pasos reemplaza al portal entero (sin sidebar).
+ * 'completed'`, el wizard de 8 pasos reemplaza al portal entero.
  *
  * `wizardActive` se decide UNA sola vez con los primeros datos que llegan
  * (`null` = todavía no se sabe → skeleton neutro) y después NO se vuelve a
@@ -96,10 +152,22 @@ function useOnboardingGate() {
 }
 
 export function PortalNavProvider({ children }: { children: React.ReactNode }) {
-  const [activeTab, setActiveTab] = useState<PortalTabId>('home')
+  const router = useRouter()
+  const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const pending = usePortalPendingCounts()
   const onboarding = useOnboardingGate()
+
+  const activeTab = sectionFrom(pathname)
+
+  const goTo = useCallback(
+    (id: PortalTabId) => {
+      // `scroll: false`: al cambiar de sección el shell no se mueve, así que
+      // saltar al tope sería un movimiento gratuito.
+      router.push(portalHref(pathname, id), { scroll: false })
+    },
+    [router, pathname],
+  )
 
   const items = useMemo<PortalNavItem[]>(
     () =>
@@ -115,7 +183,7 @@ export function PortalNavProvider({ children }: { children: React.ReactNode }) {
   const value: PortalNavValue = {
     items,
     activeTab,
-    setActiveTab,
+    goTo,
     collapsed,
     toggleCollapsed: () => setCollapsed((v) => !v),
     onboarding,

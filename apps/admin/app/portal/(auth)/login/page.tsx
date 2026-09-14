@@ -24,10 +24,11 @@
  */
 
 import { SignIn, useAuth } from '@clerk/nextjs'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { API_URL } from '@synous/shared'
 import { apiGet } from '@portal/lib/api'
+import { portalHref } from '@portal/components/portal/portal-nav'
 import './login.css'
 
 /**
@@ -99,6 +100,7 @@ export default function PortalLoginPage() {
   const [branding, setBranding] = useState<PublicBranding | null>(null)
   const { isLoaded, isSignedIn } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
 
   // Con sesión de Clerk activa el <SignIn> no se monta (queda un panel vacío).
   // Pero NO redirigimos a ciegas a /portal: si la sesión no corresponde a un
@@ -112,7 +114,7 @@ export default function PortalLoginPage() {
     let cancelled = false
     apiGet<{ id: string }>('/api/client-auth/me')
       .then(() => {
-        if (!cancelled) router.replace('/portal')
+        if (!cancelled) router.replace(portalHref(pathname, 'dashboard'))
       })
       .catch(() => {
         // 401 → onAuthFailure ya cerró la sesión de Clerk (sin redirigir porque
@@ -121,7 +123,7 @@ export default function PortalLoginPage() {
     return () => {
       cancelled = true
     }
-  }, [isLoaded, isSignedIn, router])
+  }, [isLoaded, isSignedIn, router, pathname])
 
   useEffect(() => {
     const slug = readSlugCookie()
@@ -205,7 +207,12 @@ export default function PortalLoginPage() {
           </p>
 
           <div className="portal-login-clerk">
-            <SignIn routing="hash" forceRedirectUrl="/portal" appearance={PORTAL_APPEARANCE} />
+            {/* En host de tenant el portal se sirve limpio (`/dashboard`); bajo el prefijo físico, `/portal/dashboard`. */}
+            <SignIn
+              routing="hash"
+              forceRedirectUrl={portalHref(pathname, 'dashboard')}
+              appearance={PORTAL_APPEARANCE}
+            />
           </div>
         </div>
       </main>

@@ -12,7 +12,8 @@ export const UpdateBrandingSchema = z.object({
     .nullable()
     .optional(),
   brandName: z.string().max(60).nullable().optional(),
-  brandLogoKey: z.string().max(200).nullable().optional(),
+  // `null` borra el logo; '' no es una key (salteaba el reclamo y liberaba el archivo anterior).
+  brandLogoKey: z.string().min(1).max(200).nullable().optional(),
   brandPrimary: z.string().regex(HEX_RE, 'Color hex inválido (#RRGGBB)').nullable().optional(),
   brandSecondary: z.string().regex(HEX_RE, 'Color hex inválido (#RRGGBB)').nullable().optional(),
 })
@@ -21,7 +22,7 @@ export type UpdateBrandingDTO = z.infer<typeof UpdateBrandingSchema>
 /** El cliente edita su propio branding (NO el slug, que controla la agencia). */
 export const ClientUpdateBrandingSchema = z.object({
   brandName: z.string().max(60).nullable().optional(),
-  brandLogoKey: z.string().max(200).nullable().optional(),
+  brandLogoKey: z.string().min(1).max(200).nullable().optional(),
   brandPrimary: z.string().regex(HEX_RE, 'Color hex inválido (#RRGGBB)').nullable().optional(),
   brandSecondary: z.string().regex(HEX_RE, 'Color hex inválido (#RRGGBB)').nullable().optional(),
 })

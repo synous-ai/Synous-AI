@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, Upload, Check, Palette } from 'lucide-react'
-import { API_URL } from '@portal/lib/config'
 import { apiGet, apiPatch } from '@portal/lib/api'
-import { useAuthedImageUrl } from '@portal/lib/hooks'
+import { uploadFile, FILE_PURPOSE_ACCEPT } from '@portal/lib/files'
 import { useBranding } from '@portal/components/branding/branding-provider'
 import { Card, CardContent } from '@portal/components/ui/card'
 import { Button } from '@portal/components/ui/button'
@@ -22,38 +21,6 @@ interface OwnBranding {
   brandSecondary: string | null
 }
 
-/**
- * Obtiene el token de Clerk para adjuntar en el header de la subida de archivo.
- * No podemos usar el api-client para multipart/form-data (no soporta FormData),
- * así que leemos el token directo de window.Clerk — igual que getPortalToken en api.ts.
- */
-async function getClerkToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const clerk = (window as any).Clerk
-  if (!clerk?.session) return null
-  try {
-    return await (clerk.session.getToken() as Promise<string | null>)
-  } catch {
-    return null
-  }
-}
-
-async function uploadClientLogo(file: File): Promise<{ storageKey: string; url: string }> {
-  const fd = new FormData()
-  fd.append('file', file)
-  // Token Clerk asíncrono (reemplaza el getter sync de Zustand de la fase pre-CA2).
-  const token = await getClerkToken()
-  const res = await fetch(`${API_URL}/api/client/files`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token ?? ''}` },
-    body: fd,
-  })
-  if (!res.ok) throw new Error('No se pudo subir el logo')
-  const json = (await res.json()) as { data: { storageKey: string; url: string } }
-  return json.data
-}
-
 export function BrandKitForm() {
   const { apply } = useBranding()
   const { data, isLoading } = useQuery({
@@ -65,10 +32,16 @@ export function BrandKitForm() {
   const [primary, setPrimary] = useState<string | null>(null)
   const [secondary, setSecondary] = useState<string | null>(null)
   const [logoKey, setLogoKey] = useState<string | null>(null)
+  // logoUrl ahora apunta a la ruta pública de logos (GET /api/public/files/brand-logo/*
+  // vía branding.service.ts) — un <img src> pelado ya funciona sin token.
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
-  // El preview no puede usar logoUrl directo: apunta a /api/files/:key, que
-  // exige token, y un <img src> pelado devolvía 401 (logo siempre roto).
-  const logoPreview = useAuthedImageUrl(logoUrl)
+  // Preview de un logo recién elegido pero AÚN NO guardado: usamos un object
+  // URL local del `File`, no la key que devuelve la subida. Esa key es
+  // "huérfana" hasta el PATCH de /api/client/branding (no quedó escrita en
+  // ninguna tabla todavía, así que no tiene sentido pedirle una URL de acceso
+  // al backend para ella).
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
+  const logoPreview = localPreviewUrl ?? logoUrl
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -84,17 +57,34 @@ export function BrandKitForm() {
     }
   }, [data])
 
+  // Revoca el object URL local al reemplazarlo o al desmontar — si no, cada
+  // logo elegido filtra la memoria del blob anterior.
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl)
+    }
+  }, [localPreviewUrl])
+
   async function onPickLogo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    // Preview inmediato con un object URL local del File: no depende de la
+    // subida ni de una URL de acceso del backend (ver comentario de localPreviewUrl arriba).
+    setLocalPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(file)
+    })
     setUploading(true)
     setError(null)
     try {
-      const r = await uploadClientLogo(file)
-      setLogoKey(r.storageKey)
-      setLogoUrl(r.url.startsWith('http') ? r.url : `${API_URL}${r.url}`)
-    } catch {
-      setError('No se pudo subir el logo')
+      const { storageKey } = await uploadFile(file, { purpose: 'brand_logo' })
+      setLogoKey(storageKey)
+      // NO seteamos logoUrl acá a propósito: la key recién subida es huérfana
+      // (todavía no quedó escrita en ninguna tabla) hasta que se guarde el
+      // branding con onSave(). El preview mientras tanto lo cubre
+      // localPreviewUrl; logoUrl solo refleja lo YA persistido en el servidor.
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo subir el logo')
     } finally {
       setUploading(false)
     }
@@ -118,6 +108,12 @@ export function BrandKitForm() {
         primaryColor: updated.brandPrimary,
         secondaryColor: updated.brandSecondary,
       })
+      // El logo ya quedó persistido (company/client_account.brand_logo_key):
+      // a partir de acá el preview vuelve a apoyarse en logoUrl (autorizado
+      // para cualquier actor autenticado, ver files.authz.ts) y soltamos el
+      // object URL local, que ya cumplió su función.
+      setLogoUrl(updated.logoUrl ?? '')
+      setLocalPreviewUrl(null)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (e) {
@@ -223,7 +219,13 @@ export function BrandKitForm() {
               </div>
             )}
             <label className="cursor-pointer">
-              <input type="file" accept="image/*" className="hidden" onChange={onPickLogo} disabled={uploading} />
+              <input
+                type="file"
+                accept={FILE_PURPOSE_ACCEPT.brand_logo}
+                className="hidden"
+                onChange={onPickLogo}
+                disabled={uploading}
+              />
               <span className="inline-flex h-10 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent">
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 Subir logo
@@ -240,7 +242,7 @@ export function BrandKitForm() {
               <Check className="h-4 w-4" /> Guardado
             </span>
           )}
-          <Button onClick={onSave} disabled={saving}>
+          <Button onClick={onSave} disabled={saving || uploading}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             Guardar
           </Button>

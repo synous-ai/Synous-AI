@@ -6,6 +6,30 @@ import { portal, hubUser, pipeline, pipelineStage } from '../db/schema'
 /** Clerk user_id determinístico del hub_user owner de tests. */
 export const TEST_CLERK_USER_ID = 'clerk_test_owner'
 
+/**
+ * Arranca la app escuchando en 127.0.0.1:<puerto efímero> para usarla con
+ * supertest. Reemplaza a `await app.ready()` en el beforeAll (listen ya hace
+ * ready); `app.close()` en el afterAll la apaga.
+ *
+ * POR QUÉ NO ALCANZA CON `ready()`: si el server no escucha, supertest hace
+ * `server.listen(0)` SIN host en CADA request —en macOS eso bindea [::]
+ * dual-stack— y después se conecta a `http://127.0.0.1:<port>`. Un bind
+ * wildcard no reserva la dirección específica: cualquier otro proceso de la
+ * máquina puede bindear 127.0.0.1:<ese puerto> (otra suite, un dev server, un
+ * callback OAuth local) y se queda con la conexión. El request lo contesta
+ * OTRO server y el test ve un 404/401 imposible para nuestra app (p. ej. 404
+ * en un querystring que Zod rechaza con 400). Pasaba ~1 vez cada varias
+ * corridas, en archivos distintos y nunca al correr el archivo solo.
+ *
+ * Bindeando 127.0.0.1 de forma explícita, un segundo bind a esa dirección y
+ * puerto falla con EADDRINUSE: la conexión solo puede llegar a esta app.
+ * Además supertest reutiliza el server que ya escucha, en vez de abrir y
+ * cerrar un listener por request.
+ */
+export async function listenForSupertest(app: FastifyInstance): Promise<void> {
+  await app.listen({ port: 0, host: '127.0.0.1' })
+}
+
 export interface TestContext {
   portalId: string
   userId: string

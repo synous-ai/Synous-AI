@@ -1,11 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronLeft, PenLine, ClipboardList, FolderUp, CheckCircle2, Circle, Paperclip, Megaphone } from 'lucide-react'
 import { useOnboardingDetail } from '@/lib/hooks'
+import { openFile } from '@/lib/hooks/misc'
 import { intakeStatus } from '@/lib/status'
-import { API_URL } from '@/lib/config'
 import { formatSize, formatDate } from '@/lib/utils'
 import { ONBOARDING_BRIEF_BLOCKS, ONBOARDING_MATERIAL_CATEGORIES } from '@portal/lib/onboarding-content'
 import { ONBOARDING_DELIVERY_CHANNELS } from '@portal/lib/types'
@@ -22,6 +23,42 @@ import { EmptyIllustration } from '@/components/ui/empty-illustration'
 const DELIVERY_CHANNEL_LABELS: Record<string, string> = Object.fromEntries(
   ONBOARDING_DELIVERY_CHANNELS.map((c) => [c.value, c.label]),
 )
+
+/** Adjunto de materiales — pide una URL de acceso temporal, no puede ser un <a href> pelado. */
+function AssetLink({ storageKey, name, sizeBytes }: { storageKey: string; name: string; sizeBytes: number | null }) {
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  async function handleOpen() {
+    setLoading(true)
+    setFailed(false)
+    try {
+      await openFile(storageKey)
+    } catch {
+      setFailed(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleOpen()}
+      disabled={loading}
+      className="flex items-center gap-2 text-sm text-signal hover:underline disabled:opacity-60"
+    >
+      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{name}</span>
+      {sizeBytes != null && <span className="shrink-0 text-xs text-muted-foreground">{formatSize(sizeBytes)}</span>}
+      {failed && (
+        <span role="alert" className="shrink-0 text-xs text-destructive">
+          No se pudo abrir
+        </span>
+      )}
+    </button>
+  )
+}
 
 export default function OnboardingDetailPage() {
   const params = useParams<{ dealId: string }>()
@@ -187,18 +224,7 @@ export default function OnboardingDetailPage() {
                     <ul className="mt-3 space-y-1.5">
                       {files.map((f) => (
                         <li key={f.id}>
-                          <a
-                            href={`${API_URL}/api/files/${f.storageKey}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-2 text-sm text-signal hover:underline"
-                          >
-                            <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                            <span className="truncate">{f.name}</span>
-                            {f.sizeBytes != null && (
-                              <span className="shrink-0 text-xs text-muted-foreground">{formatSize(f.sizeBytes)}</span>
-                            )}
-                          </a>
+                          <AssetLink storageKey={f.storageKey} name={f.name} sizeBytes={f.sizeBytes} />
                         </li>
                       ))}
                     </ul>

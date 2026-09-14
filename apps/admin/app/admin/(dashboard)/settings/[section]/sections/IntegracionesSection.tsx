@@ -44,10 +44,10 @@ const INTEGRATIONS: IntegrationCard[] = [
   {
     id: 'storage',
     name: 'Almacenamiento de archivos',
-    description: 'Archivos subidos en el CRM (documentos, entregables, adjuntos). Actualmente en disco local.',
-    status: 'local',
-    statusLabel: 'Local',
-    detail: 'Archivos guardados en apps/api/uploads/. Para producción: configurar R2 con CLOUDFLARE_R2_* en .env',
+    description: 'Documentos, materiales de onboarding, biblioteca y logos. En producción viven en un store privado de Vercel Blob; en desarrollo local, en disco.',
+    status: 'configured',
+    statusLabel: 'Vercel Blob',
+    detail: 'Store privado conectado al proyecto de la API (Production y Preview). Sin credenciales de Blob, en local se usa apps/api/uploads/.',
   },
 ]
 

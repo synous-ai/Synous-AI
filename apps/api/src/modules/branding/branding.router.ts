@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { ok } from '../../lib/response'
 import { authenticate } from '../../middleware/authenticate'
+import { authorize } from '../../middleware/authorize'
 import { authenticateClient } from '../../middleware/authenticate-client'
-import { IdParamSchema } from '../../lib/crm-schemas'
+import { IdParamSchema, ListQuerySchema } from '../../lib/crm-schemas'
 import { ADMIN_SECURITY } from '../../lib/http'
 import { UpdateBrandingSchema, ClientUpdateBrandingSchema, SlugParamSchema } from './branding.schema'
 import {
@@ -41,8 +42,11 @@ export async function brandingAdminRoutes(app: FastifyInstance): Promise<void> {
 
   r.get(
     '/clients',
-    { schema: { tags: [TAG], summary: 'Listar branding por cliente', security: ADMIN_SECURITY } },
-    async (request) => ok(await listClientBranding(request.hubUser!.portalId)),
+    { schema: { tags: [TAG], summary: 'Listar branding por cliente', description: 'Listado paginado por cursor (orden por email).', security: ADMIN_SECURITY, querystring: ListQuerySchema } },
+    async (request) => {
+      const { items, nextCursor } = await listClientBranding(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 
   r.patch(
@@ -55,9 +59,10 @@ export async function brandingAdminRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: UpdateBrandingSchema,
       },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) =>
-      ok(await updateClientBranding(request.hubUser!.portalId, request.params.id, request.body)),
+      ok(await updateClientBranding(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body)),
   )
 }
 

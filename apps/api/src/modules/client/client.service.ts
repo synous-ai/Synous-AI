@@ -1,4 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import type { ListQuery } from '../../lib/crm-schemas'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import { deal, deliverable, invoice, payment, clientDealAccess, pipeline, pipelineStage, projectUpdate } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -38,14 +40,24 @@ export async function clientDeals(clientId: string): Promise<ClientDealDTO[]> {
     .where(and(inArray(deal.id, ids), eq(deal.archived, false)))
 }
 
-export async function clientDeliverables(clientId: string): Promise<DeliverableRow[]> {
+export async function clientDeliverables(clientId: string, query: ListQuery): Promise<Paginated<DeliverableRow>> {
   const ids = await clientDealIds(clientId)
-  if (ids.length === 0) return []
-  return db
+  if (ids.length === 0) return { items: [], nextCursor: null }
+  const cursor = decodeCursor(query.cursor)
+  const rows = await db
     .select()
     .from(deliverable)
-    .where(and(inArray(deliverable.dealId, ids), eq(deliverable.visibleToClient, true)))
-    .orderBy(desc(deliverable.createdAt))
+    .where(
+      and(
+        inArray(deliverable.dealId, ids),
+        eq(deliverable.visibleToClient, true),
+        eq(deliverable.archived, false),
+        cursor ? cursorWhere(deliverable.createdAt, deliverable.id, cursor) : undefined,
+      ),
+    )
+    .orderBy(desc(deliverable.createdAt), desc(deliverable.id))
+    .limit(query.limit + 1)
+  return paginateRows(rows, query.limit)
 }
 
 async function assertClientDeliverable(
@@ -58,7 +70,7 @@ async function assertClientDeliverable(
   // cliente que conociera el id podría aprobar o rechazar un entregable interno
   // aunque nunca lo viera en su Portal. Se responde 404 (no 403) para no
   // confirmar que el entregable existe.
-  if (!dv || !ids.includes(dv.dealId) || !dv.visibleToClient) {
+  if (!dv || !ids.includes(dv.dealId) || !dv.visibleToClient || dv.archived) {
     throw Errors.notFound('Entregable no encontrado')
   }
   // `deliverable` no guarda portalId: cuelga del deal. Se resuelve acá para que
@@ -100,18 +112,27 @@ export async function requestChanges(clientId: string, deliverableId: string, fe
 
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 
-export async function listClientInvoices(clientId: string): Promise<ClientInvoiceDTO[]> {
+export async function listClientInvoices(clientId: string, query: ListQuery): Promise<Paginated<ClientInvoiceDTO>> {
   const dealIds = await clientDealIds(clientId)
-  if (dealIds.length === 0) return []
+  if (dealIds.length === 0) return { items: [], nextCursor: null }
 
   // Fetch invoices for the client's deals (non-archived)
-  const invoices = await db
+  const cursor = decodeCursor(query.cursor)
+  const rows = await db
     .select()
     .from(invoice)
-    .where(and(inArray(invoice.dealId, dealIds), eq(invoice.archived, false)))
-    .orderBy(desc(invoice.createdAt))
+    .where(
+      and(
+        inArray(invoice.dealId, dealIds),
+        eq(invoice.archived, false),
+        cursor ? cursorWhere(invoice.createdAt, invoice.id, cursor) : undefined,
+      ),
+    )
+    .orderBy(desc(invoice.createdAt), desc(invoice.id))
+    .limit(query.limit + 1)
+  const { items: invoices, nextCursor } = paginateRows(rows, query.limit)
 
-  if (invoices.length === 0) return []
+  if (invoices.length === 0) return { items: [], nextCursor }
 
   // Aggregate payments per invoice in a single query — no N+1
   const invoiceIds = invoices.map((inv) => inv.id)
@@ -128,7 +149,7 @@ export async function listClientInvoices(clientId: string): Promise<ClientInvoic
     paymentTotals.map((r) => [r.invoiceId, Number(r.paid)]),
   )
 
-  return invoices.map((inv) => {
+  const items = invoices.map((inv) => {
     const totalPaid = paidByInvoice.get(inv.id) ?? 0
     const balance = Math.max(0, Number(inv.total) - totalPaid)
     return {
@@ -142,6 +163,7 @@ export async function listClientInvoices(clientId: string): Promise<ClientInvoic
       balance: balance.toFixed(2),
     }
   })
+  return { items, nextCursor }
 }
 
 // ─── Estado de proyecto (fase actual + roadmap + novedades) ─────────────────

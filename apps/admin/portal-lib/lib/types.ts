@@ -85,7 +85,27 @@ export interface ClientDocument {
   type: string
   storageKey: string | null
   signedAt: string | null
+  /**
+   * Estado de la firma en DocuSeal — DocuSeal es la fuente de verdad, acá solo
+   * se refleja para derivar un label de UI (ver documents-panel.tsx). `null`
+   * para documentos que nunca pasaron por un flujo de firma (facturas, otros).
+   */
+  docusealStatus: 'pending' | 'completed' | 'declined' | 'expired' | null
+  /** Nombre de la persona del equipo que subió el documento, ej. "Jeremias Ingla". */
+  uploadedBy: string | null
   createdAt: string
+}
+
+/**
+ * Documento firmado que devuelve DocuSeal para un `ClientDocument` sin
+ * `storageKey` propio. Ver GET /api/client/documents/:id/signed-documents y
+ * `DocusealDocument` en apps/api/src/modules/documents/docuseal.client.ts —
+ * mismo shape. La `url` es EFÍMERA (caduca a los 40 minutos): nunca se
+ * persiste ni se cachea, solo vive mientras el drawer de preview está abierto.
+ */
+export interface ClientDocusealSignedDocument {
+  name: string
+  url: string
 }
 
 // ─── Estado de proyecto (roadmap + novedades) ─────────────────────────────────

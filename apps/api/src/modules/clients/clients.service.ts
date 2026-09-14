@@ -1,4 +1,5 @@
-import { eq, inArray, desc } from 'drizzle-orm'
+import { and, eq, inArray, desc } from 'drizzle-orm'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import { clientAccount, clientDealAccess } from '../../db/schema'
 import { listContactsByLifecycle, getContactDetail, type ContactDetail } from '../contacts/contacts.service'
@@ -26,8 +27,9 @@ export interface ClientAccountSummaryRow {
   dealIds: string[]
 }
 
-export async function listClientAccounts(portalId: string): Promise<ClientAccountSummaryRow[]> {
-  const accounts = await db
+export async function listClientAccounts(portalId: string, query: ListQuery): Promise<Paginated<ClientAccountSummaryRow>> {
+  const cursor = decodeCursor(query.cursor)
+  const rows = await db
     .select({
       id: clientAccount.id,
       email: clientAccount.email,
@@ -36,10 +38,12 @@ export async function listClientAccounts(portalId: string): Promise<ClientAccoun
       createdAt: clientAccount.createdAt,
     })
     .from(clientAccount)
-    .where(eq(clientAccount.portalId, portalId))
-    .orderBy(desc(clientAccount.createdAt))
+    .where(and(eq(clientAccount.portalId, portalId), cursor ? cursorWhere(clientAccount.createdAt, clientAccount.id, cursor) : undefined))
+    .orderBy(desc(clientAccount.createdAt), desc(clientAccount.id))
+    .limit(query.limit + 1)
+  const { items: accounts, nextCursor } = paginateRows(rows, query.limit)
 
-  if (accounts.length === 0) return []
+  if (accounts.length === 0) return { items: [], nextCursor }
 
   const accIds = accounts.map((a) => a.id)
   const accesses = await db
@@ -54,8 +58,9 @@ export async function listClientAccounts(portalId: string): Promise<ClientAccoun
     dealMap.get(acc.clientId)!.push(acc.dealId)
   }
 
-  return accounts.map((a) => ({
+  const items = accounts.map((a) => ({
     ...a,
     dealIds: dealMap.get(a.id) ?? [],
   }))
+  return { items, nextCursor }
 }

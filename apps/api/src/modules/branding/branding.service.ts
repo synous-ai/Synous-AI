@@ -1,8 +1,12 @@
+import { createHash } from 'node:crypto'
+import type { ListQuery } from '../../lib/crm-schemas'
+import { cursorWhere, decodeTextCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { and, asc, eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { clientAccount, contact, company } from '../../db/schema'
 import { env } from '../../config/env'
 import { AppError, Errors } from '../../lib/errors'
+import { claimUpload, isNewStorageKey, prepareUploadClaim, releaseReplacedUpload } from '../uploads/uploads.service'
 import type { UpdateBrandingDTO, ClientUpdateBrandingDTO } from './branding.schema'
 
 export interface PublicBranding {
@@ -12,8 +16,15 @@ export interface PublicBranding {
   secondaryColor: string | null
 }
 
+/**
+ * El logo se sirve por la ruta PÚBLICA (redirige a una URL de lectura de corta
+ * vida): tiene que renderizar en el login del portal, antes de cualquier
+ * sesión. `v` cambia con la key para que el browser no reuse un logo reemplazado.
+ */
 function logoUrl(key: string | null): string | null {
-  return key ? `${env.PUBLIC_API_URL}/api/files/${key}` : null
+  if (!key) return null
+  const version = createHash('sha256').update(key).digest('hex').slice(0, 12)
+  return `${env.PUBLIC_API_URL}/api/public/files/brand-logo/${key}?v=${version}`
 }
 
 interface BrandFields {
@@ -113,48 +124,88 @@ function toClientBrandingRow(identity: { id: string; email: string; brandSlug: s
   }
 }
 
-export async function listClientBranding(portalId: string): Promise<ClientBrandingRow[]> {
+/**
+ * PATCH real: solo se escriben los campos presentes. `null` explícito borra el
+ * valor; un campo ausente no se toca. Antes cada campo omitido se pisaba con
+ * null, así que cambiar un color desde el portal borraba el logo y el nombre.
+ */
+function definedFields<T extends object>(input: T): Partial<T> {
+  return Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) as Partial<T>
+}
+
+export async function listClientBranding(portalId: string, query: ListQuery): Promise<Paginated<ClientBrandingRow>> {
+  const cursor = decodeTextCursor(query.cursor)
   const rows = await db
     .select(brandingCols)
     .from(clientAccount)
-    .where(eq(clientAccount.portalId, portalId))
-    .orderBy(asc(clientAccount.email))
+    .where(
+      and(
+        eq(clientAccount.portalId, portalId),
+        cursor ? cursorWhere(clientAccount.email, clientAccount.id, cursor, 'asc') : undefined,
+      ),
+    )
+    .orderBy(asc(clientAccount.email), asc(clientAccount.id))
+    .limit(query.limit + 1)
 
-  return rows.map((r) => toClientBrandingRow(r, r))
+  const { items, nextCursor } = paginateRows(rows, query.limit, (r) => ({ createdAt: r.email, id: r.id }))
+  return { items: items.map((r) => toClientBrandingRow(r, r)), nextCursor }
 }
 
 export async function updateClientBranding(
   portalId: string,
+  userId: string,
   accountId: string,
   input: UpdateBrandingDTO,
 ): Promise<ClientBrandingRow> {
-  const [exists] = await db
-    .select({ id: clientAccount.id })
-    .from(clientAccount)
-    .where(and(eq(clientAccount.id, accountId), eq(clientAccount.portalId, portalId)))
-    .limit(1)
-  if (!exists) throw Errors.notFound('Cuenta de cliente no encontrada')
-
-  let row
-  try {
-    ;[row] = await db
-      .update(clientAccount)
-      .set({
-        brandSlug: input.brandSlug ?? null,
-        brandName: input.brandName ?? null,
-        brandLogoKey: input.brandLogoKey ?? null,
-        brandPrimary: input.brandPrimary ?? null,
-        brandSecondary: input.brandSecondary ?? null,
-      })
-      .where(eq(clientAccount.id, accountId))
-      .returning(brandingCols)
-  } catch {
-    // brand_slug es UNIQUE → choque de slug.
-    throw new AppError('SLUG_TAKEN', 'Ese slug ya está en uso por otro cliente', 409)
+  const patch = definedFields(input)
+  if (Object.keys(patch).length === 0) {
+    const [current] = await db
+      .select(brandingCols)
+      .from(clientAccount)
+      .where(and(eq(clientAccount.id, accountId), eq(clientAccount.portalId, portalId)))
+      .limit(1)
+    if (!current) throw Errors.notFound('Cuenta de cliente no encontrada')
+    return toClientBrandingRow(current, current)
   }
-  if (!row) throw Errors.internal('No se pudo actualizar el branding')
 
-  return toClientBrandingRow(row, row)
+  const preparedClaim = patch.brandLogoKey
+    ? await prepareUploadClaim({ storageKey: patch.brandLogoKey, portalId, actor: { kind: 'hub', userId, portalId }, purpose: 'brand_logo' })
+    : null
+
+  let result
+  try {
+    result = await db.transaction(async (tx) => {
+      // FOR UPDATE: sin el lock, dos ediciones concurrentes leían el mismo logo
+      // "anterior" y una liberaba el archivo que la otra acababa de guardar.
+      const [current] = await tx
+        .select({ brandLogoKey: clientAccount.brandLogoKey })
+        .from(clientAccount)
+        .where(and(eq(clientAccount.id, accountId), eq(clientAccount.portalId, portalId)))
+        .limit(1)
+        .for('update')
+      if (!current) throw Errors.notFound('Cuenta de cliente no encontrada')
+
+      if (isNewStorageKey(patch.brandLogoKey, current.brandLogoKey)) await claimUpload(tx, preparedClaim)
+      const [row] = await tx
+        .update(clientAccount)
+        .set(patch)
+        .where(eq(clientAccount.id, accountId))
+        .returning(brandingCols)
+      if (!row) throw Errors.internal('No se pudo actualizar el branding')
+      return { row, previousKey: current.brandLogoKey }
+    })
+  } catch (err) {
+    // El patch solo toca columnas de marca, y de ellas solo brand_slug es UNIQUE:
+    // un 23505 acá es choque de slug. Cualquier otro error (conexión, timeout)
+    // tiene que llegar como 500, no disfrazarse de "slug en uso".
+    if ((err as { code?: string }).code === '23505') {
+      throw new AppError('SLUG_TAKEN', 'Ese slug ya está en uso por otro cliente', 409)
+    }
+    throw err
+  }
+
+  if (patch.brandLogoKey !== undefined) await releaseReplacedUpload(portalId, result.previousKey, result.row.brandLogoKey)
+  return toClientBrandingRow(result.row, result.row)
 }
 
 // ─── Cliente (autogestión de su propia marca desde el portal) ────────────────
@@ -201,38 +252,71 @@ export async function updateOwnBranding(
   input: ClientUpdateBrandingDTO,
 ): Promise<ClientBrandingRow> {
   const [identity] = await db
-    .select({ id: clientAccount.id, email: clientAccount.email, brandSlug: clientAccount.brandSlug })
+    .select({
+      id: clientAccount.id,
+      email: clientAccount.email,
+      brandSlug: clientAccount.brandSlug,
+      portalId: clientAccount.portalId,
+    })
     .from(clientAccount)
     .where(eq(clientAccount.id, clientId))
     .limit(1)
   if (!identity) throw Errors.notFound('Cuenta no encontrada')
 
-  const patch = {
-    brandName: input.brandName ?? null,
-    brandLogoKey: input.brandLogoKey ?? null,
-    brandPrimary: input.brandPrimary ?? null,
-    brandSecondary: input.brandSecondary ?? null,
-  }
+  const patch = definedFields(input)
+  const portalId = identity.portalId
+  const preparedClaim = patch.brandLogoKey
+    ? await prepareUploadClaim({ storageKey: patch.brandLogoKey, portalId, actor: { kind: 'client', clientId, portalId }, purpose: 'brand_logo' })
+    : null
 
   const companyId = await resolveClientCompanyId(clientId)
   if (companyId) {
     // Empresa asociada → la fuente de verdad del branding es `company`. El
     // slug lo sigue controlando la agencia (no se toca acá, ni antes ni ahora).
-    const [companyRow] = await db
-      .update(company)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(eq(company.id, companyId))
-      .returning(companyBrandCols)
+    const { companyRow, previousKey } = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({ brandLogoKey: company.brandLogoKey })
+        .from(company)
+        .where(eq(company.id, companyId))
+        .limit(1)
+        .for('update')
+      const previous = current?.brandLogoKey ?? null
+      if (isNewStorageKey(patch.brandLogoKey, previous)) await claimUpload(tx, preparedClaim)
+      const [updated] = await tx
+        .update(company)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(company.id, companyId))
+        .returning(companyBrandCols)
+      return { companyRow: updated, previousKey: previous }
+    })
     if (!companyRow) throw Errors.internal('No se pudo actualizar el branding de la empresa')
+    if (patch.brandLogoKey !== undefined) await releaseReplacedUpload(portalId, previousKey, companyRow.brandLogoKey)
     return toClientBrandingRow(identity, companyRow)
   }
 
   // Sin empresa asociada: comportamiento legacy — el branding vive en el propio client_account.
-  const [row] = await db
-    .update(clientAccount)
-    .set(patch)
-    .where(eq(clientAccount.id, clientId))
-    .returning(brandingCols)
+  if (Object.keys(patch).length === 0) {
+    const [current] = await db.select(brandingCols).from(clientAccount).where(eq(clientAccount.id, clientId)).limit(1)
+    if (!current) throw Errors.notFound('Cuenta no encontrada')
+    return toClientBrandingRow(current, current)
+  }
+  const { row, previousKey } = await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ brandLogoKey: clientAccount.brandLogoKey })
+      .from(clientAccount)
+      .where(eq(clientAccount.id, clientId))
+      .limit(1)
+      .for('update')
+    const previous = current?.brandLogoKey ?? null
+    if (isNewStorageKey(patch.brandLogoKey, previous)) await claimUpload(tx, preparedClaim)
+    const [updated] = await tx
+      .update(clientAccount)
+      .set(patch)
+      .where(eq(clientAccount.id, clientId))
+      .returning(brandingCols)
+    return { row: updated, previousKey: previous }
+  })
   if (!row) throw Errors.internal('No se pudo actualizar el branding')
+  if (patch.brandLogoKey !== undefined) await releaseReplacedUpload(portalId, previousKey, row.brandLogoKey)
   return toClientBrandingRow(row, row)
 }

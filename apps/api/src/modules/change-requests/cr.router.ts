@@ -19,9 +19,10 @@ export async function crRoutes(app: FastifyInstance): Promise<void> {
   const r = app.withTypeProvider<ZodTypeProvider>()
   r.addHook('preHandler', authenticate)
 
-  r.get('/', { schema: { tags: [TAG], summary: 'Listar change requests', security, querystring: CRListQuerySchema } }, async (req) =>
-    ok(await listCRs(req.hubUser!.portalId, req.query.dealId)),
-  )
+  r.get('/', { schema: { tags: [TAG], summary: 'Listar change requests', description: 'Listado paginado por cursor.', security, querystring: CRListQuerySchema } }, async (req) => {
+    const { items, nextCursor } = await listCRs(req.hubUser!.portalId, req.query)
+    return ok(items, { nextCursor })
+  })
   r.get('/:id', { schema: { tags: [TAG], summary: 'Detalle de CR (items, comentarios, historial)', security, params: IdParamSchema } }, async (req) =>
     ok(await getCRDetail(req.hubUser!.portalId, req.params.id)),
   )

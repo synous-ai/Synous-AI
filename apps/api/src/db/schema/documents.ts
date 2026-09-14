@@ -35,10 +35,13 @@ export const document = pgTable('document', {
   signedAt: timestamp('signed_at', { withTimezone: true }),
   signedBy: text('signed_by').references(() => clientAccount.id),
   createdBy: text('created_by').references(() => hubUser.id),
+  archived: boolean('archived').notNull().default(false),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check('document_type_check', sql`${table.type} IN ('contract','proposal','invoice','other')`),
   check('document_source_check', sql`${table.source} IN ('docuseal','manual','generated')`),
   check('document_docuseal_status_check', sql`${table.docusealStatus} IN ('pending','completed','declined','expired')`),
   index('idx_document_deal').on(table.dealId),
+  index('idx_document_storage_key').on(table.storageKey),
 ])

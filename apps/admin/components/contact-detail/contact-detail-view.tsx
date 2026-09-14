@@ -42,6 +42,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { fieldLabel, formatHistoryValue, buildStageMap } from '@/lib/history'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ContactDialog } from '@/components/contacts/contact-dialog'
 import { STAGE_LABELS, STAGE_DOT_CLASS } from '@/lib/status'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
@@ -49,7 +50,7 @@ import { PillTabs } from '@/components/ui/pill-tabs'
 import { ContactProposalsTab, formatCustomField } from '@/components/contact-detail/contact-extras'
 import { sourceLabel } from '@/lib/labels'
 import { DetailViewSkeleton } from '@/components/ui/skeletons'
-import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { StickyNote, ListTodo, History } from 'lucide-react'
 
@@ -103,7 +104,7 @@ export function ContactDetailView({
 }) {
   const router = useRouter()
 
-  const { data, isLoading } = useContactDetail(scope, id)
+  const { data, isLoading, isError, refetch } = useContactDetail(scope, id)
 
   const { data: companies = [] } = useCompanies()
   const { data: users = [] } = useUsers()
@@ -122,6 +123,7 @@ export function ContactDetailView({
   const [stagePickerOpen, setStagePickerOpen] = useState(false)
   const [noteBody, setNoteBody] = useState('')
   const [taskTitle, setTaskTitle] = useState('')
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
 
   const companyMap = useMemo(
     () => new Map(companies.map((c) => [c.id, c])),
@@ -173,8 +175,8 @@ export function ContactDetailView({
 
   async function handleArchive() {
     if (!c) return
-    if (!window.confirm(`¿Eliminar "${fullName}"? Esta acción no se puede deshacer.`)) return
     await archiveContact.mutateAsync(id)
+    setArchiveConfirmOpen(false)
     router.push(backHref)
   }
 
@@ -232,7 +234,31 @@ export function ContactDetailView({
     )
   }
 
-  // ── Empty/error state ──────────────────────────────────────────────────────
+  // ── Error state ───────────────────────────────────────────────────────────
+  // isError es un fallo real de la query (red, 500) — distinto de "no existe".
+  // Antes ambos casos caían en el mismo "No se encontró el registro", lo que
+  // ocultaba errores de servidor detrás de un mensaje de dato inexistente.
+  if (isError) {
+    return (
+      <div className="p-6">
+        <Empty className="border-dashed py-12">
+          <EmptyHeader>
+            <EmptyIllustration icon={AlertCircle} />
+            <EmptyTitle>No se pudo cargar el registro</EmptyTitle>
+            <EmptyDescription>Ocurrió un error al conectar con el servidor.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" onClick={() => void refetch()}>Reintentar</Button>
+            <Link href={backHref} className="text-sm text-primary underline">
+              ← Volver a {backLabel}
+            </Link>
+          </EmptyContent>
+        </Empty>
+      </div>
+    )
+  }
+
+  // ── Not found ─────────────────────────────────────────────────────────────
   if (!c) {
     return (
       <div className="p-6">
@@ -363,7 +389,7 @@ export function ContactDetailView({
                   variant="outline"
                   size="sm"
                   className="flex-1 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/5"
-                  onClick={handleArchive}
+                  onClick={() => setArchiveConfirmOpen(true)}
                   disabled={archiveContact.isPending}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -719,6 +745,17 @@ export function ContactDetailView({
         open={editOpen}
         onClose={() => setEditOpen(false)}
         contact={c}
+      />
+
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        onOpenChange={setArchiveConfirmOpen}
+        title={`¿Eliminar "${fullName}"?`}
+        description="Esta acción no se puede deshacer."
+        confirmLabel="Eliminar"
+        destructive
+        pending={archiveContact.isPending}
+        onConfirm={() => void handleArchive()}
       />
     </div>
   )

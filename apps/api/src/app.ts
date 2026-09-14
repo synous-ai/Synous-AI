@@ -1,4 +1,4 @@
-import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import {
@@ -11,6 +11,7 @@ import fastifySwagger from '@fastify/swagger'
 import fastifySwaggerUI from '@fastify/swagger-ui'
 import fastifyWebsocket from '@fastify/websocket'
 import fastifyMultipart from '@fastify/multipart'
+import rateLimit from '@fastify/rate-limit'
 import { ZodError } from 'zod'
 import { env } from './config/env'
 import { AppError } from './lib/errors'
@@ -35,7 +36,9 @@ import { intakeRoutes } from './modules/intake/intake.router'
 import { clientIntakeRoutes } from './modules/intake/client-intake.router'
 import { notificationsRoutes, clientNotificationsRoutes } from './modules/notifications/notifications.router'
 import { notificationsWsRoutes } from './modules/notifications/notifications.ws'
-import { filesRoutes, clientFilesRoutes } from './modules/files/files.router'
+import { cronRoutes } from './modules/cron/cron.router'
+import { filesRoutes, publicFilesRoutes } from './modules/files/files.router'
+import { hubUploadsRoutes, clientUploadsRoutes } from './modules/uploads/uploads.router'
 import { crRoutes } from './modules/change-requests/cr.router'
 import { clientCrRoutes } from './modules/change-requests/client-cr.router'
 import { libraryRoutes } from './modules/library/library.router'
@@ -57,14 +60,39 @@ import { clientOnboardingRoutes } from './modules/onboarding/client-onboarding.r
 import { calendarPublicRoutes } from './modules/calendar/calendar.public.router'
 import { calendarAdminRoutes } from './modules/calendar/calendar.admin.router'
 
-export function buildApp(): FastifyInstance {
+/**
+ * Serializer de request para los logs: el mismo shape que el default de Fastify,
+ * pero con `?token=` y `?sig=` redactados. Las URLs firmadas de archivos
+ * (/api/files/raw) llevan la firma que ES la credencial, y los links públicos
+ * tokenizados llevan el token: la URL completa quedaba en texto plano en cada
+ * línea de log.
+ */
+function serializeRequest(req: FastifyRequest): Record<string, unknown> {
+  return {
+    method: req.method,
+    url: req.url.replace(/([?&](?:token|sig)=)[^&]*/gi, '$1[REDACTED]'),
+    host: req.host,
+    remoteAddress: req.ip,
+    remotePort: req.socket?.remotePort,
+  }
+}
+
+export interface BuildAppOptions {
+  /**
+   * Rate limit de las rutas públicas (default: activo). Solo se apaga en suites
+   * que ejercitan esas rutas decenas de veces por minuto desde la misma IP.
+   */
+  rateLimit?: boolean
+}
+
+export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({
     logger:
       env.NODE_ENV === 'development'
-        ? { transport: { target: 'pino-pretty' } }
+        ? { transport: { target: 'pino-pretty' }, serializers: { req: serializeRequest } }
         : env.NODE_ENV === 'test'
           ? false
-          : true,
+          : { serializers: { req: serializeRequest } },
     // Detrás de un proxy (Vercel): sin esto, request.ip devuelve la IP del
     // proxy para TODOS los requests, no la del cliente real. Crítico para
     // onboarding.submitSignature, que persiste request.ip como parte del
@@ -125,59 +153,82 @@ export function buildApp(): FastifyInstance {
     credentials: true,
   })
   app.register(cookie)
+
+  // Headers de seguridad en todas las respuestas. La API solo sirve JSON y
+  // archivos, así que puede ser estricta: sin framing ni sniffing de tipos, y
+  // sin Referer que filtre URLs con tokens hacia terceros.
+  app.addHook('onRequest', async (_request, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff')
+    reply.header('X-Frame-Options', 'DENY')
+    reply.header('Referrer-Policy', 'no-referrer')
+    if (env.NODE_ENV === 'production') {
+      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    }
+  })
+
+  // Rate limit opt-in por ruta (`config.rateLimit`): las rutas públicas que
+  // mandan emails o validan tokens lo declaran. Sin el plugin registrado esas
+  // declaraciones eran ignoradas en silencio por Fastify.
+  // Store en memoria: en serverless el contador es por instancia, así que es
+  // una defensa contra abuso de una sola fuente, no un límite global exacto.
+  if (options.rateLimit !== false) app.register(rateLimit, { global: false })
   app.register(fastifyWebsocket)
   app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } })
 
   // OpenAPI / Swagger — se registra ANTES que las rutas para poder capturarlas.
-  app.register(fastifySwagger, {
-    openapi: {
-      info: {
-        title: 'API CRM Synous AI',
-        description:
-          'Documentación de la API del CRM interno de Synous AI. Todos los endpoints (salvo autenticación y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.',
-        version: '1.0.0',
-      },
-      servers: [{ url: 'http://localhost:3001', description: 'Desarrollo local' }],
-      tags: [
-        { name: 'Dashboard', description: 'Métricas y resumen del portal' },
-        { name: 'Autenticación', description: 'Login, refresh, logout y usuario actual' },
-        { name: 'Contactos', description: 'CRUD de contactos' },
-        { name: 'Leads', description: 'Contactos en etapa de prospecto + detalle' },
-        { name: 'Clientes', description: 'Contactos convertidos en clientes + detalle' },
-        { name: 'Empresas', description: 'CRUD de empresas' },
-        { name: 'Notas', description: 'Notas asociadas a contactos/deals/empresas' },
-        { name: 'Tareas', description: 'Tareas con responsable, vencimiento y estado' },
-        { name: 'Calendario', description: 'Tipos de reunión, disponibilidad y reuniones agendadas' },
-        { name: 'Usuarios', description: 'Gestión del equipo (hub_user)' },
-        { name: 'Configuración', description: 'Ajustes del portal' },
-        { name: 'Entregables', description: 'Entregables asociados a deals' },
-        { name: 'Client Portal', description: 'Autenticación del portal de clientes (token separado)' },
-        { name: 'Intake Forms', description: 'Plantillas de onboarding y asignación a deals' },
-        { name: 'Notificaciones', description: 'Notificaciones del usuario (REST + WebSocket en /ws/notifications)' },
-        { name: 'Archivos', description: 'Subida/descarga de archivos (almacenamiento local)' },
-        { name: 'Change Requests', description: 'Solicitudes de cambio de alcance (admin + cliente)' },
-        { name: 'Biblioteca', description: 'Documentos, SOPs, plantillas y recursos de la agencia' },
-        { name: 'Operaciones', description: 'Bugs, mejoras, roadmap interno y procesos del equipo' },
-        { name: 'Finanzas', description: 'Facturas, pagos y métricas financieras del portal' },
-        { name: 'Deals', description: 'CRUD de deals y cambios de etapa' },
-        { name: 'Pipelines', description: 'Pipelines y sus etapas' },
-        { name: 'Salud', description: 'Health checks de la API' },
-        { name: 'Actividades', description: 'Timeline unificado: llamadas, reuniones, emails, notas, tareas e historial' },
-        { name: 'Seguimientos', description: 'Follow-ups (tareas vencidas/hoy/próximos 7 días) y deals sin próxima acción o sin actividad reciente' },
-        { name: 'Reportes', description: 'Reportes de gestión: embudo, riesgo, conversión, actividad y cerrados/ganados' },
-        { name: 'Webhooks', description: 'Webhooks de integraciones externas (Fathom)' },
-        { name: 'Tracking', description: 'Pixel de apertura y redirect de click para email tracking' },
-        { name: 'Documentos', description: 'Documentos asociados a deals (contratos, propuestas, facturas)' },
-      ],
-      components: {
-        securitySchemes: {
-          bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+  // Fuera de producción: en prod entregaba el mapa completo de rutas y schemas
+  // (qué es público, qué valida cada endpoint) a cualquiera, sin autenticar.
+  if (env.NODE_ENV !== 'production') {
+    app.register(fastifySwagger, {
+      openapi: {
+        info: {
+          title: 'API CRM Synous AI',
+          description:
+            'Documentación de la API del CRM interno de Synous AI. Todos los endpoints (salvo autenticación y salud) requieren un Bearer token de hub_user. Las respuestas siguen el formato `{ data, meta? }` y los errores `{ error: { code, message } }`.',
+          version: '1.0.0',
+        },
+        servers: [{ url: 'http://localhost:3001', description: 'Desarrollo local' }],
+        tags: [
+          { name: 'Dashboard', description: 'Métricas y resumen del portal' },
+          { name: 'Autenticación', description: 'Login, refresh, logout y usuario actual' },
+          { name: 'Contactos', description: 'CRUD de contactos' },
+          { name: 'Leads', description: 'Contactos en etapa de prospecto + detalle' },
+          { name: 'Clientes', description: 'Contactos convertidos en clientes + detalle' },
+          { name: 'Empresas', description: 'CRUD de empresas' },
+          { name: 'Notas', description: 'Notas asociadas a contactos/deals/empresas' },
+          { name: 'Tareas', description: 'Tareas con responsable, vencimiento y estado' },
+          { name: 'Calendario', description: 'Tipos de reunión, disponibilidad y reuniones agendadas' },
+          { name: 'Usuarios', description: 'Gestión del equipo (hub_user)' },
+          { name: 'Configuración', description: 'Ajustes del portal' },
+          { name: 'Entregables', description: 'Entregables asociados a deals' },
+          { name: 'Client Portal', description: 'Autenticación del portal de clientes (token separado)' },
+          { name: 'Intake Forms', description: 'Plantillas de onboarding y asignación a deals' },
+          { name: 'Notificaciones', description: 'Notificaciones del usuario (REST + WebSocket en /ws/notifications)' },
+          { name: 'Archivos', description: 'Subidas (intent + subida directa a Vercel Blob) y acceso a archivos por URL de corta vida' },
+          { name: 'Change Requests', description: 'Solicitudes de cambio de alcance (admin + cliente)' },
+          { name: 'Biblioteca', description: 'Documentos, SOPs, plantillas y recursos de la agencia' },
+          { name: 'Operaciones', description: 'Bugs, mejoras, roadmap interno y procesos del equipo' },
+          { name: 'Finanzas', description: 'Facturas, pagos y métricas financieras del portal' },
+          { name: 'Deals', description: 'CRUD de deals y cambios de etapa' },
+          { name: 'Pipelines', description: 'Pipelines y sus etapas' },
+          { name: 'Salud', description: 'Health checks de la API' },
+          { name: 'Actividades', description: 'Timeline unificado: llamadas, reuniones, emails, notas, tareas e historial' },
+          { name: 'Seguimientos', description: 'Follow-ups (tareas vencidas/hoy/próximos 7 días) y deals sin próxima acción o sin actividad reciente' },
+          { name: 'Reportes', description: 'Reportes de gestión: embudo, riesgo, conversión, actividad y cerrados/ganados' },
+          { name: 'Webhooks', description: 'Webhooks de integraciones externas (Fathom)' },
+          { name: 'Tracking', description: 'Pixel de apertura y redirect de click para email tracking' },
+          { name: 'Documentos', description: 'Documentos asociados a deals (contratos, propuestas, facturas)' },
+        ],
+        components: {
+          securitySchemes: {
+            bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+          },
         },
       },
-    },
-    transform: jsonSchemaTransform,
-  })
-  app.register(fastifySwaggerUI, { routePrefix: '/docs' })
+      transform: jsonSchemaTransform,
+    })
+    app.register(fastifySwaggerUI, { routePrefix: '/docs' })
+  }
 
   // Error handler central → siempre responde { error: { code, message } }
   app.setErrorHandler((error: FastifyError, request, reply) => {
@@ -231,8 +282,12 @@ export function buildApp(): FastifyInstance {
   // Misma bandeja, audiencia distinta: el cliente del portal (client_account).
   app.register(clientNotificationsRoutes, { prefix: '/api/client/notifications' })
   app.register(notificationsWsRoutes)
+  // Disparado por Vercel Cron (ver `crons` en vercel.json).
+  app.register(cronRoutes, { prefix: '/api/cron' })
   app.register(filesRoutes, { prefix: '/api/files' })
-  app.register(clientFilesRoutes, { prefix: '/api/client/files' })
+  app.register(publicFilesRoutes, { prefix: '/api/public/files' })
+  app.register(hubUploadsRoutes, { prefix: '/api/uploads' })
+  app.register(clientUploadsRoutes, { prefix: '/api/client/uploads' })
   app.register(crRoutes, { prefix: '/api/change-requests' })
   app.register(clientCrRoutes, { prefix: '/api/client/change-requests' })
   app.register(libraryRoutes, { prefix: '/api/library' })

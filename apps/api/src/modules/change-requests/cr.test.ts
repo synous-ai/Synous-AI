@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import request from 'supertest'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
 import { changeRequestHistory } from '../../db/schema'
-import { ensurePortalAndUser, ensurePipeline, loginToken } from '../../test/helpers'
+import { ensurePortalAndUser, ensurePipeline, loginToken, listenForSupertest } from '../../test/helpers'
 
 const app = buildApp()
 let token: string
@@ -12,7 +12,7 @@ let portalId: string
 let dealId: string
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
   token = await loginToken(app, ctx.email, ctx.password)
@@ -114,6 +114,62 @@ describe('change-requests — numeración relativa al deal', () => {
 
     expect(crA.body.data.number).toBe(1)
     expect(crB.body.data.number).toBe(1)
+  })
+})
+
+// ── Numeración bajo concurrencia ─────────────────────────────────────────────
+
+async function createTestDeal(name: string): Promise<string> {
+  const pipe = await ensurePipeline(portalId)
+  const res = await request(app.server)
+    .post('/api/deals')
+    .set(auth())
+    .send({ name, pipelineId: pipe.pipelineId, stageId: pipe.firstStageId })
+  return res.body.data.id as string
+}
+
+describe('change-requests — numeración concurrente', () => {
+  it('N creates simultáneos en el mismo deal salen todos 201 con números 1..N', async () => {
+    const newDealId = await createTestDeal('Deal CR concurrente')
+    const N = 8
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) => createTestCR({ dealId: newDealId, title: `CR concurrente ${i}` })),
+    )
+    expect(results.map((r) => r.status)).toEqual(Array(N).fill(201))
+    const numbers = results.map((r) => r.body.data.number as number).sort((a, b) => a - b)
+    expect(numbers).toEqual(Array.from({ length: N }, (_, i) => i + 1))
+  })
+
+  it('el lock de numeración es por deal: un deal bloqueado no frena a otro', async () => {
+    const lockedDealId = await createTestDeal('Deal CR bloqueado')
+    const freeDealId = await createTestDeal('Deal CR libre')
+
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    let lockTaken!: () => void
+    const locked = new Promise<void>((resolve) => { lockTaken = resolve })
+    const holder = db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`change-request-number:${lockedDealId}`}))`)
+      lockTaken()
+      await released
+    })
+    await locked
+
+    let blockedDone = false
+    const blocked = createTestCR({ dealId: lockedDealId, title: 'CR esperando lock' }).then((r) => {
+      blockedDone = true
+      return r
+    })
+
+    const free = await createTestCR({ dealId: freeDealId, title: 'CR sin espera' })
+    expect(free.status).toBe(201)
+    expect(blockedDone).toBe(false)
+
+    release()
+    await holder
+    const blockedRes = await blocked
+    expect(blockedRes.status).toBe(201)
+    expect(blockedRes.body.data.number).toBe(1)
   })
 })
 

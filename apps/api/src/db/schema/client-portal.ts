@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, unique, primaryKey } from 'drizzle-orm/pg-core'
+import { pgTable, text, boolean, timestamp, unique, primaryKey, index } from 'drizzle-orm/pg-core'
 import { portal } from './portal'
 import { contact } from './contacts'
 import { deal } from './deals'
@@ -37,6 +37,7 @@ export const clientAccount = pgTable('client_account', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   unique('client_account_portal_id_email_unique').on(table.portalId, table.email),
+  index('idx_client_account_brand_logo_key').on(table.brandLogoKey),
 ])
 
 export const clientDealAccess = pgTable('client_deal_access', {

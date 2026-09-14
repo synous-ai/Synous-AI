@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiList, apiPatch, apiPost, apiDelete } from '../api'
+import { apiGet, apiPatch, apiPost, apiDelete, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
 import type { Contact, ContactDetail } from '../types'
 
 export function useInvalidatePeople() {
@@ -15,14 +16,14 @@ export function useInvalidatePeople() {
 export function useLeads() {
   return useQuery({
     queryKey: ['leads'],
-    queryFn: async () => (await apiList<Contact[]>('/api/leads?limit=100')).data,
+    queryFn: () => fetchAllPages<Contact>(apiList, '/api/leads'),
   })
 }
 
 export function useClients() {
   return useQuery({
     queryKey: ['clients'],
-    queryFn: async () => (await apiList<Contact[]>('/api/clients?limit=100')).data,
+    queryFn: () => fetchAllPages<Contact>(apiList, '/api/clients'),
   })
 }
 
@@ -48,7 +49,7 @@ export function useContactDetail(scope: 'leads' | 'clients' | 'contacts', id: st
 export function useContacts() {
   return useQuery({
     queryKey: ['contacts'],
-    queryFn: async () => (await apiList<Contact[]>('/api/contacts?limit=100')).data,
+    queryFn: () => fetchAllPages<Contact>(apiList, '/api/contacts'),
   })
 }
 

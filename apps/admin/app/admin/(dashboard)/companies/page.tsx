@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/table'
 import { TableSkeleton } from '@/components/ui/skeletons'
 import { CompanyDialog } from '@/components/companies/company-dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { DataPagination } from '@/components/ui/data-pagination'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
@@ -34,6 +35,7 @@ export default function CompaniesPage() {
   const router = useRouter()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Company | undefined>(undefined)
+  const [archiveTarget, setArchiveTarget] = useState<Company | null>(null)
 
   const rows = useMemo(() => data ?? [], [data])
 
@@ -45,10 +47,10 @@ export default function CompaniesPage() {
     setEditing(c)
     setDialogOpen(true)
   }
-  async function onArchive(c: Company) {
-    if (window.confirm(`¿Archivar la empresa "${c.name}"?`)) {
-      await archive.mutateAsync(c.id)
-    }
+  async function onArchive(): Promise<void> {
+    if (!archiveTarget) return
+    await archive.mutateAsync(archiveTarget.id)
+    setArchiveTarget(null)
   }
 
   const columns = useMemo<ColumnDef<Company>[]>(
@@ -77,7 +79,7 @@ export default function CompaniesPage() {
               size="sm"
               onClick={(e) => {
                 e.stopPropagation()
-                void onArchive(row.original)
+                setArchiveTarget(row.original)
               }}
             >
               Archivar
@@ -166,6 +168,16 @@ export default function CompaniesPage() {
       />
 
       <CompanyDialog open={dialogOpen} onClose={() => setDialogOpen(false)} company={editing} />
+
+      <ConfirmDialog
+        open={archiveTarget !== null}
+        onOpenChange={(o) => !o && setArchiveTarget(null)}
+        title={`¿Archivar la empresa "${archiveTarget?.name ?? ''}"?`}
+        confirmLabel="Archivar"
+        destructive
+        pending={archive.isPending}
+        onConfirm={() => void onArchive()}
+      />
     </div>
   )
 }

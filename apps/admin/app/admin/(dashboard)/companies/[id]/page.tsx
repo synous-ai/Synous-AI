@@ -13,6 +13,7 @@ import {
   Plus,
   Check,
   Trash2,
+  AlertCircle,
 } from 'lucide-react'
 import {
   useCompanyDetail,
@@ -32,7 +33,7 @@ import { DetailViewSkeleton } from '@/components/ui/skeletons'
 import { PillTabs } from '@/components/ui/pill-tabs'
 import { CompanyDialog } from '@/components/companies/company-dialog'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
-import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { Users, StickyNote, ListTodo, History } from 'lucide-react'
 
@@ -67,7 +68,7 @@ export default function CompanyDetailPage() {
   const id = params.id
   const router = useRouter()
 
-  const { data, isLoading } = useCompanyDetail(id)
+  const { data, isLoading, isError, refetch } = useCompanyDetail(id)
   const createNote = useCreateNote()
   const deleteNote = useDeleteNote()
   const createTask = useCreateTask()
@@ -127,7 +128,30 @@ export default function CompanyDetailPage() {
     )
   }
 
-  // ── Empty / error ──────────────────────────────────────────────────────────
+  // ── Error ──────────────────────────────────────────────────────────────────
+  // isError es un fallo real de la query (red, 500) — antes se mostraba el mismo
+  // "no encontrada" que para un id inexistente, ocultando errores de servidor.
+  if (isError) {
+    return (
+      <div className="p-6">
+        <Empty className="border-dashed py-12">
+          <EmptyHeader>
+            <EmptyIllustration icon={AlertCircle} />
+            <EmptyTitle>No se pudo cargar la empresa</EmptyTitle>
+            <EmptyDescription>Ocurrió un error al conectar con el servidor.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" onClick={() => void refetch()}>Reintentar</Button>
+            <Link href="/companies" className="text-sm text-primary underline">
+              ← Volver a Empresas
+            </Link>
+          </EmptyContent>
+        </Empty>
+      </div>
+    )
+  }
+
+  // ── Not found ─────────────────────────────────────────────────────────────
   if (!co) {
     return (
       <div className="p-6">

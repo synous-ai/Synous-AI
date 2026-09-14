@@ -5,7 +5,7 @@ import { authenticate } from '../../middleware/authenticate'
 import { authorize } from '../../middleware/authorize'
 import { IdParamSchema } from '../../lib/crm-schemas'
 import { CreateDeliverableSchema, UpdateDeliverableSchema, DeliverableListQuerySchema } from './deliverables.schema'
-import { listDeliverables, createDeliverable, updateDeliverable, deleteDeliverable } from './deliverables.service'
+import { listDeliverables, createDeliverable, updateDeliverable, archiveDeliverable } from './deliverables.service'
 import { ADMIN_SECURITY } from '../../lib/http'
 
 const TAG = 'Entregables'
@@ -27,8 +27,8 @@ export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
-      const items = await listDeliverables(request.hubUser!.portalId, request.query)
-      return ok(items)
+      const { items, nextCursor } = await listDeliverables(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
     },
   )
 
@@ -81,7 +81,7 @@ export async function deliverablesRoutes(app: FastifyInstance): Promise<void> {
       preHandler: [authorize('owner')],
     },
     async (request) => {
-      await deleteDeliverable(request.hubUser!.portalId, request.params.id)
+      await archiveDeliverable(request.hubUser!.portalId, request.params.id)
       return ok({ success: true })
     },
   )

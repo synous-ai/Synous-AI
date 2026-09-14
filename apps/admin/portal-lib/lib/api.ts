@@ -4,7 +4,6 @@
 // No hay refreshPath propio: Clerk auto-gestiona su sesión.
 
 import { createApiClient, ApiError as _ApiError } from '@synous/api-client'
-import { API_URL } from '@synous/shared'
 
 /**
  * Obtiene el Clerk session token fresco para adjuntar como Bearer.
@@ -13,9 +12,10 @@ import { API_URL } from '@synous/shared'
  * para poder llamar getToken() fuera de componentes React.
  *
  * Devuelve null si no hay sesión activa o si Clerk no terminó de cargar
- * (SSR, primer render).
+ * (SSR, primer render). Exportado: lo reusa portal-lib/lib/files.ts para
+ * instanciar el módulo compartido de transferencia de archivos.
  */
-async function getPortalToken(): Promise<string | null> {
+export async function getPortalToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const clerk = (window as any).Clerk
@@ -70,77 +70,7 @@ export const apiGet = client.apiGet
 export const apiPost = client.apiPost
 export const apiPatch = client.apiPatch
 export const apiDelete = client.apiDelete
+export const apiList = client.apiList
 
 // Re-export the class so callers can do: import { ApiError } from '@portal/lib/api'
 export { _ApiError as ApiError }
-
-/**
- * Sube un archivo (multipart/form-data) con el token de Clerk del cliente.
- * El api-client compartido (@synous/api-client) no soporta FormData —mismo
- * patrón ya usado en brand-kit-form.tsx para /api/client/files—, así que acá
- * hacemos el fetch directo reusando getPortalToken().
- */
-export async function apiUpload<T>(path: string, file: File): Promise<T> {
-  const fd = new FormData()
-  fd.append('file', file)
-  const token = await getPortalToken()
-  const res = await fetch(`${API_URL}${path}`, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    credentials: 'include',
-    body: fd,
-  })
-  const json = await res.json().catch(() => null)
-  if (!res.ok) {
-    const err = (json as { error?: { code?: string; message?: string } } | null)?.error
-    throw new _ApiError(err?.code ?? 'ERROR', err?.message ?? 'Error de red', res.status)
-  }
-  return (json as { data: T }).data
-}
-
-/**
- * Descarga un archivo protegido y devuelve un object URL apuntando al blob.
- *
- * `GET /api/files/:key` exige el token de Clerk. Un `<a href>` o un `<img src>`
- * pelado NO manda headers, así que todos los links directos a ese endpoint
- * devolvían 401: documentos, adjuntos del onboarding y el logo de "Mi Marca".
- *
- * El endpoint también acepta `?token=` como escape hatch, pero un token en la
- * query string queda en el historial del navegador, en la cabecera Referer y
- * en los logs de acceso del servidor. Por eso bajamos los bytes con el header
- * y servimos el archivo desde memoria.
- *
- * IMPORTANTE: quien llama es dueño del object URL y debe liberarlo con
- * `URL.revokeObjectURL(...)` cuando deja de usarlo, o el blob queda retenido
- * en memoria hasta que se recargue la página.
- */
-export async function fetchFileObjectUrl(storageKey: string): Promise<string> {
-  const token = await getPortalToken()
-  const res = await fetch(`${API_URL}/api/files/${storageKey}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    throw new _ApiError('DOWNLOAD_FAILED', 'No se pudo descargar el archivo', res.status)
-  }
-  return URL.createObjectURL(await res.blob())
-}
-
-/**
- * Baja un archivo protegido y dispara la descarga en el navegador.
- * Revoca el object URL apenas termina — a diferencia de `fetchFileObjectUrl`,
- * acá el blob no tiene que sobrevivir a la llamada.
- */
-export async function downloadFile(storageKey: string, filename: string): Promise<void> {
-  const url = await fetchFileObjectUrl(storageKey)
-  try {
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}

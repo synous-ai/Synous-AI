@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ListQuerySchema } from '../../lib/crm-schemas'
 
 export const DeliverableTypeEnum = z.enum(['design', 'prototype', 'staging', 'final'])
 export const DeliverableStatusEnum = z.enum(['pending_review', 'approved', 'changes_requested'])
@@ -32,5 +33,5 @@ export type UpdateDeliverableDTO = z.infer<typeof UpdateDeliverableSchema>
 
 export const DeliverableListQuerySchema = z.object({
   dealId: z.string().min(1).optional(),
-})
+}).merge(ListQuerySchema)
 export type DeliverableListQueryType = z.infer<typeof DeliverableListQuerySchema>

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPatch, apiPost, apiDelete } from '../api'
-import { API_URL } from '../config'
+import { apiGet, apiPatch, apiPost, apiDelete, getAdminToken, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
+import { createFileTransfer, FILE_PURPOSE_ACCEPT } from '../file-transfer'
 import type {
   AppNotification,
   DashboardData,
@@ -19,6 +20,10 @@ import type {
  * polleaba) pero la lista quedaba con datos viejos hasta una invalidación
  * manual, así que abrías la campana y no veías la notificación que el número
  * te acababa de anunciar.
+ *
+ * Trae A PROPÓSITO solo las 20 más recientes (una página del endpoint paginado,
+ * sin seguir `meta.nextCursor`): la campana es un panel de novedades, no un
+ * historial, y lo pendiente lo cuenta `useUnreadCount` sobre el total.
  */
 export function useNotifications() {
   return useQuery({
@@ -37,12 +42,9 @@ export function useUnreadCount() {
     // No pollear con la pestaña en background (ahorra requests con varias
     // pestañas abiertas).
     //
-    // El polling NO es un complemento del WebSocket: es el único mecanismo que
-    // funciona en producción. La API corre en Vercel serverless, donde una
-    // función no sostiene una conexión abierta, así que `/ws/notifications`
-    // falla siempre (verificado en la consola del navegador). El WS del bell
-    // sigue intentándose y su fallo es inocuo; para realtime de verdad haría
-    // falta mover la API a un runtime con procesos persistentes.
+    // El polling es el respaldo del WebSocket del bell: la conexión se corta
+    // al llegar a la duración máxima de la Function en Vercel y, mientras
+    // reconecta, un evento puede no llegar en vivo.
     refetchIntervalInBackground: false,
   })
 }
@@ -114,7 +116,7 @@ export function useLibrary(type?: LibraryItemType, kind?: LibraryKind) {
   const qs = params.toString() ? `?${params.toString()}` : ''
   return useQuery({
     queryKey: ['library', type ?? 'all', kind ?? 'all'],
-    queryFn: () => apiGet<LibraryItem[]>(`/api/library${qs}`),
+    queryFn: () => fetchAllPages<LibraryItem>(apiList, `/api/library${qs}`),
   })
 }
 
@@ -162,42 +164,15 @@ export function useDeleteLibraryItem() {
 }
 
 /**
- * Obtiene el token de Clerk para requests de upload que no pasan por el api-client.
- * Usa el singleton window.Clerk (inyectado por ClerkProvider), igual que lib/api.ts.
+ * Instancia única del módulo compartido de transferencia de archivos para el
+ * admin (basePath '/api' + token de Clerk del hub_user). Ver lib/file-transfer.ts
+ * — la misma lógica la instancia el portal con basePath '/api/client'.
  */
-async function getAdminBearerToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const clerk = (window as any).Clerk
-  if (!clerk?.session) return null
-  try {
-    return await (clerk.session.getToken() as Promise<string | null>)
-  } catch {
-    return null
-  }
-}
+const fileTransfer = createFileTransfer({ basePath: '/api', getToken: getAdminToken })
 
-/** Sube un archivo al endpoint /api/files y devuelve el storageKey. */
-export async function uploadFile(file: File): Promise<{ key: string }> {
-  const formData = new FormData()
-  formData.append('file', file)
-
-  const token = await getAdminBearerToken()
-  const headers: Record<string, string> = {}
-  if (token) headers.Authorization = `Bearer ${token}`
-
-  const res = await fetch(`${API_URL}/api/files`, {
-    method: 'POST',
-    headers,
-    credentials: 'include',
-    body: formData,
-  })
-
-  if (!res.ok) {
-    const json = await res.json().catch(() => null) as { error?: { message?: string } } | null
-    throw new Error(json?.error?.message ?? 'No se pudo subir el archivo')
-  }
-
-  const json = await res.json() as { data: { storageKey: string } }
-  return { key: json.data.storageKey }
-}
+export const uploadFile = fileTransfer.uploadFile
+export const getFileAccessUrl = fileTransfer.getFileAccessUrl
+export const openFile = fileTransfer.openFile
+export const useFileUrl = fileTransfer.useFileUrl
+export { FILE_PURPOSE_ACCEPT }
+export type { FilePurpose, UploadedFile } from '../file-transfer'

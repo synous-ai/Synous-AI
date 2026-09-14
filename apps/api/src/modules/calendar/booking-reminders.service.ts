@@ -1,9 +1,10 @@
 /**
  * booking-reminders.service.ts — Recordatorios de reunión (24h y 1h antes).
  *
- * Lo dispara el worker de reminders, que corre cada 15 minutos. Por eso la
+ * Lo dispara el scan de reminders: cada 15 minutos con el worker de BullMQ
+ * (long-running) y una vez por día con Vercel Cron en producción. Por eso la
  * idempotencia NO puede depender de "fijarse si ya se mandó y después mandar":
- * entre la lectura y el envío entra otro tick. La garantía la da la base — un
+ * entre la lectura y el envío entra otra corrida. La garantía la da la base — un
  * UNIQUE (booking_id, kind) en `booking_reminder` — y el orden es al revés:
  * primero se inserta la marca con ON CONFLICT DO NOTHING y el email sale SOLO si
  * la fila la insertó esta corrida.
@@ -88,6 +89,20 @@ export async function sendDueBookingReminders(now: Date = new Date()): Promise<n
       const location = firstLocation(r.locations)
       const startIso = new Date(r.startsAt).toISOString()
 
+      // La marca de envío ya quedó puesta, así que un fallo no se reintenta en el
+      // próximo tick. Es deliberado — reintentar en cada corrida un email que falla
+      // por una dirección inválida sería spamear al proveedor. Cada destinatario va
+      // en su propio intento: que falle el del invitado no puede dejar al host sin
+      // su recordatorio.
+      const logFailure = (recipient: 'guest' | 'host', err: unknown): void => {
+        console.error('[booking-reminders] No se pudo enviar el recordatorio', {
+          bookingId: r.bookingId,
+          kind: w.kind,
+          recipient,
+          error: (err as Error)?.message ?? err,
+        })
+      }
+
       try {
         // ── Invitado — en SU zona horaria, la que guardó al reservar.
         await sendEmail({
@@ -106,7 +121,11 @@ export async function sendDueBookingReminders(now: Date = new Date()): Promise<n
           }),
         })
         sent++
+      } catch (err) {
+        logFailure('guest', err)
+      }
 
+      try {
         // ── Host — en la zona horaria del portal, y sin links de autoservicio:
         // cancelar o reprogramar lo hace desde el CRM, no por token público.
         await sendEmail({
@@ -124,14 +143,7 @@ export async function sendDueBookingReminders(now: Date = new Date()): Promise<n
         })
         sent++
       } catch (err) {
-        // Best-effort: la marca ya quedó puesta, así que no se reintenta en el
-        // próximo tick. Es deliberado — reintentar cada 15 minutos un email que
-        // falla por una dirección inválida sería spamear al proveedor.
-        console.error('[booking-reminders] No se pudo enviar el recordatorio', {
-          bookingId: r.bookingId,
-          kind: w.kind,
-          error: (err as Error)?.message ?? err,
-        })
+        logFailure('host', err)
       }
     }
   }

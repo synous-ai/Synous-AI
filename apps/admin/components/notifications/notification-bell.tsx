@@ -54,29 +54,74 @@ export function NotificationBell() {
   const visible = tab === 'unread' ? unreadList : all
 
   // WebSocket: refresca las notificaciones cuando llega un push en vivo.
-  // El token de Clerk vence ~60s, por eso se pide FRESCO justo antes de abrir
-  // la conexión. La sesión Clerk del browser sigue viva para reconectar.
+  // En Vercel la conexión se corta sola al llegar a la duración máxima de la
+  // Function, así que reconectar es el camino normal, no un caso de error:
+  // backoff exponencial 1 s → 30 s, que vuelve a 1 s tras autenticar.
+  // El token de Clerk vence ~60 s, por eso se pide FRESCO en cada intento y
+  // viaja en el primer mensaje (no en la URL, que queda en logs).
   useEffect(() => {
     if (!isSignedIn) return
     let ws: WebSocket | null = null
-    let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let attempt = 0
+    let stopped = false
+    let connectedBefore = false
 
-    ;(async () => {
-      const token = await getToken()
-      if (cancelled || !token) return
-      const url = `${API_URL.replace(/^http/, 'ws')}/ws/notifications?token=${token}`
+    const refresh = () => qc.invalidateQueries({ queryKey: ['notifications'] })
+
+    const scheduleReconnect = () => {
+      if (stopped) return
+      const delay = Math.min(1000 * 2 ** attempt, 30_000)
+      attempt++
+      retryTimer = setTimeout(() => void connect(), delay)
+    }
+
+    async function connect(): Promise<void> {
+      let token: string | null = null
       try {
-        ws = new WebSocket(url)
+        token = await getToken()
       } catch {
-        return
+        token = null
       }
-      ws.onmessage = () => {
-        qc.invalidateQueries({ queryKey: ['notifications'] })
+      if (stopped) return
+      if (!token) return scheduleReconnect()
+
+      let socket: WebSocket
+      try {
+        socket = new WebSocket(`${API_URL.replace(/^http/, 'ws')}/ws/notifications`)
+      } catch {
+        return scheduleReconnect()
       }
-    })()
+      ws = socket
+      socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', token }))
+      socket.onmessage = (e: MessageEvent) => {
+        let msg: { type?: unknown }
+        try {
+          msg = JSON.parse(String(e.data))
+        } catch {
+          return
+        }
+        if (msg.type === 'connected') {
+          attempt = 0
+          // Lo emitido mientras el socket estuvo caído no se reenvía: se relee.
+          if (connectedBefore) refresh()
+          connectedBefore = true
+          return
+        }
+        refresh()
+      }
+      // 'error' siempre viene seguido de 'close': se reprograma solo acá.
+      socket.onclose = () => {
+        if (ws === socket) ws = null
+        scheduleReconnect()
+      }
+    }
+
+    void connect()
 
     return () => {
-      cancelled = true
+      stopped = true
+      if (retryTimer) clearTimeout(retryTimer)
       ws?.close()
     }
   }, [isSignedIn, getToken, qc])
