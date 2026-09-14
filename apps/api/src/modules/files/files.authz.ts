@@ -26,8 +26,54 @@ export type FileActor =
   | { kind: 'hub'; userId: string; portalId: string; role: string }
   | { kind: 'client'; clientId: string; portalId: string }
 
-function deny(): never {
-  throw Errors.forbidden('No autorizado a leer este archivo')
+/**
+ * Motivo MÁQUINA de cada deny, para poder diagnosticar un 403 en producción
+ * sin acceso a la DB: los logs de acceso no traen el body del request, así
+ * que sin esto un 403 de `/api/files/access` no dice nada más que "403".
+ */
+type DenyReason =
+  | 'unreadable_key'
+  | 'ledger_cross_portal'
+  | 'document_archived'
+  | 'document_without_deal'
+  | 'document_not_visible_to_client'
+  | 'document_deal_not_accessible'
+  | 'change_request_attachment_out_of_scope'
+  | 'client_asset_archived'
+  | 'client_asset_out_of_scope'
+  | 'library_item_client_denied'
+  | 'expense_receipt_client_denied'
+  | 'expense_receipt_role_denied'
+  | 'no_owner_record'
+  | 'ledger_not_uploader'
+
+function actorLogFields(actor: FileActor): {
+  actorKind: FileActor['kind']
+  actorId: string
+  portalId: string
+  role?: string
+} {
+  return {
+    actorKind: actor.kind,
+    actorId: actor.kind === 'hub' ? actor.userId : actor.clientId,
+    portalId: actor.portalId,
+    // El rol no es dato personal y es lo único que explica un expense_receipt_role_denied.
+    ...(actor.kind === 'hub' ? { role: actor.role } : {}),
+  }
+}
+
+/**
+ * Denyer con contexto: loguea SIEMPRE en `warn` antes de lanzar el 403, con un
+ * `reason` legible por máquina, la key y los ids internos del actor — nunca
+ * tokens, emails ni nombres. La respuesta HTTP no cambia (sigue siendo el
+ * mismo 403 genérico): esto es SOLO para poder correlacionar el incidente
+ * desde los logs sin tener que reproducirlo.
+ */
+function makeDeny(actor: FileActor, storageKey: string): (reason: DenyReason) => never {
+  return (reason: DenyReason): never => {
+    console.warn('[files] acceso denegado', { reason, storageKey, ...actorLogFields(actor) })
+    throw Errors.forbidden('No autorizado a leer este archivo')
+  }
 }
 
 /** Logos: se reclaman con su propósito y son públicos por naturaleza. */
@@ -60,7 +106,8 @@ const LOGO_PURPOSES: readonly string[] = ['brand_logo', 'proposal_logo'] satisfi
  *    ventana entre subir y guardar el registro. Sin fila en el ledger → denegado.
  */
 export async function assertCanReadFile(actor: FileActor, storageKey: string): Promise<void> {
-  if (!isReadableStorageKey(storageKey)) deny()
+  const deny: (reason: DenyReason) => never = makeDeny(actor, storageKey)
+  if (!isReadableStorageKey(storageKey)) deny('unreadable_key')
   const portalId = actor.portalId
 
   const [ledgerRows, documentRows, attachmentRows, assetRows, libraryRows, expenseRows, companyRows, clientAccountRows] =
@@ -115,20 +162,23 @@ export async function assertCanReadFile(actor: FileActor, storageKey: string): P
     ])
 
   const ledger = ledgerRows[0]
-  if (ledger && ledger.portalId !== portalId) deny()
+  if (ledger && ledger.portalId !== portalId) deny('ledger_cross_portal')
 
   const doc = documentRows[0]
   if (doc) {
     if (actor.kind === 'hub') return
-    if (!doc.archived && doc.dealId && doc.visibleToClient && (await clientDealIds(actor.clientId)).includes(doc.dealId)) return
-    deny()
+    if (doc.archived) deny('document_archived')
+    if (!doc.dealId) deny('document_without_deal')
+    if (!doc.visibleToClient) deny('document_not_visible_to_client')
+    if ((await clientDealIds(actor.clientId)).includes(doc.dealId)) return
+    deny('document_deal_not_accessible')
   }
 
   const attachment = attachmentRows[0]
   if (attachment) {
     if (actor.kind === 'hub') return
     if ((await clientDealIds(actor.clientId)).includes(attachment.dealId)) return
-    deny()
+    deny('change_request_attachment_out_of_scope')
   }
 
   const asset = assetRows[0]
@@ -136,28 +186,28 @@ export async function assertCanReadFile(actor: FileActor, storageKey: string): P
     if (actor.kind === 'hub') return
     // Un archivo archivado (soft delete) sigue existiendo para auditoría/hub,
     // pero el cliente ya no puede volver a abrirlo.
-    if (asset.archived) deny()
+    if (asset.archived) deny('client_asset_archived')
     if (asset.clientId === actor.clientId) return
     if ((await clientDealIds(actor.clientId)).includes(asset.dealId)) return
-    deny()
+    deny('client_asset_out_of_scope')
   }
 
   // Material interno: el cliente nunca lo lee.
   if (libraryRows[0]) {
     if (actor.kind === 'hub') return
-    deny()
+    deny('library_item_client_denied')
   }
 
   // Comprobantes del negocio: solo quien puede ver finanzas. Un viewer o un
   // collaborator no llega a GET /api/finance/expenses; tampoco al archivo.
   if (expenseRows[0]) {
     if (actor.kind === 'hub' && (FINANCE_ROLES as readonly string[]).includes(actor.role)) return
-    deny()
+    deny(actor.kind === 'hub' ? 'expense_receipt_role_denied' : 'expense_receipt_client_denied')
   }
 
   if (companyRows[0] || clientAccountRows[0]) return
 
-  if (!ledger) deny()
+  if (!ledger) deny('no_owner_record')
 
   if (ledger.status === 'attached' && LOGO_PURPOSES.includes(ledger.purpose)) {
     if (actor.kind === 'hub' || ledger.purpose === 'brand_logo') return
@@ -166,7 +216,7 @@ export async function assertCanReadFile(actor: FileActor, storageKey: string): P
   const isUploader =
     actor.kind === 'hub' ? ledger.uploadedByUserId === actor.userId : ledger.uploadedByClientId === actor.clientId
   if (isUploader) return
-  deny()
+  deny('ledger_not_uploader')
 }
 
 // ─── Logos públicos ──────────────────────────────────────────────────────────
