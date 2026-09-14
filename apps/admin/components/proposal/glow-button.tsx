@@ -10,6 +10,9 @@ const RESET_DELAY_MS = 1200
 type GlowButtonProps = {
   href: string
   children: ReactNode
+  /** Abre en otra pestaña. Para destinos externos, que no deben sacar al
+   *  lector de la propuesta. */
+  external?: boolean
 }
 
 /**
@@ -20,7 +23,7 @@ type GlowButtonProps = {
  * Pointer-driven only — with no pointer the button sits at its resting state,
  * which is a complete, legible button on its own.
  */
-export function GlowButton({ href, children }: GlowButtonProps) {
+export function GlowButton({ href, children, external = false }: GlowButtonProps) {
   const shellRef = useRef<HTMLDivElement>(null)
   const faceRef = useRef<HTMLAnchorElement>(null)
   const resetTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -64,6 +67,7 @@ export function GlowButton({ href, children }: GlowButtonProps) {
         className="glow-button-face"
         href={href}
         ref={faceRef}
+        {...(external ? { target: '_blank', rel: 'noreferrer noopener' } : {})}
         onPointerMove={handleMove}
         onPointerLeave={handleLeave}
       >

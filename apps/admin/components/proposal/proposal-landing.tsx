@@ -1,4 +1,5 @@
 import Aurora from '@/components/proposal/aurora/aurora'
+import { ArchitectureFlow } from '@/components/proposal/architecture-flow'
 import { GlowButton } from '@/components/proposal/glow-button'
 import { GradualBlur } from '@/components/proposal/gradual-blur'
 import { SmoothScroll } from '@/components/proposal/smooth-scroll'
@@ -43,6 +44,96 @@ function PathIcon({ variant }: { variant: 'modules' | 'versions' }) {
           <>
             <path d="M7 7h10M7 12h7M7 17h4" />
             <path d="m16 15 3 3-3 3" />
+          </>
+        )}
+      </svg>
+    </span>
+  )
+}
+
+/**
+ * Un glifo por bloque del diagnóstico, dibujado para nombrar el problema y no
+ * para decorar: una vitrina vacía, piezas sueltas, y las mismas piezas unidas.
+ */
+function OriginIcon({ variant }: { variant: 'visibility' | 'scattered' | 'system' }) {
+  return (
+    <span className="origin-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        {variant === 'visibility' && (
+          <>
+            {/* Marco vacío: lo que hay no se ve. */}
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="M3 9h18" />
+            <path d="M9 14.5h6" strokeDasharray="1 3" />
+          </>
+        )}
+        {variant === 'scattered' && (
+          <>
+            {/* Cuatro piezas sin nada que las una. */}
+            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="5" width="6" height="6" rx="1.5" />
+            <rect x="4" y="14" width="6" height="6" rx="1.5" />
+            <rect x="14" y="15" width="7" height="6" rx="1.5" />
+          </>
+        )}
+        {variant === 'system' && (
+          <>
+            {/* Las mismas piezas, ahora conectadas a un centro. */}
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="12" cy="3.5" r="1.8" />
+            <circle cx="20" cy="17" r="1.8" />
+            <circle cx="4" cy="17" r="1.8" />
+            <path d="M12 5.3v3.7M14.6 13.6l3.8 2.2M9.4 13.6l-3.8 2.2" />
+          </>
+        )}
+      </svg>
+    </span>
+  )
+}
+
+/**
+ * Un glifo por garantía. Cada uno dibuja el compromiso que nombra: el avance
+ * que se ve, el plano antes de construir, la llave que queda del lado del
+ * cliente y el sostén después de entregar.
+ */
+function GuaranteeIcon({
+  variant,
+}: {
+  variant: 'progress' | 'blueprint' | 'ownership' | 'support'
+}) {
+  return (
+    <span className="guarantee-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        {variant === 'progress' && (
+          <>
+            {/* Hitos sobre una línea de avance. */}
+            <path d="M3 18h18" />
+            <path d="M6 18V9M12 18V5M18 18v-7" />
+            <circle cx="6" cy="9" r="1.6" />
+            <circle cx="12" cy="5" r="1.6" />
+            <circle cx="18" cy="11" r="1.6" />
+          </>
+        )}
+        {variant === 'blueprint' && (
+          <>
+            {/* Un plano con su escuadra: lo escrito antes de construir. */}
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="M8 4v16M3 10h5" />
+            <path d="M12 9h5M12 13h7" />
+          </>
+        )}
+        {variant === 'ownership' && (
+          <>
+            {/* Llave: el acceso queda de su lado. */}
+            <circle cx="8" cy="12" r="4" />
+            <path d="M12 12h9M17.5 12v3.5M20.5 12v2.5" />
+          </>
+        )}
+        {variant === 'support' && (
+          <>
+            {/* Una mano sosteniendo lo entregado. */}
+            <path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" />
+            <path d="M12 3v10M8.5 9.5 12 13l3.5-3.5" />
           </>
         )}
       </svg>
@@ -180,8 +271,8 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
           <div className="card-grid">
             {origin.blocks.map((block, index) => (
               <Reveal key={block.title} delay={index * 0.08}>
-                <article className="card card-accent">
-                  <span className="card-rule" />
+                <article className="card card-accent origin-card">
+                  <OriginIcon variant={block.icon} />
                   <h3>{block.title}</h3>
                   <p>{block.body}</p>
                 </article>
@@ -209,14 +300,6 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
               <CornerTicks />
               <p className="milestone-date">{milestone.dateLabel}</p>
               <h3 className="milestone-title">{milestone.dateTitle}</h3>
-              <ul className="milestone-list">
-                {milestone.deliverables.map((item) => (
-                  <li key={item}>
-                    <Check />
-                    {item}
-                  </li>
-                ))}
-              </ul>
             </div>
           </Reveal>
         </section>
@@ -268,18 +351,9 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
             </div>
           </Reveal>
 
-          <div className="arch-stack">
-            {architecture.layers.map((layer, index) => (
-              <Reveal key={layer.title} delay={index * 0.08}>
-                <article className="arch-layer">
-                  <CornerTicks />
-                  <p className="arch-label">{layer.label}</p>
-                  <h3 className="arch-title">{layer.title}</h3>
-                  <p className="arch-body">{layer.body}</p>
-                </article>
-              </Reveal>
-            ))}
-          </div>
+          <Reveal>
+            <ArchitectureFlow layers={architecture.layers} />
+          </Reveal>
         </section>
 
         {/* ── Inversión ────────────────────────────────────────────────── */}
@@ -339,6 +413,43 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
             ))}
           </div>
 
+          {/* La opción recomendada, después de las individuales: el número se
+              lee contra los dos que el lector acaba de ver. */}
+          <Reveal>
+            <article className="combo-card">
+              <PricingCorners />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="combo-light" src="/light4.webp" alt="" aria-hidden="true" />
+
+              <div className="combo-copy">
+                <p className="combo-label">
+                  <span className="badge-orb" aria-hidden="true" />
+                  {investment.combo.label}
+                </p>
+                <h3 className="combo-title">{investment.combo.title}</h3>
+                <p className="combo-body">{investment.combo.body}</p>
+
+                <p className="combo-compare">
+                  <span className="combo-compare-label">{investment.combo.separateLabel}</span>
+                  <s className="combo-strike">{investment.combo.separatePrice}</s>
+                  <span className="combo-saving">
+                    {investment.combo.savingLabel} {investment.combo.savingAmount}
+                  </span>
+                </p>
+              </div>
+
+              <div className="combo-options">
+                {investment.combo.options.map((option) => (
+                  <div className="combo-option" key={option.label}>
+                    <p className="combo-option-label">{option.label}</p>
+                    <p className="combo-option-price">{option.price}</p>
+                    <p className="combo-option-terms">{option.terms}</p>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </Reveal>
+
           <p className="section-closing">{investment.note}</p>
         </section>
 
@@ -346,18 +457,6 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
         {/* Full-bleed section: the backdrop video spans the viewport while the
             content stays inside its own shell. */}
         <section className="section method-section" id="como-trabajamos">
-          <video
-            className="method-backdrop"
-            autoPlay
-            muted
-            loop
-            playsInline
-            poster="/VIDEOBENEFICTSFALLBACK.webp"
-            aria-hidden="true"
-          >
-            <source src="/VIDEOBENEFICTS.mp4" type="video/mp4" />
-          </video>
-
           <div className="shell method-inner">
             <Reveal>
               <div className="section-head method-head">
@@ -366,12 +465,29 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                   {method.eyebrow}
                 </p>
                 <h2>{method.heading}</h2>
-                <p className="section-lede">{method.lede}</p>
               </div>
             </Reveal>
-            <Reveal>
-              <PhaseCards phases={method.phases} />
-            </Reveal>
+
+            {/* El video envuelve a la grilla en vez de colgar de la sección:
+                así su posición la fija la primera fila de tarjetas y no cambia
+                cuando el titular crece o se acorta. */}
+            <div className="method-stage">
+              <video
+                className="method-backdrop"
+                autoPlay
+                muted
+                loop
+                playsInline
+                poster="/VIDEOBENEFICTSFALLBACK.webp"
+                aria-hidden="true"
+              >
+                <source src="/VIDEOBENEFICTS.mp4" type="video/mp4" />
+              </video>
+
+              <Reveal>
+                <PhaseCards phases={method.phases} />
+              </Reveal>
+            </div>
           </div>
         </section>
 
@@ -388,8 +504,8 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
           </Reveal>
           <div className="guarantee-bento">
             {guarantees.blocks.map((block) => (
-              <article className="card card-accent" key={block.title}>
-                <span className="card-rule" />
+              <article className="card card-accent guarantee-card" key={block.title}>
+                <GuaranteeIcon variant={block.icon} />
                 <h3>{block.title}</h3>
                 <p>{block.body}</p>
               </article>
@@ -490,13 +606,11 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
             <div className="section-head section-head-center handoff-head">
               <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{handoff.eyebrow}</p>
               <h2>{handoff.heading}</h2>
-              <p className="section-lede">{handoff.lede}</p>
 
               <div className="cta-row handoff-cta">
-                <GlowButton href={`mailto:${handoff.email}`}>{handoff.primaryCta}</GlowButton>
-                <a className="button-ghost" href={`mailto:${handoff.email}`}>
-                  {handoff.secondaryCta}
-                </a>
+                <GlowButton href={handoff.whatsappUrl} external>
+                  {handoff.primaryCta}
+                </GlowButton>
               </div>
             </div>
           </Reveal>

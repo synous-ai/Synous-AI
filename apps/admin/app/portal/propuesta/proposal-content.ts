@@ -25,6 +25,20 @@ export type ScopePath = { icon: 'modules' | 'versions'; title: string; body: str
 /** Un nivel de la arquitectura conceptual: qué se construye y en qué fase. */
 export type ArchitectureLayer = { label: string; title: string; body: string }
 
+/** Bloque del diagnóstico inicial, con un glifo que nombra el problema. */
+export type OriginBlock = {
+  icon: 'visibility' | 'scattered' | 'system'
+  title: string
+  body: string
+}
+
+/** Garantía de proceso, con un glifo que nombra el compromiso. */
+export type GuaranteeBlock = {
+  icon: 'progress' | 'blueprint' | 'ownership' | 'support'
+  title: string
+  body: string
+}
+
 export type CaseStudy = { name: string; kind: string; description: string; proves: string }
 
 export type PricingOption = { label: string; price: string; terms: string }
@@ -60,9 +74,9 @@ export const proposal = {
 
   hero: {
     eyebrow: 'PROPUESTA · SEPTIEMBRE 2026',
-    headline: 'Una infraestructura digital a la altura de la consultora en la que',
-    headlineHighlight: 'UIRTUS se está convirtiendo',
-    lede: 'UIRTUS ya no es solamente un estudio contable. Hoy conviven distintas áreas, herramientas propias, un diagnóstico, contenidos y una visión clara de construir un ecosistema digital propio. Esta propuesta ordena ese crecimiento en dos etapas: primero, una presencia institucional sólida; después, una aplicación preparada para evolucionar junto al negocio.',
+    headline: 'Una infraestructura digital a la altura de la consultora',
+    headlineHighlight: 'UIRTUS',
+    lede: 'UIRTUS ya no es solamente un estudio contable. Hoy conviven distintas áreas, herramientas propias, un diagnóstico, contenidos y una visión clara de construir un ecosistema digital propio. Esta propuesta cubre los dos proyectos que lo hacen posible: la presencia institucional y la aplicación, trabajados en paralelo sobre una misma arquitectura.',
     primaryCta: 'Ver propuesta',
   },
 
@@ -73,18 +87,21 @@ export const proposal = {
     lede: 'En estos nueve años, UIRTUS pasó de concentrarse principalmente en lo contable e impositivo a incorporar gestión, recursos humanos, legales, administración inmobiliaria y nuevas herramientas propias.',
     blocks: [
       {
+        icon: 'visibility',
         title: 'La evolución no tiene dónde verse',
         body: 'Esa transformación todavía no cuenta con un espacio digital que la represente de forma unificada. Quien busca a UIRTUS hoy no encuentra el alcance real de lo que hace.',
       },
       {
+        icon: 'scattered',
         title: 'Las piezas existen, pero separadas',
         body: 'El diagnóstico, el panel de clientes, la comunicación institucional y las futuras herramientas viven como piezas independientes, sin un lugar común que las conecte.',
       },
       {
+        icon: 'system',
         title: 'El objetivo no es una página',
         body: 'Es empezar a ordenar todo eso bajo un mismo ecosistema, con una arquitectura que sostenga lo que viene después.',
       },
-    ] satisfies TitledBlock[],
+    ] satisfies OriginBlock[],
   },
 
   /** El evento del 9 de noviembre: la fecha que ordena las prioridades. */
@@ -93,12 +110,7 @@ export const proposal = {
     heading: 'Llegar al 9 de noviembre con UIRTUS presentada como corresponde.',
     lede: 'Para el evento, la prioridad no es tener todo el ecosistema terminado. Es llegar con una presencia oficial, profesional y funcional desde la cual puedan presentar UIRTUS, sus áreas y el Diagnóstico UIRTUS como una herramienta propia de la consultora.',
     dateLabel: '09 NOV',
-    dateTitle: 'Sitio institucional publicado',
-    deliverables: [
-      'Diagnóstico integrado',
-      'Acceso de clientes',
-      'Base preparada para seguir creciendo',
-    ],
+    dateTitle: 'Sitio institucional y MVP de su primer producto.',
   },
 
 
@@ -107,7 +119,6 @@ export const proposal = {
   method: {
     eyebrow: 'CÓMO TRABAJAMOS',
     heading: 'Desde el primer día van a saber qué estamos haciendo y qué sigue.',
-    lede: 'Una de las prioridades del proyecto es que UIRTUS tenga visibilidad constante del avance. No trabajamos durante semanas para aparecer al final con un producto terminado: el proyecto se divide en etapas, entregas y validaciones concretas.',
     phases: [
       {
         label: '01',
@@ -201,7 +212,7 @@ export const proposal = {
   scope: {
     eyebrow: 'LA ESTRATEGIA',
     heading: 'Dos proyectos. Una misma infraestructura.',
-    lede: 'Cada fase resuelve un problema distinto, pero se construyen sobre la misma base. La primera devuelve una presencia a la altura de lo que UIRTUS ya es; la segunda empieza a construir lo que quieren llegar a ser.',
+    lede: 'Cada fase resuelve un problema distinto, pero se construyen sobre la misma base. La primera devuelve una presencia a la altura de lo que UIRTUS ya es; la segunda es comenzar a construir su visión.',
     phases: [
       {
         label: 'FASE 01 — PRESENCIA',
@@ -243,7 +254,7 @@ export const proposal = {
       { label: 'FASE 01', title: 'Sitio UIRTUS', body: 'Diagnóstico · Áreas · Contenido' },
       { label: 'FASE 01', title: 'Acceso de clientes', body: 'La puerta que conecta las dos fases' },
       { label: 'FASE 02', title: 'Aplicación UIRTUS', body: 'Panel de cliente · Herramientas · Gestión' },
-      { label: 'DESPUÉS', title: 'Nuevos módulos', body: 'Lo que el producto pida cuando esté andando' },
+      { label: 'EVOLUCIÓN', title: 'Nuevas versiones del producto', body: 'Lo que el producto pida cuando esté funcionando' },
     ] satisfies ArchitectureLayer[],
   },
 
@@ -252,32 +263,36 @@ export const proposal = {
     heading: 'Lo que UIRTUS puede esperar durante todo el proyecto.',
     blocks: [
       {
+        icon: 'progress',
         title: 'Avances visibles desde el inicio',
         body: 'Trabajamos por hitos y demos. Van a poder ver cómo avanza el proyecto, validar decisiones y saber en qué etapa estamos en todo momento.',
       },
       {
+        icon: 'blueprint',
         title: 'Arquitectura antes de código',
         body: 'Si después de la fase de arquitectura no queda claro qué construir, qué priorizar y cómo debería funcionar, hacemos una sesión adicional sin costo hasta que quede definido.',
       },
       {
+        icon: 'ownership',
         title: 'Activos a nombre de UIRTUS',
         body: 'Construimos activos suyos, no dependencias nuestras. El código, la base de datos, los repositorios y las cuentas quedan a nombre de UIRTUS.',
       },
       {
+        icon: 'support',
         title: '15 días de acompañamiento',
         body: 'Después del lanzamiento seguimos disponibles: capacitación, documentación y estabilización técnica incluidas.',
       },
-    ] satisfies TitledBlock[],
+    ] satisfies GuaranteeBlock[],
   },
 
   investment: {
     eyebrow: 'INVERSIÓN',
-    heading: 'Dos etapas para avanzar al ritmo de UIRTUS.',
-    lede: 'Cada proyecto puede contratarse de forma independiente. Pueden comenzar por el sitio institucional y avanzar con la aplicación cuando sea el momento adecuado, o trabajar ambas fases dentro de una misma hoja de ruta.',
+    heading: 'Dos proyectos, una sola inversión.',
+    lede: 'Cada proyecto tiene su precio, y tomarlos juntos tiene el suyo. Trabajarlos en paralelo comparte arquitectura, decisiones y horas de equipo — y ese ahorro vuelve al presupuesto.',
     phases: [
       {
         name: 'Sitio institucional + CMS',
-        price: 'USD 2.000',
+        price: 'USD 2.350',
         includes: [
           'Sitio institucional con áreas y servicios',
           'CMS para gestión de contenido',
@@ -305,18 +320,46 @@ export const proposal = {
         options: [
           {
             label: 'En dos pagos',
-            price: 'USD 6.000',
+            price: 'USD 6.300',
             terms: '50% al inicio · 50% en la entrega',
           },
           {
             label: 'En tres pagos',
-            price: 'USD 7.000',
+            price: 'USD 7.500',
             terms: '40% al inicio · 30% en hito intermedio · 30% en la entrega',
           },
         ],
       },
     ] satisfies InvestmentPhase[],
-    note: 'Las dos fases se pueden encarar juntas o una después de la otra. Si van por la Fase 1 primero, la arquitectura queda pensada para que la app se apoye en lo ya construido y no haya trabajo duplicado.',
+
+    /**
+     * La opción que queremos que tomen: los dos proyectos juntos. Va en una
+     * tarjeta aparte, después de las individuales, para que el número se lea
+     * contra los dos que acaba de ver.
+     */
+    combo: {
+      label: 'LOS DOS PROYECTOS',
+      title: 'Todo el ecosistema, en un solo proyecto.',
+      body: 'Es la forma en que recomendamos encararlo. Trabajar las dos fases en paralelo permite decidir la arquitectura una sola vez, sin rehacer nada al pasar de una a la otra, y llegar al evento con el sitio publicado mientras la aplicación ya está en marcha.',
+      separateLabel: 'Por separado',
+      separatePrice: 'USD 8.650',
+      savingLabel: 'Ahorro',
+      savingAmount: 'USD 850',
+      options: [
+        {
+          label: 'En dos pagos',
+          price: 'USD 7.800',
+          terms: '50% al inicio · 50% en la entrega',
+        },
+        {
+          label: 'En tres pagos',
+          price: 'USD 9.300',
+          terms: '40% al inicio · 30% en hito intermedio · 30% en la entrega',
+        },
+      ] satisfies PricingOption[],
+    },
+
+    note: 'Los precios están en dólares. Cada proyecto se puede tomar por separado, pero la arquitectura está pensada para construirlos juntos: es donde el presupuesto rinde más y donde el resultado llega antes.',
   },
 
   /**
@@ -386,10 +429,14 @@ export const proposal = {
   handoff: {
     eyebrow: 'EL SIGUIENTE PASO',
     heading: 'Si esta es la dirección que quieren tomar, estamos listos para construirla con ustedes.',
-    lede: 'El primer paso es confirmar con qué fase quieren comenzar. A partir de ahí coordinamos el kickoff, definimos el cronograma y empezamos a trabajar sobre la arquitectura del proyecto.',
     primaryCta: 'Avanzar con la propuesta',
-    secondaryCta: 'Resolver una duda antes de avanzar',
-    email: 'hola@synousai.com',
+    /**
+     * WhatsApp en formato wa.me: sin `+`, espacios ni guiones, y con el mensaje
+     * ya redactado para que no tengan que escribir el primero.
+     */
+    whatsappUrl:
+      'https://wa.me/5492944688181?text=' +
+      encodeURIComponent('Hola, vimos la propuesta y queremos avanzar.'),
   },
 
   closing: {
