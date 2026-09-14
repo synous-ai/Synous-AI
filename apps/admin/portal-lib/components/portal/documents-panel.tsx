@@ -3,26 +3,38 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
+  ArrowUpDown,
   Check,
   Download,
-  FileArchive,
-  FileImage,
+  Eye,
   FileSignature,
-  FileSpreadsheet,
   FileText,
   FolderOpen,
   Loader2,
+  MoreHorizontal,
   PenLine,
   Presentation,
   Receipt,
   Search,
   SlidersHorizontal,
 } from 'lucide-react'
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type Column,
+  type ColumnDef,
+  type SortingState,
+} from '@tanstack/react-table'
 import { useClientDeals, useClientDocuments, useDocumentPreview } from '@portal/lib/hooks'
 import { openFile } from '@portal/lib/files'
 import { cn, initials } from '@portal/lib/utils'
 import type { ClientDocument } from '@portal/lib/types'
+import { KIND_BY_EXTENSION, KIND_ICON, extensionOf, kindForExtension, type AssetKind } from '@portal/lib/file-kind'
 import { Badge, type BadgeProps } from '@portal/components/ui/badge'
+import { Button } from '@portal/components/ui/button'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@portal/components/ui/table'
 import { SectionHeader } from '@portal/components/portal/section-header'
 import {
   Sheet,
@@ -35,6 +47,8 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuRadioGroup,
@@ -70,15 +84,6 @@ const PILL = cn(
   FOCUS,
 )
 const PILL_SELECTED = 'border-foreground/25 bg-muted text-foreground'
-/** Botón pill sólido — el "Details" blanco de la referencia. */
-const SOLID_PILL = cn(
-  'inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-3 text-[11px] font-semibold text-background transition-opacity hover:opacity-90',
-  FOCUS,
-)
-const ICON_BUTTON = cn(
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50',
-  FOCUS,
-)
 /** Entrada escalonada (el delay lo pone cada instancia). */
 const ENTER =
   'motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both'
@@ -522,11 +527,129 @@ function useDocumentDownload(doc: ClientDocument) {
   return { downloading, failed, download }
 }
 
-// ─── Archivos recientes ───────────────────────────────────────────────────────
-// Tabla con los últimos movimientos. Se calcula sobre TODOS los documentos, sin
-// mirar filtros ni búsqueda (igual que el banner de firma): la vista filtrada ya
-// es el panel lateral. Solo columnas con datos reales: un documento no tiene
-// tamaño ni "miembros", y el portal es de solo lectura (sin renombrar/borrar).
+// ─── Archivo: extensión, tipo e ícono ─────────────────────────────────────────
+// `name` es un título que carga el equipo ("Contrato de desarrollo"), no un
+// nombre de archivo: puede no traer extensión. Se busca en este orden: el
+// nombre, la storage key (conserva la extensión del archivo subido; la API
+// deduce el MIME de ahí) y, para lo firmado en DocuSeal sin copia propia, PDF.
+
+/** Extensión plausible: conocida, o letras y dígitos que empiezan con letra ("Propuesta v1.2" no tiene extensión "2"). */
+function fileExtension(value: string): string | null {
+  const ext = extensionOf(value)
+  if (!ext) return null
+  const known = Object.prototype.hasOwnProperty.call(KIND_BY_EXTENSION, ext)
+  return known || /^[a-z][a-z0-9]{1,4}$/.test(ext) ? ext : null
+}
+
+function documentExtension(doc: ClientDocument): string | null {
+  return (
+    fileExtension(doc.name) ??
+    (doc.storageKey ? fileExtension(doc.storageKey) : null) ??
+    (doc.docusealStatus === 'completed' ? 'pdf' : null)
+  )
+}
+
+function documentKind(doc: ClientDocument): AssetKind {
+  return kindForExtension(documentExtension(doc))
+}
+
+/** Nombre sin la extensión cuando el título la trae: la extensión va en su propio badge. */
+function documentBaseName(doc: ClientDocument): string {
+  const ext = fileExtension(doc.name)
+  return ext ? doc.name.slice(0, -(ext.length + 1)) : doc.name
+}
+
+function FileTile({ doc }: { doc: ClientDocument }) {
+  const Icon = KIND_ICON[documentKind(doc)]
+  return (
+    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/80">
+      <Icon className="size-4" strokeWidth={1.5} aria-hidden />
+    </span>
+  )
+}
+
+function FileName({ doc }: { doc: ClientDocument }) {
+  const extension = documentExtension(doc)
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <p className="truncate text-[13px] font-medium text-foreground" title={doc.name}>
+        {documentBaseName(doc)}
+      </p>
+      {extension && (
+        <Badge variant="outline" className="shrink-0">
+          .{extension}
+        </Badge>
+      )}
+    </div>
+  )
+}
+
+// ─── Acciones de un archivo (menú ⋯) ──────────────────────────────────────────
+// Solo acciones reales: el portal es de solo lectura para el cliente (no hay
+// renombrar ni borrar). Vista previa y descarga dependen de que haya archivo;
+// "ver del mismo tipo / proyecto" reusan los filtros de la sección. El menú
+// existe siempre, así ninguna fila queda sin acciones.
+
+interface DocumentActions {
+  onPreview: (doc: ClientDocument) => void
+  onShowType: (type: TypeFilterKey) => void
+  onShowFolder: (key: string) => void
+  folderLabelOf: (doc: ClientDocument) => string
+}
+
+function DocumentActionsMenu({ doc, actions }: { doc: ClientDocument; actions: DocumentActions }) {
+  const { downloading, failed, download } = useDocumentDownload(doc)
+  const previewable = canPreviewDocument(doc)
+  const type = typeBucket(doc)
+
+  return (
+    <div className="flex items-center justify-end gap-2">
+      {failed && (
+        <span role="alert" className="whitespace-nowrap text-[11px] text-destructive">
+          No se pudo descargar
+        </span>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label={`Acciones para ${doc.name}`}>
+            {downloading ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuLabel>Acciones</DropdownMenuLabel>
+          <DropdownMenuGroup>
+            <DropdownMenuItem disabled={!previewable} onSelect={() => actions.onPreview(doc)}>
+              <Eye />
+              Vista previa
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!doc.storageKey || downloading} onSelect={() => void download()}>
+              <Download />
+              Descargar
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem onSelect={() => actions.onShowType(type)}>
+              <SlidersHorizontal />
+              Ver {DOCUMENT_CATEGORIES[type].label.toLowerCase()}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => actions.onShowFolder(folderKey(doc))}>
+              <FolderOpen />
+              <span className="truncate">Ver archivos de {actions.folderLabelOf(doc)}</span>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+// ─── Archivos recientes (Data Table) ──────────────────────────────────────────
+// Estructura del Data Table de shadcn/ui (columnas definidas, orden por
+// encabezado, celda de acciones ⋯), escrita con TanStack Table v8: la guía
+// actual de shadcn usa la API de v9, que este proyecto no tiene.
+// Se calcula sobre TODOS los documentos, sin mirar filtros ni búsqueda (igual
+// que el banner de firma): la vista filtrada ya es el panel lateral.
 
 const RECENT_LIMIT = 5
 
@@ -535,114 +658,108 @@ function activityDate(doc: ClientDocument): string {
   return doc.signedAt ?? doc.createdAt
 }
 
-const EXTENSION_ICONS: Array<[RegExp, LucideIcon]> = [
-  [/\.(xlsx?|csv|numbers)$/i, FileSpreadsheet],
-  [/\.(png|jpe?g|gif|webp|svg|heic)$/i, FileImage],
-  [/\.(zip|rar|7z|tar|gz)$/i, FileArchive],
-]
-
-/** Ícono por extensión del nombre; si no matchea, el de su categoría. */
-function fileIcon(doc: ClientDocument): LucideIcon {
-  const match = EXTENSION_ICONS.find(([pattern]) => pattern.test(doc.name))
-  return match ? match[1] : DOCUMENT_CATEGORIES[typeBucket(doc)].Icon
-}
-
 /** "Jeremias Ingla" → "JI". `uploadedBy` llega como nombre completo. */
 function personInitials(name: string): string {
   const parts = name.trim().split(/\s+/)
   return initials(parts[0], parts.length > 1 ? parts[parts.length - 1] : null)
 }
 
-function RecentFileRow({ doc, onPreview }: { doc: ClientDocument; onPreview: (doc: ClientDocument) => void }) {
-  const { downloading, failed, download } = useDocumentDownload(doc)
-  const derived = deriveDocumentStatus(doc)
-  const previewable = canPreviewDocument(doc)
-  const date = formatDocumentDate(doc)
-  const Icon = fileIcon(doc)
+interface RecentTableMeta {
+  actions: DocumentActions
+}
 
+function SortableHeader({ column, label }: { column: Column<ClientDocument, unknown>; label: string }) {
   return (
-    <tr className="transition-colors hover:bg-muted/40">
-      {/* w-full + max-w-0: la columna del nombre absorbe el ancho libre y trunca. */}
-      <td className="w-full max-w-0 px-4 py-3">
+    <Button variant="ghost" size="sm" className="-ml-3" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+      {label}
+      <ArrowUpDown aria-hidden />
+    </Button>
+  )
+}
+
+const RECENT_COLUMNS: ColumnDef<ClientDocument>[] = [
+  {
+    id: 'name',
+    accessorFn: (doc) => documentBaseName(doc).toLowerCase(),
+    header: ({ column }) => <SortableHeader column={column} label="Nombre" />,
+    cell: ({ row }) => {
+      const doc = row.original
+      const derived = deriveDocumentStatus(doc)
+      return (
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/80">
-            <Icon className="h-4 w-4" strokeWidth={1.5} />
-          </span>
+          <FileTile doc={doc} />
           <div className="min-w-0">
-            <p className="truncate text-[13px] font-medium text-foreground" title={doc.name}>
-              {doc.name}
-            </p>
+            <FileName doc={doc} />
             <p className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
               {DOCUMENT_CATEGORIES[typeBucket(doc)].singular}
               {derived.status !== 'informational' && (
-                <Badge variant={DOCUMENT_STATUS_VARIANT[derived.status]} className="whitespace-nowrap py-0 text-[10px]">
+                <Badge variant={DOCUMENT_STATUS_VARIANT[derived.status]} className="whitespace-nowrap">
                   {derived.label}
                 </Badge>
               )}
             </p>
           </div>
         </div>
-      </td>
-
-      <td className="whitespace-nowrap px-3 py-3 text-xs">
-        <p className="tabular-nums text-foreground/80">{date.value}</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">{date.label}</p>
-      </td>
-
-      <td className="whitespace-nowrap px-3 py-3 text-xs">
-        {doc.uploadedBy ? (
-          <span className="flex items-center gap-2 text-foreground/80">
-            <span
-              aria-hidden
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground"
-            >
-              {personInitials(doc.uploadedBy)}
-            </span>
-            {doc.uploadedBy}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </td>
-
-      <td className="whitespace-nowrap px-4 py-3">
-        <div className="flex items-center justify-end gap-2">
-          {failed && (
-            <span role="alert" className="text-[11px] text-destructive">
-              No se pudo descargar
-            </span>
-          )}
-          {previewable && (
-            <button type="button" onClick={() => onPreview(doc)} className={SOLID_PILL}>
-              Ver
-            </button>
-          )}
-          {doc.storageKey && (
-            <button
-              type="button"
-              onClick={() => void download()}
-              disabled={downloading}
-              aria-label={`Descargar ${doc.name}`}
-              title="Descargar"
-              className={ICON_BUTTON}
-            >
-              {downloading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
-              )}
-            </button>
-          )}
-          {!previewable && !doc.storageKey && (
-            <span className="text-[11px] text-muted-foreground">Sin archivo todavía</span>
-          )}
+      )
+    },
+  },
+  {
+    id: 'activity',
+    accessorFn: (doc) => Date.parse(activityDate(doc)),
+    header: ({ column }) => <SortableHeader column={column} label="Última actividad" />,
+    cell: ({ row }) => {
+      const date = formatDocumentDate(row.original)
+      return (
+        <div className="whitespace-nowrap text-xs">
+          <p className="tabular-nums text-foreground/80">{date.value}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{date.label}</p>
         </div>
-      </td>
-    </tr>
-  )
-}
+      )
+    },
+  },
+  {
+    id: 'uploadedBy',
+    accessorFn: (doc) => doc.uploadedBy ?? '',
+    enableSorting: false,
+    header: 'Subido por',
+    cell: ({ row }) => {
+      const uploadedBy = row.original.uploadedBy
+      if (!uploadedBy) return <span className="text-xs text-muted-foreground">—</span>
+      return (
+        <span className="flex items-center gap-2 whitespace-nowrap text-xs text-foreground/80">
+          <span
+            aria-hidden
+            className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground"
+          >
+            {personInitials(uploadedBy)}
+          </span>
+          {uploadedBy}
+        </span>
+      )
+    },
+  },
+  {
+    id: 'actions',
+    enableSorting: false,
+    header: () => <span className="sr-only">Acciones</span>,
+    cell: ({ row, table }) => (
+      <DocumentActionsMenu doc={row.original} actions={(table.options.meta as RecentTableMeta).actions} />
+    ),
+  },
+]
 
-function RecentFiles({ docs, onPreview }: { docs: ClientDocument[]; onPreview: (doc: ClientDocument) => void }) {
+function RecentFiles({ docs, actions }: { docs: ClientDocument[]; actions: DocumentActions }) {
+  const [sorting, setSorting] = useState<SortingState>([])
+  const table = useReactTable({
+    data: docs,
+    columns: RECENT_COLUMNS,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    meta: { actions } satisfies RecentTableMeta,
+  })
+
   if (docs.length === 0) return null
 
   return (
@@ -655,35 +772,62 @@ function RecentFiles({ docs, onPreview }: { docs: ClientDocument[]; onPreview: (
         <h2 id="documents-recent-title" className="text-sm font-medium text-foreground">
           Archivos recientes
         </h2>
-        <p className="text-[11px] text-muted-foreground">Última actividad primero</p>
+        <p className="text-[11px] text-muted-foreground">
+          {plural(docs.length, 'archivo', 'archivos')} con actividad más reciente
+        </p>
       </div>
 
-      {/* Scroll horizontal propio: en angosto la tabla no rompe el ancho de la página. */}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[680px] text-left">
-          <thead>
-            <tr className="whitespace-nowrap border-y border-border text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-              <th scope="col" className="px-4 py-2 font-medium">
-                Nombre
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Última actividad
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Subido por
-              </th>
-              <th scope="col" className="px-4 py-2">
-                <span className="sr-only">Acciones</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {docs.map((doc) => (
-              <RecentFileRow key={doc.id} doc={doc} onPreview={onPreview} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Table trae su propio contenedor con scroll horizontal: en angosto no rompe el ancho de la página. */}
+      <Table className="min-w-[680px]">
+        <TableHeader>
+          {table.getHeaderGroups().map((headerGroup) => (
+            <TableRow key={headerGroup.id} className="border-t">
+              {headerGroup.headers.map((header) => {
+                const sorted = header.column.getIsSorted()
+                return (
+                  <TableHead
+                    key={header.id}
+                    aria-sort={
+                      header.column.getCanSort()
+                        ? sorted === 'asc'
+                          ? 'ascending'
+                          : sorted === 'desc'
+                            ? 'descending'
+                            : 'none'
+                        : undefined
+                    }
+                    className={cn(
+                      'whitespace-nowrap px-3',
+                      header.column.id === 'name' && 'w-full pl-4',
+                      header.column.id === 'actions' && 'pr-4',
+                    )}
+                  >
+                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                  </TableHead>
+                )
+              })}
+            </TableRow>
+          ))}
+        </TableHeader>
+        <TableBody>
+          {table.getRowModel().rows.map((row) => (
+            <TableRow key={row.id}>
+              {row.getVisibleCells().map((cell) => (
+                <TableCell
+                  key={cell.id}
+                  className={cn(
+                    'px-3 py-3',
+                    cell.column.id === 'name' && 'w-full max-w-0 pl-4',
+                    cell.column.id === 'actions' && 'pr-4',
+                  )}
+                >
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </section>
   )
 }
@@ -699,63 +843,29 @@ function MetaRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function DocumentListItem({ doc, onPreview }: { doc: ClientDocument; onPreview: (doc: ClientDocument) => void }) {
-  const { downloading, failed, download } = useDocumentDownload(doc)
-
+function DocumentListItem({ doc, actions }: { doc: ClientDocument; actions: DocumentActions }) {
   const derived = deriveDocumentStatus(doc)
-  const previewable = canPreviewDocument(doc)
   const date = formatDocumentDate(doc)
+  const hasFile = canPreviewDocument(doc) || doc.storageKey != null
 
   return (
-    <li className="p-4 transition-colors hover:bg-muted/40">
-      <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 truncate text-[13px] font-medium text-foreground" title={doc.name}>
-          {doc.name}
-        </p>
+    <li className="flex items-start gap-3 p-4 transition-colors hover:bg-muted/40">
+      <FileTile doc={doc} />
+      <div className="min-w-0 flex-1">
+        <FileName doc={doc} />
         {derived.status !== 'informational' && (
-          <Badge variant={DOCUMENT_STATUS_VARIANT[derived.status]} className="shrink-0 text-[10px]">
+          <Badge variant={DOCUMENT_STATUS_VARIANT[derived.status]} className="mt-1.5 whitespace-nowrap">
             {derived.label}
           </Badge>
         )}
+        <dl className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+          <MetaRow label="Tipo" value={DOCUMENT_CATEGORIES[typeBucket(doc)].singular} />
+          {doc.uploadedBy && <MetaRow label="Subido por" value={doc.uploadedBy} />}
+          <MetaRow label={date.label} value={date.value} />
+        </dl>
+        {!hasFile && <p className="mt-2 text-[11px] text-muted-foreground">Todavía no hay archivo para ver</p>}
       </div>
-
-      <dl className="mt-2 space-y-1 text-xs text-muted-foreground">
-        <MetaRow label="Tipo" value={DOCUMENT_CATEGORIES[typeBucket(doc)].singular} />
-        {doc.uploadedBy && <MetaRow label="Subido por" value={doc.uploadedBy} />}
-        <MetaRow label={date.label} value={date.value} />
-      </dl>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {previewable && (
-          <button type="button" onClick={() => onPreview(doc)} className={SOLID_PILL}>
-            Ver
-          </button>
-        )}
-        {doc.storageKey && (
-          <button
-            type="button"
-            onClick={() => void download()}
-            disabled={downloading}
-            aria-label={`Descargar ${doc.name}`}
-            title="Descargar"
-            className={ICON_BUTTON}
-          >
-            {downloading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
-            )}
-          </button>
-        )}
-        {!previewable && !doc.storageKey && (
-          <span className="text-[11px] text-muted-foreground">Todavía no hay archivo para ver</span>
-        )}
-        {failed && (
-          <span role="alert" className="text-[11px] text-destructive">
-            No se pudo descargar
-          </span>
-        )}
-      </div>
+      <DocumentActionsMenu doc={doc} actions={actions} />
     </li>
   )
 }
@@ -767,7 +877,7 @@ function DocumentListPanel({
   search,
   onClearSearch,
   onShowAll,
-  onPreview,
+  actions,
 }: {
   docs: ClientDocument[]
   filter: TypeFilter
@@ -775,7 +885,7 @@ function DocumentListPanel({
   search: string
   onClearSearch: () => void
   onShowAll: () => void
-  onPreview: (doc: ClientDocument) => void
+  actions: DocumentActions
 }) {
   const category = filter === 'all' ? null : DOCUMENT_CATEGORIES[filter]
   const trimmedSearch = search.trim()
@@ -826,7 +936,7 @@ function DocumentListPanel({
       ) : (
         <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
           {docs.map((doc) => (
-            <DocumentListItem key={doc.id} doc={doc} onPreview={onPreview} />
+            <DocumentListItem key={doc.id} doc={doc} actions={actions} />
           ))}
         </ul>
       )}
@@ -983,6 +1093,25 @@ export function DocumentsPanel() {
     .sort((a, b) => Date.parse(activityDate(b)) - Date.parse(activityDate(a)))
     .slice(0, RECENT_LIMIT)
 
+  const folderLabels = new Map(folders.map((folder) => [folder.key, folder.label]))
+  const documentActions: DocumentActions = {
+    onPreview: setPreviewDoc,
+    // Acciones de una fila ("ver los de este tipo / proyecto"): limpian el otro
+    // filtro y la búsqueda. Si no, se combinarían con lo que ya estaba activo y el
+    // documento que se eligió podría no aparecer en el panel lateral.
+    onShowType: (type) => {
+      setTypeFilter(type)
+      setFolderFilter(null)
+      setSearch('')
+    },
+    onShowFolder: (key) => {
+      setFolderFilter(key)
+      setTypeFilter('all')
+      setSearch('')
+    },
+    folderLabelOf: (doc) => folderLabels.get(folderKey(doc)) ?? 'Generales',
+  }
+
   return (
     <div className="space-y-6">
       {renderHeader(
@@ -1016,7 +1145,7 @@ export function DocumentsPanel() {
             onToggle={(key) => setFolderFilter((current) => (current === key ? null : key))}
           />
 
-          <RecentFiles docs={recentDocs} onPreview={setPreviewDoc} />
+          <RecentFiles docs={recentDocs} actions={documentActions} />
         </div>
 
         <DocumentListPanel
@@ -1029,7 +1158,7 @@ export function DocumentsPanel() {
             setTypeFilter('all')
             setFolderFilter(null)
           }}
-          onPreview={setPreviewDoc}
+          actions={documentActions}
         />
       </div>
 
