@@ -5,7 +5,10 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Check,
   Download,
+  FileArchive,
+  FileImage,
   FileSignature,
+  FileSpreadsheet,
   FileText,
   FolderOpen,
   Loader2,
@@ -17,7 +20,7 @@ import {
 } from 'lucide-react'
 import { useClientDeals, useClientDocuments, useDocumentPreview } from '@portal/lib/hooks'
 import { openFile } from '@portal/lib/files'
-import { cn } from '@portal/lib/utils'
+import { cn, initials } from '@portal/lib/utils'
 import type { ClientDocument } from '@portal/lib/types'
 import { Badge, type BadgeProps } from '@portal/components/ui/badge'
 import { SectionHeader } from '@portal/components/portal/section-header'
@@ -53,27 +56,27 @@ import { Folder } from '@portal/components/ui/folder'
 
 const FOCUS =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
-/** Superficie de card: hairline claro + halo exterior tenue, profundidad por tono y no por sombra. */
+/** Superficie de card con tokens del tema: se lee igual en claro y en oscuro. */
 const SURFACE =
-  'rounded-xl border border-white/[0.08] bg-card shadow-[0_0_0_3px_rgba(255,255,255,0.025),inset_0_1px_0_rgba(255,255,255,0.04)]'
+  'rounded-xl border border-border bg-card shadow-card'
 /** Controles del header (búsqueda, filtro). */
 const CONTROL = cn(
-  'inline-flex h-9 items-center rounded-lg border border-white/[0.08] bg-card text-[13px] text-foreground/90 transition-colors hover:bg-white/[0.06]',
+  'inline-flex h-9 items-center rounded-lg border border-border bg-card text-[13px] text-foreground/90 transition-colors hover:bg-muted',
   FOCUS,
 )
 /** Botón pill secundario — el "Connect" de la referencia. */
 const PILL = cn(
-  'inline-flex h-7 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 text-[11px] font-medium text-foreground/90 transition-colors hover:bg-white/[0.09] disabled:pointer-events-none disabled:opacity-40',
+  'inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 text-[11px] font-medium text-foreground/90 transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40',
   FOCUS,
 )
-const PILL_SELECTED = 'border-white/25 bg-white/[0.12] text-foreground'
+const PILL_SELECTED = 'border-foreground/25 bg-muted text-foreground'
 /** Botón pill sólido — el "Details" blanco de la referencia. */
 const SOLID_PILL = cn(
   'inline-flex h-7 items-center gap-1.5 rounded-md bg-foreground px-3 text-[11px] font-semibold text-background transition-opacity hover:opacity-90',
   FOCUS,
 )
 const ICON_BUTTON = cn(
-  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-muted-foreground transition-colors hover:bg-white/[0.09] hover:text-foreground disabled:opacity-50',
+  'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-muted/50 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50',
   FOCUS,
 )
 /** Entrada escalonada (el delay lo pone cada instancia). */
@@ -237,7 +240,7 @@ function DocumentSearchField({ value, onChange }: { value: string; onChange: (va
       {!value && (
         <kbd
           aria-hidden
-          className="pointer-events-none absolute right-2.5 rounded border border-white/10 px-1.5 font-sans text-[10px] leading-4 text-muted-foreground"
+          className="pointer-events-none absolute right-2.5 rounded border border-border px-1.5 font-sans text-[10px] leading-4 text-muted-foreground"
         >
           /
         </kbd>
@@ -264,7 +267,7 @@ function TypeFilterMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={cn(CONTROL, 'shrink-0 gap-2 px-3', active && 'border-white/20 text-foreground')}>
+        <button type="button" className={cn(CONTROL, 'shrink-0 gap-2 px-3', active && 'border-foreground/20 text-foreground')}>
           <SlidersHorizontal className="h-4 w-4" strokeWidth={1.5} />
           {active ? DOCUMENT_CATEGORIES[value].label : 'Filtrar'}
         </button>
@@ -349,14 +352,14 @@ function CategoryCard({
 
   return (
     <article
-      className={cn(SURFACE, 'flex flex-col p-4 transition-colors', selected && 'border-white/25 bg-white/[0.035]', ENTER)}
+      className={cn(SURFACE, 'flex flex-col p-4 transition-colors', selected && 'border-foreground/25 bg-muted/40', ENTER)}
       style={{ animationDelay: `${60 + index * 60}ms` }}
     >
       <span
         className={cn(
           'flex h-9 w-9 items-center justify-center rounded-lg',
           empty
-            ? 'bg-white/[0.06] text-muted-foreground'
+            ? 'bg-muted text-muted-foreground'
             : 'bg-foreground text-background shadow-[inset_0_-2px_0_rgba(0,0,0,0.12)]',
         )}
       >
@@ -490,30 +493,20 @@ function ShortcutFolders({
   )
 }
 
-// ─── Panel lateral: listado de archivos ───────────────────────────────────────
+// ─── Descarga compartida ──────────────────────────────────────────────────────
 
-function MetaRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 gap-1">
-      <dt className="shrink-0">{label}:</dt>
-      <dd className="truncate text-foreground/75">{value}</dd>
-    </div>
-  )
-}
-
-function DocumentListItem({ doc, onPreview }: { doc: ClientDocument; onPreview: (doc: ClientDocument) => void }) {
+/**
+ * Descarga autenticada de un documento, con estado de carga y de error.
+ * Hace falta pedir una URL de acceso temporal (openFile en lib/files.ts): un
+ * <a href> pelado no puede. Solo aplica a documentos con storageKey propio (los
+ * firmados-en-DocuSeal-sin-copia-propia no tienen bytes locales para bajar,
+ * solo preview vía signed-documents). La usan la lista lateral y los recientes.
+ */
+function useDocumentDownload(doc: ClientDocument) {
   const [downloading, setDownloading] = useState(false)
   const [failed, setFailed] = useState(false)
 
-  const derived = deriveDocumentStatus(doc)
-  const previewable = canPreviewDocument(doc)
-  const date = formatDocumentDate(doc)
-
-  // Descarga autenticada: hace falta pedir una URL de acceso temporal
-  // (openFile en lib/files.ts), un <a href> pelado no puede. Solo aplica a
-  // documentos con storageKey propio (los firmados-en-DocuSeal-sin-copia-propia
-  // no tienen bytes locales para bajar, solo preview vía signed-documents).
-  async function handleDownload() {
+  async function download() {
     if (!doc.storageKey) return
     setDownloading(true)
     setFailed(false)
@@ -526,8 +519,195 @@ function DocumentListItem({ doc, onPreview }: { doc: ClientDocument; onPreview: 
     }
   }
 
+  return { downloading, failed, download }
+}
+
+// ─── Archivos recientes ───────────────────────────────────────────────────────
+// Tabla con los últimos movimientos. Se calcula sobre TODOS los documentos, sin
+// mirar filtros ni búsqueda (igual que el banner de firma): la vista filtrada ya
+// es el panel lateral. Solo columnas con datos reales: un documento no tiene
+// tamaño ni "miembros", y el portal es de solo lectura (sin renombrar/borrar).
+
+const RECENT_LIMIT = 5
+
+/** Última actividad: la firma si existe, si no el alta. */
+function activityDate(doc: ClientDocument): string {
+  return doc.signedAt ?? doc.createdAt
+}
+
+const EXTENSION_ICONS: Array<[RegExp, LucideIcon]> = [
+  [/\.(xlsx?|csv|numbers)$/i, FileSpreadsheet],
+  [/\.(png|jpe?g|gif|webp|svg|heic)$/i, FileImage],
+  [/\.(zip|rar|7z|tar|gz)$/i, FileArchive],
+]
+
+/** Ícono por extensión del nombre; si no matchea, el de su categoría. */
+function fileIcon(doc: ClientDocument): LucideIcon {
+  const match = EXTENSION_ICONS.find(([pattern]) => pattern.test(doc.name))
+  return match ? match[1] : DOCUMENT_CATEGORIES[typeBucket(doc)].Icon
+}
+
+/** "Jeremias Ingla" → "JI". `uploadedBy` llega como nombre completo. */
+function personInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  return initials(parts[0], parts.length > 1 ? parts[parts.length - 1] : null)
+}
+
+function RecentFileRow({ doc, onPreview }: { doc: ClientDocument; onPreview: (doc: ClientDocument) => void }) {
+  const { downloading, failed, download } = useDocumentDownload(doc)
+  const derived = deriveDocumentStatus(doc)
+  const previewable = canPreviewDocument(doc)
+  const date = formatDocumentDate(doc)
+  const Icon = fileIcon(doc)
+
   return (
-    <li className="p-4 transition-colors hover:bg-white/[0.02]">
+    <tr className="transition-colors hover:bg-muted/40">
+      {/* w-full + max-w-0: la columna del nombre absorbe el ancho libre y trunca. */}
+      <td className="w-full max-w-0 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/80">
+            <Icon className="h-4 w-4" strokeWidth={1.5} />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-medium text-foreground" title={doc.name}>
+              {doc.name}
+            </p>
+            <p className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+              {DOCUMENT_CATEGORIES[typeBucket(doc)].singular}
+              {derived.status !== 'informational' && (
+                <Badge variant={DOCUMENT_STATUS_VARIANT[derived.status]} className="whitespace-nowrap py-0 text-[10px]">
+                  {derived.label}
+                </Badge>
+              )}
+            </p>
+          </div>
+        </div>
+      </td>
+
+      <td className="whitespace-nowrap px-3 py-3 text-xs">
+        <p className="tabular-nums text-foreground/80">{date.value}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{date.label}</p>
+      </td>
+
+      <td className="whitespace-nowrap px-3 py-3 text-xs">
+        {doc.uploadedBy ? (
+          <span className="flex items-center gap-2 text-foreground/80">
+            <span
+              aria-hidden
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground"
+            >
+              {personInitials(doc.uploadedBy)}
+            </span>
+            {doc.uploadedBy}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+
+      <td className="whitespace-nowrap px-4 py-3">
+        <div className="flex items-center justify-end gap-2">
+          {failed && (
+            <span role="alert" className="text-[11px] text-destructive">
+              No se pudo descargar
+            </span>
+          )}
+          {previewable && (
+            <button type="button" onClick={() => onPreview(doc)} className={SOLID_PILL}>
+              Ver
+            </button>
+          )}
+          {doc.storageKey && (
+            <button
+              type="button"
+              onClick={() => void download()}
+              disabled={downloading}
+              aria-label={`Descargar ${doc.name}`}
+              title="Descargar"
+              className={ICON_BUTTON}
+            >
+              {downloading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+              )}
+            </button>
+          )}
+          {!previewable && !doc.storageKey && (
+            <span className="text-[11px] text-muted-foreground">Sin archivo todavía</span>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+function RecentFiles({ docs, onPreview }: { docs: ClientDocument[]; onPreview: (doc: ClientDocument) => void }) {
+  if (docs.length === 0) return null
+
+  return (
+    <section
+      aria-labelledby="documents-recent-title"
+      className={cn(SURFACE, 'overflow-hidden', ENTER)}
+      style={{ animationDelay: '380ms' }}
+    >
+      <div className="flex items-baseline justify-between gap-3 px-4 pb-3 pt-4">
+        <h2 id="documents-recent-title" className="text-sm font-medium text-foreground">
+          Archivos recientes
+        </h2>
+        <p className="text-[11px] text-muted-foreground">Última actividad primero</p>
+      </div>
+
+      {/* Scroll horizontal propio: en angosto la tabla no rompe el ancho de la página. */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-left">
+          <thead>
+            <tr className="whitespace-nowrap border-y border-border text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+              <th scope="col" className="px-4 py-2 font-medium">
+                Nombre
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Última actividad
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Subido por
+              </th>
+              <th scope="col" className="px-4 py-2">
+                <span className="sr-only">Acciones</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {docs.map((doc) => (
+              <RecentFileRow key={doc.id} doc={doc} onPreview={onPreview} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+// ─── Panel lateral: listado de archivos ───────────────────────────────────────
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 gap-1">
+      <dt className="shrink-0">{label}:</dt>
+      <dd className="truncate text-foreground/75">{value}</dd>
+    </div>
+  )
+}
+
+function DocumentListItem({ doc, onPreview }: { doc: ClientDocument; onPreview: (doc: ClientDocument) => void }) {
+  const { downloading, failed, download } = useDocumentDownload(doc)
+
+  const derived = deriveDocumentStatus(doc)
+  const previewable = canPreviewDocument(doc)
+  const date = formatDocumentDate(doc)
+
+  return (
+    <li className="p-4 transition-colors hover:bg-muted/40">
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 truncate text-[13px] font-medium text-foreground" title={doc.name}>
           {doc.name}
@@ -554,7 +734,7 @@ function DocumentListItem({ doc, onPreview }: { doc: ClientDocument; onPreview: 
         {doc.storageKey && (
           <button
             type="button"
-            onClick={() => void handleDownload()}
+            onClick={() => void download()}
             disabled={downloading}
             aria-label={`Descargar ${doc.name}`}
             title="Descargar"
@@ -568,7 +748,7 @@ function DocumentListItem({ doc, onPreview }: { doc: ClientDocument; onPreview: 
           </button>
         )}
         {!previewable && !doc.storageKey && (
-          <span className="text-[11px] text-muted-foreground/70">Todavía no hay archivo para ver</span>
+          <span className="text-[11px] text-muted-foreground">Todavía no hay archivo para ver</span>
         )}
         {failed && (
           <span role="alert" className="text-[11px] text-destructive">
@@ -610,7 +790,7 @@ function DocumentListPanel({
       )}
       style={{ animationDelay: '120ms' }}
     >
-      <header className="border-b border-white/[0.06] p-4">
+      <header className="border-b border-border p-4">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-base font-medium text-foreground">{category?.label ?? 'Todos los documentos'}</h2>
           {(category || folderLabel) && (
@@ -626,7 +806,7 @@ function DocumentListPanel({
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
           {category?.description ?? 'Todo lo que el equipo compartió con vos.'}
         </p>
-        <p className="mt-3 truncate text-[11px] uppercase tracking-[0.14em] tabular-nums text-muted-foreground/80">
+        <p className="mt-3 truncate text-[11px] uppercase tracking-[0.14em] tabular-nums text-muted-foreground">
           {plural(docs.length, 'archivo', 'archivos')}
           {folderLabel && <span className="normal-case tracking-normal"> · {folderLabel}</span>}
           {trimmedSearch && <span className="normal-case tracking-normal"> · “{trimmedSearch}”</span>}
@@ -644,7 +824,7 @@ function DocumentListPanel({
           )}
         </div>
       ) : (
-        <ul className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto">
+        <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
           {docs.map((doc) => (
             <DocumentListItem key={doc.id} doc={doc} onPreview={onPreview} />
           ))}
@@ -798,6 +978,11 @@ export function DocumentsPanel() {
       matchesSearch(doc, needle),
   )
 
+  const recentDocs = docs
+    .slice()
+    .sort((a, b) => Date.parse(activityDate(b)) - Date.parse(activityDate(a)))
+    .slice(0, RECENT_LIMIT)
+
   return (
     <div className="space-y-6">
       {renderHeader(
@@ -830,6 +1015,8 @@ export function DocumentsPanel() {
             selectedKey={activeFolder?.key ?? null}
             onToggle={(key) => setFolderFilter((current) => (current === key ? null : key))}
           />
+
+          <RecentFiles docs={recentDocs} onPreview={setPreviewDoc} />
         </div>
 
         <DocumentListPanel
