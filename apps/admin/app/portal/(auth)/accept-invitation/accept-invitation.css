@@ -1,0 +1,389 @@
+/**
+ * Aceptación de invitación — la primera pantalla de Synous que ve un cliente.
+ *
+ * Comparte el diseño de los logins: dos columnas, panel de marca con grano,
+ * arco de luz y badge con orbe. Acá las dos mitades van en navy: el cliente
+ * todavía no entró al portal, así que esta pantalla pertenece a la marca y no
+ * al producto claro que va a usar después.
+ *
+ * El form es propio (no el componente de Clerk), así que sus campos se estilan
+ * directo en vez de mapear clases de un componente de terceros.
+ *
+ * Todo queda bajo `.invite-page` para no tocar el resto del portal.
+ */
+
+.invite-page {
+  --void: #010511;
+  --surface: #030520;
+  --surface-raised: #090d1d;
+
+  --edge: #181d31;
+  --edge-lit: #1c2542;
+
+  --title: #d5e5f9;
+  --body-text: #dadff5;
+  --muted: #c3cede;
+  --muted-dim: #93a1b4;
+
+  --accent: #96c0ff;
+  --accent-deep: #1c73ca;
+  --danger: #ff9a9a;
+
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--void);
+  color: var(--body-text);
+  font-family: var(--font-portal-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Panel de marca ───────────────────────────────────────────────────── */
+
+.invite-brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 48px;
+  padding: 48px;
+  overflow: hidden;
+  border-right: 1px solid var(--edge);
+  background: linear-gradient(165deg, var(--surface-raised), var(--void) 70%);
+}
+
+/**
+ * Arco de luz sobre el borde superior. `screen` suma su luz al navy en vez de
+ * apoyarse encima como imagen, y el `hue-rotate` lo lleva del violeta original
+ * al azul de marca. Sangra a los lados a propósito: un arco completo y centrado
+ * se leería como una figura, y esto tiene que ser iluminación.
+ */
+.invite-light {
+  position: absolute;
+  top: -14%;
+  left: 50%;
+  z-index: 0;
+  width: 150%;
+  max-width: none;
+  transform: translateX(-50%);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  filter: hue-rotate(310deg) saturate(1.1) brightness(1.15);
+  pointer-events: none;
+}
+
+/* Mismo grano que las páginas de marca: 1px cada 3px, sumando luz. */
+.invite-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background-image: radial-gradient(at 20% 80%, #fff 1px, transparent 0);
+  background-size: 3px 3px;
+  opacity: 0.045;
+  mix-blend-mode: plus-lighter;
+  pointer-events: none;
+}
+
+.invite-halo {
+  position: absolute;
+  top: -20%;
+  right: -25%;
+  width: 70%;
+  aspect-ratio: 1;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #1c73ca3d 0%, transparent 68%);
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+.invite-brand-head,
+.invite-brand-body,
+.invite-marks {
+  position: relative;
+  z-index: 2;
+}
+
+.invite-logo {
+  height: 26px;
+  width: auto;
+}
+
+.invite-logo-mobile {
+  display: none;
+}
+
+.invite-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  margin: 0 0 26px;
+  padding: 10px 18px 10px 10px;
+  border: 2px solid var(--edge);
+  border-radius: 100px;
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--body-text);
+  user-select: none;
+}
+
+.invite-orb {
+  width: 22px;
+  height: 22px;
+  border-radius: 100px;
+  background: url('/MeshGradient.webp') center center / 200% 200%;
+  animation: invite-orb-drift 2s ease-in-out infinite;
+  will-change: background-position;
+}
+
+@keyframes invite-orb-drift {
+  0% {
+    background-position: 0% 20%;
+  }
+  25% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 50% 70%;
+  }
+  100% {
+    background-position: 0% 20%;
+  }
+}
+
+.invite-title {
+  margin: 0;
+  font-size: clamp(34px, 3.6vw, 52px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  font-weight: 500;
+  color: var(--title);
+}
+
+/* El mismo gesto que el hero de la propuesta: blanco cayendo en el accent. */
+.invite-title-accent {
+  background: linear-gradient(to top, var(--accent), #ffffff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.invite-lede {
+  max-width: 42ch;
+  margin: 22px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.invite-marks {
+  display: flex;
+  gap: 8px;
+}
+
+.invite-mark {
+  width: 26px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--edge-lit);
+}
+
+.invite-mark:first-child {
+  width: 44px;
+  background: var(--accent);
+}
+
+/* ── Columna del form ─────────────────────────────────────────────────── */
+
+.invite-form-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.invite-form-inner {
+  width: 100%;
+  max-width: 420px;
+}
+
+.invite-heading {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-weight: 500;
+  color: var(--title);
+}
+
+.invite-sub {
+  margin: 10px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.invite-body {
+  margin-top: 28px;
+}
+
+/* ── Form ─────────────────────────────────────────────────────────────── */
+
+.invite-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Nombre y apellido comparten fila: son un solo dato partido en dos. */
+.invite-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.invite-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.invite-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.invite-field input {
+  height: 46px;
+  padding-inline: 14px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 10px;
+  background: #0a0f21;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--body-text);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.invite-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #96c0ff26;
+  outline: none;
+}
+
+.invite-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted-dim);
+}
+
+/* Botón de envío: la cara clara del CTA de la propuesta, plana. */
+.invite-submit {
+  height: 46px;
+  margin-top: 4px;
+  border: none;
+  border-radius: 10px;
+  background: #e8f1ff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: #03080f;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.invite-submit:hover:not(:disabled) {
+  background: #ffffff;
+}
+
+.invite-submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.invite-error {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--danger);
+}
+
+.invite-note {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.invite-link {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.invite-link:hover {
+  color: #ffffff;
+}
+
+/* Placeholder mientras Clerk carga: mismo alto que el form, así la columna no
+   salta cuando aparece. */
+.invite-skeleton {
+  height: 300px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #0a0f21, #101833, #0a0f21);
+  background-size: 200% 100%;
+  animation: invite-skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes invite-skeleton-sweep {
+  0% {
+    background-position: 0% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invite-orb,
+  .invite-skeleton {
+    animation: none;
+  }
+}
+
+/* Bajo el breakpoint el panel de marca se va: en una pantalla chica compite con
+   el form en vez de acompañarlo, y el logo pasa a encabezar la columna. */
+@media (max-width: 900px) {
+  .invite-page {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-brand {
+    display: none;
+  }
+
+  .invite-logo-mobile {
+    display: block;
+    margin-bottom: 32px;
+  }
+}
+
+/* El nombre y el apellido dejan de compartir fila: a este ancho cada campo
+   queda demasiado angosto para leer lo que se escribe. */
+@media (max-width: 460px) {
+  .invite-row {
+    grid-template-columns: 1fr;
+  }
+}

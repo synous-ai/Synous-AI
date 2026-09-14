@@ -7,20 +7,22 @@
  * invitación con un `__clerk_ticket` en la URL, fija su contraseña y queda
  * autenticado en el portal.
  *
+ * Es la PRIMERA pantalla de Synous que ve un cliente, antes incluso que el
+ * portal, así que comparte el diseño de los logins: dos columnas, panel de
+ * marca con grano y arco de luz, y el form del otro lado.
+ *
  * IMPORTANTE: usa `@clerk/nextjs/legacy`, NO `@clerk/nextjs`. La API "señal"
  * (root export en @clerk/nextjs 7.5.2) no tiene `setActive` ni `isLoaded` en la
  * forma que necesitamos acá — ver design doc §1.1. `useSignUp` legacy expone
  * `signUp.create({ strategy: 'ticket', ... })` + `setActive`.
  */
 
-import { Suspense, useState, type FormEvent } from 'react'
+import { Suspense, useState, type FormEvent, type ReactNode } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSignUp } from '@clerk/nextjs/legacy'
 import { useAuth } from '@clerk/nextjs'
 import { isClerkAPIResponseError } from '@clerk/nextjs/errors'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import './accept-invitation.css'
 
 const MIN_PASSWORD_LENGTH = 8
 
@@ -47,7 +49,7 @@ export default function AcceptInvitationPage() {
     <Suspense
       fallback={
         <InvitationShell>
-          <div className="h-40 w-full animate-pulse rounded-md bg-muted" aria-hidden />
+          <div className="invite-skeleton" aria-hidden />
         </InvitationShell>
       }
     >
@@ -75,10 +77,8 @@ function AcceptInvitationForm() {
   if (!ticket) {
     return (
       <InvitationShell>
-        <p className="text-sm text-muted-foreground">
-          Este link de invitación es inválido o está incompleto.
-        </p>
-        <a href="/portal/login" className="text-sm font-medium text-primary underline">
+        <p className="invite-note">Este link de invitación es inválido o está incompleto.</p>
+        <a className="invite-link" href="/portal/login">
           Ir al login del portal
         </a>
       </InvitationShell>
@@ -90,8 +90,10 @@ function AcceptInvitationForm() {
   if (isSignedIn) {
     return (
       <InvitationShell>
-        <p className="text-sm text-muted-foreground">Ya tenés una sesión abierta.</p>
-        <Button onClick={() => router.replace('/portal')}>Ir al portal</Button>
+        <p className="invite-note">Ya tenés una sesión abierta.</p>
+        <button className="invite-submit" type="button" onClick={() => router.replace('/portal')}>
+          Ir al portal
+        </button>
       </InvitationShell>
     )
   }
@@ -99,7 +101,7 @@ function AcceptInvitationForm() {
   if (!isLoaded) {
     return (
       <InvitationShell>
-        <div className="h-40 w-full animate-pulse rounded-md bg-muted" aria-hidden />
+        <div className="invite-skeleton" aria-hidden />
       </InvitationShell>
     )
   }
@@ -144,20 +146,20 @@ function AcceptInvitationForm() {
 
   return (
     <InvitationShell>
-      <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="firstName">Nombre</Label>
-            <Input
+      <form className="invite-form" onSubmit={handleSubmit}>
+        <div className="invite-row">
+          <div className="invite-field">
+            <label htmlFor="firstName">Nombre</label>
+            <input
               id="firstName"
               autoComplete="given-name"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="lastName">Apellido</Label>
-            <Input
+          <div className="invite-field">
+            <label htmlFor="lastName">Apellido</label>
+            <input
               id="lastName"
               autoComplete="family-name"
               value={lastName}
@@ -166,9 +168,9 @@ function AcceptInvitationForm() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password">Contraseña</Label>
-          <Input
+        <div className="invite-field">
+          <label htmlFor="password">Contraseña</label>
+          <input
             id="password"
             type="password"
             autoComplete="new-password"
@@ -177,11 +179,12 @@ function AcceptInvitationForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          <p className="invite-hint">Mínimo {MIN_PASSWORD_LENGTH} caracteres.</p>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
-          <Input
+        <div className="invite-field">
+          <label htmlFor="confirmPassword">Confirmar contraseña</label>
+          <input
             id="confirmPassword"
             type="password"
             autoComplete="new-password"
@@ -193,16 +196,16 @@ function AcceptInvitationForm() {
         </div>
 
         {error != null ? (
-          <p className="text-sm text-destructive" role="alert">
+          <p className="invite-error" role="alert">
             {error}
           </p>
         ) : null}
 
-        <Button type="submit" disabled={submitting}>
+        <button className="invite-submit" type="submit" disabled={submitting}>
           {submitting ? 'Creando cuenta…' : 'Crear cuenta y entrar'}
-        </Button>
+        </button>
 
-        <a href="/portal/login" className="text-center text-sm text-muted-foreground underline">
+        <a className="invite-link" href="/portal/login">
           ¿Ya tenés cuenta? Ingresá acá
         </a>
       </form>
@@ -210,15 +213,57 @@ function AcceptInvitationForm() {
   )
 }
 
-/** Contenedor visual mínimo — sin extraer branding del portal (fuera de alcance de esta slice). */
-function InvitationShell({ children }: { children: React.ReactNode }) {
+/**
+ * Shell de dos columnas, el mismo de los logins: el panel de marca sostiene el
+ * contexto (quién invita y a qué) mientras el form del otro lado hace el
+ * trabajo.
+ */
+function InvitationShell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 p-6">
-      <div className="w-full max-w-sm">
-        <p className="eyebrow mb-1">Portal de clientes</p>
-        <h1 className="mb-6 text-xl font-semibold">Activá tu cuenta</h1>
-        {children}
-      </div>
+    <div className="invite-page">
+      <aside className="invite-brand">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="invite-light" src="/light2.webp" alt="" aria-hidden="true" />
+        <div className="invite-grain" aria-hidden="true" />
+        <div className="invite-halo" aria-hidden="true" />
+
+        <div className="invite-brand-head">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="invite-logo" src="/brand/logotipo.svg" alt="Synous AI" />
+        </div>
+
+        <div className="invite-brand-body">
+          <p className="invite-badge">
+            <span className="invite-orb" aria-hidden="true" />
+            TU ACCESO
+          </p>
+          <h1 className="invite-title">
+            Bienvenido a tu <span className="invite-title-accent">espacio</span>.
+          </h1>
+          <p className="invite-lede">
+            Creá tu contraseña y entrá al portal donde vas a seguir el proyecto: hitos, demos,
+            próximos pasos y documentación.
+          </p>
+        </div>
+
+        <div className="invite-marks" aria-hidden="true">
+          <span className="invite-mark" />
+          <span className="invite-mark" />
+          <span className="invite-mark" />
+        </div>
+      </aside>
+
+      <main className="invite-form-side">
+        <div className="invite-form-inner">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="invite-logo invite-logo-mobile" src="/brand/logotipo.svg" alt="Synous AI" />
+
+          <h2 className="invite-heading">Activá tu cuenta</h2>
+          <p className="invite-sub">Una sola vez: después entrás con tu email y contraseña.</p>
+
+          <div className="invite-body">{children}</div>
+        </div>
+      </main>
     </div>
   )
 }
