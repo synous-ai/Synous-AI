@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../../db'
 import { deal, pipeline, pipelineStage, contact, clientAccount, clientDealAccess } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -52,21 +52,50 @@ export interface PortalInvitationPayload {
 }
 
 /**
+ * Lo que queda pendiente de una activación una vez commiteada la transacción:
+ * todo lo que habla con Clerk y el email de invitación.
+ */
+export interface PortalActivation {
+  clientAccountId: string
+  email: string
+  firstName: string | null
+  lastName: string | null
+  dealName: string
+  /** La cuenta se creó en esta activación: es la única vez que se invita. */
+  isNewAccount: boolean
+  /** La cuenta todavía no está vinculada a un usuario de Clerk (primera vez, o un intento previo falló). */
+  needsClerkUser: boolean
+}
+
+/**
  * Activa el portal del cliente al ganar un deal: crea client_account (con invite_token)
  * si no existe, le da acceso al deal y marca el contacto como customer. Idempotente.
  *
- * Devuelve los datos del email de invitación SOLO la primera vez que se crea la
- * cuenta (activación real). En las re-ejecuciones idempotentes devuelve `null`
- * para no re-invitar a un cliente que ya entró al portal.
+ * Hace SOLO trabajo de base de datos. Las llamadas a Clerk y el email las
+ * ejecuta `completeClientPortalActivation` después del commit: hacerlas acá
+ * retenía los locks de deal/contact/client_account durante un round-trip HTTP
+ * (con Clerk lento, se agota el pool) y, si la transacción hacía rollback, el
+ * usuario de Clerk quedaba creado igual.
+ *
+ * Devuelve `null` cuando no queda nada por hacer: sin contacto/email, o cuenta
+ * preexistente ya vinculada a Clerk (no se re-invita a quien ya entró).
  */
 export async function activateClientPortal(
   tx: Tx,
   portalId: string,
   dealId: string,
-): Promise<PortalInvitationPayload | null> {
-  const [d] = await tx.select().from(deal).where(eq(deal.id, dealId)).limit(1)
+): Promise<PortalActivation | null> {
+  const [d] = await tx
+    .select()
+    .from(deal)
+    .where(and(eq(deal.id, dealId), eq(deal.portalId, portalId)))
+    .limit(1)
   if (!d?.primaryContactId) return null
-  const [c] = await tx.select().from(contact).where(eq(contact.id, d.primaryContactId)).limit(1)
+  const [c] = await tx
+    .select()
+    .from(contact)
+    .where(and(eq(contact.id, d.primaryContactId), eq(contact.portalId, portalId)))
+    .limit(1)
   if (!c?.email) return null
 
   const [existing] = await tx
@@ -91,37 +120,70 @@ export async function activateClientPortal(
     await tx.update(contact).set({ lifecycleStage: 'customer', updatedAt: new Date() }).where(eq(contact.id, c.id))
   }
 
-  // La invitación va ANTES de ensureClerkUserType: Clerk rechaza invitar a un
-  // email que ya es usuario de la aplicación, y ensureClerkUserType lo crea.
-  // Solo se invita en la activación real (cuenta recién creada) — reejecutar
-  // esto sobre un cliente que ya entró le mandaría un link de activación de
-  // una cuenta que ya activó.
-  let invitationUrl: string | null = null
-  if (!existing) {
-    const invitation = await createClientPortalInvitation({
-      email: c.email,
-      redirectUrl: `${clientPortalBaseUrl()}/portal/accept-invitation`,
-    })
-    invitationUrl = invitation?.invitationUrl ?? null
+  const isNewAccount = !existing
+  const needsClerkUser = !account!.clerkUserId
+  if (!isNewAccount && !needsClerkUser) return null
+  return {
+    clientAccountId: account!.id,
+    email: c.email,
+    firstName: c.firstName,
+    lastName: c.lastName,
+    dealName: d.name,
+    isNewAccount,
+    needsClerkUser,
   }
+}
 
-  // Provisionar el cliente en Clerk con userType='client' + linkear clerkUserId (si falta).
-  // Best-effort: si Clerk falla, no rompe la activación del portal (el account ya quedó creado).
-  if (account && !account.clerkUserId) {
-    const clerkUserId = await ensureClerkUserType({
-      email: c.email,
-      firstName: c.firstName,
-      lastName: c.lastName,
-      userType: 'client',
-    })
-    if (clerkUserId) {
-      await tx.update(clientAccount).set({ clerkUserId }).where(eq(clientAccount.id, account.id))
+/**
+ * Segunda mitad de la activación, SIEMPRE después del commit y best-effort: si
+ * Clerk o Resend fallan, la cuenta y el acceso ya existen y se loguea. Una
+ * activación posterior (p. ej. el botón manual del admin) reintenta el vínculo
+ * con Clerk porque `needsClerkUser` sigue en true.
+ */
+export async function completeClientPortalActivation(activation: PortalActivation): Promise<void> {
+  try {
+    // La invitación va ANTES de ensureClerkUserType: Clerk rechaza invitar a un
+    // email que ya es usuario de la aplicación, y ensureClerkUserType lo crea.
+    // Solo en la activación real: a quien ya entró no se le re-invita.
+    let invitationUrl: string | null = null
+    if (activation.isNewAccount) {
+      const invitation = await createClientPortalInvitation({
+        email: activation.email,
+        redirectUrl: `${clientPortalBaseUrl()}/portal/accept-invitation`,
+      })
+      invitationUrl = invitation?.invitationUrl ?? null
     }
-  }
-  // TODO: asignar intake forms por defecto cuando estén configurados.
 
-  if (existing) return null
-  return { email: c.email, firstName: c.firstName, dealName: d.name, invitationUrl, clientAccountId: account!.id }
+    if (activation.needsClerkUser) {
+      const clerkUserId = await ensureClerkUserType({
+        email: activation.email,
+        firstName: activation.firstName,
+        lastName: activation.lastName,
+        userType: 'client',
+      })
+      if (clerkUserId) {
+        await db
+          .update(clientAccount)
+          .set({ clerkUserId })
+          .where(and(eq(clientAccount.id, activation.clientAccountId), isNull(clientAccount.clerkUserId)))
+      }
+    }
+
+    if (activation.isNewAccount) {
+      await sendPortalInvitationEmail({
+        email: activation.email,
+        firstName: activation.firstName,
+        dealName: activation.dealName,
+        invitationUrl,
+        clientAccountId: activation.clientAccountId,
+      })
+    }
+  } catch (err) {
+    console.error('[stage.service] No se pudo completar la activación del portal en Clerk', {
+      clientAccountId: activation.clientAccountId,
+      error: (err as Error)?.message ?? err,
+    })
+  }
 }
 
 /**
@@ -199,18 +261,19 @@ export async function activateClientPortalManually(
     if (!d) throw Errors.notFound('Deal no encontrado')
 
     if (!d.primaryContactId) {
-      return { status: 'missing_contact' as const, clientEmail: null, invitation: null }
+      return { status: 'missing_contact' as const, clientEmail: null, activation: null }
     }
     const [c] = await tx.select().from(contact).where(eq(contact.id, d.primaryContactId)).limit(1)
     if (!c?.email) {
-      return { status: 'missing_email' as const, clientEmail: null, invitation: null }
+      return { status: 'missing_email' as const, clientEmail: null, activation: null }
     }
 
-    const invitation = await activateClientPortal(tx, portalId, dealId)
-    if (!invitation) {
-      // Ya validamos contacto + email arriba: si igual no hay invitación
-      // pendiente, es porque la cuenta ya existía (ver comentario del JSDoc).
-      return { status: 'already_active' as const, clientEmail: c.email, invitation: null }
+    const activation = await activateClientPortal(tx, portalId, dealId)
+    if (!activation?.isNewAccount) {
+      // Ya validamos contacto + email arriba: si la cuenta no es nueva, ya
+      // existía. Igual se devuelve la activación para reintentar el vínculo
+      // con Clerk si el intento anterior había fallado.
+      return { status: 'already_active' as const, clientEmail: c.email, activation }
     }
 
     // Auditar la activación manual solo cuando efectivamente activa algo nuevo
@@ -226,12 +289,12 @@ export async function activateClientPortalManually(
       payload: { clientEmail: c.email },
     })
 
-    return { status: 'activated' as const, clientEmail: c.email, invitation }
+    return { status: 'activated' as const, clientEmail: c.email, activation }
   })
 
-  // Igual que en changeStage: el email sale DESPUÉS del commit. Si la tx
-  // hubiera hecho rollback, no queremos haber mandado ya la invitación.
-  if (result.invitation) await sendPortalInvitationEmail(result.invitation)
+  // Igual que en changeStage: Clerk y el email van DESPUÉS del commit. Si la tx
+  // hubiera hecho rollback, no queremos haber creado el usuario ni invitado.
+  if (result.activation) await completeClientPortalActivation(result.activation)
 
   return { status: result.status, clientEmail: result.clientEmail }
 }
@@ -288,7 +351,7 @@ export async function changeStage(
       return {
         deal: d,
         notify: null as null | { ownerId: string | null; dealName: string; stageLabel: string },
-        invitation: null as PortalInvitationPayload | null,
+        activation: null as PortalActivation | null,
       }
     }
 
@@ -348,13 +411,13 @@ export async function changeStage(
 
     // Si la etapa es ganada, activar el portal del cliente automáticamente.
     // El email de invitación NO se manda acá: sale después del commit.
-    const invitation = stage.isWon ? await activateClientPortal(tx, portalId, dealId) : null
+    const activation = stage.isWon ? await activateClientPortal(tx, portalId, dealId) : null
     // Notificar al owner FINAL (el reasignado si lo hubo; si no, sigue siendo
     // el mismo que ya tenía el deal — nunca al viejo owner pre-reasignación).
     return {
       deal: finalDeal,
       notify: { ownerId: finalDeal.ownerId, dealName: d.name, stageLabel: stage.label },
-      invitation,
+      activation,
     }
   })
 
@@ -367,10 +430,9 @@ export async function changeStage(
     }, { entity: { type: ENTITY, id: dealId } })
   }
 
-  // Invitación al portal, ya con la transacción commiteada y best-effort (ver
-  // `sendPortalInvitationEmail`: sin link de Clerk no manda nada, y si manda,
-  // sella `inviteSentAt`).
-  if (result.invitation) await sendPortalInvitationEmail(result.invitation)
+  // Clerk + invitación al portal, ya con la transacción commiteada y best-effort
+  // (ver `completeClientPortalActivation`).
+  if (result.activation) await completeClientPortalActivation(result.activation)
   return result.deal
 }
 

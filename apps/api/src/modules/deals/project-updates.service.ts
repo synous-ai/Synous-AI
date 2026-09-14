@@ -171,18 +171,27 @@ async function notifyClientOfUpdate(portalId: string, dealId: string, row: Proje
         ),
       )
 
+    // Un intento por destinatario: una dirección rechazada por Resend no puede
+    // dejar sin aviso al resto de los clientes del deal.
     for (const r of recipients) {
-      await sendEmail({
-        to: r.email,
-        subject: projectUpdateSubject(d.name),
-        html: projectUpdateHtml({
-          firstName: r.firstName,
-          dealName: d.name,
-          phaseLabel,
-          body: row.body,
-          portalUrl: portalHomeUrl(r.brandSlug),
-        }),
-      })
+      try {
+        await sendEmail({
+          to: r.email,
+          subject: projectUpdateSubject(d.name),
+          html: projectUpdateHtml({
+            firstName: r.firstName,
+            dealName: d.name,
+            phaseLabel,
+            body: row.body,
+            portalUrl: portalHomeUrl(r.brandSlug),
+          }),
+        })
+      } catch (err) {
+        console.error('[project-updates.service] No se pudo avisar a un cliente de la novedad', {
+          projectUpdateId: row.id,
+          error: (err as Error)?.message ?? err,
+        })
+      }
     }
   } catch (err) {
     console.error('[project-updates.service] No se pudo avisar al cliente de la novedad', {

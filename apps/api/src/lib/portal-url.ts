@@ -26,8 +26,11 @@ let warnedMissingBase = false
  * Por eso, si además hay `RESEND_API_KEY` (o sea: los emails SALEN de verdad),
  * se loguea un error una sola vez. Sin este aviso la falla es muda — los emails
  * se mandan igual, con un link a localhost, y nos enteramos por el cliente.
+ *
+ * Es la única fuente válida para links que salen en emails: jamás derivar el
+ * origen de headers del request (Host / X-Forwarded-Host los controla quien llama).
  */
-function baseUrl(): string {
+export function adminBaseUrl(): string {
   if (!env.ADMIN_URL) {
     if (env.RESEND_API_KEY && !warnedMissingBase) {
       warnedMissingBase = true
@@ -48,10 +51,10 @@ function portalPrefix(brandSlug?: string | null): string {
 
 /** URL del login del portal — destino de los emails hacia el cliente. */
 export function portalLoginUrl(brandSlug?: string | null): string {
-  return `${baseUrl()}${portalPrefix(brandSlug)}/login`
+  return `${adminBaseUrl()}${portalPrefix(brandSlug)}/login`
 }
 
 /** URL del home del portal (requiere sesión; el middleware redirige al login si no hay). */
 export function portalHomeUrl(brandSlug?: string | null): string {
-  return `${baseUrl()}${portalPrefix(brandSlug)}`
+  return `${adminBaseUrl()}${portalPrefix(brandSlug)}`
 }

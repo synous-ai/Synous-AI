@@ -3,7 +3,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { ok } from '../../lib/response'
 import { authenticate } from '../../middleware/authenticate'
 import { authorize } from '../../middleware/authorize'
-import { IdParamSchema } from '../../lib/crm-schemas'
+import { IdParamSchema, ListQuerySchema } from '../../lib/crm-schemas'
 import { ADMIN_SECURITY } from '../../lib/http'
 import {
   GenerateProposalSchema,
@@ -20,6 +20,7 @@ import {
   markProposalCompleted,
   getPublicProposal,
   getPublicProposalPdf,
+  getPublicProposalLogoUrl,
 } from './proposals.service'
 
 const TAG = 'Proposals'
@@ -40,6 +41,9 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
         summary: 'Ver una propuesta por su token (público)',
         params: ProposalTokenParamSchema,
       },
+      // Público y direccionado por token: sin límite es un blanco barato para
+      // enumerar tokens o forzar renders de PDF en loop.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request) => ok(await getPublicProposal(request.params.token)),
   )
@@ -54,6 +58,9 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
         summary: 'Descargar el PDF de una propuesta (público)',
         params: ProposalTokenParamSchema,
       },
+      // Público y direccionado por token: sin límite es un blanco barato para
+      // enumerar tokens o forzar renders de PDF en loop.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
       const { filename, buffer } = await getPublicProposalPdf(request.params.token)
@@ -61,6 +68,23 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
         .header('Content-Type', 'application/pdf')
         .header('Content-Disposition', `attachment; filename="${filename}"`)
         .send(buffer)
+    },
+  )
+
+  // Logo de la propuesta: el deck público lo usa en un <img>, sin sesión.
+  r.get(
+    '/:token/logo',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Logo de una propuesta (público, redirige a una URL de corta vida)',
+        params: ProposalTokenParamSchema,
+      },
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const { url } = await getPublicProposalLogoUrl(request.params.token)
+      return reply.header('Cache-Control', 'public, max-age=60').redirect(url, 302)
     },
   )
 
@@ -73,6 +97,9 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
         summary: 'Marcar que el cliente terminó la presentación (público)',
         params: ProposalTokenParamSchema,
       },
+      // Público y direccionado por token: sin límite es un blanco barato para
+      // enumerar tokens o forzar renders de PDF en loop.
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request) => {
       await markProposalCompleted(request.params.token)
@@ -112,8 +139,11 @@ export async function proposalAdminRoutes(app: FastifyInstance): Promise<void> {
 
   r.get(
     '/',
-    { schema: { tags: [TAG], summary: 'Listar propuestas', security: ADMIN_SECURITY } },
-    async (request) => ok(await listProposals(request.hubUser!.portalId)),
+    { schema: { tags: [TAG], summary: 'Listar propuestas', description: 'Listado paginado por cursor.', security: ADMIN_SECURITY, querystring: ListQuerySchema } },
+    async (request) => {
+      const { items, nextCursor } = await listProposals(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 
   r.get(
@@ -133,8 +163,9 @@ export async function proposalAdminRoutes(app: FastifyInstance): Promise<void> {
         params: IdParamSchema,
         body: UpdateProposalSchema,
       },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
     },
-    async (request) => ok(await updateProposal(request.hubUser!.portalId, request.params.id, request.body)),
+    async (request) => ok(await updateProposal(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body)),
   )
 
   // Aprobar la propuesta (queda lista para enviar; el link público se vuelve visible).

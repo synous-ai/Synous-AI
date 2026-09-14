@@ -12,8 +12,15 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url().optional(),
 
+  // Secreto con el que Vercel Cron autentica sus llamadas (`Authorization:
+  // Bearer <CRON_SECRET>`). Sin él, GET /api/cron/reminders responde 503 y los
+  // recordatorios no corren en producción.
+  CRON_SECRET: z.string().optional(),
+
   // Secreto para firmar tokens de NEGOCIO (no de sesión): tokens de booking
-  // (cancel/reschedule) en calendar.service.ts y el token de onboarding. La auth
+  // (cancel/reschedule) en calendar.service.ts, la firma de los links de click
+  // trackeados (email-tracking.service.ts) y las URLs firmadas de corta vida de
+  // `GET /api/files/raw/*` en modo server (lib/storage/signed-url.ts). La auth
   // de sesión (admin y cliente) es 100% Clerk — no usa este secreto.
   ACCESS_TOKEN_SECRET: z.string().min(32, 'ACCESS_TOKEN_SECRET debe tener al menos 32 caracteres'),
 
@@ -47,6 +54,29 @@ const envSchema = z.object({
   TENANT_ROOT_DOMAIN: z.string().optional(),
   API_URL: z.string().url().optional(),
 
+  /**
+   * Alta automática del subdominio del tenant en Vercel al crear una empresa.
+   *
+   * El ruteo de `<slug>.synousai.com` ya lo resuelve el alias wildcard
+   * `*.synousai.com` del proyecto, pero el CERTIFICADO se emite por host: un
+   * subdominio sin dar de alta resuelve por DNS y después muere en el
+   * handshake TLS. Verificado: 8 intentos en 105s sobre un host nuevo, cero
+   * certificado.
+   *
+   * No se puede resolver con un cert wildcard: Let's Encrypt solo valida
+   * wildcards por DNS-01, y para eso Vercel necesita controlar los
+   * nameservers. Están en Cloudflare y moverlos rompería Email Routing (MX),
+   * el DKIM de Resend y el SPF de SES. Por eso: alta por host vía API.
+   *
+   * Las tres son opcionales. Sin ellas la feature queda apagada y el alta del
+   * subdominio vuelve a ser manual (`vercel domains add <slug>.<raíz>`), pero
+   * crear empresas sigue funcionando igual.
+   */
+  VERCEL_API_TOKEN: z.string().optional(),
+  VERCEL_PROJECT_ID: z.string().optional(),
+  /** Solo si el proyecto vive en un team (no en una cuenta personal). */
+  VERCEL_TEAM_ID: z.string().optional(),
+
   // Fathom webhook — opcional; sin secret configurado el webhook responde 401
   FATHOM_WEBHOOK_SECRET: z.string().optional(),
 
@@ -55,6 +85,17 @@ const envSchema = z.object({
 
   // URL pública de la API para pixel de tracking (default: localhost en dev)
   PUBLIC_API_URL: z.string().url().default('http://localhost:3001'),
+
+  // ── Vercel Blob (archivos, store PRIVADO) ─────────────────
+  // Con cualquiera de las dos credenciales la API usa modo blob (lib/storage).
+  // Sin ninguna: modo server en disco, SOLO para desarrollo local; en
+  // producción las subidas responden 503 STORAGE_NOT_CONFIGURED.
+  // - BLOB_STORE_ID: OIDC (VERCEL_OIDC_TOKEN lo inyecta Vercel). Tiene precedencia.
+  // - BLOB_READ_WRITE_TOKEN: token estático del store.
+  BLOB_READ_WRITE_TOKEN: z.string().optional(),
+  BLOB_STORE_ID: z.string().optional(),
+  // Solo verifica callbacks de upload-completed, que esta API no acepta.
+  BLOB_WEBHOOK_PUBLIC_KEY: z.string().optional(),
 
   // ── Clerk (auth) ──────────────────────────────────────────
   // Requerido en prod: sin esto el verifyToken de Clerk falla y nadie autentica.

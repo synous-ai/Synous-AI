@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { API_URL } from '@synous/shared'
 import { ReschedulePageSkeleton, SlotsSkeleton } from '../_components/booking-skeletons'
+import { formatInTz, formatTimeInTz, toLocalDate, getMonthDays, firstDayOfWeek } from '../_lib/calendar'
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -66,53 +67,6 @@ const COMMON_TIMEZONES = [
   'Europe/Paris', 'Europe/Berlin', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Kolkata',
   'Asia/Dubai', 'Australia/Sydney', 'UTC',
 ]
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function toLocalDateStr(date: Date, tz: string): string {
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-    }).formatToParts(date)
-    const y = parts.find((p) => p.type === 'year')?.value ?? ''
-    const m = parts.find((p) => p.type === 'month')?.value ?? ''
-    const d = parts.find((p) => p.type === 'day')?.value ?? ''
-    return `${y}-${m}-${d}`
-  } catch { return date.toISOString().slice(0, 10) }
-}
-
-function formatTimeInTz(isoUtc: string, tz: string): string {
-  try {
-    return new Intl.DateTimeFormat('es', { timeZone: tz, hour: '2-digit', minute: '2-digit' })
-      .format(new Date(isoUtc))
-  } catch { return isoUtc }
-}
-
-function formatInTz(isoUtc: string, tz: string): string {
-  try {
-    return new Intl.DateTimeFormat('es', {
-      timeZone: tz, weekday: 'long', year: 'numeric', month: 'long',
-      day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
-    }).format(new Date(isoUtc))
-  } catch { return isoUtc }
-}
-
-function getMonthDays(year: number, month: number): Date[] {
-  const days: Date[] = []
-  const daysInMonth = new Date(year, month, 0).getDate()
-  for (let d = 1; d <= daysInMonth; d++) days.push(new Date(year, month - 1, d))
-  return days
-}
-
-function firstDayOfWeek(year: number, month: number): number {
-  return new Date(year, month - 1, 1).getDay()
-}
-
-function dayStr(day: Date): string {
-  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
-}
 
 // ---------------------------------------------------------------------------
 // Fetchers
@@ -236,7 +190,7 @@ export default function ReschedulePage() {
     setSelectedSlot(null)
   }, [])
 
-  const todayStr = toLocalDateStr(new Date(), inviteeTz)
+  const todayStr = toLocalDate(new Date(), inviteeTz)
 
   async function handleReschedule() {
     if (!selectedSlot || !token) return
@@ -355,8 +309,7 @@ export default function ReschedulePage() {
                 </div>
                 <div className="grid grid-cols-7 gap-1">
                   {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} />)}
-                  {days.map((day) => {
-                    const ds = dayStr(day)
+                  {days.map(({ date, ds }) => {
                     const past = ds < todayStr
                     const selected = ds === selectedDay
                     return (
@@ -372,7 +325,7 @@ export default function ReschedulePage() {
                         ].join(' ')}
                         style={selected ? { backgroundColor: meta.color ?? '#3b82f6' } : undefined}
                       >
-                        {day.getDate()}
+                        {date.getDate()}
                       </button>
                     )
                   })}

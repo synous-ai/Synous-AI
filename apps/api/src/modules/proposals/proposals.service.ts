@@ -1,4 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm'
+import type { ListQuery } from '../../lib/crm-schemas'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import { proposal, deal, contact, company, onboardingSubmission } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -14,6 +16,9 @@ import {
 import { buildProposalPdf } from './proposals.pdf'
 import { actorName } from '../notifications/notifications.service'
 import { notifyAdmins } from '../notifications/notify'
+import { claimUpload, isNewStorageKey, prepareUploadClaim, releaseReplacedUpload } from '../uploads/uploads.service'
+import { isServablePublicLogo } from '../files/files.authz'
+import { createReadUrl, isLegacyStorageKey, type ReadAccessUrl } from '../../lib/storage'
 
 /** Monto legible para el copy de notificaciones. */
 function money(total: number, currency: string): string {
@@ -154,7 +159,15 @@ export async function generateProposal(
   try {
     content = await generateProposalContent(input, provider)
     model = provider
-  } catch {
+  } catch (err) {
+    // El fallback es correcto, pero tiene que dejar rastro: sin este log una IA
+    // caída (key vencida, cuota, JSON inválido) producía semanas de propuestas
+    // de plantilla sin que nadie se enterara.
+    console.error('[proposals] Falló la generación con IA, se usa la plantilla', {
+      dealId,
+      provider,
+      error: (err as Error)?.message ?? err,
+    })
     content = fallbackProposalContent(input)
     model = 'manual'
   }
@@ -197,14 +210,16 @@ export async function generateProposal(
 
 // ─── Lectura / edición (admin) ───────────────────────────────────────────────
 
-export async function listProposals(portalId: string): Promise<ProposalDTO[]> {
+export async function listProposals(portalId: string, query: ListQuery): Promise<Paginated<ProposalDTO>> {
+  const cursor = decodeCursor(query.cursor)
   const rows = await db
     .select()
     .from(proposal)
-    .where(eq(proposal.portalId, portalId))
-    .orderBy(desc(proposal.createdAt))
-    .limit(500)
-  return rows.map(toDTO)
+    .where(and(eq(proposal.portalId, portalId), cursor ? cursorWhere(proposal.createdAt, proposal.id, cursor) : undefined))
+    .orderBy(desc(proposal.createdAt), desc(proposal.id))
+    .limit(query.limit + 1)
+  const { items, nextCursor } = paginateRows(rows, query.limit)
+  return { items: items.map(toDTO), nextCursor }
 }
 
 export async function getProposal(portalId: string, id: string): Promise<ProposalDTO> {
@@ -223,29 +238,64 @@ export interface UpdateProposalInput {
 }
 
 /**
+ * Referencia al logo que se persiste. Las ediciones guardan `logoKey`; el
+ * `logoUrl` legacy solo sobrevive si ya estaba guardado tal cual. Aceptar una
+ * URL nueva dejaría apuntar el logo PÚBLICO de la propuesta a cualquier key,
+ * incluida la de un archivo privado.
+ */
+function withLogoReference(next: ProposalContent, current: ProposalContent): ProposalContent {
+  const { logoUrl, ...rest } = next
+  if (rest.logoKey) return rest
+  return logoUrl && logoUrl === current.logoUrl ? { ...rest, logoUrl } : rest
+}
+
+/**
  * Edita una propuesta (título y/o contenido). El admin ajusta lo que la IA
  * generó. Recalcula el monto denormalizado desde el total del contenido.
  */
 export async function updateProposal(
   portalId: string,
+  userId: string,
   id: string,
   input: UpdateProposalInput,
 ): Promise<ProposalDTO> {
-  const patch: Partial<ProposalRow> = {}
-  if (input.title !== undefined) patch.title = input.title
-  if (input.content !== undefined) {
-    patch.content = input.content
-    patch.amount = input.content.pricing.total ? String(input.content.pricing.total) : null
-    patch.currency = input.content.pricing.currency || 'USD'
-  }
-  if (Object.keys(patch).length === 0) return getProposal(portalId, id)
+  if (input.title === undefined && input.content === undefined) return getProposal(portalId, id)
 
-  const [row] = await db
-    .update(proposal)
-    .set(patch)
-    .where(and(eq(proposal.id, id), eq(proposal.portalId, portalId)))
-    .returning()
-  if (!row) throw Errors.notFound('Propuesta no encontrada')
+  const newLogoKey = input.content?.logoKey
+  const preparedClaim = newLogoKey
+    ? await prepareUploadClaim({ storageKey: newLogoKey, portalId, actor: { kind: 'hub', userId, portalId }, purpose: 'proposal_logo' })
+    : null
+
+  const { row, previousLogoKey } = await db.transaction(async (tx) => {
+    // FOR UPDATE: el logo "anterior" que se libera después del commit tiene que
+    // ser el que esta edición reemplazó, no uno que otra edición ya cambió.
+    const [current] = await tx
+      .select({ content: proposal.content })
+      .from(proposal)
+      .where(and(eq(proposal.id, id), eq(proposal.portalId, portalId)))
+      .limit(1)
+      .for('update')
+    if (!current) throw Errors.notFound('Propuesta no encontrada')
+
+    const patch: Partial<ProposalRow> = {}
+    if (input.title !== undefined) patch.title = input.title
+    if (input.content !== undefined) {
+      if (isNewStorageKey(input.content.logoKey, current.content.logoKey)) await claimUpload(tx, preparedClaim)
+      patch.content = withLogoReference(input.content, current.content)
+      patch.amount = input.content.pricing.total ? String(input.content.pricing.total) : null
+      patch.currency = input.content.pricing.currency || 'USD'
+    }
+
+    const [updated] = await tx
+      .update(proposal)
+      .set(patch)
+      .where(and(eq(proposal.id, id), eq(proposal.portalId, portalId)))
+      .returning()
+    if (!updated) throw Errors.notFound('Propuesta no encontrada')
+    return { row: updated, previousLogoKey: current.content.logoKey }
+  })
+
+  if (input.content !== undefined) await releaseReplacedUpload(portalId, previousLogoKey, row.content.logoKey)
   return toDTO(row)
 }
 
@@ -355,6 +405,32 @@ export async function getPublicProposal(token: string): Promise<PublicProposalDT
     content: row.content,
     updatedAt: row.updatedAt.toISOString(),
   }
+}
+
+/** Key de un `logoUrl` legacy de la forma `…/api/files/<key>`. */
+function legacyLogoKey(logoUrl: string | undefined): string | null {
+  const match = /\/api\/files\/([^/?#]+)(?:[?#]|$)/.exec(logoUrl ?? '')
+  return match?.[1] && isLegacyStorageKey(match[1]) ? match[1] : null
+}
+
+/**
+ * URL de lectura de corta vida del logo de la propuesta pública. Mismas reglas
+ * de visibilidad que la vista pública (sin borradores), y el logo tiene que ser
+ * servible públicamente para el portal dueño de la propuesta.
+ */
+export async function getPublicProposalLogoUrl(token: string): Promise<ReadAccessUrl> {
+  const [row] = await db
+    .select({ portalId: proposal.portalId, status: proposal.status, content: proposal.content })
+    .from(proposal)
+    .where(eq(proposal.token, token))
+    .limit(1)
+  if (!row || row.status === 'draft') throw Errors.notFound('Logo no encontrado')
+
+  const storageKey = row.content.logoKey ?? legacyLogoKey(row.content.logoUrl)
+  if (!storageKey || !(await isServablePublicLogo(storageKey, row.portalId, 'proposal_logo'))) {
+    throw Errors.notFound('Logo no encontrado')
+  }
+  return createReadUrl(storageKey, { op: 'public-proposal-logo', storageKey, portalId: row.portalId })
 }
 
 /**

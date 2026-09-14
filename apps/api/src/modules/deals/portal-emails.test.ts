@@ -230,13 +230,14 @@ describe('activateClientPortal — invitación e idempotencia', () => {
   it('si la cuenta ya existía no devuelve invitación (no se re-invita)', async () => {
     const { dealId } = await seedDeal('idem')
 
-    // Primera activación: hay invitación pendiente.
+    // Primera activación: cuenta nueva → hay invitación pendiente.
     const first = await db.transaction((tx) => activateClientPortal(tx, portalId, dealId))
-    expect(first).not.toBeNull()
+    expect(first?.isNewAccount).toBe(true)
 
-    // Segunda activación sobre el mismo deal: la cuenta ya existe → null.
+    // Segunda activación sobre el mismo deal: la cuenta ya existe → no se re-invita.
+    // (Puede quedar pendiente el vínculo con Clerk, que en tests está deshabilitado.)
     const second = await db.transaction((tx) => activateClientPortal(tx, portalId, dealId))
-    expect(second).toBeNull()
+    expect(second?.isNewAccount ?? false).toBe(false)
   })
 
   it('un deal sin contacto principal no genera invitación ni rompe', async () => {

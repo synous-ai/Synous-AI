@@ -10,7 +10,10 @@
  * el cloud como el self-hosted).
  */
 import { env } from '../../config/env'
-import { Errors } from '../../lib/errors'
+import { AppError, Errors } from '../../lib/errors'
+
+/** Tope por llamada: corre dentro de requests del admin y del cliente, que no pueden quedar colgados. */
+const DOCUSEAL_TIMEOUT_MS = 15_000
 
 /** ¿Está configurada la integración? Si no, los endpoints responden 503. */
 export function isDocusealConfigured(): boolean {
@@ -32,14 +35,22 @@ async function docusealFetch<T>(path: string, init?: RequestInit): Promise<T> {
     throw Errors.badRequest('DocuSeal no está configurado (falta DOCUSEAL_API_KEY)')
   }
 
-  const res = await fetch(`${apiBase()}${path}`, {
-    ...init,
-    headers: {
-      'X-Auth-Token': env.DOCUSEAL_API_KEY,
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  })
+  let res: Response
+  try {
+    res = await fetch(`${apiBase()}${path}`, {
+      ...init,
+      signal: AbortSignal.timeout(DOCUSEAL_TIMEOUT_MS),
+      headers: {
+        'X-Auth-Token': env.DOCUSEAL_API_KEY,
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    })
+  } catch (err) {
+    // Timeout o error de red: DocuSeal no está disponible, no es un bug nuestro.
+    console.error('[docuseal] Sin respuesta de la API', { path, error: (err as Error)?.message ?? err })
+    throw new AppError('DOCUSEAL_UNAVAILABLE', 'DocuSeal no respondió. Probá de nuevo en unos minutos.', 503)
+  }
 
   if (!res.ok) {
     // El body de error de DocuSeal puede traer detalle útil, pero NO se propaga

@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
 import { task } from '../../db/schema'
-import { ensurePortalAndUser, ensurePipeline, loginToken } from '../../test/helpers'
+import { ensurePortalAndUser, ensurePipeline, loginToken, listenForSupertest } from '../../test/helpers'
 
 const app = buildApp()
 let token: string
@@ -26,7 +26,7 @@ const tomorrow = new Date(now.getTime() + 25 * 60 * 60 * 1000)   // 25h adelante
 const fiveDaysOut = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000)
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
   userId = ctx.userId

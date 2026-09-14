@@ -20,6 +20,7 @@ import {
   ensureProductionPipeline,
   ensureHubUser,
   type PipelineContext,
+  listenForSupertest,
 } from '../../test/helpers'
 import { resumeStep, ONBOARDING_TOTAL_STEPS } from './steps'
 
@@ -100,7 +101,7 @@ async function advanceToFinalStep(token: string): Promise<void> {
 }
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
   pipe = await ensurePipeline(portalId)

@@ -5,7 +5,7 @@ import { authenticate } from '../../middleware/authenticate'
 import { authorize } from '../../middleware/authorize'
 import { IdParamSchema } from '../../lib/crm-schemas'
 import { CreateNoteSchema, NoteQuerySchema } from './activities.schema'
-import { createNote, listNotes, deleteNote } from './activities.service'
+import { createNote, listNotes, archiveNote } from './activities.service'
 import { ADMIN_SECURITY } from '../../lib/http'
 
 const TAG = 'Notas'
@@ -26,7 +26,10 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
         querystring: NoteQuerySchema,
       },
     },
-    async (request) => ok(await listNotes(request.hubUser!.portalId, request.query)),
+    async (request) => {
+      const { items, nextCursor } = await listNotes(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 
   r.post(
@@ -50,11 +53,11 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
   r.delete(
     '/:id',
     {
-      schema: { tags: [TAG], summary: 'Eliminar nota', description: 'Borra una nota.', security, params: IdParamSchema },
+      schema: { tags: [TAG], summary: 'Eliminar nota', description: 'Archiva una nota (soft delete): deja de aparecer en listados, detalles y timeline.', security, params: IdParamSchema },
       preHandler: [authorize('owner', 'member', 'collaborator')],
     },
     async (request) => {
-      await deleteNote(request.hubUser!.portalId, request.params.id)
+      await archiveNote(request.hubUser!.portalId, request.hubUser!.sub, request.params.id)
       return ok({ success: true })
     },
   )

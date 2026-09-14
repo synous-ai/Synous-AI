@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API — typecheck, tests y bundle
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nous_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Base efímera del job: los tests de integración corren contra Postgres real.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5433/nous_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5433/nous_test
+      # Solo firma tokens de negocio dentro de los tests; no es un secreto real.
+      ACCESS_TOKEN_SECRET: ci-only-access-token-secret-not-a-real-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter api typecheck
+      - run: pnpm --filter api db:migrate
+      - run: pnpm --filter api test
+      # Vercel deploya el resultado de este mismo build (`buildCommand` en
+      # apps/api/vercel.json). Se buildea acá para que un bundle roto falle en el
+      # PR y no en el deploy, y se verifica que @synous/shared quedó inlineado:
+      # como import externo apunta a un .ts y la API no arranca en Node.
+      - name: Bundle de la API
+        run: |
+          pnpm --filter api build:bundle
+          if grep -q "@synous/shared" apps/api/dist/server.js; then
+            echo "::error::dist/server.js importa @synous/shared en runtime; tiene que quedar inlineado (noExternal en tsup.config.ts)."
+            exit 1
+          fi
+
+  admin:
+    name: Admin — typecheck, lint y build
+    runs-on: ubuntu-latest
+    env:
+      # Placeholders con formato válido: el build no llama a Clerk ni a la API,
+      # pero ClerkProvider valida el formato de la publishable key al prerenderizar.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter admin typecheck
+      - run: pnpm --filter admin lint
+      - run: pnpm --filter admin build

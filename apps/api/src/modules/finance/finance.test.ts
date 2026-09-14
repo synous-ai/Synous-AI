@@ -4,14 +4,14 @@ import { eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
 import { invoice, payment } from '../../db/schema'
-import { ensurePortalAndUser, loginToken } from '../../test/helpers'
+import { ensurePortalAndUser, listenForSupertest, loginToken } from '../../test/helpers'
 
 const app = buildApp()
 let token: string
 let portalId: string
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
   token = await loginToken(app, ctx.email, ctx.password)

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { env } from '../../config/env'
-import type { GenerateTextFn } from './types'
+import { AI_REQUEST_TIMEOUT_MS, type GenerateTextFn } from './types'
 
 /** Provider Claude (Anthropic). */
 
@@ -8,7 +8,7 @@ let client: Anthropic | null = null
 
 function getClient(): Anthropic {
   if (!env.ANTHROPIC_API_KEY) throw new Error('Claude no configurado (ANTHROPIC_API_KEY)')
-  if (!client) client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+  if (!client) client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: AI_REQUEST_TIMEOUT_MS, maxRetries: 1 })
   return client
 }
 

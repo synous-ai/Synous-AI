@@ -14,9 +14,11 @@
  */
 
 import { and, desc, eq } from 'drizzle-orm'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import { libraryItem } from '../../db/schema'
 import { Errors } from '../../lib/errors'
+import { claimUpload, isNewStorageKey, prepareUploadClaim, releaseReplacedUpload } from '../uploads/uploads.service'
 import type {
   CreateLibraryItemDTO,
   UpdateLibraryItemDTO,
@@ -48,18 +50,21 @@ async function requireItemInPortal(portalId: string, id: string): Promise<Librar
 export async function listLibraryItems(
   portalId: string,
   query: ListLibraryQueryType,
-): Promise<LibraryItemRow[]> {
+): Promise<Paginated<LibraryItemRow>> {
   const conditions = [
     eq(libraryItem.portalId, portalId),
     eq(libraryItem.archived, false),
     ...(query.type ? [eq(libraryItem.type, query.type)] : []),
     ...(query.kind ? [eq(libraryItem.kind, query.kind)] : []),
   ]
-  return db
+  const cursor = decodeCursor(query.cursor)
+  const rows = await db
     .select()
     .from(libraryItem)
-    .where(and(...conditions))
-    .orderBy(desc(libraryItem.createdAt))
+    .where(and(...conditions, cursor ? cursorWhere(libraryItem.createdAt, libraryItem.id, cursor) : undefined))
+    .orderBy(desc(libraryItem.createdAt), desc(libraryItem.id))
+    .limit(query.limit + 1)
+  return paginateRows(rows, query.limit)
 }
 
 /** Devuelve un ítem por ID verificando pertenencia al portal. */
@@ -82,27 +87,35 @@ export async function createLibraryItem(
   userId: string,
   input: CreateLibraryItemDTO,
 ): Promise<LibraryItemRow> {
-  const [row] = await db
-    .insert(libraryItem)
-    .values({
-      portalId,
-      type: input.type,
-      name: input.name,
-      category: input.category ?? null,
-      description: input.description ?? null,
-      storageKey: input.storageKey ?? null,
-      url: input.url ?? null,
-      // steps: solo para ítems operativos; default [] para el resto
-      steps: (input.steps ?? []) as object,
-      // kind y ownerId: solo con sentido para type='sop'
-      kind: input.kind ?? null,
-      ownerId: input.ownerId ?? null,
-      createdBy: userId,
-    })
-    .returning()
+  const preparedClaim = input.storageKey
+    ? await prepareUploadClaim({ storageKey: input.storageKey, portalId, actor: { kind: 'hub', userId, portalId }, purpose: 'library_item' })
+    : null
 
-  if (!row) throw Errors.internal('No se pudo crear el ítem de biblioteca')
-  return row
+  return db.transaction(async (tx) => {
+    if (input.storageKey) await claimUpload(tx, preparedClaim)
+
+    const [row] = await tx
+      .insert(libraryItem)
+      .values({
+        portalId,
+        type: input.type,
+        name: input.name,
+        category: input.category ?? null,
+        description: input.description ?? null,
+        storageKey: input.storageKey ?? null,
+        url: input.url ?? null,
+        // steps: solo para ítems operativos; default [] para el resto
+        steps: (input.steps ?? []) as object,
+        // kind y ownerId: solo con sentido para type='sop'
+        kind: input.kind ?? null,
+        ownerId: input.ownerId ?? null,
+        createdBy: userId,
+      })
+      .returning()
+
+    if (!row) throw Errors.internal('No se pudo crear el ítem de biblioteca')
+    return row
+  })
 }
 
 /**
@@ -116,17 +129,25 @@ export async function createLibraryItem(
 export async function updateLibraryItem(
   portalId: string,
   id: string,
+  userId: string,
   input: UpdateLibraryItemDTO,
 ): Promise<LibraryItemRow> {
-  return db.transaction(async (tx) => {
-    await tx
-      .select({ id: libraryItem.id })
+  const preparedClaim = input.storageKey
+    ? await prepareUploadClaim({ storageKey: input.storageKey, portalId, actor: { kind: 'hub', userId, portalId }, purpose: 'library_item' })
+    : null
+
+  const { updated, previousKey } = await db.transaction(async (tx) => {
+    // FOR UPDATE: dos ediciones concurrentes leían la misma key "anterior" y la
+    // segunda liberaba el archivo que la primera acababa de guardar.
+    const [current] = await tx
+      .select({ id: libraryItem.id, storageKey: libraryItem.storageKey })
       .from(libraryItem)
       .where(and(eq(libraryItem.id, id), eq(libraryItem.portalId, portalId), eq(libraryItem.archived, false)))
       .limit(1)
-      .then(([row]) => {
-        if (!row) throw Errors.notFound('Ítem de biblioteca no encontrado')
-      })
+      .for('update')
+    if (!current) throw Errors.notFound('Ítem de biblioteca no encontrado')
+
+    if (isNewStorageKey(input.storageKey, current.storageKey)) await claimUpload(tx, preparedClaim)
 
     // Construir el patch solo con los campos que vienen definidos
     const patch: Partial<typeof libraryItem.$inferInsert> = { updatedAt: new Date() }
@@ -145,15 +166,18 @@ export async function updateLibraryItem(
       patch.steps = input.steps as object
     }
 
-    const [updated] = await tx
+    const [row] = await tx
       .update(libraryItem)
       .set(patch)
       .where(eq(libraryItem.id, id))
       .returning()
 
-    if (!updated) throw Errors.internal('No se pudo actualizar el ítem de biblioteca')
-    return updated
+    if (!row) throw Errors.internal('No se pudo actualizar el ítem de biblioteca')
+    return { updated: row, previousKey: current.storageKey }
   })
+
+  if (input.storageKey !== undefined) await releaseReplacedUpload(portalId, previousKey, updated.storageKey)
+  return updated
 }
 
 /** Archiva un ítem de biblioteca (soft-delete). */

@@ -5,6 +5,7 @@
  * utilidades para inyectar el pixel de tracking en el HTML del email.
  */
 
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { emailSend, emailEvent } from '../../db/schema'
@@ -108,21 +109,37 @@ export function injectTrackingPixel(html: string, trackingId: string): string {
   return html + pixel
 }
 
-// ── validateRedirectUrl ───────────────────────────────────────────────────────
+// ── Links de click firmados ───────────────────────────────────────────────────
 
 /**
- * Valida que la URL de redirect sea http o https.
- * Si no es válida, devuelve la URL base de la API.
+ * Firma HMAC del par (trackingId, url) que acompaña a cada link trackeado.
+ *
+ * El endpoint de click es público y redirige a lo que diga la query: sin firma,
+ * cualquiera armaba `/track/click/<uuid>?url=https://phishing.example` y usaba
+ * nuestro dominio para lavar links maliciosos (open redirect). Con la firma
+ * solo se redirige a destinos que nosotros mismos pusimos en un email.
  */
-export function validateRedirectUrl(url: string | undefined): string {
-  if (!url) return env.PUBLIC_API_URL
+export function signClickTarget(trackingId: string, url: string): string {
+  return createHmac('sha256', env.ACCESS_TOKEN_SECRET).update(`${trackingId}\n${url}`).digest('base64url')
+}
+
+/** Devuelve el destino si es http(s) y la firma coincide; si no, `null`. */
+export function verifyClickTarget(
+  trackingId: string,
+  url: string | undefined,
+  sig: string | undefined,
+): string | null {
+  if (!url || !sig) return null
+  let parsed: URL
   try {
-    const parsed = new URL(url)
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return url
-    }
-    return env.PUBLIC_API_URL
+    parsed = new URL(url)
   } catch {
-    return env.PUBLIC_API_URL
+    return null
   }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+
+  const expected = Buffer.from(signClickTarget(trackingId, url))
+  const received = Buffer.from(sig)
+  if (expected.length !== received.length || !timingSafeEqual(expected, received)) return null
+  return url
 }

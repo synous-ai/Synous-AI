@@ -100,11 +100,19 @@ export function ProposalDeck({ token }: { token: string }) {
     )
   }
 
+  // El logo se sirve por una ruta pública dedicada (sin auth, cache-busteable
+  // por key) cuando la propuesta ya tiene logoKey; las propuestas viejas sin
+  // logoKey siguen usando el logoUrl absoluto que ya tenían guardado.
+  const logoSrc = proposal.content.logoKey
+    ? `${API_URL}/api/public/proposals/${encodeURIComponent(token)}/logo`
+    : proposal.content.logoUrl
+
   return (
     <Deck
       content={proposal.content}
       pdfUrl={`${API_URL}/api/public/proposals/${encodeURIComponent(token)}/pdf`}
       completedUrl={`${API_URL}/api/public/proposals/${encodeURIComponent(token)}/completed`}
+      logoSrc={logoSrc}
     />
   )
 }
@@ -116,7 +124,7 @@ interface Slide {
   node: ReactNode
 }
 
-function buildSlides(c: ProposalContent): Slide[] {
+function buildSlides(c: ProposalContent, logoSrc?: string | null): Slide[] {
   const slides: Slide[] = []
 
   // 1 · Portada
@@ -124,11 +132,11 @@ function buildSlides(c: ProposalContent): Slide[] {
     eyebrow: 'Propuesta',
     node: (
       <div className="flex flex-col items-center text-center">
-        {c.logoUrl && (
+        {logoSrc && (
           // Logo del cliente — su marca encabeza la propuesta.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={c.logoUrl}
+            src={logoSrc}
             alt={c.companyName || c.clientName}
             className="mb-8 h-16 w-auto max-w-[180px] object-contain"
           />
@@ -288,12 +296,15 @@ export function Deck({
   content,
   pdfUrl,
   completedUrl,
+  logoSrc,
 }: {
   content: ProposalContent
   pdfUrl?: string | null
   completedUrl?: string | null
+  /** URL resuelta del logo de portada — el caller decide cómo obtenerla (pública, firmada, legacy). */
+  logoSrc?: string | null
 }) {
-  const slides = useMemo(() => buildSlides(content), [content])
+  const slides = useMemo(() => buildSlides(content, logoSrc), [content, logoSrc])
   const [idx, setIdx] = useState(0)
   const [dir, setDir] = useState(1)
   const reduce = useReducedMotion()

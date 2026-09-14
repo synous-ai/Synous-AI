@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -69,6 +70,7 @@ export function DealDialog({
   const update = useUpdateDeal()
   const archive = useArchiveDeal()
   const [error, setError] = useState<string | null>(null)
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(Schema),
@@ -127,9 +129,9 @@ export function DealDialog({
 
   async function onArchive(): Promise<void> {
     if (!deal) return
-    if (!window.confirm(`¿Archivar el deal "${deal.name}"?`)) return
     try {
       await archive.mutateAsync(deal.id)
+      setArchiveConfirmOpen(false)
       onClose()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo archivar')
@@ -273,7 +275,7 @@ export function DealDialog({
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="flex items-center justify-between pt-2">
               {isEdit ? (
-                <Button type="button" variant="destructive" onClick={onArchive}>Archivar</Button>
+                <Button type="button" variant="destructive" onClick={() => setArchiveConfirmOpen(true)}>Archivar</Button>
               ) : (
                 <span />
               )}
@@ -285,6 +287,16 @@ export function DealDialog({
           </form>
         </Form>
       </DialogContent>
+
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        onOpenChange={setArchiveConfirmOpen}
+        title={`¿Archivar el deal "${deal?.name ?? ''}"?`}
+        confirmLabel="Archivar"
+        destructive
+        pending={archive.isPending}
+        onConfirm={() => void onArchive()}
+      />
     </Dialog>
   )
 }

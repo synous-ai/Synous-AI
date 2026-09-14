@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPatch, apiPost, apiDelete } from '../api'
+import { apiGet, apiPatch, apiPost, apiDelete, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
 import type { Note, Task, TimelineItem } from '../types'
 import { useInvalidatePeople } from './contacts'
 
@@ -43,7 +44,7 @@ export function useTasks(filters: TaskFilters = {}) {
   ).toString()
   return useQuery({
     queryKey: ['tasks', filters],
-    queryFn: () => apiGet<Task[]>(`/api/tasks${qs ? `?${qs}` : ''}`),
+    queryFn: () => fetchAllPages<Task>(apiList, `/api/tasks${qs ? `?${qs}` : ''}`),
   })
 }
 

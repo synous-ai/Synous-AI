@@ -58,4 +58,5 @@ export const clientAsset = pgTable('client_asset', {
 }, (table) => [
   check('client_asset_type_check', sql`${table.type} IN ('logo','foto','documento','acceso','otro')`),
   index('idx_client_asset_deal').on(table.dealId),
+  index('idx_client_asset_storage_key').on(table.storageKey),
 ])

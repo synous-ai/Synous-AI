@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPatch, apiPost, apiDelete } from '../api'
+import { apiGet, apiPatch, apiPost, apiDelete, apiList } from '../api'
+import { fetchAllPages, fetchAllPagesWithMeta } from '../fetch-all-pages'
 import type {
   Invoice,
   InvoiceDetail,
@@ -24,7 +25,7 @@ export function useInvoices(tab?: string) {
   const qs = tab ? `?tab=${tab}` : ''
   return useQuery({
     queryKey: ['invoices', tab ?? 'all'],
-    queryFn: () => apiGet<Invoice[]>(`/api/finance/invoices${qs}`),
+    queryFn: () => fetchAllPages<Invoice>(apiList, `/api/finance/invoices${qs}`),
   })
 }
 
@@ -109,7 +110,15 @@ export function usePayments(filters?: PaymentsFilters) {
     : ''
   return useQuery({
     queryKey: ['payments', filters ?? {}],
-    queryFn: () => apiGet<PaymentsResponse>(`/api/finance/payments${qs}`),
+    // `totalPeriod` viaja en `meta` (Σ del filtro completo, calculado en SQL).
+    // Con `apiGet` se descartaba `meta` y el total del período nunca llegaba a la UI.
+    queryFn: async (): Promise<PaymentsResponse> => {
+      const { items, meta } = await fetchAllPagesWithMeta<PaymentsResponse['payments'][number]>(
+        apiList,
+        `/api/finance/payments${qs}`,
+      )
+      return { payments: items, meta: { totalPeriod: typeof meta?.totalPeriod === 'string' ? meta.totalPeriod : '0' } }
+    },
   })
 }
 
@@ -210,7 +219,7 @@ export function useExpenses(filters?: ExpenseFilters) {
 
   return useQuery({
     queryKey: ['expenses', filters ?? {}],
-    queryFn: () => apiGet<Expense[]>(`/api/finance/expenses${qs}`),
+    queryFn: () => fetchAllPages<Expense>(apiList, `/api/finance/expenses${qs}`),
   })
 }
 
@@ -301,7 +310,7 @@ export function useRetainers(filters?: RetainerFilters) {
   const qs = params.toString() ? '?' + params.toString() : ''
   return useQuery({
     queryKey: ['retainers', filters ?? {}],
-    queryFn: () => apiGet<Retainer[]>(`/api/finance/retainers${qs}`),
+    queryFn: () => fetchAllPages<Retainer>(apiList, `/api/finance/retainers${qs}`),
   })
 }
 

@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Bell, CheckCheck, Inbox } from 'lucide-react'
 import {
   useClientNotifications,
@@ -24,6 +24,7 @@ import {
 } from '@portal/lib/hooks'
 import type { ClientNotification } from '@portal/lib/types'
 import { cn } from '@portal/lib/utils'
+import { portalBase } from '@portal/components/portal/portal-nav'
 
 /** "ahora", "hace 5 min", "hace 2 h", "hace 3 d", y luego fecha corta. */
 function timeAgo(iso: string): string {
@@ -92,6 +93,7 @@ export function ClientNotificationBell() {
   const markRead = useMarkNotificationRead()
   const markAll = useMarkAllNotificationsRead()
   const router = useRouter()
+  const pathname = usePathname()
   const panelRef = useRef<HTMLDivElement>(null)
 
   const count = unread?.count ?? 0
@@ -112,10 +114,14 @@ export function ClientNotificationBell() {
   function handleSelect(n: ClientNotification) {
     if (!n.readAt) markRead.mutate(n.id)
     setOpen(false)
-    // `actionUrl` viene del catálogo del backend y siempre es una ruta relativa
-    // de esta app. Se valida igual antes de navegar: si alguna vez llegara algo
+    // `actionUrl` viene del catálogo del backend con la URL LIMPIA de la
+    // sección (`/invoices`), que es la forma canónica en el host de tenant.
+    // Si el portal se está sirviendo bajo el prefijo físico `/portal`, hay que
+    // anteponerlo o la navegación cae en una ruta que no existe.
+    //
+    // Se valida que sea relativa antes de navegar: si alguna vez llegara algo
     // absoluto, un router.push lo trataría como navegación externa.
-    if (n.actionUrl?.startsWith('/')) router.push(n.actionUrl)
+    if (n.actionUrl?.startsWith('/')) router.push(`${portalBase(pathname)}${n.actionUrl}`)
   }
 
   return (

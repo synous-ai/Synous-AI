@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiPatch, apiUpload, fetchFileObjectUrl } from './api'
+import { apiGet, apiPost, apiPatch, apiList } from './api'
+import { fetchAllPages } from '@/lib/fetch-all-pages'
+import { uploadFile, getFileAccessUrl } from './files'
 import type {
   Deal,
   Deliverable,
@@ -8,6 +10,7 @@ import type {
   ChangeRequest,
   ClientInvoice,
   ClientDocument,
+  ClientDocusealSignedDocument,
   ClientProject,
   OnboardingStateDTO,
   ClientOnboarding,
@@ -42,7 +45,7 @@ export function useClientProject() {
 export function useClientDeliverables() {
   return useQuery<Deliverable[]>({
     queryKey: ['client', 'deliverables'],
-    queryFn: () => apiGet<Deliverable[]>('/api/client/deliverables'),
+    queryFn: () => fetchAllPages<Deliverable>(apiList, '/api/client/deliverables'),
   })
 }
 
@@ -92,7 +95,7 @@ export function useRespondIntake() {
 export function useClientChangeRequests() {
   return useQuery<ChangeRequest[]>({
     queryKey: ['change-requests'],
-    queryFn: () => apiGet<ChangeRequest[]>('/api/client/change-requests'),
+    queryFn: () => fetchAllPages<ChangeRequest>(apiList, '/api/client/change-requests'),
   })
 }
 
@@ -130,7 +133,7 @@ export function useCommentCR() {
 export function useClientInvoices() {
   return useQuery<ClientInvoice[]>({
     queryKey: ['client', 'invoices'],
-    queryFn: () => apiGet<ClientInvoice[]>('/api/client/invoices'),
+    queryFn: () => fetchAllPages<ClientInvoice>(apiList, '/api/client/invoices'),
   })
 }
 
@@ -139,8 +142,85 @@ export function useClientInvoices() {
 export function useClientDocuments() {
   return useQuery<ClientDocument[]>({
     queryKey: ['client', 'documents'],
-    queryFn: () => apiGet<ClientDocument[]>('/api/client/documents'),
+    queryFn: () => fetchAllPages<ClientDocument>(apiList, '/api/client/documents'),
   })
+}
+
+/**
+ * Estado del preview de un documento (drawer de "Ver" en el panel de
+ * Documentos). Dos caminos, mutuamente excluyentes:
+ *
+ * - `storageKey` presente → archivo propio del CRM. Se pide una URL de acceso
+ *   temporal vía `getFileAccessUrl` (POST /api/files/access) — NUNCA se
+ *   bajan los bytes a memoria como object URL: un archivo grande no entra en
+ *   el límite de payload de la función serverless (ver blob-contract.md).
+ * - sin `storageKey` pero `docusealStatus === 'completed'` → PDF firmado en
+ *   DocuSeal. Se pide `GET /api/client/documents/:id/signed-documents` recién
+ *   acá, en el momento exacto en que hace falta: la URL que devuelve DocuSeal
+ *   caduca a los 40 minutos, así que NUNCA se guarda en caché ni sobrevive
+ *   más allá de la vida de este hook (no hay queryKey de TanStack Query a
+ *   propósito).
+ *
+ * Cualquier otra combinación (sin storageKey y sin firma completada) no tiene
+ * preview disponible — el caller decide si ofrece "Descargar" o nada.
+ */
+export type DocumentPreviewStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+export interface DocumentPreviewState {
+  status: DocumentPreviewStatus
+  url: string | null
+}
+
+export function useDocumentPreview(
+  doc: Pick<ClientDocument, 'id' | 'storageKey' | 'docusealStatus'> | null,
+): DocumentPreviewState {
+  const [state, setState] = useState<DocumentPreviewState>({ status: 'idle', url: null })
+
+  const id = doc?.id ?? null
+  const storageKey = doc?.storageKey ?? null
+  const docusealStatus = doc?.docusealStatus ?? null
+
+  useEffect(() => {
+    if (!id) {
+      setState({ status: 'idle', url: null })
+      return
+    }
+
+    let cancelled = false
+    setState({ status: 'loading', url: null })
+
+    async function load() {
+      if (storageKey) {
+        const { url } = await getFileAccessUrl(storageKey)
+        if (cancelled) return
+        setState({ status: 'ready', url })
+        return
+      }
+
+      if (docusealStatus === 'completed') {
+        const documents = await apiGet<ClientDocusealSignedDocument[]>(
+          `/api/client/documents/${id}/signed-documents`,
+        )
+        const [signed] = documents
+        if (!signed) throw new Error('NO_SIGNED_DOCUMENT')
+        if (cancelled) return
+        setState({ status: 'ready', url: signed.url })
+        return
+      }
+
+      throw new Error('NO_PREVIEW_AVAILABLE')
+    }
+
+    void load().catch(() => {
+      if (!cancelled) setState({ status: 'error', url: null })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, storageKey, docusealStatus])
+
+  return state
 }
 
 // ─── Onboarding POST-VENTA (wizard de 8 pasos) ───────────────────────────────
@@ -206,12 +286,24 @@ export function useSaveOnboardingBriefDraft() {
   })
 }
 
-/** Paso 7: sube un archivo de materiales para una categoría y devuelve el asset creado. */
+/**
+ * Paso 7: sube un archivo de materiales para una categoría y devuelve el asset
+ * creado. Dos pasos: 1) subida real vía el módulo de transferencia (blob
+ * presignado o PUT server-mode), 2) POST /api/client/onboarding/materials/assets con
+ * `{ category, storageKey }` — el backend reclama la key y crea el client_asset
+ * (reemplaza la vieja ruta multipart .../materials/upload?category=).
+ */
 export function useUploadOnboardingMaterial() {
   const queryClient = useQueryClient()
-  return useMutation<OnboardingAsset, Error, { category: OnboardingMaterialCategory; file: File }>({
-    mutationFn: ({ category, file }) =>
-      apiUpload<OnboardingAsset>(`/api/client/onboarding/materials/upload?category=${category}`, file),
+  return useMutation<
+    OnboardingAsset,
+    Error,
+    { category: OnboardingMaterialCategory; file: File; onProgress?: (percent: number) => void; signal?: AbortSignal }
+  >({
+    mutationFn: async ({ category, file, onProgress, signal }) => {
+      const { storageKey } = await uploadFile(file, { purpose: 'onboarding_material', onProgress, signal })
+      return apiPost<OnboardingAsset>('/api/client/onboarding/materials/assets', { category, storageKey })
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY })
     },
@@ -252,61 +344,6 @@ export function useCompleteOnboarding() {
   })
 }
 
-// ─── Imágenes protegidas ─────────────────────────────────────────────────────
-
-/**
- * Resuelve una URL de `/api/files/:key` a un object URL usable en `<img src>`.
- *
- * El backend devuelve el logo como `${PUBLIC_API_URL}/api/files/${key}`
- * (branding.service.ts), pero ese endpoint exige el token de Clerk y un
- * `<img>` no manda headers: el logo salía roto en el header del portal y en
- * "Mi Marca". Este hook baja los bytes autenticado y libera el object URL al
- * desmontar o al cambiar de imagen.
- *
- * Devuelve null mientras carga o si la descarga falla — el caller decide el
- * fallback (monograma, placeholder, etc.).
- *
- * OJO: no sirve para la pantalla de login, que muestra el logo del tenant SIN
- * sesión. Ese caso necesita una ruta pública de lectura para logos de marca.
- */
-export function useAuthedImageUrl(fileUrl: string | null | undefined): string | null {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    const key = fileUrl?.match(/\/api\/files\/(.+)$/)?.[1]
-    if (!key) {
-      setObjectUrl(null)
-      return
-    }
-
-    let revoked = false
-    let created: string | null = null
-
-    void fetchFileObjectUrl(key)
-      .then((url) => {
-        // Si el efecto ya se limpió mientras la descarga estaba en vuelo,
-        // revocamos de una y no seteamos estado sobre un componente muerto.
-        if (revoked) {
-          URL.revokeObjectURL(url)
-          return
-        }
-        created = url
-        setObjectUrl(url)
-      })
-      .catch(() => {
-        if (!revoked) setObjectUrl(null)
-      })
-
-    return () => {
-      revoked = true
-      if (created) URL.revokeObjectURL(created)
-      setObjectUrl(null)
-    }
-  }, [fileUrl])
-
-  return objectUrl
-}
-
 // ─── Notificaciones ──────────────────────────────────────────────────────────
 // Ver apps/api/src/modules/notifications/notifications.router.ts
 // (prefix /api/client/notifications). El destinatario lo resuelve el backend
@@ -314,6 +351,11 @@ export function useAuthedImageUrl(fileUrl: string | null | undefined): string | 
 
 const NOTIFICATIONS_KEY = ['client', 'notifications'] as const
 
+/**
+ * Solo las 20 más recientes, a propósito: la campana del portal es un panel de
+ * novedades (una página del endpoint paginado, sin seguir `meta.nextCursor`) y
+ * lo pendiente lo cuenta `useClientUnreadCount` sobre el total.
+ */
 export function useClientNotifications() {
   return useQuery<ClientNotification[]>({
     queryKey: NOTIFICATIONS_KEY,

@@ -1,8 +1,15 @@
 import { defineConfig } from 'tsup'
 
 /**
- * Config compartida por los dos builds de tsup (`build:bundle` y
- * `build:vercel-api`); el entry y el outDir siguen viniendo por CLI.
+ * Config de `build:bundle` (`tsup src/server.ts --clean` → `dist/server.js`).
+ * Es el build que corre Vercel antes de deployar (`buildCommand` +
+ * `outputDirectory: dist` en vercel.json): el entrypoint que detecta el preset
+ * de Fastify es `dist/server.js`, no el `.ts`.
+ *
+ * Por qué bundle y no el `src/server.ts` directo: @vercel/node transpila cada
+ * `.ts` por separado y NO reescribe imports relativos sin extensión
+ * (`./app` → ERR_MODULE_NOT_FOUND en ESM), ni el `exports` de @synous/shared,
+ * que apunta a un `.ts`. Las dos cosas ya tumbaron producción.
  *
  * `noExternal`: sin esto, tsup deja `@synous/shared` como import EXTERNO por
  * estar en `dependencies`. Ese paquete no tiene build — su `exports` apunta a

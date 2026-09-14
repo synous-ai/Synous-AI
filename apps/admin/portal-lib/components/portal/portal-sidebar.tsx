@@ -12,12 +12,26 @@
  * una card flotante dentro del contenido: es el borde del shell, con hairline
  * a la derecha y scroll propio si la lista crece.
  *
- * Toma el lenguaje visual del sidebar de referencia: encabezado de grupo en
- * versalitas, ítems de 13px con icono fino (strokeWidth 1.5), esquinas de 6px,
- * estado activo por fondo y no por color de marca, badges redondos a la
- * derecha, y colapsar/expandir. Lo que NO se trae es lo que no existe en esta
- * app: el selector de workspace (hay un solo portal por cliente), el modal de
- * búsqueda y los ítems anidados (seis secciones planas no necesitan árbol).
+ * ─── Por qué colapsar NO produce saltos ─────────────────────────────────────
+ * La versión anterior achicaba el rail y, al mismo tiempo, escondía el label
+ * con `hidden` y mudaba el badge de píldora a punto. Tres cambios de LAYOUT
+ * simultáneos: el navegador reacomodaba el contenido del ítem en cada frame de
+ * la animación y el texto parpadeaba antes de que el ancho terminara de moverse.
+ *
+ * Ahora el contenido del ítem NO se reacomoda nunca:
+ *  - cada ítem tiene ancho FIJO (216px) en los dos estados; lo que cambia es
+ *    solo el ancho del rail, que RECORTA (`overflow-x-hidden`)
+ *  - el label y el badge se van en `opacity`, que no dispara reflow
+ *  - los números están elegidos para que el icono quede en el MISMO pixel en
+ *    ambos estados: rail colapsado 64px, padding 12 + 12 + medio icono 8 = 32,
+ *    que es exactamente el centro de 64. El icono no se mueve ni un pixel.
+ *
+ * Toma el lenguaje visual del sidebar de referencia: ítems de 13px con icono
+ * fino (strokeWidth 1.5), esquinas de 6px, estado activo por fondo y no por
+ * color de marca, badges redondos a la derecha, y colapsar/expandir. Lo que NO
+ * se trae es lo que no existe en esta app: el selector de workspace (hay un
+ * solo portal por cliente), el modal de búsqueda y los ítems anidados (seis
+ * secciones planas no necesitan árbol).
  *
  * Los badges no son decorativos: muestran cuántos ítems esperan una acción del
  * cliente en cada sección, con los MISMOS contadores que usa el panel de
@@ -40,6 +54,11 @@ export interface PortalNavItem {
   badge?: number
 }
 
+/** Ancho del contenido de cada fila. Constante en ambos estados: el rail recorta. */
+const ITEM_WIDTH = 'lg:w-[216px]'
+/** Transición común — que todo se mueva junto y lea como UN gesto, no tres. */
+const FADE = 'transition-opacity duration-200 ease-out'
+
 function NavItem({
   item,
   active,
@@ -57,47 +76,62 @@ function NavItem({
       type="button"
       onClick={() => onSelect(item.id)}
       aria-current={active ? 'page' : undefined}
-      // Con el sidebar colapsado el label no se ve: el title da el tooltip
-      // nativo y el aria-label mantiene el nombre accesible.
+      // Con el rail colapsado el label no se ve: el title da el tooltip nativo
+      // y el aria-label mantiene el nombre accesible.
       title={collapsed ? item.label : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={cn(
-        'group flex items-center gap-2.5 rounded-[6px] px-2.5 py-[7px] text-left transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        // Mobile: cada ítem mantiene su ancho natural dentro de la tira.
-        // Desktop: ocupa todo el rail.
-        'shrink-0 lg:w-full lg:shrink',
-        collapsed && 'lg:justify-center lg:px-0',
+        'group flex shrink-0 items-center gap-2.5 rounded-[6px] px-3 py-[7px] text-left',
+        'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        ITEM_WIDTH,
         active
           ? 'bg-white/10 font-medium text-foreground'
           : 'text-muted-foreground hover:bg-white/5 hover:text-foreground/90',
       )}
     >
-      <item.Icon
-        className={cn(
-          'h-4 w-4 shrink-0 transition-colors',
-          active ? 'text-foreground' : 'text-muted-foreground/70 group-hover:text-foreground/70',
+      <span className="relative flex shrink-0">
+        <item.Icon
+          className={cn(
+            'h-4 w-4 transition-colors',
+            active ? 'text-foreground' : 'text-muted-foreground/70 group-hover:text-foreground/70',
+          )}
+          strokeWidth={1.5}
+        />
+        {/* Colapsado el número no entra: queda el punto como única señal. Va
+            montado siempre y solo cambia de opacidad — aparecerlo con `hidden`
+            lo hacía saltar al terminar la animación del ancho. */}
+        {badge > 0 && (
+          <span
+            aria-hidden
+            className={cn(
+              'absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-primary opacity-0',
+              FADE,
+              collapsed && 'lg:opacity-100',
+            )}
+          />
         )}
-        strokeWidth={1.5}
-      />
+      </span>
+
       <span
         className={cn(
-          'flex-1 truncate text-[13px] tracking-wide',
-          collapsed && 'lg:hidden',
+          'flex-1 whitespace-nowrap text-[13px] tracking-wide',
+          FADE,
+          collapsed && 'lg:opacity-0',
         )}
       >
         {item.label}
       </span>
+
       {badge > 0 && (
         <span
           className={cn(
-            'flex items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary',
-            'h-5 min-w-[20px] px-1.5',
-            // Colapsado el número no entra: queda solo un punto como señal.
-            collapsed && 'lg:absolute lg:right-2 lg:top-1.5 lg:h-1.5 lg:w-1.5 lg:min-w-0 lg:p-0',
+            'flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full',
+            'bg-primary/15 px-1.5 text-[10px] font-semibold text-primary',
+            FADE,
+            collapsed && 'lg:opacity-0',
           )}
         >
-          <span className={cn(collapsed && 'lg:hidden')}>{badge > 9 ? '9+' : badge}</span>
+          {badge > 9 ? '9+' : badge}
           <span className="sr-only">{` ${badge} pendiente${badge === 1 ? '' : 's'}`}</span>
         </span>
       )}
@@ -111,14 +145,12 @@ export function PortalSidebar({
   onSelect,
   collapsed,
   onToggleCollapsed,
-  heading = 'Tu proyecto',
 }: {
   items: PortalNavItem[]
   activeId: string
   onSelect: (id: string) => void
   collapsed: boolean
   onToggleCollapsed: () => void
-  heading?: string
 }) {
   return (
     <nav
@@ -128,55 +160,52 @@ export function PortalSidebar({
         'sticky top-16 z-10 flex w-full shrink-0 flex-row gap-1 overflow-x-auto',
         'border-b border-border bg-background/80 px-3 py-2 backdrop-blur-md',
         // Desktop: rail izquierdo de altura completa, pegado bajo el header.
-        'lg:h-[calc(100dvh-4rem)] lg:flex-col lg:overflow-x-visible lg:overflow-y-auto',
-        'lg:border-b-0 lg:border-r lg:bg-transparent lg:px-2.5 lg:py-4 lg:backdrop-blur-none',
-        'lg:transition-[width] lg:duration-200',
-        collapsed ? 'lg:w-[68px]' : 'lg:w-[240px]',
+        // `overflow-x-hidden` es lo que recorta los labels al colapsar.
+        'lg:h-[calc(100dvh-4rem)] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto',
+        'lg:border-b-0 lg:border-r lg:bg-transparent lg:py-4 lg:backdrop-blur-none',
+        'lg:transition-[width] lg:duration-200 lg:ease-out',
+        collapsed ? 'lg:w-[64px]' : 'lg:w-[240px]',
       )}
     >
-      <div
-        className={cn(
-          'hidden items-center px-2.5 pb-2 lg:flex',
-          collapsed && 'lg:hidden',
-        )}
-      >
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-          {heading}
-        </span>
-      </div>
-
       {items.map((item) => (
-        <div key={item.id} className="relative flex shrink-0 lg:shrink">
-          <NavItem
-            item={item}
-            active={activeId === item.id}
-            collapsed={collapsed}
-            onSelect={onSelect}
-          />
-        </div>
+        <NavItem
+          key={item.id}
+          item={item}
+          active={activeId === item.id}
+          collapsed={collapsed}
+          onSelect={onSelect}
+        />
       ))}
 
       {/* El toggle solo existe en desktop: en mobile la barra es horizontal y
-          colapsarla no libera nada. */}
+          colapsarla no libera nada. Los dos iconos van apilados y cruzan en
+          opacidad — intercambiar el nodo hacía un parpadeo seco. */}
       <button
         type="button"
         onClick={onToggleCollapsed}
         aria-label={collapsed ? 'Expandir el menú' : 'Contraer el menú'}
+        aria-expanded={!collapsed}
         className={cn(
-          'mt-auto hidden items-center gap-2.5 rounded-[6px] px-2.5 py-[7px] text-muted-foreground/70 transition-colors',
-          'hover:bg-white/5 hover:text-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'mt-auto hidden shrink-0 items-center gap-2.5 rounded-[6px] px-3 py-[7px]',
+          'text-muted-foreground/70 transition-colors hover:bg-white/5 hover:text-foreground/90',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           'lg:flex',
-          collapsed && 'lg:justify-center lg:px-0',
+          ITEM_WIDTH,
         )}
       >
-        {collapsed ? (
-          <PanelLeftOpen className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-        ) : (
-          <>
-            <PanelLeftClose className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-            <span className="text-[13px] tracking-wide">Contraer</span>
-          </>
-        )}
+        <span className="relative flex h-4 w-4 shrink-0">
+          <PanelLeftClose
+            className={cn('absolute inset-0 h-4 w-4', FADE, collapsed && 'opacity-0')}
+            strokeWidth={1.5}
+          />
+          <PanelLeftOpen
+            className={cn('absolute inset-0 h-4 w-4 opacity-0', FADE, collapsed && 'opacity-100')}
+            strokeWidth={1.5}
+          />
+        </span>
+        <span className={cn('whitespace-nowrap text-[13px] tracking-wide', FADE, collapsed && 'opacity-0')}>
+          Contraer
+        </span>
       </button>
     </nav>
   )

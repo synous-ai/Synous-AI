@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2, Upload, Save, Globe, Palette } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
-import { useClientBranding, useUpdateBranding, uploadBrandLogo } from '@/lib/hooks'
+import { useClientBranding, useUpdateBranding, uploadFile, FILE_PURPOSE_ACCEPT } from '@/lib/hooks'
 import type { ClientBranding } from '@/lib/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,20 +25,33 @@ function BrandingEditor({ account }: { account: ClientBranding }) {
   const [primary, setPrimary] = useState(account.brandPrimary ?? '#16a34a')
   const [secondary, setSecondary] = useState(account.brandSecondary ?? '#0f766e')
   const [logoKey, setLogoKey] = useState(account.brandLogoKey ?? '')
+  // logoUrl apunta a la ruta pública de logos — un <img src> pelado ya funciona.
   const [logoUrl, setLogoUrl] = useState(account.logoUrl ?? '')
+  // Preview de un logo recién elegido pero AÚN NO guardado: object URL local
+  // del File, no depende de que la key ya esté persistida en ninguna tabla.
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl)
+    }
+  }, [localPreviewUrl])
 
   async function onPickLogo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setLocalPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(file)
+    })
     setUploading(true)
     try {
-      const r = await uploadBrandLogo(file)
-      setLogoKey(r.storageKey)
-      setLogoUrl(r.url.startsWith('http') ? r.url : URL.createObjectURL(file))
+      const { storageKey } = await uploadFile(file, { purpose: 'brand_logo' })
+      setLogoKey(storageKey)
       toast.success('Logo subido — acordate de guardar')
-    } catch {
-      toast.error('No se pudo subir el logo')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo subir el logo')
     } finally {
       setUploading(false)
     }
@@ -57,11 +70,20 @@ function BrandingEditor({ account }: { account: ClientBranding }) {
         },
       },
       {
-        onSuccess: () => toast.success('Branding guardado'),
+        onSuccess: (updated) => {
+          setLogoUrl(updated.logoUrl ?? '')
+          setLocalPreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev)
+            return null
+          })
+          toast.success('Branding guardado')
+        },
         onError: (err) => toast.error(err instanceof Error ? err.message : 'No se pudo guardar'),
       },
     )
   }
+
+  const logoPreview = localPreviewUrl ?? logoUrl
 
   return (
     <Card>
@@ -127,16 +149,22 @@ function BrandingEditor({ account }: { account: ClientBranding }) {
         <div className="space-y-1.5">
           <Label>Logo</Label>
           <div className="flex items-center gap-3">
-            {logoUrl ? (
+            {logoPreview ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt="logo" className="h-10 w-10 rounded-lg border object-contain" />
+              <img src={logoPreview} alt="logo" className="h-10 w-10 rounded-lg border object-contain" />
             ) : (
               <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-dashed text-xs text-muted-foreground">
                 —
               </div>
             )}
             <label className="cursor-pointer">
-              <input type="file" accept="image/*" className="hidden" onChange={onPickLogo} disabled={uploading} />
+              <input
+                type="file"
+                accept={FILE_PURPOSE_ACCEPT.brand_logo}
+                className="hidden"
+                onChange={onPickLogo}
+                disabled={uploading}
+              />
               <span className="inline-flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent">
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 Subir logo
@@ -146,7 +174,7 @@ function BrandingEditor({ account }: { account: ClientBranding }) {
         </div>
 
         <div className="flex justify-end">
-          <Button onClick={onSave} disabled={update.isPending}>
+          <Button onClick={onSave} disabled={update.isPending || uploading}>
             {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Guardar
           </Button>

@@ -14,8 +14,11 @@ next-env.d.ts
 .env
 .env.local
 .env.*.local
-# Se versiona únicamente la plantilla:
+# Cualquier variante de .env (backups tipo .env.bak.<timestamp>, .env.production, etc.)
+# contiene secretos reales. Solo los .env.example se versionan.
+.env.*
 !.env.example
+# Se versiona únicamente la plantilla:
 
 # ── Archivos subidos por usuarios (almacenamiento local) ──────
 uploads/

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPatch, apiPost, apiDelete } from '../api'
+import { apiGet, apiPatch, apiPost, apiDelete, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
 import type {
   WorkItem,
   WorkItemType,
@@ -21,7 +22,7 @@ import type {
 export function useDealDocuments(dealId: string | null) {
   return useQuery({
     queryKey: ['documents', dealId],
-    queryFn: () => apiGet<Document[]>(`/api/documents?dealId=${dealId}`),
+    queryFn: () => fetchAllPages<Document>(apiList, `/api/documents?dealId=${dealId}`),
     enabled: dealId != null,
   })
 }
@@ -64,7 +65,7 @@ export function useWorkItems({
   const qs = params.toString() ? `?${params.toString()}` : ''
   return useQuery({
     queryKey: ['work-items', type ?? 'all', status ?? 'all', assignedTo ?? 'all'],
-    queryFn: () => apiGet<WorkItem[]>(`/api/work-items${qs}`),
+    queryFn: () => fetchAllPages<WorkItem>(apiList, `/api/work-items${qs}`),
   })
 }
 
@@ -108,7 +109,7 @@ export function useDeleteWorkItem() {
 export function useDeliverables(dealId: string | null) {
   return useQuery({
     queryKey: ['deliverables', dealId],
-    queryFn: () => apiGet<Deliverable[]>(`/api/deliverables?dealId=${dealId}`),
+    queryFn: () => fetchAllPages<Deliverable>(apiList, `/api/deliverables?dealId=${dealId}`),
     enabled: dealId != null,
   })
 }
@@ -184,7 +185,7 @@ export function useArchiveDealUpdate() {
 export function useDealCRs(dealId: string | null) {
   return useQuery({
     queryKey: ['change-requests', dealId],
-    queryFn: () => apiGet<ChangeRequest[]>(`/api/change-requests?dealId=${dealId}`),
+    queryFn: () => fetchAllPages<ChangeRequest>(apiList, `/api/change-requests?dealId=${dealId}`),
     enabled: dealId != null,
   })
 }
@@ -197,7 +198,7 @@ export function useDealCRs(dealId: string | null) {
 export function useAllCRs() {
   return useQuery({
     queryKey: ['change-requests', 'all'],
-    queryFn: () => apiGet<ChangeRequestListItem[]>('/api/change-requests'),
+    queryFn: () => fetchAllPages<ChangeRequestListItem>(apiList, '/api/change-requests'),
   })
 }
 

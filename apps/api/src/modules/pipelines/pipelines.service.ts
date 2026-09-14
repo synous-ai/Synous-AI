@@ -1,4 +1,4 @@
-import { and, asc, count, eq } from 'drizzle-orm'
+import { and, asc, count, eq, inArray } from 'drizzle-orm'
 import { db } from '../../db'
 import { pipeline, pipelineStage, deal } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -54,16 +54,23 @@ export async function listPipelines(portalId: string): Promise<Array<PipelineRow
     .where(and(eq(pipeline.portalId, portalId), eq(pipeline.archived, false)))
     .orderBy(asc(pipeline.displayOrder), asc(pipeline.id))
 
-  const result = []
-  for (const pl of pipelines) {
-    const stages = await db
-      .select()
-      .from(pipelineStage)
-      .where(and(eq(pipelineStage.pipelineId, pl.id), eq(pipelineStage.archived, false)))
-      .orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id))
-    result.push({ ...pl, stages })
+  if (pipelines.length === 0) return []
+
+  // Una sola query para las etapas de todos los pipelines (antes era 1 + N, en
+  // cada carga del kanban).
+  const stages = await db
+    .select()
+    .from(pipelineStage)
+    .where(and(inArray(pipelineStage.pipelineId, pipelines.map((pl) => pl.id)), eq(pipelineStage.archived, false)))
+    .orderBy(asc(pipelineStage.displayOrder), asc(pipelineStage.id))
+
+  const stagesByPipeline = new Map<string, StageRow[]>()
+  for (const stage of stages) {
+    const list = stagesByPipeline.get(stage.pipelineId) ?? []
+    list.push(stage)
+    stagesByPipeline.set(stage.pipelineId, list)
   }
-  return result
+  return pipelines.map((pl) => ({ ...pl, stages: stagesByPipeline.get(pl.id) ?? [] }))
 }
 
 export async function getStages(portalId: string, pipelineId: string): Promise<StageRow[]> {

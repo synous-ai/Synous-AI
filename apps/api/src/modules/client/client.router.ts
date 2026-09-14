@@ -3,9 +3,10 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 import { ok } from '../../lib/response'
 import { authenticateClient } from '../../middleware/authenticate-client'
-import { IdParamSchema } from '../../lib/crm-schemas'
+import { IdParamSchema, ListQuerySchema } from '../../lib/crm-schemas'
 import { clientDeals, clientDeliverables, approveDeliverable, requestChanges, listClientInvoices, getClientProject } from './client.service'
 import { listClientDocuments } from '../documents/documents.service'
+import { getClientSignedDocuments } from '../documents/docuseal.service'
 import { clientDealIds } from '../../lib/portal-access'
 import { CLIENT_SECURITY } from '../../lib/http'
 
@@ -40,8 +41,11 @@ export async function clientRoutes(app: FastifyInstance): Promise<void> {
 
   r.get(
     '/deliverables',
-    { schema: { tags: [TAG], summary: 'Entregables del cliente', description: 'Entregables de los deals del cliente.', security } },
-    async (request) => ok(await clientDeliverables(request.clientAccount!.sub)),
+    { schema: { tags: [TAG], summary: 'Entregables del cliente', description: 'Entregables de los deals del cliente. Paginado por cursor.', security, querystring: ListQuerySchema } },
+    async (request) => {
+      const { items, nextCursor } = await clientDeliverables(request.clientAccount!.sub, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 
   r.post(
@@ -68,11 +72,15 @@ export async function clientRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: [TAG],
         summary: 'Facturas del cliente',
-        description: 'Lista de facturas asociadas a los deals del cliente autenticado (read-only).',
+        description: 'Lista de facturas asociadas a los deals del cliente autenticado (read-only). Paginado por cursor.',
         security,
+        querystring: ListQuerySchema,
       },
     },
-    async (request) => ok(await listClientInvoices(request.clientAccount!.sub)),
+    async (request) => {
+      const { items, nextCursor } = await listClientInvoices(request.clientAccount!.sub, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 
   r.get(
@@ -81,14 +89,30 @@ export async function clientRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: [TAG],
         summary: 'Documentos del cliente',
-        description: 'Lista de documentos asociados a los deals del cliente autenticado (read-only).',
+        description: 'Lista de documentos asociados a los deals del cliente autenticado (read-only). Paginado por cursor.',
         security,
+        querystring: ListQuerySchema,
       },
     },
     async (request) => {
       const dealIds = await clientDealIds(request.clientAccount!.sub)
-      const docs = await listClientDocuments(dealIds)
-      return ok(docs)
+      const { items, nextCursor } = await listClientDocuments(request.clientAccount!.portalId, dealIds, request.query)
+      return ok(items, { nextCursor })
     },
+  )
+
+  r.get(
+    '/documents/:id/signed-documents',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'URLs del documento firmado (efímeras)',
+        description:
+          'Pide a DocuSeal las URLs del PDF firmado EN EL MOMENTO. Caducan a los 40 minutos, por eso no se guardan en la base: hay que pedirlas cada vez que se necesitan. Solo documentos de deals propios y visibles al cliente.',
+        security,
+        params: IdParamSchema,
+      },
+    },
+    async (request) => ok(await getClientSignedDocuments(request.clientAccount!.sub, request.params.id)),
   )
 }

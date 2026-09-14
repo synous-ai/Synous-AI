@@ -1,6 +1,8 @@
 import { and, desc, eq, type SQL } from 'drizzle-orm'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import { note, task } from '../../db/schema'
+import { writeAudit } from '../../lib/audit'
 import { Errors } from '../../lib/errors'
 import type { CreateNoteDTO, NoteQuery, CreateTaskDTO, UpdateTaskDTO, TaskQuery } from './activities.schema'
 
@@ -14,20 +16,31 @@ export async function createNote(portalId: string, userId: string, input: Create
   return row
 }
 
-export async function listNotes(portalId: string, filters: NoteQuery): Promise<NoteRow[]> {
-  const conds: SQL[] = [eq(note.portalId, portalId)]
+export async function listNotes(portalId: string, filters: NoteQuery): Promise<Paginated<NoteRow>> {
+  const conds: SQL[] = [eq(note.portalId, portalId), eq(note.archived, false)]
   if (filters.contactId) conds.push(eq(note.contactId, filters.contactId))
   if (filters.dealId) conds.push(eq(note.dealId, filters.dealId))
   if (filters.companyId) conds.push(eq(note.companyId, filters.companyId))
-  return db.select().from(note).where(and(...conds)).orderBy(desc(note.createdAt)).limit(100)
+  const cursor = decodeCursor(filters.cursor)
+  const rows = await db
+    .select()
+    .from(note)
+    .where(and(...conds, cursor ? cursorWhere(note.createdAt, note.id, cursor) : undefined))
+    .orderBy(desc(note.createdAt), desc(note.id))
+    .limit(filters.limit + 1)
+  return paginateRows(rows, filters.limit)
 }
 
-export async function deleteNote(portalId: string, id: string): Promise<void> {
-  const res = await db
-    .delete(note)
-    .where(and(eq(note.portalId, portalId), eq(note.id, id)))
-    .returning({ id: note.id })
-  if (res.length === 0) throw Errors.notFound('Nota no encontrada')
+export async function archiveNote(portalId: string, userId: string, id: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(note)
+      .set({ archived: true, archivedAt: new Date() })
+      .where(and(eq(note.portalId, portalId), eq(note.id, id), eq(note.archived, false)))
+      .returning({ id: note.id })
+    if (!row) throw Errors.notFound('Nota no encontrada')
+    await writeAudit({ tx, portalId, userId, entityType: 'note', entityId: id, action: 'ARCHIVE', payload: { archived: true } })
+  })
 }
 
 // ── Tareas ─────────────────────────────────────────────
@@ -41,20 +54,27 @@ export async function createTask(portalId: string, userId: string, input: Create
   return row
 }
 
-export async function listTasks(portalId: string, filters: TaskQuery): Promise<TaskRow[]> {
-  const conds: SQL[] = [eq(task.portalId, portalId)]
+export async function listTasks(portalId: string, filters: TaskQuery): Promise<Paginated<TaskRow>> {
+  const conds: SQL[] = [eq(task.portalId, portalId), eq(task.archived, false)]
   if (filters.status) conds.push(eq(task.status, filters.status))
   if (filters.assignedTo) conds.push(eq(task.assignedTo, filters.assignedTo))
   if (filters.contactId) conds.push(eq(task.contactId, filters.contactId))
   if (filters.dealId) conds.push(eq(task.dealId, filters.dealId))
-  return db.select().from(task).where(and(...conds)).orderBy(desc(task.createdAt)).limit(200)
+  const cursor = decodeCursor(filters.cursor)
+  const rows = await db
+    .select()
+    .from(task)
+    .where(and(...conds, cursor ? cursorWhere(task.createdAt, task.id, cursor) : undefined))
+    .orderBy(desc(task.createdAt), desc(task.id))
+    .limit(filters.limit + 1)
+  return paginateRows(rows, filters.limit)
 }
 
 export async function updateTask(portalId: string, id: string, input: UpdateTaskDTO): Promise<TaskRow> {
   const [existing] = await db
     .select()
     .from(task)
-    .where(and(eq(task.portalId, portalId), eq(task.id, id)))
+    .where(and(eq(task.portalId, portalId), eq(task.id, id), eq(task.archived, false)))
     .limit(1)
   if (!existing) throw Errors.notFound('Tarea no encontrada')
 
@@ -76,10 +96,14 @@ export async function updateTask(portalId: string, id: string, input: UpdateTask
   return row
 }
 
-export async function deleteTask(portalId: string, id: string): Promise<void> {
-  const res = await db
-    .delete(task)
-    .where(and(eq(task.portalId, portalId), eq(task.id, id)))
-    .returning({ id: task.id })
-  if (res.length === 0) throw Errors.notFound('Tarea no encontrada')
+export async function archiveTask(portalId: string, userId: string, id: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(task)
+      .set({ archived: true, archivedAt: new Date() })
+      .where(and(eq(task.portalId, portalId), eq(task.id, id), eq(task.archived, false)))
+      .returning({ id: task.id })
+    if (!row) throw Errors.notFound('Tarea no encontrada')
+    await writeAudit({ tx, portalId, userId, entityType: 'task', entityId: id, action: 'ARCHIVE', payload: { archived: true } })
+  })
 }

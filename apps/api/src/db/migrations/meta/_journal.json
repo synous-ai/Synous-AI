@@ -267,6 +267,34 @@
       "when": 1789181173145,
       "tag": "0037_skinny_bill_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789317652539,
+      "tag": "0038_complete_mandrill",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1789317653463,
+      "tag": "0039_cuddly_stephen_strange",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789318664961,
+      "tag": "0040_complete_trauma",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789322303053,
+      "tag": "0041_certain_gamma_corps",
+      "breakpoints": true
     }
   ]
 }

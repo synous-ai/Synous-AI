@@ -55,13 +55,14 @@ export async function clientsRoutes(app: FastifyInstance): Promise<void> {
         tags: [TAG],
         summary: 'Listar cuentas del portal de clientes',
         description:
-          'Lista todas las client_account del portal con su estado de invitación y los deal IDs a los que tienen acceso. No expone password_hash ni invite_token.',
+          'Lista todas las client_account del portal con su estado de invitación y los deal IDs a los que tienen acceso. No expone password_hash ni invite_token. Paginado por cursor.',
         security,
+        querystring: ListQuerySchema,
       },
     },
     async (request) => {
-      const accounts = await listClientAccounts(request.hubUser!.portalId)
-      return ok(accounts)
+      const { items, nextCursor } = await listClientAccounts(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
     },
   )
 }

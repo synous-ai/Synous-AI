@@ -46,5 +46,6 @@ export const company = pgTable('company', {
   index('idx_company_owner').on(table.ownerId),
   // Global (no compuesto con portalId) — ver comentario en la columna `slug` arriba.
   unique('company_slug_unique').on(table.slug),
+  index('idx_company_brand_logo_key').on(table.brandLogoKey),
   // NOTE: idx_company_name_trgm uses gin_trgm_ops — omitted, see manual migrations
 ])

@@ -33,6 +33,7 @@ import {
   SummaryQuerySchema,
   MonthlySummaryQuerySchema,
   DebtorsQuerySchema,
+  FINANCE_ROLES,
 } from './finance.schema'
 import {
   listInvoices,
@@ -66,7 +67,7 @@ const security = ADMIN_SECURITY
 
 // Middleware de autorización financiero — solo owner y member.
 // Reutilizable en todos los handlers de este router.
-const financeAuth = [authorize('owner', 'member')]
+const financeAuth = [authorize(...FINANCE_ROLES)]
 
 export async function financeRoutes(app: FastifyInstance): Promise<void> {
   const r = app.withTypeProvider<ZodTypeProvider>()
@@ -87,8 +88,8 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
       preHandler: financeAuth,
     },
     async (request) => {
-      const invoices = await listInvoices(request.hubUser!.portalId, request.query)
-      return ok(invoices)
+      const { items, nextCursor } = await listInvoices(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
     },
   )
 
@@ -206,15 +207,15 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
       schema: {
         tags: [TAG],
         summary: 'Listar cobros',
-        description: 'Lista cobros enriquecidos (número de factura, moneda, empresa). Soporta filtros method/from/to/companyId/invoiceId.',
+        description: 'Lista cobros enriquecidos (número de factura, moneda, empresa). Soporta filtros method/from/to/companyId/invoiceId. Paginado por cursor (paidAt desc); meta.totalPeriod es Σ amountBase del filtro completo.',
         security,
         querystring: ListPaymentsQuerySchema,
       },
       preHandler: financeAuth,
     },
     async (request) => {
-      const result = await listPayments(request.hubUser!.portalId, request.query)
-      return ok(result.payments, { totalPeriod: result.meta.totalPeriod })
+      const { items, nextCursor, totalPeriod } = await listPayments(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor, totalPeriod })
     },
   )
 
@@ -251,7 +252,8 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
       preHandler: financeAuth,
     },
     async (request) => {
-      return ok(await listExpenses(request.hubUser!.portalId, request.query))
+      const { items, nextCursor } = await listExpenses(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
     },
   )
 
@@ -344,7 +346,8 @@ export async function financeRoutes(app: FastifyInstance): Promise<void> {
       preHandler: financeAuth,
     },
     async (request) => {
-      return ok(await listRetainers(request.hubUser!.portalId, request.query))
+      const { items, nextCursor } = await listRetainers(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
     },
   )
 

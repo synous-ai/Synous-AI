@@ -190,7 +190,7 @@ export const NOTIFICATION_EVENTS = {
     priority: 'high',
     title: (p) => `Nuevo entregable para revisar: ${p.deliverableTitle}`,
     body: () => 'Está esperando tu revisión.',
-    actionUrl: () => `/portal?tab=deliverables`,
+    actionUrl: () => `/deliverables`,
   }),
 
   intake_assigned: def<{ dealId: string; formName: string }>({
@@ -198,7 +198,7 @@ export const NOTIFICATION_EVENTS = {
     priority: 'high',
     title: (p) => `Formulario pendiente: ${p.formName}`,
     body: () => 'Necesitamos que lo completes para avanzar.',
-    actionUrl: () => `/portal?tab=forms`,
+    actionUrl: () => `/forms`,
   }),
 
   cr_sent: def<{ crId: string; crNumber: number; title: string }>({
@@ -206,7 +206,7 @@ export const NOTIFICATION_EVENTS = {
     priority: 'high',
     title: (p) => `Solicitud de cambio #${p.crNumber} para tu aprobación`,
     body: (p) => p.title,
-    actionUrl: () => `/portal?tab=requests`,
+    actionUrl: () => `/requests`,
   }),
 
   invoice_sent: def<{ invoiceId: string; invoiceNumber: number; amount: string; currency: string }>({
@@ -214,7 +214,7 @@ export const NOTIFICATION_EVENTS = {
     priority: 'high',
     title: (p) => `Nueva factura #${p.invoiceNumber}`,
     body: (p) => `${p.currency} ${p.amount} pendiente de pago.`,
-    actionUrl: () => `/portal?tab=invoices`,
+    actionUrl: () => `/invoices`,
   }),
 
   invoice_paid: def<{ invoiceId: string; invoiceNumber: number }>({
@@ -222,28 +222,28 @@ export const NOTIFICATION_EVENTS = {
     priority: 'normal',
     title: (p) => `Pago registrado — factura #${p.invoiceNumber}`,
     body: () => 'Gracias. Ya quedó saldada.',
-    actionUrl: () => `/portal?tab=invoices`,
+    actionUrl: () => `/invoices`,
   }),
 
   document_shared: def<{ documentId: string; documentName: string }>({
     audience: 'client',
     priority: 'normal',
     title: (p) => `Nuevo documento: ${p.documentName}`,
-    actionUrl: () => `/portal?tab=documents`,
+    actionUrl: () => `/documents`,
   }),
 
   project_update: def<{ dealId: string; updateTitle: string }>({
     audience: 'client',
     priority: 'normal',
     title: (p) => `Novedad del proyecto: ${p.updateTitle}`,
-    actionUrl: () => `/portal`,
+    actionUrl: () => `/dashboard`,
   }),
 
   cr_commented: def<{ crId: string; crNumber: number }>({
     audience: 'client',
     priority: 'normal',
     title: (p) => `Nuevo comentario en la solicitud #${p.crNumber}`,
-    actionUrl: () => `/portal?tab=requests`,
+    actionUrl: () => `/requests`,
   }),
 
   booking_cancelled_by_admin: def<{ bookingId: string; startsAt: string }>({
@@ -251,7 +251,7 @@ export const NOTIFICATION_EVENTS = {
     priority: 'high',
     title: () => 'Se canceló una reunión agendada',
     body: () => 'Te vamos a contactar para reprogramarla.',
-    actionUrl: () => `/portal`,
+    actionUrl: () => `/dashboard`,
   }),
 } as const
 

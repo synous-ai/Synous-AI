@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
 import { recordHistory, auditLog, contact, deal, clientAccount } from '../../db/schema'
-import { ensurePortalAndUser, ensurePipeline, loginToken, type PipelineContext } from '../../test/helpers'
+import { ensurePortalAndUser, ensurePipeline, loginToken, type PipelineContext, listenForSupertest } from '../../test/helpers'
 
 // `activate-portal` invita al cliente vía Clerk (createClientPortalInvitation),
 // que corta y devuelve `null` apenas ve CLERK_SECRET_KEY vacío (forzado así en
@@ -25,7 +25,7 @@ let pipe: PipelineContext
 let portalId: string
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
   pipe = await ensurePipeline(ctx.portalId)

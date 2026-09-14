@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ListQuerySchema } from '../../lib/crm-schemas'
 
 export const WorkItemTypeEnum = z.enum(['bug', 'improvement', 'roadmap', 'process'])
 export type WorkItemType = z.infer<typeof WorkItemTypeEnum>
@@ -36,5 +37,5 @@ export type UpdateWorkItemDTO = z.infer<typeof UpdateWorkItemSchema>
 export const ListWorkItemsQuerySchema = z.object({
   type: WorkItemTypeEnum.optional(),
   status: WorkItemStatusEnum.optional(),
-})
+}).merge(ListQuerySchema)
 export type ListWorkItemsQuery = z.infer<typeof ListWorkItemsQuerySchema>

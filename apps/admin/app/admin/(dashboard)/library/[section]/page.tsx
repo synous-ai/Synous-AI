@@ -21,7 +21,6 @@ import {
   Square,
 } from 'lucide-react'
 import { ApiError } from '@/lib/api'
-import { API_URL } from '@/lib/config'
 import { cn } from '@/lib/utils'
 import { Markdown } from '@/components/ui/markdown'
 import {
@@ -30,6 +29,8 @@ import {
   useUpdateLibraryItem,
   useDeleteLibraryItem,
   uploadFile,
+  openFile,
+  FILE_PURPOSE_ACCEPT,
 } from '@/lib/hooks'
 import { useUsers } from '@/lib/hooks/settings'
 import type { LibraryItemType, LibraryKind, LibraryItem, LibraryStep } from '@/lib/types'
@@ -41,6 +42,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -383,8 +385,8 @@ function AddItemDialog({
       if (hasFile) {
         setUploading(true)
         try {
-          const result = await uploadFile(selectedFile!)
-          storageKey = result.key
+          const result = await uploadFile(selectedFile!, { purpose: 'library_item' })
+          storageKey = result.storageKey
         } finally {
           setUploading(false)
         }
@@ -561,6 +563,7 @@ function AddItemDialog({
                 <input
                   ref={fileInputRef}
                   type="file"
+                  accept={FILE_PURPOSE_ACCEPT.library_item}
                   className="hidden"
                   onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
                 />
@@ -813,8 +816,23 @@ function GenericItemCard({
   onEdit: (item: LibraryItem) => void
   onDelete: (id: string, name: string) => void
 }) {
-  const fileUrl = item.storageKey ? `${API_URL}/api/files/${item.storageKey}` : null
-  const openUrl = fileUrl ?? item.url ?? null
+  const [downloading, setDownloading] = useState(false)
+  const [downloadFailed, setDownloadFailed] = useState(false)
+  const hasFile = !!item.storageKey
+  const linkUrl = !hasFile ? item.url ?? null : null
+
+  async function handleDownload() {
+    if (!item.storageKey) return
+    setDownloading(true)
+    setDownloadFailed(false)
+    try {
+      await openFile(item.storageKey)
+    } catch {
+      setDownloadFailed(true)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <div className="flex flex-col rounded-2xl border bg-card p-5 shadow-sm transition-shadow hover:shadow-md">
@@ -837,33 +855,33 @@ function GenericItemCard({
       )}
 
       <div className="mt-4 flex items-center gap-2 border-t pt-3">
-        {openUrl ? (
-          <>
-            {fileUrl ? (
-              <a
-                href={fileUrl}
-                download
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Descargar
-              </a>
-            ) : (
-              <a
-                href={openUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                Abrir
-              </a>
-            )}
-          </>
+        {hasFile ? (
+          <button
+            type="button"
+            onClick={() => void handleDownload()}
+            disabled={downloading}
+            className="inline-flex items-center gap-1 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {downloading ? 'Abriendo…' : 'Descargar'}
+          </button>
+        ) : linkUrl ? (
+          <a
+            href={linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Abrir
+          </a>
         ) : (
           <span className="text-xs text-muted-foreground/60">Sin adjunto</span>
+        )}
+        {downloadFailed && (
+          <span role="alert" className="text-xs text-destructive">
+            No se pudo abrir
+          </span>
         )}
 
         <div className="ml-auto flex items-center">
@@ -910,6 +928,8 @@ export default function LibrarySectionPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   /** Ítem en edición. null = el diálogo está en modo "crear". */
   const [editingItem, setEditingItem] = useState<LibraryItem | null>(null)
+  /** Ítem pendiente de confirmación de borrado (ConfirmDialog). */
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const deleteItem = useDeleteLibraryItem()
   const { data: users } = useUsers()
 
@@ -942,9 +962,14 @@ export default function LibrarySectionPage() {
 
   const { page, setPage, pageCount, pageItems } = usePagination(filteredItems)
 
-  async function handleDelete(id: string, name: string) {
-    if (!window.confirm(`¿Eliminar "${name}"?`)) return
-    await deleteItem.mutateAsync(id)
+  function requestDelete(id: string, name: string) {
+    setDeleteTarget({ id, name })
+  }
+
+  async function handleDelete(): Promise<void> {
+    if (!deleteTarget) return
+    await deleteItem.mutateAsync(deleteTarget.id)
+    setDeleteTarget(null)
   }
 
   // Sección desconocida — 404 in-page.
@@ -1038,10 +1063,10 @@ export default function LibrarySectionPage() {
             {pageItems.map((item) =>
               isSop ? (
                 // Card especializada: muestra badge de kind, pasos y owner
-                <SopCard key={item.id} item={item} users={users} onEdit={openEdit} onDelete={handleDelete} />
+                <SopCard key={item.id} item={item} users={users} onEdit={openEdit} onDelete={requestDelete} />
               ) : (
                 // Card genérica para el resto de tipos
-                <GenericItemCard key={item.id} item={item} onEdit={openEdit} onDelete={handleDelete} />
+                <GenericItemCard key={item.id} item={item} onEdit={openEdit} onDelete={requestDelete} />
               ),
             )}
           </div>
@@ -1055,6 +1080,16 @@ export default function LibrarySectionPage() {
         type={config.type}
         hasSteps={config.hasSteps}
         item={editingItem}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        title={`¿Eliminar "${deleteTarget?.name ?? ''}"?`}
+        confirmLabel="Eliminar"
+        destructive
+        pending={deleteItem.isPending}
+        onConfirm={() => void handleDelete()}
       />
     </div>
   )

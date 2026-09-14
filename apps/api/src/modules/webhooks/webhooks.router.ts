@@ -14,25 +14,41 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 import { verifyFathomSignature, handleFathomWebhook } from './webhooks.service'
 import { verifyDocusealToken } from './webhooks.service'
-import { handleDocusealWebhook, type DocusealWebhookPayload } from '../documents/docuseal.service'
+import { handleDocusealWebhook } from '../documents/docuseal.service'
 
-// Esquema permisivo para el payload de Fathom (estructura abierta)
+// Esquemas permisivos: `.nullish()` y no `.optional()` porque los proveedores
+// mandan `null` en campos vacíos, y un payload válido rechazado acá se responde
+// 200 y se pierde para siempre (el proveedor no reintenta).
 const FathomWebhookSchema = z.object({
-  title: z.string().optional(),
-  starts_at: z.string().optional(),
-  ends_at: z.string().optional(),
-  summary: z.string().optional(),
-  transcript_url: z.string().optional(),
-  action_items: z.array(z.unknown()).optional(),
+  title: z.string().nullish(),
+  starts_at: z.string().nullish(),
+  ends_at: z.string().nullish(),
+  summary: z.string().nullish(),
+  transcript_url: z.string().nullish(),
+  action_items: z.array(z.unknown()).nullish(),
   participants: z
     .array(
       z.object({
-        email: z.string().optional(),
-        name: z.string().optional(),
+        email: z.string().nullish(),
+        name: z.string().nullish(),
       }),
     )
-    .optional(),
+    .nullish(),
 })
+
+const DocusealWebhookSchema = z
+  .object({
+    event_type: z.string().nullish(),
+    data: z
+      .object({
+        slug: z.string().nullish(),
+        submission_id: z.number().nullish(),
+        status: z.string().nullish(),
+      })
+      .passthrough()
+      .nullish(),
+  })
+  .passthrough()
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -71,7 +87,16 @@ export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
       return
     }
 
-    await handleFathomWebhook(request.body as z.infer<typeof FathomWebhookSchema>)
+    // Se valida DESPUÉS de la firma (un 400 antes revelaría el endpoint). Un
+    // payload inválido se responde 200: reintentar no lo va a arreglar.
+    const payload = FathomWebhookSchema.safeParse(request.body)
+    if (!payload.success) {
+      request.log.warn({ issues: payload.error.issues }, 'Webhook de Fathom con payload inválido, ignorado')
+      await reply.code(200).send({ ok: true })
+      return
+    }
+
+    await handleFathomWebhook(payload.data)
     await reply.code(200).send({ ok: true })
   }
 
@@ -104,7 +129,14 @@ export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
 
     // Se responde 200 aunque el evento no nos interese o el documento no exista:
     // un 4xx haría que DocuSeal reintente para siempre algo que nunca va a andar.
-    await handleDocusealWebhook(request.body as DocusealWebhookPayload)
+    const payload = DocusealWebhookSchema.safeParse(request.body)
+    if (!payload.success) {
+      request.log.warn({ issues: payload.error.issues }, 'Webhook de DocuSeal con payload inválido, ignorado')
+      await reply.code(200).send({ ok: true })
+      return
+    }
+
+    await handleDocusealWebhook(payload.data)
     await reply.code(200).send({ ok: true })
   }
 

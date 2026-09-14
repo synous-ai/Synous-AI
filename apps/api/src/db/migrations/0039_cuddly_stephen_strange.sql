@@ -1,0 +1,1 @@
+ALTER TABLE "invoice" ADD CONSTRAINT "invoice_portal_id_number_unique" UNIQUE("portal_id","number");

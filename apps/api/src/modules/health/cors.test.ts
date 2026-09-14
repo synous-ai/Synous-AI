@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import request from 'supertest'
+import { listenForSupertest } from '../../test/helpers'
 
 vi.mock('../../config/env', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../config/env')>()
@@ -26,7 +27,7 @@ const { buildApp } = await import('../../app')
 const { closeDb } = await import('../../db')
 const app = buildApp()
 
-beforeAll(async () => { await app.ready() })
+beforeAll(async () => { await listenForSupertest(app) })
 afterAll(async () => { await app.close(); await closeDb() })
 
 const preflight = (origin: string) =>

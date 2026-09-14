@@ -33,6 +33,7 @@ export const ProposalContentSchema = z.object({
   title: z.string().max(200),
   clientName: z.string().max(160),
   companyName: z.string().max(160).optional(),
+  logoKey: z.string().min(1).max(300).optional(),
   logoUrl: z.string().max(500).optional(),
   tagline: z.string().max(200).optional(),
   summary: z.string().max(2000),

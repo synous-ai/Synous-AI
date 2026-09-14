@@ -203,14 +203,14 @@ export async function getContactDetail(portalId: string, id: string): Promise<Co
   const notes = await db
     .select()
     .from(note)
-    .where(and(eq(note.portalId, portalId), eq(note.contactId, id)))
+    .where(and(eq(note.portalId, portalId), eq(note.contactId, id), eq(note.archived, false)))
     .orderBy(desc(note.createdAt))
     .limit(50)
 
   const tasks = await db
     .select()
     .from(task)
-    .where(and(eq(task.portalId, portalId), eq(task.contactId, id)))
+    .where(and(eq(task.portalId, portalId), eq(task.contactId, id), eq(task.archived, false)))
     .orderBy(desc(task.createdAt))
     .limit(50)
 

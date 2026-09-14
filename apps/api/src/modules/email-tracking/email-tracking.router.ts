@@ -15,8 +15,9 @@ import {
   recordOpen,
   recordClick,
   TRACKING_PIXEL_GIF,
-  validateRedirectUrl,
+  verifyClickTarget,
 } from './email-tracking.service'
+import { env } from '../../config/env'
 
 export async function emailTrackingRoutes(app: FastifyInstance): Promise<void> {
   const r = app.withTypeProvider<ZodTypeProvider>()
@@ -41,8 +42,13 @@ export async function emailTrackingRoutes(app: FastifyInstance): Promise<void> {
         (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
         request.socket.remoteAddress
 
-      // Fire-and-forget: errores internos no deben romper el pixel
-      recordOpen(trackingId, userAgent, ip).catch(() => undefined)
+      // Awaited: en una Function serverless la ejecución se congela al responder
+      // y un insert sin await se pierde. Un fallo se loguea pero nunca rompe el pixel.
+      try {
+        await recordOpen(trackingId, userAgent, ip)
+      } catch (err) {
+        request.log.error({ err, trackingId }, 'No se pudo registrar la apertura de email')
+      }
 
       return reply
         .header('Content-Type', 'image/gif')
@@ -61,28 +67,30 @@ export async function emailTrackingRoutes(app: FastifyInstance): Promise<void> {
         tags: ['Tracking'],
         summary: 'Redirect de click en email',
         description:
-          'Registra el click en un link de email y redirige al destino (?url=...). Si la URL es inválida o ausente, redirige a la base de la API.',
+          'Registra el click en un link de email y redirige al destino (?url=...&sig=...). Solo redirige si `sig` es la firma HMAC del destino; si falta, no coincide o la URL no es http(s), redirige a la base de la API.',
         params: z.object({ trackingId: z.string().uuid() }),
-        querystring: z.object({ url: z.string().optional() }),
+        querystring: z.object({ url: z.string().optional(), sig: z.string().optional() }),
         response: {},
       },
     },
     async (request, reply) => {
       const { trackingId } = request.params
-      const { url } = request.query
+      const { url, sig } = request.query
       const userAgent = request.headers['user-agent']
       const ip =
         (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
         request.socket.remoteAddress
 
-      const destination = validateRedirectUrl(url)
-
-      // Fire-and-forget: errores internos no deben bloquear el redirect
-      if (url) {
-        recordClick(trackingId, destination, userAgent, ip).catch(() => undefined)
+      const destination = verifyClickTarget(trackingId, url, sig)
+      if (destination) {
+        try {
+          await recordClick(trackingId, destination, userAgent, ip)
+        } catch (err) {
+          request.log.error({ err, trackingId }, 'No se pudo registrar el click de email')
+        }
       }
 
-      return reply.redirect(destination, 302)
+      return reply.redirect(destination ?? env.PUBLIC_API_URL, 302)
     },
   )
 }

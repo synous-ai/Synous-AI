@@ -22,11 +22,12 @@
  */
 
 import { SignIn, useAuth } from '@clerk/nextjs'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { API_URL } from '@synous/shared'
 import { apiGet } from '@portal/lib/api'
+import { portalHref } from '@portal/components/portal/portal-nav'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -146,8 +147,12 @@ export default function PortalLoginPage() {
   const [branding, setBranding] = useState<PublicBranding | null>(null)
   // Indica si ya terminamos el intento de fetch (para no mostrar flash al hacer fallback)
   const [brandingResolved, setBrandingResolved] = useState(false)
+  // Si el logo público falla al cargar (404, red), caemos al monograma genérico
+  // en lugar de dejar el ícono roto del navegador.
+  const [logoFailed, setLogoFailed] = useState(false)
   const { isLoaded, isSignedIn } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
 
   // Con sesión de Clerk activa el <SignIn> no se monta (queda un panel vacío).
   // Pero NO redirigimos a ciegas a /portal: si la sesión no corresponde a un
@@ -164,7 +169,7 @@ export default function PortalLoginPage() {
       .then(() => {
         if (cancelled) return
         console.debug('[portal-auth] Sesión de cliente válida → redirigiendo a /portal')
-        router.replace('/portal')
+        router.replace(portalHref(pathname, 'dashboard'))
       })
       .catch((err: unknown) => {
         // 401 → onAuthFailure ya cerró la sesión de Clerk (sin redirigir porque
@@ -191,7 +196,10 @@ export default function PortalLoginPage() {
       .then(async (res) => {
         if (!res.ok) return
         const json = (await res.json()) as { data: PublicBranding | null }
-        if (json.data) setBranding(json.data)
+        if (json.data) {
+          setBranding(json.data)
+          setLogoFailed(false)
+        }
       })
       .catch(() => {
         // Fetch falló (red, CORS, servidor caído) → fallback silencioso al genérico Synous.
@@ -227,7 +235,7 @@ export default function PortalLoginPage() {
           <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-signal/90 blur-[2px]" />
 
           <div className="relative flex items-center gap-3">
-            {branding?.logoUrl != null ? (
+            {branding?.logoUrl != null && !logoFailed ? (
               /*
                * Logo del cliente: lo mostramos solo cuando el branding está resuelto
                * y hay URL. Con brandingResolved evitamos el flash de "N" → logo del cliente.
@@ -238,6 +246,7 @@ export default function PortalLoginPage() {
                   src={branding.logoUrl}
                   alt={branding.brandName ?? 'Logo del cliente'}
                   className="h-9 w-auto object-contain"
+                  onError={() => setLogoFailed(true)}
                 />
               ) : (
                 /* Placeholder neutro mientras carga — evita flash de letras */
@@ -284,12 +293,13 @@ export default function PortalLoginPage() {
              * logo + nombre del cliente (o el genérico Synous) aquí.
              */}
             <div className="mb-4 flex items-center gap-2 lg:hidden">
-              {branding?.logoUrl != null && brandingResolved ? (
+              {branding?.logoUrl != null && brandingResolved && !logoFailed ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={branding.logoUrl}
                   alt={branding.brandName ?? 'Logo del cliente'}
                   className="h-7 w-auto object-contain"
+                  onError={() => setLogoFailed(true)}
                 />
               ) : (
                 <span className="flex h-7 w-7 items-center justify-center rounded bg-signal font-display text-sm font-bold text-signal-foreground">
@@ -323,7 +333,10 @@ export default function PortalLoginPage() {
            */}
           <SignIn
             routing="hash"
-            forceRedirectUrl="/portal"
+            // En host de tenant el portal se sirve limpio (`/dashboard`); bajo el
+            // prefijo físico, `/portal/dashboard`. Hardcodear `/portal` dejaba la
+            // ruta fea en la barra justo después de entrar.
+            forceRedirectUrl={portalHref(pathname, 'dashboard')}
             appearance={appearance}
           />
         </div>

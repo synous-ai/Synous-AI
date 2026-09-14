@@ -28,6 +28,9 @@ export interface ProposalContent {
   title: string
   clientName: string
   companyName?: string
+  /** storageKey del logo — reemplaza a logoUrl para propuestas nuevas (ver blob-contract.md §4). */
+  logoKey?: string
+  /** @deprecated Solo se lee para propuestas viejas guardadas antes de logoKey. */
   logoUrl?: string
   tagline?: string
   summary: string

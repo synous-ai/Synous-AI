@@ -26,3 +26,10 @@ export interface GenerateTextResult {
 }
 
 export type GenerateTextFn = (req: GenerateTextRequest) => Promise<GenerateTextResult>
+
+/**
+ * Tope por llamada a un modelo. Generar una propuesta o una próxima acción corre
+ * dentro de un request HTTP: sin tope, los SDKs esperan minutos y el request
+ * muere por el límite de la plataforma en vez de caer al fallback que ya existe.
+ */
+export const AI_REQUEST_TIMEOUT_MS = 30_000

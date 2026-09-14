@@ -1,4 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import { deliverable, deal } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -22,7 +23,7 @@ async function requireDeliverableInPortal(
     .select({ deliverable })
     .from(deliverable)
     .innerJoin(deal, and(eq(deal.id, deliverable.dealId), eq(deal.portalId, portalId), eq(deal.archived, false)))
-    .where(eq(deliverable.id, id))
+    .where(and(eq(deliverable.id, id), eq(deliverable.archived, false)))
     .limit(1)
   if (!row) throw Errors.notFound('Entregable no encontrado')
   return row.deliverable
@@ -31,15 +32,24 @@ async function requireDeliverableInPortal(
 export async function listDeliverables(
   portalId: string,
   query: DeliverableListQueryType,
-): Promise<DeliverableRow[]> {
+): Promise<Paginated<DeliverableRow>> {
+  const cursor = decodeCursor(query.cursor)
   const rows = await db
     .select({ deliverable })
     .from(deliverable)
     .innerJoin(deal, and(eq(deal.id, deliverable.dealId), eq(deal.portalId, portalId), eq(deal.archived, false)))
-    .where(query.dealId ? eq(deliverable.dealId, query.dealId) : undefined)
-    .orderBy(desc(deliverable.createdAt))
+    .where(
+      and(
+        eq(deliverable.archived, false),
+        query.dealId ? eq(deliverable.dealId, query.dealId) : undefined,
+        cursor ? cursorWhere(deliverable.createdAt, deliverable.id, cursor) : undefined,
+      ),
+    )
+    .orderBy(desc(deliverable.createdAt), desc(deliverable.id))
+    .limit(query.limit + 1)
 
-  return rows.map((r) => r.deliverable)
+  const { items, nextCursor } = paginateRows(rows, query.limit, (r) => r.deliverable)
+  return { items: items.map((r) => r.deliverable), nextCursor }
 }
 
 export async function createDeliverable(
@@ -48,7 +58,7 @@ export async function createDeliverable(
   input: CreateDeliverableDTO,
 ): Promise<DeliverableRow> {
   return db.transaction(async (tx) => {
-    await assertDealInPortal(portalId, input.dealId)
+    await assertDealInPortal(portalId, input.dealId, tx)
 
     const [row] = await tx
       .insert(deliverable)
@@ -106,9 +116,10 @@ export async function updateDeliverable(
   })
 }
 
-export async function deleteDeliverable(portalId: string, id: string): Promise<void> {
+/** Archiva el entregable (nunca DELETE): conserva su historial de aprobación y feedback del cliente. */
+export async function archiveDeliverable(portalId: string, id: string): Promise<void> {
   await db.transaction(async (tx) => {
     await requireDeliverableInPortal(tx, id, portalId)
-    await tx.delete(deliverable).where(eq(deliverable.id, id))
+    await tx.update(deliverable).set({ archived: true, archivedAt: new Date() }).where(eq(deliverable.id, id))
   })
 }

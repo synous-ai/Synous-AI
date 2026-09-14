@@ -2,14 +2,14 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import request from 'supertest'
 import { buildApp } from '../../app'
 import { closeDb } from '../../db'
-import { ensurePortalAndUser, ensurePipeline, loginToken } from '../../test/helpers'
+import { ensurePortalAndUser, ensurePipeline, loginToken, listenForSupertest } from '../../test/helpers'
 
 const app = buildApp()
 let token: string
 let dealId: number
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   token = await loginToken(app, ctx.email, ctx.password)
 

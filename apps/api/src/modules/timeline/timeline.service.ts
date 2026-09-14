@@ -217,7 +217,7 @@ export async function getTimeline(
 
   // ── Notes (dealId, contactId, or companyId) ─────────────────────────────
   {
-    const noteConds = [eq(note.portalId, portalId)]
+    const noteConds = [eq(note.portalId, portalId), eq(note.archived, false)]
     if (dealId != null) noteConds.push(eq(note.dealId, dealId))
     else if (contactId != null) noteConds.push(eq(note.contactId, contactId))
     else if (companyId != null) noteConds.push(eq(note.companyId, companyId))
@@ -242,7 +242,7 @@ export async function getTimeline(
 
   // ── Tasks (dealId, contactId, or companyId) ─────────────────────────────
   {
-    const taskConds = [eq(task.portalId, portalId)]
+    const taskConds = [eq(task.portalId, portalId), eq(task.archived, false)]
     if (dealId != null) taskConds.push(eq(task.dealId, dealId))
     else if (contactId != null) taskConds.push(eq(task.contactId, contactId))
     else if (companyId != null) taskConds.push(eq(task.companyId, companyId))

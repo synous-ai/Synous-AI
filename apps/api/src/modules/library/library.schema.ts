@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ListQuerySchema } from '../../lib/crm-schemas'
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export const CreateLibraryItemSchema = z.object({
   name: z.string().min(1),
   category: z.string().optional(),
   description: z.string().optional(),
-  storageKey: z.string().optional(),
+  storageKey: z.string().min(1).optional(),
   url: z.string().url().optional(),
   /**
    * Pasos del SOP/procedimiento. Solo aplica cuando type='sop'.
@@ -76,7 +77,7 @@ export const UpdateLibraryItemSchema = z
     name: z.string().min(1),
     category: z.string(),
     description: z.string(),
-    storageKey: z.string(),
+    storageKey: z.string().min(1),
     url: z.string().url(),
     /**
      * Lista completa de pasos. Se REEMPLAZA — nunca se hace merge con `||`.
@@ -99,5 +100,5 @@ export const ListLibraryQuerySchema = z.object({
    * pero este parámetro permite que el server también lo filtre si se pide.
    */
   kind: LibraryKindEnum.optional(),
-})
+}).merge(ListQuerySchema)
 export type ListLibraryQueryType = z.infer<typeof ListLibraryQuerySchema>

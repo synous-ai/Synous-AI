@@ -75,25 +75,26 @@ export function verifyDocusealToken(token: string | undefined): boolean {
 
 // ── Fathom payload type ───────────────────────────────────────────────────────
 
+// Fathom manda `null` en los campos vacíos: todos aceptan null además de ausente.
 export interface FathomParticipant {
-  email?: string
-  name?: string
+  email?: string | null
+  name?: string | null
 }
 
 export interface FathomMeetingPayload {
   /** Título de la reunión (requerido para insertar en meeting.title) */
-  title?: string
+  title?: string | null
   /** ISO-8601 */
-  starts_at?: string
-  ends_at?: string
+  starts_at?: string | null
+  ends_at?: string | null
   /** Texto libre del resumen */
-  summary?: string
+  summary?: string | null
   /** URL de la transcripción */
-  transcript_url?: string
+  transcript_url?: string | null
   /** Ítems de acción (array abierto) */
-  action_items?: unknown[]
+  action_items?: unknown[] | null
   /** Participantes */
-  participants?: FathomParticipant[]
+  participants?: FathomParticipant[] | null
 }
 
 // ── Portal resolver ───────────────────────────────────────────────────────────

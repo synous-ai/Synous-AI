@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiDelete, apiPatch } from '../api'
+import { apiGet, apiPost, apiDelete, apiPatch, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
 import type {
   MeetingType,
   AvailabilityRule,
@@ -76,7 +77,7 @@ export function useDeleteAvailability() {
 }
 
 export function useBookings() {
-  return useQuery({ queryKey: ['bookings'], queryFn: () => apiGet<Booking[]>('/api/calendar/bookings') })
+  return useQuery({ queryKey: ['bookings'], queryFn: () => fetchAllPages<Booking>(apiList, '/api/calendar/bookings') })
 }
 
 // ---------------------------------------------------------------------------

@@ -272,6 +272,7 @@ async function fetchActivityByUser(
         .where(
           and(
             eq(note.portalId, portalId),
+            eq(note.archived, false),
             inArray(note.createdBy, userIds),
             gte(note.createdAt, from),
             lte(note.createdAt, to),
@@ -286,6 +287,7 @@ async function fetchActivityByUser(
         .where(
           and(
             eq(task.portalId, portalId),
+            eq(task.archived, false),
             inArray(task.createdBy, userIds),
             gte(task.createdAt, from),
             lte(task.createdAt, to),
@@ -300,6 +302,7 @@ async function fetchActivityByUser(
         .where(
           and(
             eq(task.portalId, portalId),
+            eq(task.archived, false),
             inArray(task.assignedTo, userIds),
             eq(task.status, 'completed'),
             gte(task.completedAt, from),
@@ -354,6 +357,7 @@ async function fetchClosedWon(
       .where(
         and(
           eq(deal.portalId, portalId),
+          eq(deal.archived, false),
           eq(pipelineStage.isWon, true),
           gte(sql`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, start),
           lte(sql`coalesce(${deal.closeDate}::timestamptz, ${deal.updatedAt})`, end),

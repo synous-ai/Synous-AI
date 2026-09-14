@@ -43,12 +43,15 @@ export async function getDashboard(portalId: string): Promise<DashboardData> {
     db
       .select({ n: count() })
       .from(task)
-      .where(and(eq(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES))),
+      .where(and(eq(task.portalId, portalId), eq(task.archived, false), notInArray(task.status, OPEN_TASK_STATUSES))),
 
     db
       .select({ openDeals: count(), openValue: sql<string>`coalesce(sum(${deal.amount}), 0)` })
       .from(deal)
-      .where(and(eq(deal.portalId, portalId), eq(deal.archived, false))),
+      // Pipeline abierto = etapa no cerrada. Un deal ganado o perdido no es
+      // "abierto" ni suma al forecast (mismo criterio que reports.service).
+      .innerJoin(pipelineStage, eq(deal.stageId, pipelineStage.id))
+      .where(and(eq(deal.portalId, portalId), eq(deal.archived, false), eq(pipelineStage.isClosed, false))),
 
     db
       .select({
@@ -56,7 +59,7 @@ export async function getDashboard(portalId: string): Promise<DashboardData> {
       })
       .from(deal)
       .innerJoin(pipelineStage, eq(deal.stageId, pipelineStage.id))
-      .where(and(eq(deal.portalId, portalId), eq(deal.archived, false))),
+      .where(and(eq(deal.portalId, portalId), eq(deal.archived, false), eq(pipelineStage.isClosed, false))),
 
     db
       .select({
@@ -77,7 +80,7 @@ export async function getDashboard(portalId: string): Promise<DashboardData> {
     db
       .select()
       .from(task)
-      .where(and(eq(task.portalId, portalId), notInArray(task.status, OPEN_TASK_STATUSES)))
+      .where(and(eq(task.portalId, portalId), eq(task.archived, false), notInArray(task.status, OPEN_TASK_STATUSES)))
       .orderBy(asc(task.dueDate), desc(task.createdAt))
       .limit(6),
 

@@ -12,7 +12,7 @@ import { and, eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
 import { contact, deal, clientAccount, clientDealAccess, notification, hubUser, notificationPref } from '../../db/schema'
-import { ensurePortalAndUser, ensurePipeline, loginToken, type PipelineContext } from '../../test/helpers'
+import { ensurePortalAndUser, ensurePipeline, loginToken, listenForSupertest, type PipelineContext } from '../../test/helpers'
 import { notifyUser, notifyAdmins, notifyDealClients } from './notify'
 import { NOTIFICATION_EVENTS, ADMIN_EVENT_TYPES, CLIENT_EVENT_TYPES } from './notification-events'
 
@@ -38,7 +38,7 @@ async function makeClient(tag: string): Promise<TestClient> {
 const auth = (t: string) => ({ Authorization: `Bearer ${t}` })
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
   adminUserId = ctx.userId

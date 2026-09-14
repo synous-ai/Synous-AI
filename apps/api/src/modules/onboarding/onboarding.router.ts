@@ -3,7 +3,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { ok } from '../../lib/response'
 import { authenticate } from '../../middleware/authenticate'
 import { ADMIN_SECURITY } from '../../lib/http'
-import { IdParamSchema } from '../../lib/crm-schemas'
+import { IdParamSchema, ListQuerySchema } from '../../lib/crm-schemas'
 import { listOnboardings, getOnboardingByDeal } from './onboarding.service'
 
 const TAG = 'Onboarding'
@@ -23,11 +23,15 @@ export async function onboardingAdminRoutes(app: FastifyInstance): Promise<void>
       schema: {
         tags: [TAG],
         summary: 'Listar onboardings del portal',
-        description: 'Progreso del onboarding post-venta de cada deal. Orden: in_progress primero, luego por actualización más reciente.',
+        description: 'Progreso del onboarding post-venta de cada deal. Orden: in_progress primero, luego por actualización más reciente. Paginado por cursor.',
         security: ADMIN_SECURITY,
+        querystring: ListQuerySchema,
       },
     },
-    async (request) => ok(await listOnboardings(request.hubUser!.portalId)),
+    async (request) => {
+      const { items, nextCursor } = await listOnboardings(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
+    },
   )
 
   r.get(

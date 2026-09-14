@@ -5,8 +5,15 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { ArrowLeft, Check, Copy, ExternalLink, Eye, Loader2, Plus, Trash2, Save, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { useProposal, useUpdateProposal, useAcceptProposal, useMarkProposalSent, uploadFile } from '@/lib/hooks'
-import { API_URL } from '@/lib/config'
+import {
+  useProposal,
+  useUpdateProposal,
+  useAcceptProposal,
+  useMarkProposalSent,
+  uploadFile,
+  useFileUrl,
+  FILE_PURPOSE_ACCEPT,
+} from '@/lib/hooks'
 import type { ProposalContent } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,6 +38,9 @@ export default function ProposalEditorPage() {
   const [content, setContent] = useState<ProposalContent | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  // Preview del logo (nuevas propuestas guardan logoKey, no una URL absoluta) —
+  // se refresca sola antes de que expire la URL firmada.
+  const logoPreview = useFileUrl(content?.logoKey ?? null)
 
   // Sincronizamos el estado local cuando llega la propuesta.
   useEffect(() => {
@@ -75,14 +85,15 @@ export default function ProposalEditorPage() {
     toast.success('Link copiado')
   }
 
-  // Sube el logo del cliente y guarda su URL absoluta en el contenido.
+  // Sube el logo del cliente y guarda su storageKey en el contenido (logoKey,
+  // no una URL absoluta — ver ProposalContent en lib/types/proposals.ts).
   async function onLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setUploadingLogo(true)
     try {
-      const { key } = await uploadFile(file)
-      patch({ logoUrl: `${API_URL}/api/files/${key}` })
+      const { storageKey } = await uploadFile(file, { purpose: 'proposal_logo' })
+      patch({ logoKey: storageKey, logoUrl: undefined })
       toast.success('Logo subido')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo subir el logo')
@@ -91,6 +102,10 @@ export default function ProposalEditorPage() {
       e.target.value = ''
     }
   }
+
+  // Fuente del logo para <img>/Deck: URL firmada del logoKey nuevo, o el
+  // logoUrl absoluto de una propuesta vieja guardada antes de logoKey.
+  const logoSrc = logoPreview.url ?? content.logoUrl
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -106,7 +121,7 @@ export default function ProposalEditorPage() {
             </Button>
           </div>
           <div className="flex-1 overflow-auto">
-            <Deck content={content} />
+            <Deck content={content} logoSrc={logoSrc} />
           </div>
         </div>
       )}
@@ -181,15 +196,26 @@ export default function ProposalEditorPage() {
           </div>
           <FieldRow label="Logo del Cliente">
             <div className="flex items-center gap-3">
-              {content.logoUrl ? (
+              {content.logoKey || content.logoUrl ? (
                 <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={content.logoUrl}
-                    alt="Logo del cliente"
-                    className="h-12 w-12 rounded-lg border border-border bg-card object-contain p-1"
-                  />
-                  <Button type="button" variant="outline" size="sm" onClick={() => patch({ logoUrl: undefined })}>
+                  {logoSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={logoSrc}
+                      alt="Logo del cliente"
+                      className="h-12 w-12 rounded-lg border border-border bg-card object-contain p-1"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-dashed text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => patch({ logoKey: undefined, logoUrl: undefined })}
+                  >
                     <Trash2 className="h-4 w-4" /> Quitar
                   </Button>
                 </>
@@ -199,7 +225,7 @@ export default function ProposalEditorPage() {
                   Subir logo
                   <input
                     type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    accept={FILE_PURPOSE_ACCEPT.proposal_logo}
                     className="hidden"
                     disabled={uploadingLogo}
                     onChange={onLogoFile}

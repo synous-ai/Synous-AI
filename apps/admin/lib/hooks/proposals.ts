@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiPatch } from '../api'
+import { apiGet, apiPost, apiPatch, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
 import type { Proposal, ProposalContent } from '../types'
 
 /** Lista de propuestas del portal (vista admin). */
 export function useProposals() {
   return useQuery({
     queryKey: ['proposals'],
-    queryFn: () => apiGet<Proposal[]>('/api/proposals'),
+    queryFn: () => fetchAllPages<Proposal>(apiList, '/api/proposals'),
   })
 }
 

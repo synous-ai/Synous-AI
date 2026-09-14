@@ -1,4 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm'
+import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
 import { workItem } from '../../db/schema'
 import { Errors } from '../../lib/errors'
@@ -23,18 +24,21 @@ async function requireItemInPortal(portalId: string, id: string): Promise<WorkIt
 export async function listWorkItems(
   portalId: string,
   query: ListWorkItemsQuery,
-): Promise<WorkItemRow[]> {
+): Promise<Paginated<WorkItemRow>> {
   const conditions = [
     eq(workItem.portalId, portalId),
     eq(workItem.archived, false),
     ...(query.type ? [eq(workItem.type, query.type)] : []),
     ...(query.status ? [eq(workItem.status, query.status)] : []),
   ]
-  return db
+  const cursor = decodeCursor(query.cursor)
+  const rows = await db
     .select()
     .from(workItem)
-    .where(and(...conditions))
-    .orderBy(desc(workItem.createdAt))
+    .where(and(...conditions, cursor ? cursorWhere(workItem.createdAt, workItem.id, cursor) : undefined))
+    .orderBy(desc(workItem.createdAt), desc(workItem.id))
+    .limit(query.limit + 1)
+  return paginateRows(rows, query.limit)
 }
 
 export async function getWorkItem(portalId: string, id: string): Promise<WorkItemRow> {

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { ZodTypeProvider } from 'fastify-type-provider-zod'
 import { ok } from '../../lib/response'
 import { authenticateClient } from '../../middleware/authenticate-client'
-import { IdParamSchema } from '../../lib/crm-schemas'
+import { IdParamSchema, ListQuerySchema } from '../../lib/crm-schemas'
 import { CommentSchema, ClientDecisionSchema } from './cr.schema'
 import { clientListCRs, clientDecision, clientComment } from './cr.service'
 import { CLIENT_SECURITY } from '../../lib/http'
@@ -14,9 +14,10 @@ export async function clientCrRoutes(app: FastifyInstance): Promise<void> {
   const r = app.withTypeProvider<ZodTypeProvider>()
   r.addHook('preHandler', authenticateClient)
 
-  r.get('/', { schema: { tags: [TAG], summary: 'Change requests del cliente', security } }, async (req) =>
-    ok(await clientListCRs(req.clientAccount!.sub)),
-  )
+  r.get('/', { schema: { tags: [TAG], summary: 'Change requests del cliente', description: 'Listado paginado por cursor.', security, querystring: ListQuerySchema } }, async (req) => {
+    const { items, nextCursor } = await clientListCRs(req.clientAccount!.sub, req.query)
+    return ok(items, { nextCursor })
+  })
   r.post('/:id/approve', { schema: { tags: [TAG], summary: 'Aprobar CR', security, params: IdParamSchema, body: ClientDecisionSchema } }, async (req) => {
     await clientDecision(req.clientAccount!.sub, req.params.id, 'approved', req.body?.comment)
     return ok({ success: true })

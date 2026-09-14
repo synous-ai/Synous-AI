@@ -1,6 +1,6 @@
 import { GoogleGenAI, ThinkingLevel } from '@google/genai'
 import { env } from '../../config/env'
-import type { GenerateTextFn } from './types'
+import { AI_REQUEST_TIMEOUT_MS, type GenerateTextFn } from './types'
 
 /**
  * Provider Gemini (Vertex AI).
@@ -21,6 +21,7 @@ function getClient(): GoogleGenAI {
     project: credentials.project_id,
     location: env.VERTEX_LOCATION,
     googleAuthOptions: { credentials },
+    httpOptions: { timeout: AI_REQUEST_TIMEOUT_MS },
   })
   return client
 }

@@ -11,7 +11,8 @@ export interface ProposalContent {
   title: string // ej. "Propuesta — CRM a medida para Acme"
   clientName: string // nombre del contacto
   companyName?: string // empresa/marca, si la informó
-  logoUrl?: string // logo del cliente/empresa (ruta /api/files/… o URL absoluta)
+  logoKey?: string // storageKey del logo (file_upload con propósito proposal_logo)
+  logoUrl?: string // LEGACY: URL absoluta a /api/files/<key>; solo se lee, las propuestas nuevas guardan logoKey
   tagline?: string // una línea de gancho bajo el título
 
   // Resumen ejecutivo (1 párrafo)

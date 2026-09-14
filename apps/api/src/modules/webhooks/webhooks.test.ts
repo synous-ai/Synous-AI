@@ -14,7 +14,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
 import { meeting, emailSend, emailEvent, portal } from '../../db/schema'
-import { ensurePortalAndUser } from '../../test/helpers'
+import { ensurePortalAndUser, listenForSupertest } from '../../test/helpers'
 import { createId } from '../../lib/id'
 
 // ── Setup del secret de test ──────────────────────────────────────────────────
@@ -27,6 +27,7 @@ process.env['FATHOM_WEBHOOK_SECRET'] = TEST_SECRET
 // Sobrescribimos env.FATHOM_WEBHOOK_SECRET dinámicamente
 // (env.ts ya fue evaluado; necesitamos parchear el objeto exportado)
 import { env } from '../../config/env'
+import { signClickTarget } from '../email-tracking/email-tracking.service'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(env as any).FATHOM_WEBHOOK_SECRET = TEST_SECRET
 
@@ -34,7 +35,7 @@ const app = buildApp()
 let portalId: string
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   portalId = ctx.portalId
 })
@@ -114,6 +115,37 @@ describe('POST /webhooks/fathom — seguridad HMAC', () => {
     // portales de corridas anteriores, así que se compara contra la misma regla.
     const [oldest] = await db.select({ id: portal.id }).from(portal).orderBy(asc(portal.createdAt)).limit(1)
     expect(row?.portalId).toBe(oldest!.id)
+  })
+
+  it('campos en null → 200 y crea la meeting igual (no descarta el evento)', async () => {
+    // Fathom manda null en campos vacíos. Un schema que solo aceptara "ausente"
+    // rechazaba el payload, respondía 200 y la reunión se perdía sin reintento.
+    const transcriptUrl = `https://app.fathom.video/share/${createId()}`
+    const payload = {
+      title: 'Reunión sin resumen',
+      starts_at: '2026-06-02T14:00:00.000Z',
+      ends_at: null,
+      summary: null,
+      transcript_url: transcriptUrl,
+      action_items: null,
+      participants: [{ email: null, name: 'Invitado sin email' }],
+    }
+    const bodyStr = JSON.stringify(payload)
+
+    const res = await request(app.server)
+      .post('/webhooks/fathom')
+      .set('Content-Type', 'application/json')
+      .set('X-Fathom-Signature', signPayload(bodyStr))
+      .send(bodyStr)
+
+    expect(res.status).toBe(200)
+    const [row] = await db
+      .select()
+      .from(meeting)
+      .where(eq(meeting.fathomTranscriptUrl, transcriptUrl))
+      .limit(1)
+    expect(row?.title).toBe('Reunión sin resumen')
+    expect(row?.fathomSummary).toBeNull()
   })
 
   it('idempotencia: misma transcript_url no crea duplicado, actualiza', async () => {
@@ -239,7 +271,7 @@ describe('GET /track/click/:trackingId — redirect de click', () => {
     const destination = 'https://synous.ai/propuesta'
     const res = await request(app.server)
       .get(`/track/click/${trackingId}`)
-      .query({ url: destination })
+      .query({ url: destination, sig: signClickTarget(trackingId, destination) })
       .redirects(0) // no seguir el redirect
 
     expect(res.status).toBe(302)
@@ -250,10 +282,8 @@ describe('GET /track/click/:trackingId — redirect de click', () => {
     const destination = 'https://synous.ai/propuesta-click-test'
     await request(app.server)
       .get(`/track/click/${trackingId}`)
-      .query({ url: destination })
+      .query({ url: destination, sig: signClickTarget(trackingId, destination) })
       .redirects(0)
-
-    await new Promise((r) => setTimeout(r, 50))
 
     const [sendRow] = await db
       .select({ id: emailSend.id })
@@ -289,5 +319,25 @@ describe('GET /track/click/:trackingId — redirect de click', () => {
 
     expect(res.status).toBe(302)
     expect(res.headers.location).toBeTruthy()
+  })
+
+  it('destino sin firma válida → no redirige ahí (open redirect)', async () => {
+    const res = await request(app.server)
+      .get(`/track/click/${trackingId}`)
+      .query({ url: 'https://phishing.example/login', sig: 'firma-falsa' })
+      .redirects(0)
+
+    expect(res.status).toBe(302)
+    expect(res.headers.location).toBe(env.PUBLIC_API_URL)
+  })
+
+  it('firma de otro trackingId no sirve para este link', async () => {
+    const destination = 'https://synous.ai/propuesta'
+    const res = await request(app.server)
+      .get(`/track/click/${trackingId}`)
+      .query({ url: destination, sig: signClickTarget(crypto.randomUUID(), destination) })
+      .redirects(0)
+
+    expect(res.headers.location).toBe(env.PUBLIC_API_URL)
   })
 })

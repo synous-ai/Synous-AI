@@ -4,14 +4,14 @@ import { and, eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
 import { recordHistory, auditLog } from '../../db/schema'
-import { ensurePortalAndUser, loginToken } from '../../test/helpers'
+import { ensurePortalAndUser, loginToken, listenForSupertest } from '../../test/helpers'
 
 const app = buildApp()
 let token: string
 const email = `c${Date.now()}@test.com`
 
 beforeAll(async () => {
-  await app.ready()
+  await listenForSupertest(app)
   const ctx = await ensurePortalAndUser()
   token = await loginToken(app, ctx.email, ctx.password)
 })

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPatch, apiPost, apiDelete } from '../api'
+import { apiGet, apiPatch, apiPost, apiDelete, apiList } from '../api'
+import { fetchAllPages } from '../fetch-all-pages'
 import type {
   PortalSettings,
   TeamUser,
@@ -137,7 +138,7 @@ export function useDeleteStage() {
 export function useClientAccounts() {
   return useQuery({
     queryKey: ['client-accounts'],
-    queryFn: () => apiGet<ClientAccountSummary[]>('/api/clients/accounts'),
+    queryFn: () => fetchAllPages<ClientAccountSummary>(apiList, '/api/clients/accounts'),
   })
 }
 

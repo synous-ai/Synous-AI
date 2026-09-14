@@ -36,8 +36,8 @@ export async function workItemsRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
-      const items = await listWorkItems(request.hubUser!.portalId, request.query)
-      return ok(items)
+      const { items, nextCursor } = await listWorkItems(request.hubUser!.portalId, request.query)
+      return ok(items, { nextCursor })
     },
   )
 

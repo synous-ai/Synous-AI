@@ -53,7 +53,9 @@ export const changeRequestAttachment = pgTable('change_request_attachment', {
   mimeType: text('mime_type'),
   uploadedBy: text('uploaded_by').references(() => hubUser.id),
   uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => [
+  index('idx_cr_attachment_storage_key').on(table.storageKey),
+])
 
 export const changeRequestHistory = pgTable('change_request_history', {
   id: text('id').primaryKey().$defaultFn(() => createId()),

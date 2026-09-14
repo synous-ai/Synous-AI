@@ -1,6 +1,9 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -50,8 +53,7 @@ import {
   useArchiveDealUpdate,
   useActivatePortal,
 } from '@/lib/hooks'
-import { uploadFile } from '@/lib/hooks/misc'
-import { API_URL } from '@/lib/config'
+import { uploadFile, openFile, FILE_PURPOSE_ACCEPT } from '@/lib/hooks/misc'
 import type { Company, Contact, Deal, Task, DocumentType, TeamUser } from '@/lib/types'
 import { cn, formatCurrency, initials } from '@/lib/utils'
 import { deliverableStatus, crStatus, intakeStatus, taskStatus, priority as priorityStatus, documentType } from '@/lib/status'
@@ -59,6 +61,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { fieldLabel, formatHistoryValue, buildStageMap } from '@/lib/history'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -68,10 +71,11 @@ import {
 } from '@/components/ui/select'
 import { DealDialog } from '@/components/deals/deal-dialog'
 import { TaskDialog } from '@/components/tasks/task-dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
 import { PillTabs } from '@/components/ui/pill-tabs'
 import { DetailViewSkeleton, ListSkeleton } from '@/components/ui/skeletons'
-import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { StickyNote, ListTodo, Users, PackageCheck, GitPullRequest, History, FolderOpen, Download, Megaphone, Archive, EyeOff } from 'lucide-react'
 
@@ -86,6 +90,26 @@ type DetailTab =
   | 'change-requests'
   | 'history'
   | 'documents'
+
+// Acción destructiva pendiente de confirmación (ConfirmDialog). Un único slot
+// discriminado por `kind` en lugar de un boolean+id por acción — evita seis
+// pares de estado idénticos para archivar deal / quitar contacto / borrar nota /
+// borrar entregable / archivar novedad / borrar documento.
+type ConfirmState =
+  | { kind: 'archive-deal' }
+  | { kind: 'remove-contact'; contactId: string; label: string }
+  | { kind: 'delete-note'; noteId: string }
+  | { kind: 'delete-deliverable'; deliverableId: string; label: string }
+  | { kind: 'archive-update'; updateId: string }
+  | { kind: 'delete-document'; docId: string; label: string }
+
+// Espejan CreateNoteSchema / CreateTaskSchema de apps/api/src/modules/activities —
+// solo los campos que carga el quick-add inline (el resto se completa acá mismo).
+const QuickNoteSchema = z.object({ body: z.string().min(1, 'Escribí una nota') })
+type QuickNoteValues = z.infer<typeof QuickNoteSchema>
+
+const QuickTaskSchema = z.object({ title: z.string().min(1, 'Escribí un título') })
+type QuickTaskValues = z.infer<typeof QuickTaskSchema>
 
 // ─── Field row ──────────────────────────────────────────────────────────────
 
@@ -109,6 +133,43 @@ function Field({
   )
 }
 
+// ─── Document download link ──────────────────────────────────────────────────
+
+/** Pide una URL de acceso temporal y abre el documento — no puede ser un <a href> pelado. */
+function DocumentDownloadLink({ storageKey }: { storageKey: string }) {
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  async function handleOpen() {
+    setLoading(true)
+    setFailed(false)
+    try {
+      await openFile(storageKey)
+    } catch {
+      setFailed(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleOpen()}
+      disabled={loading}
+      className="flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+    >
+      <Download className="h-3.5 w-3.5" />
+      {loading ? 'Abriendo…' : 'Descargar'}
+      {failed && (
+        <span role="alert" className="text-destructive">
+          — no se pudo abrir
+        </span>
+      )}
+    </button>
+  )
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function DealDetailPage(): React.JSX.Element {
@@ -116,7 +177,7 @@ export default function DealDetailPage(): React.JSX.Element {
   const id = params.id
   const router = useRouter()
 
-  const { data, isLoading } = useDealDetail(id)
+  const { data, isLoading, isError, refetch } = useDealDetail(id)
   const pipelinesQ = usePipelines()
   const companiesQ = useCompanies()
   const contactsQ = useContacts()
@@ -151,8 +212,6 @@ export default function DealDetailPage(): React.JSX.Element {
   const [editOpen, setEditOpen] = useState(false)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [stagePicker, setStagePicker] = useState(false)
-  const [noteBody, setNoteBody] = useState('')
-  const [taskTitle, setTaskTitle] = useState('')
   const [addContactId, setAddContactId] = useState('')
   const [delivTitle, setDelivTitle] = useState('')
   const [delivType, setDelivType] = useState<'design' | 'prototype' | 'staging' | 'final'>('design')
@@ -167,8 +226,19 @@ export default function DealDetailPage(): React.JSX.Element {
   const [docType, setDocType] = useState<DocumentType>('contract')
   const [docFile, setDocFile] = useState<File | null>(null)
   const [docUploading, setDocUploading] = useState(false)
+  const [docUploadProgress, setDocUploadProgress] = useState(0)
   const [crItems, setCrItems] = useState<{ description: string; unitPrice: string; quantity: string }[]>([])
   const [updateBody, setUpdateBody] = useState('')
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
+
+  const noteForm = useForm<QuickNoteValues>({
+    resolver: zodResolver(QuickNoteSchema),
+    defaultValues: { body: '' },
+  })
+  const quickTaskForm = useForm<QuickTaskValues>({
+    resolver: zodResolver(QuickTaskSchema),
+    defaultValues: { title: '' },
+  })
 
   const pipelines = pipelinesQ.data ?? []
   const companies = companiesQ.data ?? []
@@ -242,11 +312,34 @@ export default function DealDetailPage(): React.JSX.Element {
     return new Date(Math.max(...dates.map((dd) => dd.getTime())))
   }, [data])
 
-  async function handleArchive(): Promise<void> {
-    if (!d) return
-    if (!window.confirm(`¿Archivar el deal "${d.name}"? Esta acción no se puede deshacer.`)) return
-    await archiveDeal.mutateAsync(id)
-    router.push('/deals')
+  // Ejecuta la acción destructiva confirmada en el ConfirmDialog. Centralizado
+  // acá (en lugar de un handler por acción) porque las seis comparten el mismo
+  // ciclo: mutar, cerrar el diálogo, y en el caso de archivar el deal, navegar.
+  async function handleConfirm(): Promise<void> {
+    if (!confirmState) return
+    switch (confirmState.kind) {
+      case 'archive-deal':
+        await archiveDeal.mutateAsync(id)
+        setConfirmState(null)
+        router.push('/deals')
+        return
+      case 'remove-contact':
+        await removeDealContact.mutateAsync({ dealId: id, contactId: confirmState.contactId })
+        break
+      case 'delete-note':
+        await deleteNote.mutateAsync(confirmState.noteId)
+        break
+      case 'delete-deliverable':
+        await deleteDeliverable.mutateAsync(confirmState.deliverableId)
+        break
+      case 'archive-update':
+        await archiveDealUpdate.mutateAsync({ id: confirmState.updateId, dealId: id })
+        break
+      case 'delete-document':
+        await deleteDocument.mutateAsync(confirmState.docId)
+        break
+    }
+    setConfirmState(null)
   }
 
   async function handleStageChange(stageId: string): Promise<void> {
@@ -275,16 +368,25 @@ export default function DealDetailPage(): React.JSX.Element {
     }
   }
 
-  async function addNote(): Promise<void> {
-    if (!noteBody.trim()) return
-    await createNote.mutateAsync({ body: noteBody.trim(), dealId: id })
-    setNoteBody('')
+  // Los errores de estas mutaciones los informa el toast global
+  // (MutationCache.onError). El catch evita el rechazo sin manejar y deja el
+  // texto escrito en el input para reintentar: solo se limpia si se guardó.
+  async function onAddNote(values: QuickNoteValues): Promise<void> {
+    try {
+      await createNote.mutateAsync({ body: values.body.trim(), dealId: id })
+      noteForm.reset({ body: '' })
+    } catch {
+      /* informado por el toast global */
+    }
   }
 
-  async function addTask(): Promise<void> {
-    if (!taskTitle.trim()) return
-    await createTask.mutateAsync({ title: taskTitle.trim(), dealId: id })
-    setTaskTitle('')
+  async function onAddTask(values: QuickTaskValues): Promise<void> {
+    try {
+      await createTask.mutateAsync({ title: values.title.trim(), dealId: id })
+      quickTaskForm.reset({ title: '' })
+    } catch {
+      /* informado por el toast global */
+    }
   }
 
   function toggleTask(t: Task): void {
@@ -335,11 +437,14 @@ export default function DealDetailPage(): React.JSX.Element {
   async function uploadDocument(): Promise<void> {
     if (!docName.trim() || !docFile) return
     setDocUploading(true)
+    setDocUploadProgress(0)
     try {
-      const { key } = await uploadFile(docFile)
-      await createDocument.mutateAsync({ dealId: id, name: docName.trim(), type: docType, storageKey: key })
+      const { storageKey } = await uploadFile(docFile, { purpose: 'deal_document', onProgress: setDocUploadProgress })
+      await createDocument.mutateAsync({ dealId: id, name: docName.trim(), type: docType, storageKey })
       setDocName('')
       setDocFile(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo subir el documento')
     } finally {
       setDocUploading(false)
     }
@@ -374,6 +479,29 @@ export default function DealDetailPage(): React.JSX.Element {
     )
   }
 
+  // ── Error ──────────────────────────────────────────────────────────────────
+  // isError es un fallo real de la query (red, 500) — antes se mostraba el mismo
+  // "no encontrado" que para un id inexistente, ocultando errores de servidor.
+  if (isError) {
+    return (
+      <div className="p-6">
+        <Empty className="border-dashed py-12">
+          <EmptyHeader>
+            <EmptyIllustration icon={AlertCircle} />
+            <EmptyTitle>No se pudo cargar el deal</EmptyTitle>
+            <EmptyDescription>Ocurrió un error al conectar con el servidor.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" onClick={() => void refetch()}>Reintentar</Button>
+            <Link href="/deals" className="text-sm text-primary underline">
+              ← Volver a Deals
+            </Link>
+          </EmptyContent>
+        </Empty>
+      </div>
+    )
+  }
+
   // ── Not found ──────────────────────────────────────────────────────────────
 
   if (!d) {
@@ -386,6 +514,41 @@ export default function DealDetailPage(): React.JSX.Element {
       </div>
     )
   }
+
+  // Copy + estado "pending" del ConfirmDialog según la acción en curso.
+  const confirmCopy: Record<ConfirmState['kind'], { title: string; description?: string; confirmLabel: string }> = {
+    'archive-deal': {
+      title: `¿Archivar el deal "${d.name}"?`,
+      description: 'Esta acción no se puede deshacer.',
+      confirmLabel: 'Archivar',
+    },
+    'remove-contact': {
+      title: confirmState?.kind === 'remove-contact' ? `¿Quitar a "${confirmState.label}" del deal?` : '¿Quitar contacto?',
+      confirmLabel: 'Quitar',
+    },
+    'delete-note': { title: '¿Eliminar esta nota?', description: 'Esta acción no se puede deshacer.', confirmLabel: 'Eliminar' },
+    'delete-deliverable': {
+      title: confirmState?.kind === 'delete-deliverable' ? `¿Eliminar "${confirmState.label}"?` : '¿Eliminar entregable?',
+      description: 'Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar',
+    },
+    'archive-update': { title: '¿Archivar esta novedad?', confirmLabel: 'Archivar' },
+    'delete-document': {
+      title: confirmState?.kind === 'delete-document' ? `¿Eliminar "${confirmState.label}"?` : '¿Eliminar documento?',
+      description: 'Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar',
+    },
+  }
+  const confirmPending = confirmState
+    ? {
+        'archive-deal': archiveDeal.isPending,
+        'remove-contact': removeDealContact.isPending,
+        'delete-note': deleteNote.isPending,
+        'delete-deliverable': deleteDeliverable.isPending,
+        'archive-update': archiveDealUpdate.isPending,
+        'delete-document': deleteDocument.isPending,
+      }[confirmState.kind]
+    : false
 
   return (
     <div className="p-6">
@@ -467,7 +630,7 @@ export default function DealDetailPage(): React.JSX.Element {
                   variant="outline"
                   size="sm"
                   className="flex-1 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/5"
-                  onClick={() => void handleArchive()}
+                  onClick={() => setConfirmState({ kind: 'archive-deal' })}
                   disabled={archiveDeal.isPending}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -618,7 +781,13 @@ export default function DealDetailPage(): React.JSX.Element {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => removeDealContact.mutate({ dealId: id, contactId: c.id })}
+                              onClick={() =>
+                                setConfirmState({
+                                  kind: 'remove-contact',
+                                  contactId: c.id,
+                                  label: [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || 'este contacto',
+                                })
+                              }
                               className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
                               aria-label="Quitar contacto"
                             >
@@ -662,23 +831,35 @@ export default function DealDetailPage(): React.JSX.Element {
               {/* ── Notes ─────────────────────────────────────────────── */}
               {detailTab === 'notes' && (
                 <div className="space-y-4">
-                  <div className="flex gap-2">
-                    <textarea
-                      value={noteBody}
-                      onChange={(e) => setNoteBody(e.target.value)}
-                      placeholder="Agregar una nota…"
-                      rows={3}
-                      className="flex-1 rounded-xl border border-border bg-muted/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
+                  <form onSubmit={noteForm.handleSubmit(onAddNote)} className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor="quick-note-body" className="sr-only">
+                        Nueva nota
+                      </Label>
+                      <textarea
+                        id="quick-note-body"
+                        placeholder="Agregar una nota…"
+                        rows={3}
+                        aria-invalid={!!noteForm.formState.errors.body}
+                        aria-describedby={noteForm.formState.errors.body ? 'quick-note-body-error' : undefined}
+                        className="w-full rounded-xl border border-border bg-muted/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        {...noteForm.register('body')}
+                      />
+                      {noteForm.formState.errors.body && (
+                        <p id="quick-note-body-error" className="text-xs text-destructive">
+                          {noteForm.formState.errors.body.message}
+                        </p>
+                      )}
+                    </div>
                     <Button
                       size="sm"
-                      onClick={() => void addNote()}
-                      disabled={!noteBody.trim() || createNote.isPending}
+                      type="submit"
+                      disabled={createNote.isPending || noteForm.formState.isSubmitting}
                       className="mt-auto"
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
-                  </div>
+                  </form>
                   {data!.notes.length === 0 ? (
                     <Empty className="border-dashed py-8">
                       <EmptyHeader>
@@ -702,7 +883,7 @@ export default function DealDetailPage(): React.JSX.Element {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => deleteNote.mutate(n.id)}
+                            onClick={() => setConfirmState({ kind: 'delete-note', noteId: n.id })}
                             className="h-8 w-8 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -718,31 +899,43 @@ export default function DealDetailPage(): React.JSX.Element {
               {detailTab === 'tasks' && (
                 <div className="space-y-4">
                   {/* Quick-add inline + botón de modal completo (con assignee/estado) */}
-                  <div className="flex gap-2">
-                    <input
-                      value={taskTitle}
-                      onChange={(e) => setTaskTitle(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') void addTask() }}
-                      placeholder="Nueva tarea rápida…"
-                      className="h-9 flex-1 rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
+                  <form onSubmit={quickTaskForm.handleSubmit(onAddTask)} className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor="quick-task-title" className="sr-only">
+                        Nueva tarea rápida
+                      </Label>
+                      <input
+                        id="quick-task-title"
+                        placeholder="Nueva tarea rápida…"
+                        aria-invalid={!!quickTaskForm.formState.errors.title}
+                        aria-describedby={quickTaskForm.formState.errors.title ? 'quick-task-title-error' : undefined}
+                        className="h-9 w-full rounded-xl border border-border bg-muted/50 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        {...quickTaskForm.register('title')}
+                      />
+                      {quickTaskForm.formState.errors.title && (
+                        <p id="quick-task-title-error" className="text-xs text-destructive">
+                          {quickTaskForm.formState.errors.title.message}
+                        </p>
+                      )}
+                    </div>
                     <Button
                       size="sm"
-                      onClick={() => void addTask()}
-                      disabled={!taskTitle.trim() || createTask.isPending}
+                      type="submit"
+                      disabled={createTask.isPending || quickTaskForm.formState.isSubmitting}
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
+                      type="button"
                       onClick={() => setTaskDialogOpen(true)}
                       title="Crear tarea con más opciones"
                     >
                       <Plus className="h-4 w-4" />
                       Completa
                     </Button>
-                  </div>
+                  </form>
                   {data!.tasks.length === 0 ? (
                     <Empty className="border-dashed py-8">
                       <EmptyHeader>
@@ -888,7 +1081,9 @@ export default function DealDetailPage(): React.JSX.Element {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  onClick={() => deleteDeliverable.mutate(dv.id)}
+                                  onClick={() =>
+                                    setConfirmState({ kind: 'delete-deliverable', deliverableId: dv.id, label: dv.title })
+                                  }
                                   className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -995,7 +1190,7 @@ export default function DealDetailPage(): React.JSX.Element {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => archiveDealUpdate.mutate({ id: u.id, dealId: id })}
+                                onClick={() => setConfirmState({ kind: 'archive-update', updateId: u.id })}
                                 title="Archivar"
                                 className="h-8 w-8 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
                               >
@@ -1289,6 +1484,7 @@ export default function DealDetailPage(): React.JSX.Element {
                           {docFile ? docFile.name.slice(0, 20) : 'Elegir archivo…'}
                           <input
                             type="file"
+                            accept={FILE_PURPOSE_ACCEPT.deal_document}
                             className="sr-only"
                             onChange={(e) => {
                               const f = e.target.files?.[0] ?? null
@@ -1302,7 +1498,7 @@ export default function DealDetailPage(): React.JSX.Element {
                           onClick={() => void uploadDocument()}
                           disabled={!docName.trim() || !docFile || docUploading}
                         >
-                          {docUploading ? 'Subiendo…' : <Plus className="h-4 w-4" />}
+                          {docUploading ? `Subiendo… ${docUploadProgress}%` : <Plus className="h-4 w-4" />}
                         </Button>
                       </div>
 
@@ -1330,25 +1526,13 @@ export default function DealDetailPage(): React.JSX.Element {
                                   </p>
                                 </div>
                                 <StatusBadge kind={kind}>{label}</StatusBadge>
-                                {doc.storageKey && (
-                                  <a
-                                    href={`${API_URL}/api/files/${doc.storageKey}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                                  >
-                                    <Download className="h-3.5 w-3.5" />
-                                    Descargar
-                                  </a>
-                                )}
+                                {doc.storageKey && <DocumentDownloadLink storageKey={doc.storageKey} />}
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  onClick={() => {
-                                    if (window.confirm(`¿Eliminar "${doc.name}"?`)) {
-                                      deleteDocument.mutate(doc.id)
-                                    }
-                                  }}
+                                  onClick={() =>
+                                    setConfirmState({ kind: 'delete-document', docId: doc.id, label: doc.name })
+                                  }
                                   className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 text-muted-foreground hover:text-destructive"
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -1382,6 +1566,18 @@ export default function DealDetailPage(): React.JSX.Element {
         pipeline={pipeline}
         companies={companies}
         contacts={contacts}
+      />
+
+      {/* Confirmación de acciones destructivas — ver `confirmState` / `handleConfirm` */}
+      <ConfirmDialog
+        open={confirmState !== null}
+        onOpenChange={(o) => !o && setConfirmState(null)}
+        title={confirmState ? confirmCopy[confirmState.kind].title : ''}
+        description={confirmState ? confirmCopy[confirmState.kind].description : undefined}
+        confirmLabel={confirmState ? confirmCopy[confirmState.kind].confirmLabel : undefined}
+        destructive
+        pending={confirmPending}
+        onConfirm={() => void handleConfirm()}
       />
     </div>
   )

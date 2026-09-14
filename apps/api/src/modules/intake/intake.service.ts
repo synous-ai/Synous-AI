@@ -97,12 +97,15 @@ export async function respondIntake(clientId: string, intakeId: string, answers:
   const [intake] = await db.select().from(dealIntake).where(eq(dealIntake.id, intakeId)).limit(1)
   if (!intake || !ids.includes(intake.dealId)) throw Errors.notFound('Formulario no encontrado')
 
-  await db
-    .insert(dealIntakeResponse)
-    .values({ intakeId, clientId, answers })
-    .onConflictDoUpdate({ target: dealIntakeResponse.intakeId, set: { answers, clientId, submittedAt: new Date() } })
-
-  await db.update(dealIntake).set({ status: 'completed', completedAt: new Date() }).where(eq(dealIntake.id, intakeId))
+  // Respuestas y estado van juntos: sin transacción, un fallo entre los dos
+  // dejaba las respuestas guardadas con el formulario todavía "pendiente".
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(dealIntakeResponse)
+      .values({ intakeId, clientId, answers })
+      .onConflictDoUpdate({ target: dealIntakeResponse.intakeId, set: { answers, clientId, submittedAt: new Date() } })
+    await tx.update(dealIntake).set({ status: 'completed', completedAt: new Date() }).where(eq(dealIntake.id, intakeId))
+  })
 
   // El portalId no está en dealIntake: cuelga del deal.
   const [d] = await db.select({ portalId: deal.portalId }).from(deal).where(eq(deal.id, intake.dealId)).limit(1)
