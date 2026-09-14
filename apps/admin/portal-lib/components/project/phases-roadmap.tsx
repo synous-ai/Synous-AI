@@ -26,6 +26,13 @@ export interface RoadmapPhase {
   isDone?: boolean
 }
 
+/** "Completada" / "En curso" / "Próximamente" — usado por el Home (`showStatusLabel`). */
+function phaseStatusLabel(phase: RoadmapPhase): string {
+  if (phase.isDone) return 'Completada'
+  if (phase.isCurrent) return 'En curso'
+  return 'Próximamente'
+}
+
 /**
  * PhasesRoadmap — acordeón editorial de fases (números 01-09, tipografía
  * serif, chevron, punto de marca en la fase actual, badge "Opcional").
@@ -34,16 +41,30 @@ export interface RoadmapPhase {
  * en el Home del Client Portal (`portal/home-panel.tsx`) con datos reales.
  * El wizard sigue viéndose EXACTAMENTE igual: pasa las 9 fases estáticas con
  * `isCurrent: true` solo en la primera y ningún `isDone` (el wizard nunca
- * marca fases previas como completadas).
+ * marca fases previas como completadas), y no pasa `collapseAll` ni
+ * `showStatusLabel` — quedan en sus defaults (que preservan el comportamiento
+ * de antes: abre la fase actual, sin etiqueta de estado).
  *
  * Fases con `isDone` se muestran atenuadas (opacity) y con un check en vez
  * del número — señal de "completada" sin agregar un color nuevo a la
  * paleta editorial (monocromo + el acento cálido `signal`, reservado para
  * "requiere tu atención").
  */
-export function PhasesRoadmap({ phases, className }: { phases: RoadmapPhase[]; className?: string }) {
+export function PhasesRoadmap({
+  phases,
+  className,
+  collapseAll = false,
+  showStatusLabel = false,
+}: {
+  phases: RoadmapPhase[]
+  className?: string
+  /** Home del portal: arranca con TODO cerrado (el resumen ya muestra la fase actual arriba). */
+  collapseAll?: boolean
+  /** Home del portal: agrega "Completada" / "En curso" / "Próximamente" junto al título. */
+  showStatusLabel?: boolean
+}) {
   const currentIdx = phases.findIndex((p) => p.isCurrent)
-  const [openIdx, setOpenIdx] = useState<number>(currentIdx)
+  const [openIdx, setOpenIdx] = useState<number>(collapseAll ? -1 : currentIdx)
 
   return (
     <div className={cn('divide-y divide-border overflow-hidden rounded-2xl border border-border', className)}>
@@ -78,6 +99,11 @@ export function PhasesRoadmap({ phases, className }: { phases: RoadmapPhase[]; c
                   {phase.optional && (
                     <Badge variant="muted" className="text-[10px]">
                       Opcional
+                    </Badge>
+                  )}
+                  {showStatusLabel && (
+                    <Badge variant={phase.isCurrent ? 'default' : 'muted'} className="text-[10px]">
+                      {phaseStatusLabel(phase)}
                     </Badge>
                   )}
                 </span>

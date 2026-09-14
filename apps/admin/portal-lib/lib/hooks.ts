@@ -450,9 +450,11 @@ export function usePortalPendingCounts(): PortalPending {
   const pendingRequests = (crs.data ?? []).filter((cr) =>
     (['sent', 'negotiating'] as string[]).includes(cr.status),
   )
-  // 'sent' y 'overdue': emitida sin saldar. Una pagada no pide nada.
+  // 'sent' y 'overdue' CON saldo pendiente: emitida sin saldar. Sin el chequeo
+  // de balance, una factura marcada 'overdue' a mano pero ya cobrada seguía
+  // sumando al badge del sidebar y a la tarjeta de Inicio.
   const alertInvoices = (invoices.data ?? []).filter(
-    (inv) => inv.status === 'sent' || inv.status === 'overdue',
+    (inv) => (inv.status === 'sent' || inv.status === 'overdue') && Number(inv.balance) > 0,
   )
 
   return {
