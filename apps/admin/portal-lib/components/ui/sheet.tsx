@@ -9,6 +9,7 @@
 
 import * as React from 'react'
 import * as SheetPrimitive from '@radix-ui/react-dialog'
+import { usePortalContainer } from '@portal/components/ui/portal-scope'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { X } from 'lucide-react'
 
@@ -20,7 +21,11 @@ const SheetTrigger = SheetPrimitive.Trigger
 
 const SheetClose = SheetPrimitive.Close
 
-const SheetPortal = SheetPrimitive.Portal
+/** Portal montado dentro del scope del tema (ver portal-scope.tsx), no en `body`. */
+function SheetPortal(props: React.ComponentPropsWithoutRef<typeof SheetPrimitive.Portal>) {
+  const container = usePortalContainer()
+  return <SheetPrimitive.Portal container={container} {...props} />
+}
 
 const SheetOverlay = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Overlay>,

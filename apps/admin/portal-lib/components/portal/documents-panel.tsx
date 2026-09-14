@@ -553,7 +553,7 @@ function documentKind(doc: ClientDocument): AssetKind {
   return kindForExtension(documentExtension(doc))
 }
 
-/** Nombre sin la extensión cuando el título la trae: la extensión va en su propio badge. */
+/** Nombre sin la extensión cuando el título la trae: `FileName` la vuelve a pegar aparte para no truncarla. */
 function documentBaseName(doc: ClientDocument): string {
   const ext = fileExtension(doc.name)
   return ext ? doc.name.slice(0, -(ext.length + 1)) : doc.name
@@ -568,19 +568,20 @@ function FileTile({ doc }: { doc: ClientDocument }) {
   )
 }
 
+/**
+ * Nombre de archivo con su extensión, como en un explorador. Con un título
+ * largo se trunca la base y la extensión queda siempre visible:
+ * "Contrato de servicios — ….pdf".
+ */
 function FileName({ doc }: { doc: ClientDocument }) {
+  const baseName = documentBaseName(doc)
   const extension = documentExtension(doc)
+  const fullName = extension ? `${baseName}.${extension}` : baseName
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <p className="truncate text-[13px] font-medium text-foreground" title={doc.name}>
-        {documentBaseName(doc)}
-      </p>
-      {extension && (
-        <Badge variant="outline" className="shrink-0">
-          .{extension}
-        </Badge>
-      )}
-    </div>
+    <p className="flex min-w-0 text-[13px] font-medium text-foreground" title={fullName}>
+      <span className="truncate">{baseName}</span>
+      {extension && <span className="shrink-0">.{extension}</span>}
+    </p>
   )
 }
 

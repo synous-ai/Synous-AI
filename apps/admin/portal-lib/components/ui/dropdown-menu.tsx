@@ -8,6 +8,7 @@
 
 import * as React from 'react'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
+import { usePortalContainer } from '@portal/components/ui/portal-scope'
 import { Check, ChevronRight, Circle } from 'lucide-react'
 
 import { cn } from '@portal/lib/utils'
@@ -18,7 +19,11 @@ const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
 const DropdownMenuGroup = DropdownMenuPrimitive.Group
 
-const DropdownMenuPortal = DropdownMenuPrimitive.Portal
+/** Portal montado dentro del scope del tema (ver portal-scope.tsx), no en `body`. */
+function DropdownMenuPortal(props: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Portal>) {
+  const container = usePortalContainer()
+  return <DropdownMenuPrimitive.Portal container={container} {...props} />
+}
 
 const DropdownMenuSub = DropdownMenuPrimitive.Sub
 
@@ -62,7 +67,7 @@ const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
 >(({ className, sideOffset = 4, ...props }, ref) => (
-  <DropdownMenuPrimitive.Portal>
+  <DropdownMenuPortal>
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
@@ -73,7 +78,7 @@ const DropdownMenuContent = React.forwardRef<
       )}
       {...props}
     />
-  </DropdownMenuPrimitive.Portal>
+  </DropdownMenuPortal>
 ))
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName
 
