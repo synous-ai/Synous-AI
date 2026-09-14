@@ -24,19 +24,8 @@ import {
 } from '@portal/lib/hooks'
 import type { ClientNotification } from '@portal/lib/types'
 import { cn } from '@portal/lib/utils'
+import { timeAgo } from '@portal/lib/time-ago'
 import { portalBase } from '@portal/components/portal/portal-nav'
-
-/** "ahora", "hace 5 min", "hace 2 h", "hace 3 d", y luego fecha corta. */
-function timeAgo(iso: string): string {
-  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
-  if (min < 1) return 'ahora'
-  if (min < 60) return `hace ${min} min`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `hace ${h} h`
-  const d = Math.floor(h / 24)
-  if (d < 7) return `hace ${d} d`
-  return new Date(iso).toLocaleDateString('es')
-}
 
 /**
  * Barra de color por prioridad. Es la única señal visual del peso del evento:

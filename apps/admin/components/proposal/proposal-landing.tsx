@@ -103,6 +103,10 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
   const {
     meta,
     hero,
+    origin,
+    milestone,
+    architecture,
+    handoff,
     method,
     team,
     work,
@@ -157,9 +161,64 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
             <p className="lede">{hero.lede}</p>
 
             <div className="cta-row">
-              <GlowButton href="#alcance">{hero.primaryCta}</GlowButton>
+              <GlowButton href="#de-donde-partimos">{hero.primaryCta}</GlowButton>
             </div>
           </div>
+        </section>
+
+        {/* ── De dónde partimos ────────────────────────────────────────── */}
+        {/* El diagnóstico antes de la propuesta: primero demostramos que
+            entendimos el momento, después proponemos. */}
+        <section className="section shell" id="de-donde-partimos">
+          <Reveal>
+            <div className="section-head">
+              <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{origin.eyebrow}</p>
+              <h2>{origin.heading}</h2>
+              <p className="section-lede">{origin.lede}</p>
+            </div>
+          </Reveal>
+          <div className="card-grid">
+            {origin.blocks.map((block, index) => (
+              <Reveal key={block.title} delay={index * 0.08}>
+                <article className="card card-accent">
+                  <span className="card-rule" />
+                  <h3>{block.title}</h3>
+                  <p>{block.body}</p>
+                </article>
+              </Reveal>
+            ))}
+          </div>
+        </section>
+
+        {/* ── El primer hito ───────────────────────────────────────────── */}
+        {/* La fecha del evento ordena las prioridades del proyecto, así que
+            tiene sección propia en vez de ser una línea en los plazos. */}
+        <section className="section shell milestone-section" id="primer-hito">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="section-light" src="/light3.webp" alt="" aria-hidden="true" />
+          <Reveal>
+            <div className="section-head section-head-center">
+              <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{milestone.eyebrow}</p>
+              <h2>{milestone.heading}</h2>
+              <p className="section-lede">{milestone.lede}</p>
+            </div>
+          </Reveal>
+
+          <Reveal>
+            <div className="milestone-card">
+              <CornerTicks />
+              <p className="milestone-date">{milestone.dateLabel}</p>
+              <h3 className="milestone-title">{milestone.dateTitle}</h3>
+              <ul className="milestone-list">
+                {milestone.deliverables.map((item) => (
+                  <li key={item}>
+                    <Check />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Reveal>
         </section>
 
         {/* ── Alcance solicitado ───────────────────────────────────────── */}
@@ -183,6 +242,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
 
           <div className="scope-paths">
             <h3 className="subheading">{scope.pathsHeading}</h3>
+            <p className="subheading-lede">{scope.pathsLede}</p>
             <div className="card-grid card-grid-two">
               {scope.paths.map((path) => (
                 <article className="card path-card" key={path.title}>
@@ -192,6 +252,33 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                 </article>
               ))}
             </div>
+            <p className="scope-future-note">{scope.pathsNote}</p>
+          </div>
+        </section>
+
+        {/* ── Cómo se conecta todo ─────────────────────────────────────── */}
+        {/* La arquitectura conceptual, en capas: responde a avanzar por partes
+            sin rehacer lo ya construido. */}
+        <section className="section shell architecture-section" id="arquitectura">
+          <Reveal>
+            <div className="section-head section-head-center">
+              <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{architecture.eyebrow}</p>
+              <h2>{architecture.heading}</h2>
+              <p className="section-lede">{architecture.lede}</p>
+            </div>
+          </Reveal>
+
+          <div className="arch-stack">
+            {architecture.layers.map((layer, index) => (
+              <Reveal key={layer.title} delay={index * 0.08}>
+                <article className="arch-layer">
+                  <CornerTicks />
+                  <p className="arch-label">{layer.label}</p>
+                  <h3 className="arch-title">{layer.title}</h3>
+                  <p className="arch-body">{layer.body}</p>
+                </article>
+              </Reveal>
+            ))}
           </div>
         </section>
 
@@ -202,6 +289,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
             <div className="section-head section-head-center">
               <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{investment.eyebrow}</p>
               <h2>{investment.heading}</h2>
+              <p className="section-lede">{investment.lede}</p>
             </div>
           </Reveal>
 
@@ -278,6 +366,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                   {method.eyebrow}
                 </p>
                 <h2>{method.heading}</h2>
+                <p className="section-lede">{method.lede}</p>
               </div>
             </Reveal>
             <Reveal>
@@ -389,6 +478,28 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
             </div>
           </Reveal>
           <FaqList entries={faq.entries} />
+        </section>
+
+        {/* ── El siguiente paso ────────────────────────────────────────── */}
+        {/* La página cierra pidiendo una decisión concreta: sin esto el lector
+            termina el FAQ y no sabe qué se espera de él. */}
+        <section className="section shell handoff-section" id="siguiente-paso">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="section-light" src="/light4.webp" alt="" aria-hidden="true" />
+          <Reveal>
+            <div className="section-head section-head-center handoff-head">
+              <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{handoff.eyebrow}</p>
+              <h2>{handoff.heading}</h2>
+              <p className="section-lede">{handoff.lede}</p>
+
+              <div className="cta-row handoff-cta">
+                <GlowButton href={`mailto:${handoff.email}`}>{handoff.primaryCta}</GlowButton>
+                <a className="button-ghost" href={`mailto:${handoff.email}`}>
+                  {handoff.secondaryCta}
+                </a>
+              </div>
+            </div>
+          </Reveal>
         </section>
 
       </main>

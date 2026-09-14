@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { Loader2, Upload, Check, Palette } from 'lucide-react'
-import { apiGet, apiPatch } from '@portal/lib/api'
+import { apiPatch } from '@portal/lib/api'
 import { uploadFile, FILE_PURPOSE_ACCEPT } from '@portal/lib/files'
+import { CLIENT_BRANDING_QUERY_KEY, useClientBranding } from '@portal/lib/hooks'
+import type { ClientBranding } from '@portal/lib/types'
 import { useBranding } from '@portal/components/branding/branding-provider'
 import { Card, CardContent } from '@portal/components/ui/card'
 import { Button } from '@portal/components/ui/button'
@@ -13,20 +15,10 @@ import { Label } from '@portal/components/ui/label'
 import { Skeleton } from '@portal/components/ui/skeleton'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
 
-interface OwnBranding {
-  brandName: string | null
-  brandLogoKey: string | null
-  logoUrl: string | null
-  brandPrimary: string | null
-  brandSecondary: string | null
-}
-
 export function BrandKitForm() {
   const { apply } = useBranding()
-  const { data, isLoading } = useQuery({
-    queryKey: ['my-branding'],
-    queryFn: () => apiGet<OwnBranding & { id: string }>('/api/client/branding'),
-  })
+  const queryClient = useQueryClient()
+  const { data, isLoading } = useClientBranding()
 
   const [name, setName] = useState<string | null>(null)
   const [primary, setPrimary] = useState<string | null>(null)
@@ -95,7 +87,7 @@ export function BrandKitForm() {
     setSaved(false)
     setError(null)
     try {
-      const updated = await apiPatch<OwnBranding>('/api/client/branding', {
+      const updated = await apiPatch<ClientBranding>('/api/client/branding', {
         brandName: (name ?? '').trim() || null,
         brandLogoKey: logoKey || null,
         brandPrimary: primary || null,
@@ -112,6 +104,7 @@ export function BrandKitForm() {
       // a partir de acá el preview vuelve a apoyarse en logoUrl (autorizado
       // para cualquier actor autenticado, ver files.authz.ts) y soltamos el
       // object URL local, que ya cumplió su función.
+      queryClient.setQueryData(CLIENT_BRANDING_QUERY_KEY, updated)
       setLogoUrl(updated.logoUrl ?? '')
       setLocalPreviewUrl(null)
       setSaved(true)

@@ -22,6 +22,9 @@ export type ScopePhase = { label: string; title: string; body: string }
 
 export type ScopePath = { icon: 'modules' | 'versions'; title: string; body: string }
 
+/** Un nivel de la arquitectura conceptual: qué se construye y en qué fase. */
+export type ArchitectureLayer = { label: string; title: string; body: string }
+
 export type CaseStudy = { name: string; kind: string; description: string; proves: string }
 
 export type PricingOption = { label: string; price: string; terms: string }
@@ -42,10 +45,10 @@ export type FaqEntry = { question: string; answer: string }
  * this to check the number should reach it in one click.
  */
 export const NAV: NavItem[] = [
-  { id: 'alcance', label: 'Alcance' },
+  { id: 'de-donde-partimos', label: 'El punto de partida' },
+  { id: 'alcance', label: 'La estrategia' },
   { id: 'inversion', label: 'Inversión' },
   { id: 'como-trabajamos', label: 'Cómo trabajamos' },
-  { id: 'proyectos', label: 'Proyectos' },
 ]
 
 export const proposal = {
@@ -57,10 +60,45 @@ export const proposal = {
 
   hero: {
     eyebrow: 'PROPUESTA · SEPTIEMBRE 2026',
-    headline: 'Propuesta para',
-    headlineHighlight: 'UIRTUS Consultoría Evolutiva',
-    lede: 'El sitio institucional consolida la presencia pública y la gestión de contenidos de UIRTUS; la aplicación transforma sus procesos y herramientas en un producto digital propio.',
-    primaryCta: 'Ver la propuesta',
+    headline: 'Una infraestructura digital a la altura de la consultora en la que',
+    headlineHighlight: 'UIRTUS se está convirtiendo',
+    lede: 'UIRTUS ya no es solamente un estudio contable. Hoy conviven distintas áreas, herramientas propias, un diagnóstico, contenidos y una visión clara de construir un ecosistema digital propio. Esta propuesta ordena ese crecimiento en dos etapas: primero, una presencia institucional sólida; después, una aplicación preparada para evolucionar junto al negocio.',
+    primaryCta: 'Ver propuesta',
+  },
+
+  /** De dónde partimos: el diagnóstico del momento, antes de proponer nada. */
+  origin: {
+    eyebrow: 'DE DÓNDE PARTIMOS',
+    heading: 'UIRTUS creció. Su presencia digital todavía no acompañó esa evolución.',
+    lede: 'En estos nueve años, UIRTUS pasó de concentrarse principalmente en lo contable e impositivo a incorporar gestión, recursos humanos, legales, administración inmobiliaria y nuevas herramientas propias.',
+    blocks: [
+      {
+        title: 'La evolución no tiene dónde verse',
+        body: 'Esa transformación todavía no cuenta con un espacio digital que la represente de forma unificada. Quien busca a UIRTUS hoy no encuentra el alcance real de lo que hace.',
+      },
+      {
+        title: 'Las piezas existen, pero separadas',
+        body: 'El diagnóstico, el panel de clientes, la comunicación institucional y las futuras herramientas viven como piezas independientes, sin un lugar común que las conecte.',
+      },
+      {
+        title: 'El objetivo no es una página',
+        body: 'Es empezar a ordenar todo eso bajo un mismo ecosistema, con una arquitectura que sostenga lo que viene después.',
+      },
+    ] satisfies TitledBlock[],
+  },
+
+  /** El evento del 9 de noviembre: la fecha que ordena las prioridades. */
+  milestone: {
+    eyebrow: 'EL PRIMER HITO',
+    heading: 'Llegar al 9 de noviembre con UIRTUS presentada como corresponde.',
+    lede: 'Para el evento, la prioridad no es tener todo el ecosistema terminado. Es llegar con una presencia oficial, profesional y funcional desde la cual puedan presentar UIRTUS, sus áreas y el Diagnóstico UIRTUS como una herramienta propia de la consultora.',
+    dateLabel: '09 NOV',
+    dateTitle: 'Sitio institucional publicado',
+    deliverables: [
+      'Diagnóstico integrado',
+      'Acceso de clientes',
+      'Base preparada para seguir creciendo',
+    ],
   },
 
 
@@ -68,7 +106,8 @@ export const proposal = {
 
   method: {
     eyebrow: 'CÓMO TRABAJAMOS',
-    heading: 'Conocé nuestras etapas en el proyecto.',
+    heading: 'Desde el primer día van a saber qué estamos haciendo y qué sigue.',
+    lede: 'Una de las prioridades del proyecto es que UIRTUS tenga visibilidad constante del avance. No trabajamos durante semanas para aparecer al final con un producto terminado: el proyecto se divide en etapas, entregas y validaciones concretas.',
     phases: [
       {
         label: '01',
@@ -160,62 +199,81 @@ export const proposal = {
   },
 
   scope: {
-    eyebrow: 'ALCANCE SOLICITADO',
-    heading: 'Dos proyectos.',
-    lede: 'El sitio institucional consolida la presencia pública y la gestión de contenidos de UIRTUS; la aplicación transforma sus procesos y herramientas en un producto digital propio.',
+    eyebrow: 'LA ESTRATEGIA',
+    heading: 'Dos proyectos. Una misma infraestructura.',
+    lede: 'Cada fase resuelve un problema distinto, pero se construyen sobre la misma base. La primera devuelve una presencia a la altura de lo que UIRTUS ya es; la segunda empieza a construir lo que quieren llegar a ser.',
     phases: [
       {
-        label: 'FASE 01',
+        label: 'FASE 01 — PRESENCIA',
         title: 'Sitio institucional + CMS',
-        body: 'Presencia oficial, áreas y servicios, entrada al Diagnóstico UIRTUS, acceso al panel de clientes, y una administración de contenido para que el equipo cambie textos, fotos y entradas sin depender de nadie.',
+        body: 'El punto de entrada oficial a UIRTUS: quiénes son, qué hacen, sus áreas y servicios, el Diagnóstico UIRTUS y el acceso de clientes. Con un CMS propio para que el equipo pueda actualizar información sin depender de terceros.',
       },
       {
-        label: 'FASE 02',
-        title: 'MVP de la aplicación',
-        body: 'Portal institucional dentro de la app, Diagnóstico UIRTUS integrado, panel de clientes conectado, panel de administración, e integración del sitio con ese panel.',
+        label: 'FASE 02 — PRODUCTO',
+        title: 'MVP de la aplicación UIRTUS',
+        body: 'El primer paso para transformar herramientas y procesos que hoy existen de forma independiente en una experiencia digital propia para los clientes de UIRTUS. Una base preparada para sumar funcionalidades a medida que el producto demuestre qué necesita realmente.',
       },
     ] satisfies ScopePhase[],
-    pathsHeading: 'Después del MVP hay dos caminos',
+    pathsHeading: 'El MVP no define el techo de la aplicación. Define la base.',
+    pathsLede: 'Una vez validada la primera versión, UIRTUS puede seguir evolucionando según lo que tenga mayor impacto en ese momento.',
+    pathsNote: 'Ejemplos que aparecieron durante nuestra conversación: gestión de ingresos y gastos, vencimientos, obligaciones, herramientas financieras, medios de pago y un futuro Consultor UIRTUS impulsado por IA. Son visión futura, no están incluidos en esta propuesta.',
     paths: [
       {
         icon: 'modules',
         title: 'Por módulos',
-        body: 'Se cotiza de a uno, cuando lo quieran encarar. Sirve si van a paso tranquilo o si todavía no está claro qué sigue.',
+        body: 'Para incorporar funcionalidades puntuales sin comprometer una inversión mayor.',
       },
       {
         icon: 'versions',
         title: 'Por versiones',
-        body: 'Una V2 que agrupa un conjunto de funcionalidades nuevas y se trabaja como un proyecto con su propio alcance y plazo. Sirve si quieren avanzar más rápido, y suele rendir mejor por lo que cuesta.',
+        body: 'Para agrupar varias mejoras en una evolución más ambiciosa del producto.',
       },
     ] satisfies ScopePath[],
   },
 
+  /**
+   * Cómo se conecta todo: la arquitectura conceptual. Responde a la
+   * preocupación de avanzar por partes sin rehacer lo ya construido.
+   */
+  architecture: {
+    eyebrow: 'CÓMO SE CONECTA TODO',
+    heading: 'No estamos construyendo piezas aisladas.',
+    lede: 'La arquitectura se plantea desde el inicio para que el sitio, el diagnóstico, el panel y las futuras funcionalidades puedan convivir dentro del mismo ecosistema. Así, cada nueva etapa aprovecha lo que ya fue construido en lugar de empezar nuevamente desde cero.',
+    layers: [
+      { label: 'FASE 01', title: 'Sitio UIRTUS', body: 'Diagnóstico · Áreas · Contenido' },
+      { label: 'FASE 01', title: 'Acceso de clientes', body: 'La puerta que conecta las dos fases' },
+      { label: 'FASE 02', title: 'Aplicación UIRTUS', body: 'Panel de cliente · Herramientas · Gestión' },
+      { label: 'DESPUÉS', title: 'Nuevos módulos', body: 'Lo que el producto pida cuando esté andando' },
+    ] satisfies ArchitectureLayer[],
+  },
+
   guarantees: {
     eyebrow: 'NUESTRO COMPROMISO',
-    heading: 'Garantías de proceso',
+    heading: 'Lo que UIRTUS puede esperar durante todo el proyecto.',
     blocks: [
+      {
+        title: 'Avances visibles desde el inicio',
+        body: 'Trabajamos por hitos y demos. Van a poder ver cómo avanza el proyecto, validar decisiones y saber en qué etapa estamos en todo momento.',
+      },
       {
         title: 'Arquitectura antes de código',
         body: 'Si después de la fase de arquitectura no queda claro qué construir, qué priorizar y cómo debería funcionar, hacemos una sesión adicional sin costo hasta que quede definido.',
       },
       {
-        title: 'Avance visible',
-        body: 'El proyecto se desarrolla por hitos y demos. Van a ver la plataforma tomar forma. Nunca pasan semanas sin saber en qué estamos.',
-      },
-      {
-        title: 'No desaparecemos después de publicar',
-        body: 'Capacitación, documentación y 15 días de estabilización técnica incluidos.',
-      },
-      {
         title: 'Activos a nombre de UIRTUS',
         body: 'Construimos activos suyos, no dependencias nuestras. El código, la base de datos, los repositorios y las cuentas quedan a nombre de UIRTUS.',
+      },
+      {
+        title: '15 días de acompañamiento',
+        body: 'Después del lanzamiento seguimos disponibles: capacitación, documentación y estabilización técnica incluidas.',
       },
     ] satisfies TitledBlock[],
   },
 
   investment: {
     eyebrow: 'INVERSIÓN',
-    heading: 'Una inversión para cada proyecto.',
+    heading: 'Dos etapas para avanzar al ritmo de UIRTUS.',
+    lede: 'Cada proyecto puede contratarse de forma independiente. Pueden comenzar por el sitio institucional y avanzar con la aplicación cuando sea el momento adecuado, o trabajar ambas fases dentro de una misma hoja de ruta.',
     phases: [
       {
         name: 'Sitio institucional + CMS',
@@ -319,6 +377,19 @@ export const proposal = {
           'Sí, está incluido en el MVP. La idea es que el diagnóstico sea entrada al ecosistema tanto desde el sitio como desde la app.',
       },
     ] satisfies FaqEntry[],
+  },
+
+  /**
+   * El cierre: la página termina pidiendo una decisión concreta. Sin esto el
+   * lector llega al final del FAQ y no sabe qué se espera de él.
+   */
+  handoff: {
+    eyebrow: 'EL SIGUIENTE PASO',
+    heading: 'Si esta es la dirección que quieren tomar, estamos listos para construirla con ustedes.',
+    lede: 'El primer paso es confirmar con qué fase quieren comenzar. A partir de ahí coordinamos el kickoff, definimos el cronograma y empezamos a trabajar sobre la arquitectura del proyecto.',
+    primaryCta: 'Avanzar con la propuesta',
+    secondaryCta: 'Resolver una duda antes de avanzar',
+    email: 'hola@synousai.com',
   },
 
   closing: {

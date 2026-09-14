@@ -669,9 +669,199 @@
  * or the ornament escapes into whatever stacking context is above it.
  */
 /* The investment section already declares this for its own orbit backdrop. */
-.guarantees-section {
+.guarantees-section,
+.milestone-section,
+.architecture-section,
+.handoff-section {
   position: relative;
   isolation: isolate;
+}
+
+/**
+ * Arco de luz detrás de un titular centrado. `screen` suma su luz al navy en
+ * vez de apoyarse encima como imagen, y el `hue-rotate` lo lleva del violeta
+ * original al azul de marca. Sangra a los lados a propósito: un arco completo
+ * y centrado se leería como una figura, y esto tiene que ser iluminación.
+ */
+.section-light {
+  position: absolute;
+  top: -6%;
+  left: 50%;
+  z-index: -1;
+  width: min(1100px, 140%);
+  max-width: none;
+  transform: translateX(-50%);
+  opacity: 0.4;
+  mix-blend-mode: screen;
+  filter: hue-rotate(310deg) saturate(1.1) brightness(1.15);
+  pointer-events: none;
+}
+
+/* ── El primer hito ───────────────────────────────────────────────────── */
+
+/**
+ * La fecha del evento en una sola tarjeta: es un compromiso, no una lista de
+ * items. El número manda y los entregables lo acompañan.
+ */
+.milestone-card {
+  position: relative;
+  max-width: 620px;
+  margin: 42px auto 0;
+  padding: 40px;
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  background: linear-gradient(165deg, var(--surface-raised), var(--surface));
+  box-shadow: inset 0 1px 0 #96c0ff1a, 0 0 50px #1c73ca14;
+  text-align: center;
+}
+
+.milestone-date {
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
+  font-size: clamp(38px, 5vw, 54px);
+  font-weight: 600;
+  letter-spacing: -1px;
+  line-height: 1;
+  background: linear-gradient(to top, var(--accent), #ffffff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.proposal-page .milestone-title {
+  margin-top: 14px;
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--title);
+}
+
+.milestone-list {
+  display: grid;
+  gap: 12px;
+  margin: 28px 0 0;
+  padding: 26px 0 0;
+  border-top: 1px solid var(--edge);
+  list-style: none;
+  text-align: left;
+}
+
+.milestone-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.milestone-list svg {
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+/* ── Cómo se conecta todo ─────────────────────────────────────────────── */
+
+/**
+ * Las capas de la arquitectura, apiladas. El conector entre una y otra es lo
+ * que hace legible que cada etapa se apoya en la anterior — sin él serían
+ * cuatro tarjetas sueltas y el argumento se pierde.
+ */
+.arch-stack {
+  display: grid;
+  gap: 0;
+  max-width: 680px;
+  margin: 42px auto 0;
+}
+
+.arch-layer {
+  position: relative;
+  padding: 26px 30px;
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  background: linear-gradient(165deg, var(--surface-raised), var(--surface));
+  box-shadow: inset 0 1px 0 #96c0ff1a;
+}
+
+/* Conector vertical: nace del borde inferior de cada capa menos la última. */
+.arch-stack > *:not(:last-child) {
+  margin-bottom: 34px;
+}
+
+.arch-stack > *:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  bottom: -34px;
+  left: 50%;
+  width: 1px;
+  height: 34px;
+  background: linear-gradient(to bottom, var(--accent), #96c0ff26);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.arch-label {
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.proposal-page .arch-title {
+  margin-top: 10px;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--title);
+}
+
+.proposal-page .arch-body {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ── Evolución futura ─────────────────────────────────────────────────── */
+
+.proposal-page .subheading-lede {
+  max-width: 62ch;
+  margin: 14px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* Los ejemplos futuros van en voz baja: son contexto, no alcance vendido. */
+.proposal-page .scope-future-note {
+  max-width: 74ch;
+  margin: 26px 0 0;
+  padding-left: 20px;
+  border-left: 2px solid var(--edge-lit);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted-dim);
+}
+
+/* ── El siguiente paso ────────────────────────────────────────────────── */
+
+.handoff-head {
+  align-items: center;
+}
+
+.handoff-cta {
+  justify-content: center;
+  margin-top: 34px;
 }
 
 /* Dotted arc, faded at the edges so it reads as texture rather than a pasted

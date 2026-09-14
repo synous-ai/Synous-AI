@@ -88,7 +88,7 @@ export async function assertCanReadFile(actor: FileActor, storageKey: string): P
         .where(and(eq(changeRequestAttachment.storageKey, storageKey), eq(changeRequest.portalId, portalId)))
         .limit(1),
       db
-        .select({ dealId: clientAsset.dealId, clientId: clientAsset.clientId })
+        .select({ dealId: clientAsset.dealId, clientId: clientAsset.clientId, archived: clientAsset.archived })
         .from(clientAsset)
         .where(and(eq(clientAsset.storageKey, storageKey), eq(clientAsset.portalId, portalId)))
         .limit(1),
@@ -134,6 +134,9 @@ export async function assertCanReadFile(actor: FileActor, storageKey: string): P
   const asset = assetRows[0]
   if (asset) {
     if (actor.kind === 'hub') return
+    // Un archivo archivado (soft delete) sigue existiendo para auditoría/hub,
+    // pero el cliente ya no puede volver a abrirlo.
+    if (asset.archived) deny()
     if (asset.clientId === actor.clientId) return
     if ((await clientDealIds(actor.clientId)).includes(asset.dealId)) return
     deny()

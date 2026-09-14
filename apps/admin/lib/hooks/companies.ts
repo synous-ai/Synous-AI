@@ -3,6 +3,21 @@ import { apiGet, apiPatch, apiPost, apiDelete, apiList } from '../api'
 import { fetchAllPages } from '../fetch-all-pages'
 import type { Company, CompanyDetail } from '../types'
 
+export interface CompanyBrandingDTO {
+  brandName: string | null
+  brandLogoKey: string | null
+  logoUrl: string | null
+  brandPrimary: string | null
+  brandSecondary: string | null
+}
+
+export interface CompanyBrandingInput {
+  brandName?: string | null
+  brandLogoKey?: string | null
+  brandPrimary?: string | null
+  brandSecondary?: string | null
+}
+
 export function useCompanies() {
   return useQuery({
     queryKey: ['companies'],
@@ -49,5 +64,22 @@ export function useArchiveCompany() {
   return useMutation({
     mutationFn: (id: string) => apiDelete<{ success: boolean }>(`/api/companies/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['companies'] }),
+  })
+}
+
+/**
+ * Marca del portal de cliente editada desde el panel (tarjeta "Marca" del
+ * detalle de empresa) — mismos campos que edita el cliente desde /marca,
+ * PATCH /api/companies/:id/branding. Audita en `record_history` pero NO
+ * notifica (lo origina el propio equipo).
+ */
+export function useUpdateCompanyBranding() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: CompanyBrandingInput }) =>
+      apiPatch<CompanyBrandingDTO>(`/api/companies/${id}/branding`, input),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['companies', 'detail', id] })
+    },
   })
 }
