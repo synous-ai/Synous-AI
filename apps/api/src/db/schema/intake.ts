@@ -1,4 +1,4 @@
-import { pgTable, text, jsonb, timestamp, unique, index, check, bigint } from 'drizzle-orm/pg-core'
+import { pgTable, text, jsonb, timestamp, unique, index, check, bigint, boolean } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { portal } from './portal'
 import { deal } from './deals'
@@ -55,6 +55,14 @@ export const clientAsset = pgTable('client_asset', {
   // sizeBytes is a real size in bytes — kept as bigint (not an ID)
   sizeBytes: bigint('size_bytes', { mode: 'number' }),
   uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * Soft delete (convención del proyecto: nunca se borran registros del CRM).
+   * El objeto en el store NO se borra al archivar — sigue referenciado por
+   * `record_history`/auditoría y `isStorageKeyReferenced` (uploads.service)
+   * lo sigue contando para no liberar el archivo subyacente.
+   */
+  archived: boolean('archived').notNull().default(false),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
 }, (table) => [
   check('client_asset_type_check', sql`${table.type} IN ('logo','foto','documento','acceso','otro')`),
   index('idx_client_asset_deal').on(table.dealId),

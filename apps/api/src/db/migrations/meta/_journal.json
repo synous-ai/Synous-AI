@@ -295,6 +295,13 @@
       "when": 1789322303053,
       "tag": "0041_certain_gamma_corps",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1789363686303,
+      "tag": "0042_glamorous_madame_masque",
+      "breakpoints": true
     }
   ]
 }

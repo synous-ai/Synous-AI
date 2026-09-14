@@ -208,3 +208,14 @@ export const OnboardingMaterialAssetSchema = z.object({
   storageKey: z.string().min(1).max(500),
 })
 export type OnboardingMaterialAssetDTO = z.infer<typeof OnboardingMaterialAssetSchema>
+
+// ── Edición de "Onboarding → Marca" ──────────────────────────────────────────
+// Único campo del brief editable DESPUÉS de completado el onboarding — el
+// resto de las 15 respuestas queda congelado. Mismo saneo que q11 en el brief
+// original (freeText: longitud + strip de control chars + trim).
+export const BrandIdentitySchema = z
+  .object({
+    brandIdentity: freeText(500),
+  })
+  .strict()
+export type BrandIdentityDTO = z.infer<typeof BrandIdentitySchema>

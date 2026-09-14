@@ -7,13 +7,15 @@ import { decodeCursor, paginateRows, cursorWhere } from '../../lib/pagination'
 import { uniqueCompanySlug } from '../../lib/slug'
 import { provisionTenantDomain } from '../../lib/tenant-domain'
 import type { ListQuery } from '../../lib/crm-schemas'
+import { logoUrl } from '../branding/branding.service'
 import type { CreateCompanyDTO, UpdateCompanyDTO } from './companies.schema'
 
 const ENTITY = 'company'
 type CompanyRow = typeof company.$inferSelect
 
 export interface CompanyDetail {
-  company: CompanyRow
+  /** `logoUrl` es derivado (no una columna): la URL pública de corta vida del logo, si hay uno. */
+  company: CompanyRow & { logoUrl: string | null }
   contacts: (typeof contact.$inferSelect)[]
   deals: (typeof deal.$inferSelect)[]
   notes: (typeof note.$inferSelect)[]
@@ -155,5 +157,5 @@ export async function getCompanyDetail(portalId: string, id: string): Promise<Co
       .limit(50),
   ])
 
-  return { company: companyRow, contacts, deals, notes, tasks, history }
+  return { company: { ...companyRow, logoUrl: logoUrl(companyRow.brandLogoKey) }, contacts, deals, notes, tasks, history }
 }

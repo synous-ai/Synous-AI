@@ -7,6 +7,8 @@ import { ListQuerySchema, IdParamSchema } from '../../lib/crm-schemas'
 import { CreateCompanySchema, UpdateCompanySchema } from './companies.schema'
 import { listCompanies, getCompany, getCompanyDetail, createCompany, updateCompany, archiveCompany } from './companies.service'
 import { ADMIN_SECURITY } from '../../lib/http'
+import { ClientUpdateBrandingSchema } from '../branding/branding.schema'
+import { updateCompanyBranding } from '../branding/branding.service'
 
 const TAG = 'Empresas'
 const security = ADMIN_SECURITY
@@ -70,5 +72,22 @@ export async function companiesRoutes(app: FastifyInstance): Promise<void> {
       await archiveCompany(request.hubUser!.portalId, request.hubUser!.sub, request.params.id)
       return ok({ success: true })
     },
+  )
+
+  r.patch(
+    '/:id/branding',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Actualizar branding de la empresa (portal de cliente)',
+        description: 'Nombre de marca, logo y colores que ve el cliente en su portal. Mismos campos que PATCH /api/client/branding, editados por el equipo. No notifica (solo audita) — el cambio lo origina el propio equipo.',
+        security,
+        params: IdParamSchema,
+        body: ClientUpdateBrandingSchema,
+      },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
+    },
+    async (request) =>
+      ok(await updateCompanyBranding(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body)),
   )
 }
