@@ -12,54 +12,65 @@
  */
 
 .portal-theme {
-  /* ─── Fynix — fintech limpio: gris verdoso claro + verde lima + verde bosque ─── */
-  --background: 140 14% 96%;
-  --foreground: 156 30% 13%;
+  /**
+   * Synous claro — el reverso del panel interno.
+   *
+   * El admin es navy oscuro porque el equipo vive ahí todo el día; el portal
+   * es claro porque el cliente entra un rato, muchas veces desde el teléfono y
+   * a veces con sol de frente. La diferencia de luminosidad es además lo que
+   * hace que una pestaña se reconozca de un vistazo, sin leer.
+   *
+   * Los azules son los mismos de la marca: `--accent-deep` (#1c73ca) como
+   * primario y `--accent` (#96c0ff) como acento claro, sobre grises fríos que
+   * los acompañan en vez de pelearles.
+   */
+  --background: 217 62% 98%;
+  --foreground: 225 45% 11%;
 
   --card: 0 0% 100%;
-  --card-foreground: 156 30% 13%;
+  --card-foreground: 225 45% 11%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 156 30% 13%;
+  --popover-foreground: 225 45% 11%;
 
-  --primary: 155 47% 15%;
-  --primary-foreground: 140 30% 97%;
+  --primary: 210 76% 45%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 140 12% 92%;
-  --secondary-foreground: 156 30% 13%;
+  --secondary: 217 45% 95%;
+  --secondary-foreground: 225 45% 11%;
 
-  --muted: 140 12% 94%;
-  --muted-foreground: 150 6% 43%;
+  --muted: 217 40% 96%;
+  --muted-foreground: 218 14% 42%;
 
-  --accent: 110 42% 91%;
-  --accent-foreground: 156 30% 13%;
+  --accent: 216 100% 94%;
+  --accent-foreground: 210 76% 32%;
 
-  --signal: 92 62% 64%;
-  --signal-foreground: 156 45% 14%;
+  --signal: 216 100% 79%;
+  --signal-foreground: 225 45% 11%;
 
   --destructive: 0 65% 47%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 145 13% 89%;
-  --input: 145 13% 89%;
-  --ring: 95 50% 45%;
+  --border: 217 32% 90%;
+  --input: 217 32% 90%;
+  --ring: 210 76% 45%;
 
   --radius: 0.75rem;
 
-  --chart-1: 155 47% 15%;
-  --chart-2: 92 62% 64%;
-  --chart-3: 110 42% 60%;
-  --chart-4: 150 30% 40%;
-  --chart-5: 140 20% 75%;
+  --chart-1: 210 76% 45%;
+  --chart-2: 216 100% 79%;
+  --chart-3: 219 100% 70%;
+  --chart-4: 213 40% 62%;
+  --chart-5: 217 35% 83%;
 
-  --sidebar-background: 140 14% 96%;
-  --sidebar-foreground: 156 30% 13%;
-  --sidebar-primary: 155 47% 15%;
-  --sidebar-primary-foreground: 140 30% 97%;
-  --sidebar-accent: 110 42% 91%;
-  --sidebar-accent-foreground: 156 30% 13%;
-  --sidebar-border: 145 13% 89%;
-  --sidebar-ring: 95 50% 45%;
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 225 45% 11%;
+  --sidebar-primary: 210 76% 45%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 216 100% 94%;
+  --sidebar-accent-foreground: 210 76% 32%;
+  --sidebar-border: 217 32% 90%;
+  --sidebar-ring: 210 76% 45%;
 
   /* Font del portal (sobre-escribe la Inter del admin dentro del scope). */
   --font-sans: var(--font-portal-sans);
@@ -72,124 +83,133 @@
 }
 
 .dark .portal-theme {
-  /* ─── Fynix dark — fondo verde muy oscuro con tinte, foreground claro ─── */
-  --background: 160 20% 7%;
-  --foreground: 140 15% 92%;
+  /**
+   * Modo oscuro del portal: el navy de la marca, el mismo de las páginas
+   * públicas y del panel. El acento sube a `--accent` (#96c0ff) porque el azul
+   * profundo del modo claro no tiene contraste suficiente sobre este fondo.
+   */
+  --background: 225 89% 4%;
+  --foreground: 213 75% 91%;
 
-  --card: 158 18% 10%;
-  --card-foreground: 140 15% 92%;
+  --card: 231 38% 8%;
+  --card-foreground: 213 75% 91%;
 
-  --popover: 158 18% 12%;
-  --popover-foreground: 140 15% 92%;
+  --popover: 231 34% 11%;
+  --popover-foreground: 213 75% 91%;
 
-  --primary: 152 55% 48%;
-  --primary-foreground: 156 45% 8%;
+  --primary: 216 100% 79%;
+  --primary-foreground: 225 89% 6%;
 
-  --secondary: 158 15% 15%;
-  --secondary-foreground: 140 15% 92%;
+  --secondary: 228 28% 15%;
+  --secondary-foreground: 213 75% 91%;
 
-  --muted: 158 15% 14%;
-  --muted-foreground: 145 10% 52%;
+  --muted: 228 28% 13%;
+  --muted-foreground: 214 20% 65%;
 
-  --accent: 155 25% 18%;
-  --accent-foreground: 140 15% 92%;
+  --accent: 224 33% 18%;
+  --accent-foreground: 213 75% 91%;
 
-  --signal: 92 62% 58%;
-  --signal-foreground: 156 45% 8%;
+  --signal: 216 100% 79%;
+  --signal-foreground: 225 89% 6%;
 
   --destructive: 0 65% 55%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 155 18% 17%;
-  --input: 155 18% 17%;
-  --ring: 95 50% 50%;
+  --border: 228 30% 17%;
+  --input: 228 30% 17%;
+  --ring: 216 100% 79%;
 
-  --chart-1: 152 55% 48%;
-  --chart-2: 92 62% 58%;
-  --chart-3: 110 42% 45%;
-  --chart-4: 150 30% 35%;
-  --chart-5: 140 20% 25%;
+  --chart-1: 216 100% 79%;
+  --chart-2: 219 100% 70%;
+  --chart-3: 210 76% 45%;
+  --chart-4: 214 35% 55%;
+  --chart-5: 226 25% 32%;
 
-  --sidebar-background: 158 18% 10%;
-  --sidebar-foreground: 140 15% 92%;
-  --sidebar-primary: 152 55% 48%;
-  --sidebar-primary-foreground: 156 45% 8%;
-  --sidebar-accent: 155 25% 18%;
-  --sidebar-accent-foreground: 140 15% 92%;
-  --sidebar-border: 155 18% 17%;
-  --sidebar-ring: 95 50% 50%;
+  --sidebar-background: 231 38% 8%;
+  --sidebar-foreground: 213 75% 91%;
+  --sidebar-primary: 216 100% 79%;
+  --sidebar-primary-foreground: 225 89% 6%;
+  --sidebar-accent: 224 33% 18%;
+  --sidebar-accent-foreground: 213 75% 91%;
+  --sidebar-border: 228 30% 17%;
+  --sidebar-ring: 216 100% 79%;
 }
 
 /*
- * ─── Editorial oscuro (onboarding wizard + shell del Client Portal) ──────────
+ * ─── Editorial claro (onboarding wizard + shell del Client Portal) ───────────
  *
- * Scope aparte de `.portal-theme` / `.dark .portal-theme` (el fintech verde de
- * arriba, que sigue siendo el look del LOGIN — no tocar). `.portal-editorial`
- * se aplica en un wrapper DENTRO de `(app)/layout.tsx`, así que sus variables
- * pisan a las de `.portal-theme` solo para el shell autenticado del portal y
- * el wizard — nunca para /portal/login ni /portal/accept-invitation.
+ * Scope aparte de `.portal-theme`: `.portal-editorial` se aplica en un wrapper
+ * DENTRO de `(app)/layout.tsx`, así que sus variables pisan a las de
+ * `.portal-theme` solo para el shell autenticado del portal y el wizard —
+ * nunca para /portal/login ni /portal/accept-invitation.
  *
- * Es dark-only a propósito (no depende de .dark ni del toggle de tema): la
- * referencia de diseño (K100) es un negro casi puro con textura de puntos,
- * cards gris carbón y acentos blanco-sobre-negro, sin variante clara.
+ * Es light-only a propósito (no depende de .dark ni del toggle): el panel
+ * interno es navy oscuro porque el equipo vive ahí todo el día; el portal es
+ * claro porque el cliente entra un rato, muchas veces desde el teléfono y a
+ * veces con sol de frente. Esa diferencia de luminosidad es además lo que hace
+ * que una pestaña se reconozca de un vistazo, sin leer.
  *
- * ─── Verde de marca en el editorial ─────────────────────────────────────────
- * El editorial nació monocromo (--primary blanco). Ahora `--primary` lleva el
- * VERDE DE MARCA — el mismo `152 55% 48%` que usa `.dark .portal-theme` en el
- * login, para que el cliente vea un solo verde en todo el portal.
+ * El carácter editorial no cambia: sigue el marco blueprint con rieles y
+ * aspas, la serif de títulos y los eyebrows anchos. Lo que se invierte es el
+ * valor — el mismo dibujo, sobre papel en vez de sobre negro.
  *
- * Entra por `--primary` (acción: botones, pills elegidas, checkbox, dots de
- * progreso) y NO por `--signal`, que sigue siendo el dorado cálido reservado a
- * "requiere tu atención". Si el verde ocupara `--signal`, esa señal de urgencia
- * se perdería entre los elementos de acción, que son la mayoría de la pantalla.
- * El fondo, las cards y el texto siguen monocromos: el verde es acento, no tema.
+ * `--primary` lleva el AZUL DE MARCA (`--accent-deep`, #1c73ca) y entra por
+ * acción: botones, pills elegidas, checkbox, dots de progreso. NO por
+ * `--signal`, que sigue siendo el dorado cálido reservado a "requiere tu
+ * atención": si el azul ocupara `--signal`, esa señal de urgencia se perdería
+ * entre los elementos de acción, que son la mayoría de la pantalla.
  */
 .portal-editorial {
-  --background: 0 0% 5%;
-  --foreground: 0 0% 96%;
+  --background: 217 62% 98%;
+  --foreground: 225 45% 11%;
 
-  --card: 0 0% 9%;
-  --card-foreground: 0 0% 96%;
+  --card: 0 0% 100%;
+  --card-foreground: 225 45% 11%;
 
-  --popover: 0 0% 10%;
-  --popover-foreground: 0 0% 96%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 225 45% 11%;
 
-  --primary: 152 55% 48%;
-  --primary-foreground: 156 45% 8%;
+  --primary: 210 76% 45%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 0 0% 14%;
-  --secondary-foreground: 0 0% 93%;
+  --secondary: 217 45% 95%;
+  --secondary-foreground: 225 45% 11%;
 
-  --muted: 0 0% 13%;
-  --muted-foreground: 0 0% 60%;
+  --muted: 217 40% 96%;
+  --muted-foreground: 218 14% 42%;
 
-  --accent: 0 0% 17%;
-  --accent-foreground: 0 0% 96%;
+  --accent: 216 100% 94%;
+  --accent-foreground: 210 76% 32%;
 
-  /* Acento cálido — único color de la paleta, reservado para "requiere tu atención". */
-  --signal: 42 88% 61%;
-  --signal-foreground: 32 55% 12%;
+  /* Acento cálido — reservado para "requiere tu atención". Oscurecido respecto
+     del dorado del tema oscuro: sobre papel, aquel no llegaba a contrastar. */
+  --signal: 38 92% 42%;
+  --signal-foreground: 0 0% 100%;
 
-  --destructive: 0 72% 58%;
+  --destructive: 0 65% 47%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 0 0% 19%;
-  --input: 0 0% 19%;
-  /* Anillo de foco en verde: acompaña a --primary para que el foco de teclado
+  --border: 217 32% 90%;
+  --input: 217 32% 90%;
+  /* Anillo de foco en azul: acompaña a --primary para que el foco de teclado
      se lea como parte del mismo sistema y no como un gris ajeno. */
-  --ring: 152 55% 48%;
+  --ring: 210 76% 45%;
 
-  --chart-1: 152 55% 48%;
-  --chart-2: 42 88% 61%;
-  --chart-3: 0 0% 70%;
-  --chart-4: 0 0% 45%;
-  --chart-5: 0 0% 28%;
+  --chart-1: 210 76% 45%;
+  --chart-2: 38 92% 42%;
+  --chart-3: 219 100% 70%;
+  --chart-4: 213 40% 62%;
+  --chart-5: 217 35% 83%;
 
   background-color: hsl(var(--background));
-  /* GRID.webp replaces the former dot texture. Fixed attachment keeps the grid
-     anchored to the viewport, so it does not slide while the wizard scrolls. */
-  background-image: url('/GRID.webp');
-  background-repeat: repeat;
+  /* Grilla dibujada en CSS y no con GRID.webp: esa textura es una grilla clara
+     hecha para verse sobre negro y sobre papel desaparece. Dos gradientes de
+     1px dan lo mismo en el valor correcto, sin pedir un archivo.
+     `fixed` la ancla al viewport, así no se desliza mientras el wizard scrollea. */
+  background-image:
+    linear-gradient(hsl(var(--border) / 55%) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 55%) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px;
   background-position: center top;
   background-attachment: fixed;
   color: hsl(var(--foreground));
@@ -208,7 +228,9 @@
   color: hsl(var(--muted-foreground));
 }
 
-/* Sheen sutil arriba de una card — luz radial, tipo vidrio esmerilado. */
+/* Sheen sutil arriba de una card. Sobre papel la luz no se ve, así que el
+   gradiente va al revés: un velo del azul de marca que tiñe el borde superior
+   en lugar de aclararlo. */
 .portal-editorial .editorial-sheen {
   position: relative;
   isolation: isolate;
@@ -219,7 +241,7 @@
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: radial-gradient(120% 60% at 50% -20%, hsl(0 0% 100% / 8%), transparent 60%);
+  background: radial-gradient(120% 60% at 50% -20%, hsl(210 76% 45% / 7%), transparent 60%);
   pointer-events: none;
 }
 

@@ -19,7 +19,6 @@ import {
   markProposalSent,
   markProposalCompleted,
   getPublicProposal,
-  getPublicProposalPdf,
 } from './proposals.service'
 
 const TAG = 'Proposals'
@@ -42,26 +41,6 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
       },
     },
     async (request) => ok(await getPublicProposal(request.params.token)),
-  )
-
-  // Descarga del PDF de la propuesta. Devuelve el binario directo (no JSON) para
-  // que el link `<a href>` lo baje sin pasos extra.
-  r.get(
-    '/:token/pdf',
-    {
-      schema: {
-        tags: [TAG],
-        summary: 'Descargar el PDF de una propuesta (público)',
-        params: ProposalTokenParamSchema,
-      },
-    },
-    async (request, reply) => {
-      const { filename, buffer } = await getPublicProposalPdf(request.params.token)
-      return reply
-        .header('Content-Type', 'application/pdf')
-        .header('Content-Disposition', `attachment; filename="${filename}"`)
-        .send(buffer)
-    },
   )
 
   // El cliente llegó al ÚLTIMO paso de la presentación (lo dispara el deck).
