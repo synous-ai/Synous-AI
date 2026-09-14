@@ -32,6 +32,10 @@ import { SLUG_RESERVED } from '@synous/shared'
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 días
 
+// Páginas legales: públicas en cualquier host. Las enlazan la pantalla de
+// consentimiento de Google y el login, antes de que exista una sesión.
+const LEGAL_PATHS = ['/privacidad', '/terminos'] as const
+
 // ─── Matchers de ruta ────────────────────────────────────────────────────────
 
 // Admin: protegido todo excepto /admin/login.
@@ -229,6 +233,8 @@ function resolveTenant(req: NextRequest): NextResponse | null {
 
 export default clerkMiddleware(async (auth, req) => {
   const { pathname } = req.nextUrl
+
+  if ((LEGAL_PATHS as readonly string[]).includes(pathname)) return NextResponse.next()
 
   // 0. Host del panel interno (app.*, admin.*): sirve SOLO el admin, con URLs limpias.
   //    Va antes que todo lo demás porque decide el destino de la request entera.
