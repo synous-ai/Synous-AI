@@ -18,8 +18,8 @@
 import { and, eq, gt, lte } from 'drizzle-orm'
 import { db } from '../../db'
 import { booking, bookingReminder, meetingType, hubUser, portal } from '../../db/schema'
-import { env } from '../../config/env'
 import { sendEmail } from '../../lib/mailer'
+import { publicSiteBaseUrl } from '../../lib/portal-url'
 import { toInviteeDisplay } from './slots.service'
 import { bookingReminderHtml, bookingReminderSubject, type ReminderKind } from './emails/booking-reminder'
 
@@ -36,10 +36,6 @@ function firstLocation(locations: unknown): string | null {
   if (!Array.isArray(locations) || locations.length === 0) return null
   const l = locations[0] as { link?: string; address?: string }
   return l?.link ?? l?.address ?? null
-}
-
-function baseUrl(): string {
-  return (env.ADMIN_URL ?? 'http://localhost:3000').replace(/\/+$/, '')
 }
 
 /**
@@ -115,8 +111,8 @@ export async function sendDueBookingReminders(now: Date = new Date()): Promise<n
             durationMin: r.durationMin,
             withWhom: r.hostFirstName,
             location,
-            cancelUrl: r.cancelToken ? `${baseUrl()}/book/cancel?token=${r.cancelToken}` : null,
-            rescheduleUrl: r.rescheduleToken ? `${baseUrl()}/book/reschedule?token=${r.rescheduleToken}` : null,
+            cancelUrl: r.cancelToken ? `${publicSiteBaseUrl()}/book/cancel?token=${r.cancelToken}` : null,
+            rescheduleUrl: r.rescheduleToken ? `${publicSiteBaseUrl()}/book/reschedule?token=${r.rescheduleToken}` : null,
             kind: w.kind,
           }),
         })

@@ -37,12 +37,14 @@ import { Skeleton } from '@portal/components/ui/skeleton'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
 import { ClientNotificationBell } from '@portal/components/portal/notification-bell'
 import { PortalSidebar } from '@portal/components/portal/portal-sidebar'
+import { PortalViewBanner } from '@portal/components/portal/portal-view-banner'
 import { ClientOnboardingWizard } from '@portal/components/onboarding/client-onboarding-wizard'
 import {
   PortalNavProvider,
   portalHref,
   usePortalNav,
   type PortalTabId,
+  portalBase,
 } from '@portal/components/portal/portal-nav'
 
 // Display font for the brand mark and every heading in the portal shell.
@@ -132,8 +134,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // El middleware ya bloquea antes de llegar acá, pero cubrimos el caso
   // de sesión expirada durante la navegación.
   useEffect(() => {
-    if (isLoaded && !isSignedIn) router.replace('/portal/login')
-  }, [isLoaded, isSignedIn, router])
+    if (isLoaded && !isSignedIn) router.replace(`${portalBase(pathname)}/login`)
+  }, [isLoaded, isSignedIn, router, pathname])
 
   // Pantalla de carga mientras Clerk verifica la sesión.
   if (!isLoaded || !isSignedIn) {
@@ -167,6 +169,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className={cn('portal-editorial flex min-h-screen flex-col', editorialSerif.variable)}>
+      <PortalViewBanner />
       {/* Header: brand mark on one side, account controls on the other. The
           client cannot re-brand the portal, so no "Mi Marca" entry point. */}
       <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-md">

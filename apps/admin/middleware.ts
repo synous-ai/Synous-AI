@@ -7,8 +7,9 @@ import { SLUG_RESERVED } from '@synous/shared'
  * Middleware unificado de la app web (admin + portal de cliente).
  *
  * Orden de responsabilidades:
- *  0. Host del panel (app.*, admin.*): sirve SOLO el admin, con URLs sin el
- *     prefijo /admin (app.synousai.com/login, /dashboard, …). Rewrite a /admin/*.
+ *  0. Host del panel (admin.*): sirve SOLO el admin, con URLs sin el
+ *     prefijo /admin (admin.synousai.com/login, /dashboard, …). Rewrite a /admin/*.
+ *     `app.*` ya no se usa: responde 404, sin redirigir.
  *     Las páginas siguen en app/admin/*; el prefijo desaparece de la URL, no
  *     del árbol de archivos. Los links internos ya son sin prefijo.
  *  1. Tenant white-label: subdominio o path /c/<slug> → rewrite a /portal/*.
@@ -31,6 +32,10 @@ import { SLUG_RESERVED } from '@synous/shared'
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30 // 30 días
+
+// Páginas legales: públicas en cualquier host. Las enlazan la pantalla de
+// consentimiento de Google y el login, antes de que exista una sesión.
+const LEGAL_PATHS = ['/privacidad', '/terminos'] as const
 
 // ─── Matchers de ruta ────────────────────────────────────────────────────────
 
@@ -65,29 +70,41 @@ function isPortalPublicPath(pathname: string): boolean {
   return PORTAL_PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
 
-// ─── Host del panel interno (app.* y admin.*) ────────────────────────────────
+// ─── Host del panel interno (admin.*) ─────────────────────────────────────────
 
 /**
- * Labels de subdominio que sirven el panel interno. `app` es el host principal;
- * `admin` se mantiene porque los links y bookmarks existentes apuntan ahí.
+ * El panel interno de Synous se sirve SOLO en `admin.*`. Cada cliente tiene su
+ * portal en `<slug>.*` y el sitio público vive en el apex.
  *
- * Los dos están en `SLUG_RESERVED` (packages/shared/src/slug.ts), así que
- * `getSubdomain()` ya los descarta como tenant white-label y ninguna empresa
- * puede quedarse con esos slugs.
+ * `app.*` fue el host del panel y quedó retirado: no sirve nada ni redirige.
+ * Hay que cortarlo acá porque el alias comodín `*.synousai.com` de Vercel lo
+ * sigue enrutando a esta app.
+ *
+ * Los dos labels están en `SLUG_RESERVED` (packages/shared/src/slug.ts), así
+ * que `getSubdomain()` los descarta como tenant y ninguna empresa puede
+ * quedarse con esos slugs.
  */
-const ADMIN_HOST_LABEL = 'app'
-const ADMIN_HOST_LABELS = ['app', 'admin'] as const
+const ADMIN_HOST_LABEL = 'admin'
+const RETIRED_HOST_LABEL = 'app'
 
-/** ¿La request entra por el host del panel (app.synousai.com, admin.localhost)? */
+function hostnameOf(host: string): string {
+  return (host.split(':')[0] || '').toLowerCase()
+}
+
+/** ¿La request entra por el host del panel (admin.synousai.com, admin.localhost)? */
 function isAdminHost(host: string): boolean {
-  const hostname = (host.split(':')[0] || '').toLowerCase()
-  return ADMIN_HOST_LABELS.some((label) => hostname.startsWith(`${label}.`))
+  return hostnameOf(host).startsWith(`${ADMIN_HOST_LABEL}.`)
+}
+
+/** ¿La request entra por el host retirado del panel (app.synousai.com)? */
+function isRetiredHost(host: string): boolean {
+  return hostnameOf(host).startsWith(`${RETIRED_HOST_LABEL}.`)
 }
 
 /**
  * Mapea el path "limpio" del host del panel al path real del App Router.
  *
- * En `app.synousai.com` las URLs no llevan el prefijo `/admin`: la raíz es
+ * En `admin.synousai.com` las URLs no llevan el prefijo `/admin`: la raíz es
  * el dashboard y el login es `/login`. Las páginas siguen viviendo en
  * `app/admin/*`, así que acá se traduce con un rewrite (no un redirect: el
  * usuario tiene que ver la URL limpia en la barra).
@@ -110,13 +127,27 @@ function adminHostTarget(pathname: string): string {
  *
  * Devuelve null en local sin dominio raíz configurado — ahí NO se redirige y
  * `/admin/*` se sigue sirviendo como antes, para no obligar a levantar
- * `app.localhost` sólo para entrar al panel en desarrollo.
+ * `admin.localhost` sólo para entrar al panel en desarrollo.
  */
 function adminHostUrl(): string | null {
   const explicit = process.env['NEXT_PUBLIC_ADMIN_URL']
   if (explicit) return explicit.replace(/\/+$/, '')
   const root = process.env['NEXT_PUBLIC_ROOT_DOMAIN']
   return root ? `https://${ADMIN_HOST_LABEL}.${root.toLowerCase()}` : null
+}
+
+/**
+ * Base del sitio público (el apex): landing, páginas legales, reservas y
+ * propuestas. Null en local sin dominio raíz configurado.
+ */
+function publicSiteUrl(): string | null {
+  const root = process.env['NEXT_PUBLIC_ROOT_DOMAIN']
+  return root ? `https://${root.toLowerCase()}` : null
+}
+
+/** Reservas (`/book/*`) y propuestas (`/p/*`): páginas del sitio público, no del panel. */
+function isPublicSitePath(pathname: string): boolean {
+  return ['/book', '/p'].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
 }
 
 /** Saca el prefijo `/admin` de un path: `/admin/deals/1` → `/deals/1`, `/admin` → `/`. */
@@ -229,13 +260,25 @@ function resolveTenant(req: NextRequest): NextResponse | null {
 
 export default clerkMiddleware(async (auth, req) => {
   const { pathname } = req.nextUrl
+  const host = req.headers.get('host') ?? ''
 
-  // 0. Host del panel interno (app.*, admin.*): sirve SOLO el admin, con URLs limpias.
+  if (isRetiredHost(host)) return new NextResponse(null, { status: 404 })
+
+  if ((LEGAL_PATHS as readonly string[]).includes(pathname)) return NextResponse.next()
+
+  // 0. Host del panel interno (admin.*): sirve SOLO el admin, con URLs limpias.
   //    Va antes que todo lo demás porque decide el destino de la request entera.
-  //    Sin esta rama, `app.synousai.com/` caía en el passthrough final y
+  //    Sin esta rama, `admin.synousai.com/` caía en el passthrough final y
   //    servía la LANDING: `admin` está en SLUG_RESERVED, así que no resuelve
   //    como tenant, pero tampoco matcheaba ninguna ruta de /admin/*.
-  if (isAdminHost(req.headers.get('host') ?? '')) {
+  if (isAdminHost(host)) {
+    // Reservas y propuestas son del sitio público: un link armado con el host
+    // del panel se manda al apex en vez de chocar con el login.
+    const site = publicSiteUrl()
+    if (site && isPublicSitePath(pathname)) {
+      return NextResponse.redirect(new URL(`${pathname}${req.nextUrl.search}`, site))
+    }
+
     // Las URLs con el prefijo viejo se corrigen solas: `/admin/deals/1` →
     // `/deals/1`. Redirect (no rewrite) para que el prefijo desaparezca de la
     // barra y no queden dos URLs sirviendo la misma página.
@@ -253,19 +296,15 @@ export default clerkMiddleware(async (auth, req) => {
       // `unauthenticatedUrl` apunta a la URL limpia del propio host.
       await auth.protect({ unauthenticatedUrl: new URL('/login', req.url).toString() })
 
-      // Un cliente logueado no tiene nada que hacer en el panel: se lo manda a
-      // su portal, que vive en el subdominio de su empresa
-      // (uirtus.synousai.com). Sin el salto cross-domain quedaría redirigido a
-      // /portal de ESTE host, donde el middleware vuelve a mandarlo al panel.
-      // `NEXT_PUBLIC_APP_URL` es el destino de fallback mientras no se resuelva
-      // el subdominio del tenant desde la sesión; sin él cae al login del panel
-      // y que decida el backend.
+      // Un cliente logueado no tiene nada que hacer en el panel. Su portal vive
+      // en el subdominio de su empresa (uirtus.synousai.com), que todavía no se
+      // resuelve desde la sesión: mientras tanto va al sitio público, que no lo
+      // devuelve acá.
       const { sessionClaims } = await auth()
       const claims = sessionClaims as (Record<string, unknown> & { publicMetadata?: { userType?: string } }) | null
       const userType = (claims?.['userType'] as string | undefined) ?? claims?.publicMetadata?.userType
       if (userType === 'client') {
-        const portalUrl = process.env['NEXT_PUBLIC_APP_URL']
-        return NextResponse.redirect(portalUrl ? `${portalUrl.replace(/\/+$/, '')}/portal` : new URL('/login', req.url))
+        return NextResponse.redirect(publicSiteUrl() ?? new URL('/login', req.url))
       }
     }
 
@@ -294,19 +333,23 @@ export default clerkMiddleware(async (auth, req) => {
     })()
     const destIsPortalPublic = isPortalPublicPath(destPathname)
     if (!destIsPortalPublic) {
-      // Proteger: redirigir a login del portal si no hay sesión.
-      await auth.protect({ unauthenticatedUrl: new URL('/portal/login', req.url).toString() })
+      // Proteger: sin sesión va al login del portal. En el subdominio del
+      // cliente la URL queda limpia (`/login`); los accesos con prefijo
+      // (`/c/<slug>`, `/portal`) conservan el suyo.
+      const tenantPath = pathname.match(/^\/c\/[^/]+/)?.[0]
+      const loginPath = tenantPath ? `${tenantPath}/login` : pathname.startsWith('/portal') ? '/portal/login' : '/login'
+      await auth.protect({ unauthenticatedUrl: new URL(loginPath, req.url).toString() })
     }
     return tenantResp
   }
 
-  // 2. El panel vive SOLO en sus hosts (app.*, admin.*). Lo que llegue por otro dominio a
+  // 2. El panel vive SOLO en su host (admin.*). Lo que llegue por otro dominio a
   //    /admin/* o /login (links viejos, bookmarks, el signInUrl de Clerk) se
   //    manda ahí, ya sin el prefijo.
   //
   //    Si no hay host de admin configurado (dev local sin dominio raíz) NO se
   //    redirige y /admin/* se sigue sirviendo acá, así no hace falta levantar
-  //    app.localhost sólo para entrar al panel.
+  //    admin.localhost sólo para entrar al panel.
   const adminUrl = adminHostUrl()
   if (adminUrl && (pathname === '/admin' || pathname.startsWith('/admin/') || pathname === '/login' || pathname.startsWith('/login/'))) {
     const dest = new URL(`${adminUrl}${stripAdminPrefix(pathname)}`)

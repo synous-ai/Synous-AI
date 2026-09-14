@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import { ClerkProvider } from '@clerk/nextjs'
+import { esUY } from '@clerk/localizations'
 import './globals.css'
 import { ThemeProvider } from '@/components/theme-provider'
 import { cn } from '@/lib/utils'
@@ -26,7 +27,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
      * por eso Clerk NO protege /portal/*: lo controla el middleware.
      * signInUrl apunta a la ruta headless del CRM, no a la UI de Clerk.
      */
-    <ClerkProvider signInUrl="/login">
+    // es-UY: la variante de Clerk con voseo, igual que el resto de la app.
+    <ClerkProvider signInUrl="/login" localization={esUY}>
       <html lang="es" className={cn(inter.variable, mono.variable)} suppressHydrationWarning>
         <body>
           {/* Sin `disableTransitionOnChange`: queremos que el cambio dark↔light sea

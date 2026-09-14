@@ -18,6 +18,8 @@ next-env.d.ts
 # contiene secretos reales. Solo los .env.example se versionan.
 .env.*
 !.env.example
+# Credenciales OAuth descargadas de Google Cloud.
+client_secret_*.json
 # Se versiona únicamente la plantilla:
 
 # ── Archivos subidos por usuarios (almacenamiento local) ──────

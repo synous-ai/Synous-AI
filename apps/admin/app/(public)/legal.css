@@ -1,0 +1,297 @@
+/**
+ * Páginas legales. La paleta sale de ../portal/_brand/brand-tokens.css; este
+ * archivo solo arma el documento. Todo cuelga de `.legal-page` para no tocar el
+ * tema del panel, que es dueño de `:root` y `body`.
+ */
+
+.legal-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  padding-inline: 16px;
+}
+
+.legal-page a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: #96c0ff59;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.2s ease, color 0.2s ease;
+}
+
+.legal-page a:hover {
+  color: var(--title);
+  text-decoration-color: var(--accent);
+}
+
+.legal-page h1,
+.legal-page h2,
+.legal-page p,
+.legal-page ul,
+.legal-page ol {
+  margin: 0;
+}
+
+.legal-mono {
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────── */
+
+.legal-header {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: min(760px, 100%);
+  height: 64px;
+  margin: 26px auto 0;
+  padding-inline: 22px;
+  border: 1px solid var(--edge-lit);
+  background: #070b1ccc;
+  box-shadow: inset 0 0 15px 4px #1c2542a6;
+}
+
+.legal-header-logo {
+  height: 22px;
+  width: auto;
+}
+
+.legal-header-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.legal-page .legal-header-nav a {
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  color: var(--muted-dim);
+  text-decoration: none;
+}
+
+.legal-page .legal-header-nav a:hover {
+  color: var(--title);
+}
+
+.legal-page .legal-header-nav a[aria-current='page'] {
+  border-color: var(--edge-lit);
+  background: var(--surface-raised);
+  color: var(--accent);
+}
+
+/* ── Documento ────────────────────────────────────────────────────────── */
+
+.legal-shell {
+  width: min(760px, 100%);
+  margin-inline: auto;
+  padding-block: clamp(56px, 9vw, 96px) clamp(48px, 7vw, 80px);
+}
+
+.legal-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent);
+}
+
+.legal-eyebrow::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  box-shadow: 0 0 12px var(--accent-bright);
+}
+
+.legal-page h1 {
+  margin-top: 18px;
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  color: var(--title);
+}
+
+.legal-lede {
+  margin-top: 18px;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.legal-updated {
+  margin-top: 22px;
+  color: var(--muted-dim);
+}
+
+.legal-toc {
+  margin-top: 40px;
+  padding: 22px 24px;
+  border: 1px solid var(--edge);
+  background: var(--surface);
+}
+
+.legal-toc-title {
+  color: var(--muted-dim);
+}
+
+.legal-toc ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 24px;
+  margin-top: 14px;
+  padding: 0;
+  list-style: none;
+  counter-reset: toc;
+}
+
+.legal-toc li {
+  counter-increment: toc;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.legal-toc li::before {
+  content: counter(toc, decimal-leading-zero);
+  margin-right: 10px;
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted-dim);
+}
+
+.legal-page .legal-toc a {
+  color: var(--body-text);
+  text-decoration: none;
+}
+
+.legal-page .legal-toc a:hover {
+  color: var(--accent);
+}
+
+.legal-section {
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid var(--edge);
+  scroll-margin-top: 24px;
+}
+
+.legal-index {
+  color: var(--muted-dim);
+}
+
+.legal-page h2 {
+  margin-top: 10px;
+  font-size: clamp(22px, 2.6vw, 28px);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--title);
+}
+
+.legal-prose {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+  font-size: 15.5px;
+  line-height: 1.75;
+  color: var(--body-text);
+}
+
+.legal-prose ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 20px;
+}
+
+.legal-prose li::marker {
+  color: var(--accent);
+}
+
+.legal-prose strong {
+  font-weight: 600;
+  color: var(--title);
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+
+.legal-footer {
+  position: relative;
+  border-top: 1px solid var(--edge);
+  padding-block: 40px 64px;
+}
+
+.legal-footer::before {
+  content: '';
+  position: absolute;
+  inset: 0 -16px 30%;
+  background: radial-gradient(ellipse at 50% 0%, #1c73ca24 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.legal-footer-inner {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  width: min(760px, 100%);
+  margin-inline: auto;
+  font-size: 13px;
+  color: var(--muted-dim);
+}
+
+.legal-footer-links {
+  display: flex;
+  gap: 20px;
+}
+
+@media (max-width: 520px) {
+  .legal-header {
+    padding-inline: 14px;
+  }
+
+  .legal-page .legal-header-nav a {
+    padding: 8px;
+  }
+
+  .legal-toc {
+    padding: 18px;
+  }
+}
+
+/* ── Header: logo con link y acceso ───────────────────────────────────── */
+
+.legal-page .legal-header-home {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.legal-page .legal-header-nav .legal-header-login {
+  border-color: var(--accent-deep);
+  background: #1c73ca33;
+  color: var(--title);
+}
+
+.legal-page .legal-header-nav .legal-header-login:hover {
+  background: #1c73ca59;
+}
+
+/* En la home el header suma "Ingresar": en pantallas chicas los documentos
+   quedan en el cuerpo y el footer para que la barra no desborde. */
+@media (max-width: 520px) {
+  .legal-header-has-login .legal-header-doc {
+    display: none;
+  }
+}

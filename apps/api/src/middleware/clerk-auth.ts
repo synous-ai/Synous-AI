@@ -19,11 +19,11 @@
  */
 
 import { verifyToken } from '@clerk/backend'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, desc, sql } from 'drizzle-orm'
 import { db } from '../db'
-import { hubUser, clientAccount } from '../db/schema'
+import { hubUser, clientAccount, clientDealAccess, company, deal } from '../db/schema'
 import { env } from '../config/env'
-import { Errors } from '../lib/errors'
+import { AppError, Errors } from '../lib/errors'
 import type { ClientTokenPayload } from './authenticate-client'
 
 /** Payload normalizado que se setea en request.hubUser. */
@@ -55,15 +55,19 @@ export async function verifyClerkToken(token: string): Promise<string> {
  * (`pnpm --filter api add ioredis`). Clave: `clerk:auth:{clerkUserId}`, TTL 300s.
  */
 export async function resolveHubUser(clerkUserId: string): Promise<HubUserContext> {
+  const u = await findHubUser(clerkUserId)
+  if (!u) throw Errors.unauthorized('Usuario no autorizado')
+  return u
+}
+
+/** Como `resolveHubUser`, pero devuelve `null` si no hay hub_user activo. */
+export async function findHubUser(clerkUserId: string): Promise<HubUserContext | null> {
   const [u] = await db
     .select({ sub: hubUser.id, portalId: hubUser.portalId, role: hubUser.role })
     .from(hubUser)
     .where(and(eq(hubUser.clerkUserId, clerkUserId), eq(hubUser.isActive, true)))
     .limit(1)
-
-  if (!u) throw Errors.unauthorized('Usuario no autorizado')
-
-  return { sub: u.sub, portalId: u.portalId, role: u.role }
+  return u ?? null
 }
 
 /**
@@ -86,35 +90,69 @@ export async function invalidateHubUserCache(_clerkUserId: string): Promise<void
  * No usa caché — el volumen de clientes es bajo y el token de Clerk es de corta duración.
  */
 export async function resolveClientAccount(clerkUserId: string): Promise<ClientTokenPayload> {
-  const [account] = await db
-    .select({
-      id: clientAccount.id,
-      portalId: clientAccount.portalId,
-      contactId: clientAccount.contactId,
-    })
-    .from(clientAccount)
-    .where(
-      and(
-        eq(clientAccount.clerkUserId, clerkUserId),
-        eq(clientAccount.isActive, true),
-      ),
-    )
-    .limit(1)
-
+  const account = await findClientAccount(clerkUserId)
   if (!account) {
-    // Diagnóstico de sesiones "huérfanas": token de Clerk válido pero sin
-    // client_account vinculado (típico: admin en /portal/*, o cuenta demo
-    // re-vinculada a otro clerk_user_id). El front reacciona cerrando la sesión.
+    // Diagnóstico de sesiones "huérfanas": token de Clerk válido sin
+    // client_account vinculado ni hub_user (típico: cuenta demo re-vinculada a
+    // otro clerk_user_id). El front reacciona cerrando la sesión.
     console.warn(
       `[auth-client] Sesión de Clerk válida sin client_account vinculado (clerk_user_id=${clerkUserId}) → 401`,
     )
     throw Errors.unauthorized('Cliente no encontrado o inactivo.')
   }
+  return account
+}
+
+/** Como `resolveClientAccount`, pero devuelve `null` si no hay cuenta activa. */
+export async function findClientAccount(clerkUserId: string): Promise<ClientTokenPayload | null> {
+  const [account] = await db
+    .select({ id: clientAccount.id, portalId: clientAccount.portalId, contactId: clientAccount.contactId })
+    .from(clientAccount)
+    .where(and(eq(clientAccount.clerkUserId, clerkUserId), eq(clientAccount.isActive, true)))
+    .limit(1)
+  return account
+    ? { sub: account.id, portalId: account.portalId, contactId: account.contactId, type: 'client_access' as const }
+    : null
+}
+
+/** Admin del equipo que está viendo el portal de una empresa. */
+export interface PortalViewer {
+  hubUserId: string
+  companyId: string
+  companySlug: string
+}
+
+/**
+ * Resuelve qué portal ve un admin del equipo en `<slug>.<raíz>`: la cuenta de
+ * cliente del deal activo más reciente de esa empresa, prefiriendo la del
+ * contacto principal. Así el admin ve exactamente lo que ve ese cliente.
+ *
+ * 404 `PORTAL_NOT_FOUND` si el slug no es una empresa del workspace del admin;
+ * 404 `PORTAL_NOT_ACTIVATED` si la empresa todavía no tiene cuenta de cliente.
+ */
+export async function resolvePortalView(
+  hub: HubUserContext,
+  companySlug: string,
+): Promise<{ account: ClientTokenPayload; viewer: PortalViewer }> {
+  const [co] = await db
+    .select({ id: company.id, slug: company.slug })
+    .from(company)
+    .where(and(eq(company.slug, companySlug), eq(company.portalId, hub.portalId), eq(company.archived, false)))
+    .limit(1)
+  if (!co?.slug) throw new AppError('PORTAL_NOT_FOUND', 'No existe un portal de cliente con esa dirección', 404)
+
+  const [row] = await db
+    .select({ id: clientAccount.id, portalId: clientAccount.portalId, contactId: clientAccount.contactId })
+    .from(clientDealAccess)
+    .innerJoin(deal, eq(deal.id, clientDealAccess.dealId))
+    .innerJoin(clientAccount, eq(clientAccount.id, clientDealAccess.clientId))
+    .where(and(eq(deal.companyId, co.id), eq(deal.archived, false), eq(clientAccount.isActive, true)))
+    .orderBy(sql`(${clientAccount.contactId} = ${deal.primaryContactId}) desc nulls last`, desc(deal.createdAt))
+    .limit(1)
+  if (!row) throw new AppError('PORTAL_NOT_ACTIVATED', 'Este cliente todavía no tiene el portal activado', 404)
 
   return {
-    sub: account.id,
-    portalId: account.portalId,
-    contactId: account.contactId,
-    type: 'client_access' as const,
+    account: { sub: row.id, portalId: row.portalId, contactId: row.contactId, type: 'client_access' },
+    viewer: { hubUserId: hub.sub, companyId: co.id, companySlug: co.slug },
   }
 }

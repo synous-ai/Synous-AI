@@ -157,6 +157,11 @@ src/modules/<nombre>/
 - Middleware `authenticate` → verifica token de admin (hub_user).
 - Middleware `authenticateClient` → verifica token de cliente (client_account).
 - Un cliente NUNCA puede acceder a rutas del admin. Verificar en cada ruta.
+- Un admin del equipo SÍ puede VER el portal de una empresa, en solo lectura:
+  `authenticateClient` acepta su token con `X-Portal-View: <slug>` (lo manda el
+  portal desde el subdominio), rechaza toda escritura con 403 y `GET /me`
+  registra `PORTAL_VIEW` en `audit_log`. Una ruta `GET` nueva del portal que
+  escriba algo tiene que contemplar `request.portalViewer`.
 - Nunca loguear tokens, passwords, ni API keys.
 - **Guardia de FKs por tenant:** todo id que llega en el body de un request para
   relacionar entidades (`companyId`, `primaryContactId`, `ownerId`, …) tiene que
