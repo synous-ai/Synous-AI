@@ -19,8 +19,6 @@ import {
   markProposalSent,
   markProposalCompleted,
   getPublicProposal,
-  getPublicProposalPdf,
-  getPublicProposalLogoUrl,
 } from './proposals.service'
 
 const TAG = 'Proposals'
@@ -42,50 +40,10 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
         params: ProposalTokenParamSchema,
       },
       // Público y direccionado por token: sin límite es un blanco barato para
-      // enumerar tokens o forzar renders de PDF en loop.
+      // enumerar tokens.
       config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request) => ok(await getPublicProposal(request.params.token)),
-  )
-
-  // Descarga del PDF de la propuesta. Devuelve el binario directo (no JSON) para
-  // que el link `<a href>` lo baje sin pasos extra.
-  r.get(
-    '/:token/pdf',
-    {
-      schema: {
-        tags: [TAG],
-        summary: 'Descargar el PDF de una propuesta (público)',
-        params: ProposalTokenParamSchema,
-      },
-      // Público y direccionado por token: sin límite es un blanco barato para
-      // enumerar tokens o forzar renders de PDF en loop.
-      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
-    },
-    async (request, reply) => {
-      const { filename, buffer } = await getPublicProposalPdf(request.params.token)
-      return reply
-        .header('Content-Type', 'application/pdf')
-        .header('Content-Disposition', `attachment; filename="${filename}"`)
-        .send(buffer)
-    },
-  )
-
-  // Logo de la propuesta: el deck público lo usa en un <img>, sin sesión.
-  r.get(
-    '/:token/logo',
-    {
-      schema: {
-        tags: [TAG],
-        summary: 'Logo de una propuesta (público, redirige a una URL de corta vida)',
-        params: ProposalTokenParamSchema,
-      },
-      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
-    },
-    async (request, reply) => {
-      const { url } = await getPublicProposalLogoUrl(request.params.token)
-      return reply.header('Cache-Control', 'public, max-age=60').redirect(url, 302)
-    },
   )
 
   // El cliente llegó al ÚLTIMO paso de la presentación (lo dispara el deck).
@@ -98,7 +56,7 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
         params: ProposalTokenParamSchema,
       },
       // Público y direccionado por token: sin límite es un blanco barato para
-      // enumerar tokens o forzar renders de PDF en loop.
+      // enumerar tokens.
       config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
     },
     async (request) => {
@@ -165,7 +123,7 @@ export async function proposalAdminRoutes(app: FastifyInstance): Promise<void> {
       },
       preHandler: [authorize('owner', 'member', 'collaborator')],
     },
-    async (request) => ok(await updateProposal(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body)),
+    async (request) => ok(await updateProposal(request.hubUser!.portalId, request.params.id, request.body)),
   )
 
   // Aprobar la propuesta (queda lista para enviar; el link público se vuelve visible).

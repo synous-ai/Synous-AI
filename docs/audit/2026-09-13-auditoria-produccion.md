@@ -149,7 +149,7 @@ Detalle completo en [`docs/STORAGE.md`](../STORAGE.md). Hallazgos de la auditor�
 | Sin validación de tipo al subir; SVG aceptado | Contenido activo / abuso | Corregido: política por purpose + magic bytes; SVG excluido |
 | `deleteFile` sin callers: reemplazos y abandonos dejaban huérfanos | Costo y datos sin dueño | Corregido: limpieza de pendientes y liberación del anterior al reemplazar (salvo comprobantes de gastos) |
 | `?token=` con la sesión de Clerk en URLs de archivos | Tokens en logs e historial | Corregido: eliminado |
-| Logo de propuesta guardado como URL absoluta con host | Roto entre entornos y en la página pública | Corregido: `logoKey` + ruta pública |
+| Logo de propuesta guardado como URL absoluta con host | Roto entre entornos y en la página pública | Obsoleto: la landing de propuestas rediseñada ya no tiene logo del cliente (antes: `logoKey` + ruta pública) |
 | `change_request_attachment` y el campo "archivo" de intake | Tabla sin escritor / campo falso | Pendiente (fuera de alcance: no hay flujo que los use) |
 
 **Review adversarial del backend de storage:** sin CRITICAL ni HIGH. Los 4 MEDIUM (limpieza que podía borrar un archivo recién guardado, ediciones concurrentes, llamadas a Blob dentro de la transacción, sin cuota de pendientes) y los LOW L1, L4–L9 se corrigieron. L2 (cachear delegaciones de lectura) y L3 (decodificar imágenes completas) quedan como decisiones documentadas.

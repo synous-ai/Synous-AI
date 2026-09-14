@@ -31,7 +31,7 @@ el atributo `accept`; la API es la única autoridad.
 | `deal_document` | equipo | Admin → detalle de deal | PDF, PNG, JPEG, WebP, GIF, DOCX, XLSX, PPTX, ZIP | 50 MB | `document.storage_key` |
 | `library_item` | equipo | Admin → biblioteca | igual que `deal_document` | 50 MB | `library_item.storage_key` |
 | `expense_receipt` | equipo | API de gastos (sin UI todavía) | PDF, PNG, JPEG, WebP | 10 MB | `expense.storage_key` |
-| `proposal_logo` | equipo | Admin → editor de propuesta | PNG, JPEG, WebP, GIF | 2 MB | `proposal.content.logoKey` |
+| `proposal_logo` | — | Reservado, sin uploader: la landing de propuestas rediseñada no muestra logo del cliente. Sigue en el `CHECK` de la migración `0040`; quitarlo requiere una migración | PNG, JPEG, WebP, GIF | 2 MB | — |
 | `brand_logo` | equipo o cliente | Admin → White-Label · Portal → brand kit | PNG, JPEG, WebP | 2 MB | `company.brand_logo_key` / `client_account.brand_logo_key` |
 | `onboarding_material` | cliente | Portal → onboarding paso 7 | los de documentos + MP4, MOV, WebM/MP3/M4A/OGG/WAV | 100 MB | `client_asset` |
 
@@ -107,8 +107,8 @@ sequenceDiagram
 Los logos se ven antes del login y en la propuesta pública, así que no pueden
 depender de una sesión:
 
-- `GET /api/public/files/brand-logo/<key>` y `GET /api/public/proposals/:token/logo`
-  responden `302` a una URL de lectura corta.
+- `GET /api/public/files/brand-logo/<key>` responde `302` a una URL de lectura
+  corta.
 - **Solo resuelven keys referenciadas como logo** de un registro activo. Una key
   de documento o de material de onboarding devuelve 404 aunque exista.
 

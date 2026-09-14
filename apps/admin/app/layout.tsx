@@ -11,6 +11,11 @@ const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', displ
 export const metadata: Metadata = {
   title: 'Synous CRM — Admin',
   description: 'Portal de administración del CRM de Synous',
+  icons: {
+    icon: [{ url: '/brand/logo-synous.png', type: 'image/png' }],
+    shortcut: '/brand/logo-synous.png',
+    apple: '/brand/logo-synous.png',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

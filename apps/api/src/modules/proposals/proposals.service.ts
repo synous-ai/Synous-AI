@@ -5,7 +5,6 @@ import { db } from '../../db'
 import { proposal, deal, contact, company, onboardingSubmission } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { env } from '../../config/env'
-import { slugify as baseSlugify } from '../../lib/slug'
 import type { ModelProvider } from '../../lib/ai'
 import type { ProposalContent } from './proposals.types'
 import {
@@ -13,17 +12,44 @@ import {
   fallbackProposalContent,
   type ProposalGenerationInput,
 } from './proposals.ai'
-import { buildProposalPdf } from './proposals.pdf'
 import { actorName } from '../notifications/notifications.service'
 import { notifyAdmins } from '../notifications/notify'
-import { claimUpload, isNewStorageKey, prepareUploadClaim, releaseReplacedUpload } from '../uploads/uploads.service'
-import { isServablePublicLogo } from '../files/files.authz'
-import { createReadUrl, isLegacyStorageKey, type ReadAccessUrl } from '../../lib/storage'
 
 /** Monto legible para el copy de notificaciones. */
 function money(total: number, currency: string): string {
   if (!total) return ''
   return `${currency} ${Math.round(total).toLocaleString('es')}`
+}
+
+/**
+ * Total de una propuesta, para el listado y las notificaciones.
+ *
+ * Los precios del contenido son texto ("USD 2.000") porque es lo que se muestra
+ * al cliente y admite formas que un número no expresa. Acá se leen esos strings
+ * para denormalizar un total: se toma el precio de cada fase, o el más bajo de
+ * sus opciones de pago cuando ofrece varias, que es el piso real de la
+ * cotización.
+ */
+function parseAmount(price: string): number {
+  const digits = price.replace(/[^\d.,]/g, '').replace(/\./g, '').replace(/,/g, '.')
+  const n = Number.parseFloat(digits)
+  return Number.isFinite(n) ? n : 0
+}
+
+function contentTotal(content: ProposalContent): number {
+  return content.investmentPhases.reduce((sum, phase) => {
+    if (phase.price) return sum + parseAmount(phase.price)
+    if (phase.options?.length) {
+      const prices = phase.options.map((o) => parseAmount(o.price)).filter((n) => n > 0)
+      return prices.length ? sum + Math.min(...prices) : sum
+    }
+    return sum
+  }, 0)
+}
+
+/** Título interno de la propuesta (listados del admin, no lo ve el cliente). */
+function contentTitle(content: ProposalContent): string {
+  return `Propuesta — ${content.clientName}`
 }
 
 type ProposalRow = typeof proposal.$inferSelect
@@ -179,23 +205,23 @@ export async function generateProposal(
       dealId,
       contactId: d.primaryContactId ?? null,
       onboardingSubmissionId: sub?.id ?? null,
-      title: content.title,
+      title: contentTitle(content),
       status: 'draft',
       content,
       model,
-      amount: content.pricing.total ? String(content.pricing.total) : null,
-      currency: content.pricing.currency || 'USD',
+      amount: contentTotal(content) ? String(contentTotal(content)) : null,
+      currency: 'USD',
     })
     .returning()
   if (!row) throw Errors.internal('No se pudo crear la propuesta')
 
   // Aviso a los demás admins: se generó una propuesta.
   const who = await actorName(portalId, actorId)
-  const amount = money(content.pricing.total, content.pricing.currency)
+  const amount = money(contentTotal(content), 'USD')
   await notifyAdmins(
     portalId,
     'proposal_generated',
-    { proposalId: row.id, contactName: content.companyName || content.clientName },
+    { proposalId: row.id, contactName: content.clientName },
     {
       entity: { type: 'proposal', id: row.id },
       exceptUserId: actorId,
@@ -238,64 +264,30 @@ export interface UpdateProposalInput {
 }
 
 /**
- * Referencia al logo que se persiste. Las ediciones guardan `logoKey`; el
- * `logoUrl` legacy solo sobrevive si ya estaba guardado tal cual. Aceptar una
- * URL nueva dejaría apuntar el logo PÚBLICO de la propuesta a cualquier key,
- * incluida la de un archivo privado.
- */
-function withLogoReference(next: ProposalContent, current: ProposalContent): ProposalContent {
-  const { logoUrl, ...rest } = next
-  if (rest.logoKey) return rest
-  return logoUrl && logoUrl === current.logoUrl ? { ...rest, logoUrl } : rest
-}
-
-/**
  * Edita una propuesta (título y/o contenido). El admin ajusta lo que la IA
  * generó. Recalcula el monto denormalizado desde el total del contenido.
  */
 export async function updateProposal(
   portalId: string,
-  userId: string,
   id: string,
   input: UpdateProposalInput,
 ): Promise<ProposalDTO> {
-  if (input.title === undefined && input.content === undefined) return getProposal(portalId, id)
+  const patch: Partial<ProposalRow> = {}
+  if (input.title !== undefined) patch.title = input.title
+  if (input.content !== undefined) {
+    patch.content = input.content
+    const total = contentTotal(input.content)
+    patch.amount = total ? String(total) : null
+    patch.currency = 'USD'
+  }
+  if (Object.keys(patch).length === 0) return getProposal(portalId, id)
 
-  const newLogoKey = input.content?.logoKey
-  const preparedClaim = newLogoKey
-    ? await prepareUploadClaim({ storageKey: newLogoKey, portalId, actor: { kind: 'hub', userId, portalId }, purpose: 'proposal_logo' })
-    : null
-
-  const { row, previousLogoKey } = await db.transaction(async (tx) => {
-    // FOR UPDATE: el logo "anterior" que se libera después del commit tiene que
-    // ser el que esta edición reemplazó, no uno que otra edición ya cambió.
-    const [current] = await tx
-      .select({ content: proposal.content })
-      .from(proposal)
-      .where(and(eq(proposal.id, id), eq(proposal.portalId, portalId)))
-      .limit(1)
-      .for('update')
-    if (!current) throw Errors.notFound('Propuesta no encontrada')
-
-    const patch: Partial<ProposalRow> = {}
-    if (input.title !== undefined) patch.title = input.title
-    if (input.content !== undefined) {
-      if (isNewStorageKey(input.content.logoKey, current.content.logoKey)) await claimUpload(tx, preparedClaim)
-      patch.content = withLogoReference(input.content, current.content)
-      patch.amount = input.content.pricing.total ? String(input.content.pricing.total) : null
-      patch.currency = input.content.pricing.currency || 'USD'
-    }
-
-    const [updated] = await tx
-      .update(proposal)
-      .set(patch)
-      .where(and(eq(proposal.id, id), eq(proposal.portalId, portalId)))
-      .returning()
-    if (!updated) throw Errors.notFound('Propuesta no encontrada')
-    return { row: updated, previousLogoKey: current.content.logoKey }
-  })
-
-  if (input.content !== undefined) await releaseReplacedUpload(portalId, previousLogoKey, row.content.logoKey)
+  const [row] = await db
+    .update(proposal)
+    .set(patch)
+    .where(and(eq(proposal.id, id), eq(proposal.portalId, portalId)))
+    .returning()
+  if (!row) throw Errors.notFound('Propuesta no encontrada')
   return toDTO(row)
 }
 
@@ -390,7 +382,7 @@ export async function getPublicProposal(token: string): Promise<PublicProposalDT
       .set({ viewedAt: new Date(), status: row.status === 'accepted' || row.status === 'sent' ? 'viewed' : row.status })
       .where(eq(proposal.id, row.id))
 
-    const cliente = row.content.companyName || row.content.clientName
+    const cliente = row.content.clientName
     // Solo la PRIMERA vista (el if de arriba mira viewedAt): la dedupeKey lo
     // refuerza por si dos cargas de la página pública llegan concurrentes.
     await notifyAdmins(row.portalId, 'proposal_viewed', { proposalId: row.id, contactName: cliente }, {
@@ -407,51 +399,4 @@ export async function getPublicProposal(token: string): Promise<PublicProposalDT
   }
 }
 
-/** Key de un `logoUrl` legacy de la forma `…/api/files/<key>`. */
-function legacyLogoKey(logoUrl: string | undefined): string | null {
-  const match = /\/api\/files\/([^/?#]+)(?:[?#]|$)/.exec(logoUrl ?? '')
-  return match?.[1] && isLegacyStorageKey(match[1]) ? match[1] : null
-}
 
-/**
- * URL de lectura de corta vida del logo de la propuesta pública. Mismas reglas
- * de visibilidad que la vista pública (sin borradores), y el logo tiene que ser
- * servible públicamente para el portal dueño de la propuesta.
- */
-export async function getPublicProposalLogoUrl(token: string): Promise<ReadAccessUrl> {
-  const [row] = await db
-    .select({ portalId: proposal.portalId, status: proposal.status, content: proposal.content })
-    .from(proposal)
-    .where(eq(proposal.token, token))
-    .limit(1)
-  if (!row || row.status === 'draft') throw Errors.notFound('Logo no encontrado')
-
-  const storageKey = row.content.logoKey ?? legacyLogoKey(row.content.logoUrl)
-  if (!storageKey || !(await isServablePublicLogo(storageKey, row.portalId, 'proposal_logo'))) {
-    throw Errors.notFound('Logo no encontrado')
-  }
-  return createReadUrl(storageKey, { op: 'public-proposal-logo', storageKey, portalId: row.portalId })
-}
-
-/**
- * Slug de archivo para el PDF descargable: reusa el `slugify` compartido
- * (antes tenía su propia copia, ligeramente distinta — no eliminaba las
- * marcas combinantes de NFD, solo confiaba en el filtro alfanumérico, lo que
- * podía dejar guiones espurios en medio de palabras con tilde, ej. "María" →
- * "mari-a" en vez de "maria") y le agrega el truncado a 60 chars + fallback
- * "propuesta" que son específicos de nombre de archivo, no de slug genérico.
- */
-function slugify(s: string): string {
-  return baseSlugify(s).slice(0, 60) || 'propuesta'
-}
-
-/**
- * Genera el PDF descargable de una propuesta (link `/p/<token>` → botón PDF).
- * Mismas reglas de visibilidad que la vista pública: no expone borradores.
- */
-export async function getPublicProposalPdf(token: string): Promise<{ filename: string; buffer: Buffer }> {
-  const [row] = await db.select().from(proposal).where(eq(proposal.token, token)).limit(1)
-  if (!row || row.status === 'draft') throw Errors.notFound('Propuesta no encontrada')
-  const buffer = await buildProposalPdf(row.content)
-  return { filename: `${slugify(row.title)}.pdf`, buffer }
-}

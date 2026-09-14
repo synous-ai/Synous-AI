@@ -57,8 +57,8 @@ export interface PurposePolicy {
  * ÚNICO lugar donde viven tipos y tamaños permitidos.
  *
  * SVG queda fuera a propósito: puede ejecutar script, y los logos se sirven
- * públicamente. `proposal_logo` acepta GIF porque el editor de propuestas ya lo
- * ofrecía (`accept` de apps/admin/.../proposals/[id]/page.tsx).
+ * públicamente. `proposal_logo` queda reservado sin uploader desde el rediseño
+ * de la landing de propuestas (sigue en el CHECK de la migración 0040).
  */
 export const FILE_PURPOSE_POLICIES = {
   deal_document: { actors: ['hub'], contentTypes: OFFICE_DOCS, maxBytes: 50 * MB },

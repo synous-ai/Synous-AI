@@ -1,0 +1,72 @@
+/**
+ * Shared brand surface for the public prospect pages (bienvenida, propuesta).
+ *
+ * Palette and value structure adapted from the FrontPackPro landing: near-black
+ * navy base, surfaces a few points lighter, low-contrast borders and a pale blue
+ * accent that carries the type.
+ *
+ * Everything is scoped to `.brand-surface` on purpose — these pages live inside
+ * the admin app, which owns `:root` and `body` for the portal theme. Declaring
+ * these tokens globally would repaint the whole panel.
+ */
+.brand-surface {
+  --void: #010511;
+  --surface: #030520;
+  --surface-raised: #090d1d;
+  --surface-high: #171d33;
+
+  --edge: #181d31;
+  --edge-soft: #1a1d29;
+  --edge-lit: #1c2542;
+
+  --title: #d5e5f9;
+  --body-text: #dadff5;
+  /* 12.4:1 on the darkest surface. Body copy carries most of the page, and at
+     the previous value it sat close enough to the background that it read as
+     disabled text rather than secondary — the gap to --body-text was doing
+     more harm than the hierarchy it bought. */
+  --muted: #c3cede;
+  /* For labels that must stay quiet: eyebrows, meta, captions. 7.4:1 — still
+     clearly below --muted, but no longer illegible on the raised surfaces. */
+  --muted-dim: #93a1b4;
+
+  --accent: #96c0ff;
+  --accent-bright: #669cff;
+  --accent-deep: #1c73ca;
+
+  --paper: #ffffff;
+  --paper-shade: #eef3fb;
+
+  background: var(--void);
+  color: var(--body-text);
+  font-family: var(--font-proposal-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.brand-surface svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.brand-surface ::selection {
+  color: var(--void);
+  background: var(--accent);
+}
+
+/* Film grain. A 1px dot tiled every 3px builds the texture, and plus-lighter
+   adds light to the surface underneath instead of veiling it. Sits above every
+   layer but stays inert, so clicks reach the content. */
+.brand-surface::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-image: radial-gradient(at 20% 80%, #fff 1px, transparent 0px);
+  background-size: 3px 3px;
+  opacity: 0.045;
+  mix-blend-mode: plus-lighter;
+  z-index: 9999;
+  pointer-events: none !important;
+}
