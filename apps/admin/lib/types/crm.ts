@@ -25,6 +25,13 @@ export interface Company {
   website: string | null
   ownerId: string | null
   createdAt: string
+  /** Marca del portal de cliente — ver PATCH /api/companies/:id/branding. Solo viene resuelto en GET /api/companies/:id/detail. */
+  brandName?: string | null
+  brandLogoKey?: string | null
+  /** Ruta PÚBLICA del logo (redirige a una URL de corta vida): funciona en un `<img src>` sin token. */
+  logoUrl?: string | null
+  brandPrimary?: string | null
+  brandSecondary?: string | null
 }
 
 export interface Stage {

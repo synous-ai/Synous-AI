@@ -182,6 +182,28 @@ export const NOTIFICATION_EVENTS = {
     actionUrl: (p) => `/proposals/${p.proposalId}`,
   }),
 
+  /**
+   * El cliente editó algo de "Onboarding → Marca" desde el portal (identidad
+   * visual, archivos de marca o la respuesta de identidad del brief). Sin
+   * `dedupeKey` a propósito: cada cambio es una notificación nueva, no un
+   * hito que se dispare una sola vez.
+   */
+  client_brand_updated: def<{
+    dealId: string | null
+    dealName: string | null
+    clientName: string
+    section: 'Marca'
+    fields: string[]
+    action: 'update' | 'add' | 'delete'
+    changedAt: string
+  }>({
+    audience: 'admin',
+    priority: 'normal',
+    title: (p) => `${p.clientName} actualizó su marca`,
+    body: (p) => `${p.fields.join(', ')} · ${p.dealName ?? 'sin proyecto'}`,
+    actionUrl: (p) => (p.dealId ? `/onboarding/${p.dealId}` : `/onboarding`),
+  }),
+
   // ── Para el CLIENTE ────────────────────────────────────────────────────────
   // Ninguno de estos existía: el cliente no recibía NADA in-app.
 

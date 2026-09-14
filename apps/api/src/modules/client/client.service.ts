@@ -7,6 +7,7 @@ import { Errors } from '../../lib/errors'
 import { clientDealIds } from '../../lib/portal-access'
 import { PRODUCTION_PIPELINE_LABEL } from '../onboarding/assignees'
 import { notifyAdmins } from '../notifications/notify'
+import { isInvoiceOverdue } from '../finance/finance-shared'
 
 type DeliverableRow = typeof deliverable.$inferSelect
 
@@ -29,6 +30,13 @@ export interface ClientInvoiceDTO {
   issueDate: string | null
   dueDate: string | null
   balance: string
+  /**
+   * Derivado con la MISMA lógica de fecha que el admin (`isInvoiceOverdue` en
+   * finance-shared.ts), no del `status` almacenado — ese solo cambia con una
+   * transición manual del equipo (no hay cron). `status` se deja intacto para
+   * no romper nada que ya dependa del valor crudo.
+   */
+  isOverdue: boolean
 }
 
 export async function clientDeals(clientId: string): Promise<ClientDealDTO[]> {
@@ -134,24 +142,45 @@ export async function listClientInvoices(clientId: string, query: ListQuery): Pr
 
   if (invoices.length === 0) return { items: [], nextCursor }
 
-  // Aggregate payments per invoice in a single query — no N+1
+  // Aggregate payments per invoice in a single query — no N+1. Se suma
+  // `amountBase` (USD), NO `amount`: `invoice.currency` y `payment.currency`
+  // son independientes (una factura ARS puede cobrarse con un pago USD), así
+  // que sumar montos crudos mezclaba unidades distintas bajo el mismo total —
+  // el mismo motivo por el que el admin (finance/invoices.ts) balancea todo
+  // en amountBase.
   const invoiceIds = invoices.map((inv) => inv.id)
   const paymentTotals = await db
     .select({
       invoiceId: payment.invoiceId,
-      paid: sql<string>`COALESCE(SUM(${payment.amount}), '0')`,
+      paidBase: sql<string>`COALESCE(SUM(${payment.amountBase}), '0')`,
     })
     .from(payment)
     .where(inArray(payment.invoiceId, invoiceIds))
     .groupBy(payment.invoiceId)
 
-  const paidByInvoice = new Map<string, number>(
-    paymentTotals.map((r) => [r.invoiceId, Number(r.paid)]),
+  const paidBaseByInvoice = new Map<string, number>(
+    paymentTotals.map((r) => [r.invoiceId, Number(r.paidBase)]),
   )
 
   const items = invoices.map((inv) => {
-    const totalPaid = paidByInvoice.get(inv.id) ?? 0
-    const balance = Math.max(0, Number(inv.total) - totalPaid)
+    const totalPaidBase = paidBaseByInvoice.get(inv.id) ?? 0
+    // Balance real en USD (misma unidad que `amountBase`), usado para
+    // `isOverdue` — currency-agnostic: solo importa si es > 0, no en qué
+    // moneda está expresado.
+    const balanceBase = Math.max(0, Number(inv.amountBase) - totalPaidBase)
+    // El campo `balance` que ve el cliente se muestra en la MONEDA de la
+    // factura (el front lo formatea con `formatCurrency(invoice.balance,
+    // invoice.currency)` — mostrar un número en USD bajo un símbolo ARS, o
+    // viceversa, sería incorrecto). `calcAmountBase` define
+    // amountBase = amount / exchangeRate (ARS por USD) para ARS, así que la
+    // conversión inversa es amountBase * exchangeRate. Se guarda contra un TC
+    // inválido (0, negativo o no numérico) con fallback a 1 — no debería
+    // pasar (createInvoice siempre persiste un TC > 0), pero un balance mal
+    // convertido es peor que uno en USD. Si el balance en USD es exactamente
+    // 0, se fija "0.00" directo: multiplicar 0 por el TC nunca debería dar
+    // otra cosa, pero así queda explícito que no hay margen de redondeo.
+    const rate = inv.currency === 'USD' ? 1 : Number(inv.exchangeRate) > 0 ? Number(inv.exchangeRate) : 1
+    const balance = balanceBase === 0 ? '0.00' : (balanceBase * rate).toFixed(2)
     return {
       id: inv.id,
       number: inv.number,
@@ -160,7 +189,8 @@ export async function listClientInvoices(clientId: string, query: ListQuery): Pr
       status: inv.status,
       issueDate: inv.issueDate ?? null,
       dueDate: inv.dueDate ?? null,
-      balance: balance.toFixed(2),
+      balance,
+      isOverdue: isInvoiceOverdue(inv, balanceBase),
     }
   })
   return { items, nextCursor }

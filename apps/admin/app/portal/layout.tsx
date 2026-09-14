@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Plus_Jakarta_Sans } from 'next/font/google'
 import { Providers } from '@portal/providers'
+import { PortalScope } from '@portal/components/ui/portal-scope'
 import './portal-theme.css'
 
 const jakarta = Plus_Jakarta_Sans({
@@ -16,8 +17,8 @@ export const metadata: Metadata = {
 
 export default function PortalRootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`portal-theme ${jakarta.variable}`}>
+    <PortalScope className={`portal-theme ${jakarta.variable}`}>
       <Providers>{children}</Providers>
-    </div>
+    </PortalScope>
   )
 }

@@ -75,6 +75,8 @@ export interface ClientInvoice {
   issueDate: string | null
   dueDate: string | null
   balance: string
+  /** Vencida por fecha (misma lógica que el admin), no por el `status` crudo. */
+  isOverdue: boolean
 }
 
 // Documentos del cliente (read-only)
@@ -261,6 +263,30 @@ export interface ClientOnboarding {
 export interface OnboardingStateDTO {
   onboarding: ClientOnboarding
   assets: OnboardingAsset[]
+}
+
+/**
+ * GET/PATCH /api/client/branding — marca vigente del cliente: la de su empresa,
+ * o la de la cuenta si no tiene empresa (ver branding.service.ts).
+ */
+export interface ClientBranding {
+  id: string
+  email: string
+  brandSlug: string | null
+  brandName: string | null
+  brandLogoKey: string | null
+  /** Ruta PÚBLICA del logo (redirige a una URL de corta vida): funciona en un `<img src>` sin token. */
+  logoUrl: string | null
+  brandPrimary: string | null
+  brandSecondary: string | null
+}
+
+/** PATCH /api/client/branding — solo los campos presentes se escriben; `null` explícito borra el valor. */
+export interface UpdateClientBrandingInput {
+  brandName?: string | null
+  brandLogoKey?: string | null
+  brandPrimary?: string | null
+  brandSecondary?: string | null
 }
 
 export interface CompleteOnboardingResultDTO {

@@ -11,11 +11,14 @@
  * porque el portal no tiene ese primitivo (no hay `dropdown-menu.tsx` en
  * portal-lib/components/ui) y sumarlo solo para esto traería la dependencia
  * entera.
+ *
+ * El botón es la campana animada de RareUI (ui/notification-bell.tsx): se
+ * balancea cuando llega una notificación y el número rueda al nuevo valor.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { Bell, CheckCheck, Inbox } from 'lucide-react'
+import { CheckCheck, Inbox } from 'lucide-react'
 import {
   useClientNotifications,
   useClientUnreadCount,
@@ -24,19 +27,9 @@ import {
 } from '@portal/lib/hooks'
 import type { ClientNotification } from '@portal/lib/types'
 import { cn } from '@portal/lib/utils'
+import { NotificationBell } from '@portal/components/ui/notification-bell'
+import { timeAgo } from '@portal/lib/time-ago'
 import { portalBase } from '@portal/components/portal/portal-nav'
-
-/** "ahora", "hace 5 min", "hace 2 h", "hace 3 d", y luego fecha corta. */
-function timeAgo(iso: string): string {
-  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
-  if (min < 1) return 'ahora'
-  if (min < 60) return `hace ${min} min`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `hace ${h} h`
-  const d = Math.floor(h / 24)
-  if (d < 7) return `hace ${d} d`
-  return new Date(iso).toLocaleDateString('es')
-}
 
 /**
  * Barra de color por prioridad. Es la única señal visual del peso del evento:
@@ -63,8 +56,8 @@ function NotificationRow({
       onClick={() => onSelect(n)}
       className={cn(
         'relative flex w-full gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors last:border-b-0',
-        'hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        unread && 'bg-white/[0.03]',
+        'hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        unread && 'bg-muted/40',
       )}
     >
       <span className={cn('absolute inset-y-0 left-0 w-[3px]', PRIORITY_BAR[n.priority] ?? 'bg-transparent')} />
@@ -126,21 +119,16 @@ export function ClientNotificationBell() {
 
   return (
     <div className="relative">
-      <button
-        type="button"
+      {/* El nombre accesible (con la cuenta) lo da el propio componente, que
+          además lo anuncia cuando cambia. `null` mientras carga: así no suena
+          en cada carga del portal, solo cuando llega algo nuevo. */}
+      <NotificationBell
+        count={typeof unread?.count === 'number' ? unread.count : null}
+        size={40}
         onClick={() => setOpen((v) => !v)}
-        aria-label={count > 0 ? `Notificaciones (${count} sin leer)` : 'Notificaciones'}
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="relative flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <Bell className="h-[18px] w-[18px]" />
-        {count > 0 && (
-          <span className="absolute right-0.5 top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-            {count > 9 ? '9+' : count}
-          </span>
-        )}
-      </button>
+      />
 
       {open && (
         <>
@@ -172,10 +160,10 @@ export function ClientNotificationBell() {
                 <div className="space-y-3 p-4">
                   {[0, 1, 2].map((i) => (
                     <div key={i} className="flex gap-3">
-                      <div className="h-2 w-2 shrink-0 rounded-full bg-white/10" />
+                      <div className="h-2 w-2 shrink-0 rounded-full bg-muted" />
                       <div className="flex-1 space-y-1.5">
-                        <div className="h-3.5 w-3/4 rounded bg-white/10" />
-                        <div className="h-2.5 w-1/3 rounded bg-white/5" />
+                        <div className="h-3.5 w-3/4 rounded bg-muted" />
+                        <div className="h-2.5 w-1/3 rounded bg-muted/60" />
                       </div>
                     </div>
                   ))}

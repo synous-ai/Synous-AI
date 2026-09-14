@@ -126,13 +126,15 @@ describe('POST /api/uploads — intent', () => {
     }
   })
 
-  it('el cliente pidiendo un propósito del equipo → 403 FILE_PURPOSE_FORBIDDEN (y viceversa)', async () => {
+  it('el cliente pidiendo un propósito del equipo → 403 FILE_PURPOSE_FORBIDDEN', async () => {
     const asClient = await intent(clientA.token, { purpose: 'deal_document', fileName: 'x.pdf', contentType: 'application/pdf', sizeBytes: 10 }, '/api/client/uploads')
     expect(asClient.status).toBe(403)
     expect(asClient.body.error.code).toBe('FILE_PURPOSE_FORBIDDEN')
+  })
 
+  it('el equipo también puede reservar onboarding_material (agrega archivos de marca al deal desde el detalle de onboarding)', async () => {
     const asHub = await intent(adminToken, { purpose: 'onboarding_material', fileName: 'x.pdf', contentType: 'application/pdf', sizeBytes: 10 })
-    expect(asHub.status).toBe(403)
+    expect(asHub.status).toBe(201)
   })
 
   it('tipo no permitido (SVG como logo) → 400 FILE_TYPE_NOT_ALLOWED', async () => {

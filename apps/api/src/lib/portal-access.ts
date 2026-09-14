@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db, type DB } from '../db'
 import { clientDealAccess, company, contact, deal, hubUser } from '../db/schema'
 import type { Tx } from './audit'
@@ -31,6 +31,39 @@ export async function clientDealIds(clientId: string): Promise<string[]> {
     .innerJoin(deal, eq(deal.id, clientDealAccess.dealId))
     .where(and(eq(clientDealAccess.clientId, clientId), eq(deal.archived, false)))
   return rows.map((r) => r.dealId)
+}
+
+export interface ActiveClientDeal {
+  id: string
+  portalId: string
+}
+
+/**
+ * Resuelve el deal ACTIVO (no archivado) del cliente autenticado, vía
+ * `client_deal_access`. Si el cliente tiene varios deals (poco común hoy),
+ * toma el más reciente — es el proyecto que está por arrancar.
+ *
+ * Devuelve `null` en vez de lanzar: a diferencia de un endpoint del wizard de
+ * onboarding (donde no tener deal activo SÍ es un error de negocio), un
+ * caller como `notifyBrandChange` (branding.service.ts) solo necesita "no hay
+ * a quién notificar" sin que eso rompa la operación que lo llama.
+ *
+ * `resolveActiveDeal` en onboarding.service.ts reusa esta consulta (delega y
+ * agrega el `throw`). `resolveActiveClientDeal` en client.service.ts NO la
+ * reusa todavía — sigue con su propia query porque necesita más columnas
+ * (`name`, `pipelineId`, `stageId`) que esta proyección no trae; unificarlas
+ * pediría una query extra ahí. Queda pendiente si en algún momento conviene
+ * ese trade-off.
+ */
+export async function resolveActiveClientDeal(clientId: string, executor: Executor = db): Promise<ActiveClientDeal | null> {
+  const [row] = await executor
+    .select({ id: deal.id, portalId: deal.portalId })
+    .from(clientDealAccess)
+    .innerJoin(deal, eq(deal.id, clientDealAccess.dealId))
+    .where(and(eq(clientDealAccess.clientId, clientId), eq(deal.archived, false)))
+    .orderBy(desc(deal.createdAt))
+    .limit(1)
+  return row ?? null
 }
 
 /**

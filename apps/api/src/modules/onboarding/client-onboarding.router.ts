@@ -11,6 +11,7 @@ import {
   OnboardingMaterialAssetSchema,
   OnboardingBriefDraftSchema,
   OnboardingMaterialsDraftSchema,
+  BrandIdentitySchema,
 } from './onboarding.schema'
 import {
   getOnboardingState,
@@ -22,6 +23,7 @@ import {
   saveMaterialsDraft,
   attachMaterialAsset,
   completeOnboarding,
+  updateBrandIdentity,
 } from './onboarding.service'
 
 const TAG = 'Client Portal'
@@ -160,5 +162,19 @@ export async function clientOnboardingRoutes(app: FastifyInstance): Promise<void
       },
     },
     async (request) => ok(await completeOnboarding(request.clientAccount!)),
+  )
+
+  r.patch(
+    '/brand-identity',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Actualizar la identidad de marca (brief, q11)',
+        description: 'Único campo del brief editable DESPUÉS de completado el onboarding — el resto de las respuestas queda congelado. 409 si el brief todavía no se envió.',
+        security: CLIENT_SECURITY,
+        body: BrandIdentitySchema,
+      },
+    },
+    async (request) => ok(await updateBrandIdentity(request.clientAccount!.sub, request.body.brandIdentity)),
   )
 }

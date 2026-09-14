@@ -34,10 +34,12 @@ import { useAuth } from '@clerk/nextjs'
 import { UserButton } from '@clerk/nextjs'
 import { cn } from '@portal/lib/utils'
 import { Skeleton } from '@portal/components/ui/skeleton'
+import { PortalScope } from '@portal/components/ui/portal-scope'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
 import { ClientNotificationBell } from '@portal/components/portal/notification-bell'
 import { PortalSidebar } from '@portal/components/portal/portal-sidebar'
 import { PortalViewBanner } from '@portal/components/portal/portal-view-banner'
+import { PortalBrandLockup } from '@portal/components/portal/portal-brand-lockup'
 import { ClientOnboardingWizard } from '@portal/components/onboarding/client-onboarding-wizard'
 import {
   PortalNavProvider,
@@ -168,16 +170,16 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }
 
   return (
-    <div className={cn('portal-editorial flex min-h-screen flex-col', editorialSerif.variable)}>
+    <PortalScope className={cn('portal-editorial flex min-h-screen flex-col', editorialSerif.variable)}>
       <PortalViewBanner />
-      {/* Header: brand mark on one side, account controls on the other. The
-          client cannot re-brand the portal, so no "Mi Marca" entry point. */}
+      {/* Header: logotipo de Synous + logo de la marca del cliente de un lado,
+          controles de la cuenta del otro. La marca se edita en Onboarding → Marca. */}
       <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-md">
         <div className={HEADER_RAIL}>
           {/* Al Inicio del portal, NO a `/`: fuera de un host de tenant, `/`
               es la landing pública. `portalHref` respeta el prefijo actual. */}
-          <Link href={portalHref(pathname, 'dashboard')} className="font-editorial text-lg tracking-wide text-foreground">
-            Synous <span className="text-muted-foreground">· Portal</span>
+          <Link href={portalHref(pathname, 'dashboard')} className="min-w-0">
+            <PortalBrandLockup />
           </Link>
 
           <div className="flex items-center gap-2">
@@ -203,6 +205,6 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <PortalNavProvider>
         <PortalShellBody>{children}</PortalShellBody>
       </PortalNavProvider>
-    </div>
+    </PortalScope>
   )
 }

@@ -20,6 +20,9 @@ export const TOTAL_STEPS = 8
 
 // ─── Brief (paso 6): 16 preguntas en 5 bloques ───────────────────────────────
 
+/** Pregunta del selector de canales (bloque 1). La usan el wizard y la sección Onboarding del portal. */
+export const ONBOARDING_DELIVERY_CHANNELS_QUESTION = '¿Cómo entregás hoy tu programa?'
+
 export interface OnboardingBriefFieldDef {
   key: Exclude<keyof OnboardingBriefAnswers, 'deliveryChannels' | 'deliveryChannelsOther'>
   label: string

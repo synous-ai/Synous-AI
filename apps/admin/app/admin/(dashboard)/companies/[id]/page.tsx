@@ -33,6 +33,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { DetailViewSkeleton } from '@/components/ui/skeletons'
 import { PillTabs } from '@/components/ui/pill-tabs'
 import { CompanyDialog } from '@/components/companies/company-dialog'
+import { CompanyBrandCard } from '@/components/companies/company-brand-card'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
@@ -188,7 +189,7 @@ export default function CompanyDetailPage() {
       {/* Two-column layout */}
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* ── Left panel ──────────────────────────────────────────── */}
-        <div className="w-full lg:w-80 lg:flex-shrink-0">
+        <div className="w-full space-y-4 lg:w-80 lg:flex-shrink-0">
           <Card className="rounded-2xl">
             <CardContent className="p-6">
               {/* Avatar + name */}
@@ -235,6 +236,8 @@ export default function CompanyDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          <CompanyBrandCard companyId={id} />
         </div>
 
         {/* ── Right panel ─────────────────────────────────────────── */}

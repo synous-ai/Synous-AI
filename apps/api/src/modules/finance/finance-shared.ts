@@ -108,6 +108,44 @@ export async function nextInvoiceNumber(tx: Tx, portalId: string): Promise<numbe
 // ── derivedStatus ─────────────────────────────────────────────────────────────
 
 /**
+ * "Hoy" en la zona horaria del negocio (Argentina, UTC-3), no en UTC.
+ *
+ * `new Date().toISOString().slice(0, 10)` da el día calendario en UTC: a las
+ * 21:00 hora Argentina ya es el día siguiente en UTC, así que una factura con
+ * `dueDate` de HOY (hora local) se marcaba "vencida" 3 horas antes de la
+ * medianoche real del negocio. `en-CA` es el locale de Intl que devuelve la
+ * fecha ya en formato ISO `YYYY-MM-DD` (mismo formato que `invoice.dueDate`),
+ * así que la comparación de strings sigue siendo válida sin parsear nada.
+ */
+export function todayInBuenosAires(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date())
+}
+
+/**
+ * True si la factura está vencida: no es borrador/anulada, tiene saldo
+ * pendiente y ese saldo pasó su fecha de vencimiento. Pura (sin acceso a DB) y
+ * extraída de `computeDerivedStatus` para que el portal de cliente pueda
+ * marcar `isOverdue` sin duplicar la comparación de fechas — antes el portal
+ * mostraba "vencida" únicamente cuando el status ALMACENADO era 'overdue' (una
+ * transición manual del admin, sin cron), así que una factura 'sent' vencida
+ * por fecha se veía "vencida" en el admin (vía `computeDerivedStatus`) pero
+ * "emitida" en el portal.
+ *
+ * `today` es inyectable (default: `todayInBuenosAires()`) para que los tests
+ * sean deterministas sin mockear el reloj del sistema.
+ */
+export function isInvoiceOverdue(
+  inv: Pick<InvoiceRow, 'status' | 'dueDate'>,
+  balance: number,
+  today: string = todayInBuenosAires(),
+): boolean {
+  if (inv.status === 'draft' || inv.status === 'void') return false
+  if (balance <= 0) return false
+  if (!inv.dueDate) return false
+  return inv.dueDate < today
+}
+
+/**
  * Calcula el estado derivado on-read de una factura combinando el status
  * almacenado con el saldo real (invoiceTotal − totalPaid en amountBase).
  *
@@ -130,8 +168,7 @@ export function computeDerivedStatus(
   const amtBase = Number(inv.amountBase)
   if (balance <= 0) return 'pagada'
 
-  const today = new Date().toISOString().slice(0, 10)
-  if (inv.dueDate && inv.dueDate < today) return 'vencida'
+  if (isInvoiceOverdue(inv, balance)) return 'vencida'
   if (balance < amtBase) return 'parcial'
 
   return 'enviada'

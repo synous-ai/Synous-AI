@@ -50,6 +50,14 @@ export const HISTORY_FIELD_LABELS: Record<string, string> = {
   contactId: 'Contacto',
   archived: 'Archivado',
   archivedAt: 'Archivado el',
+  // Marca del portal de cliente (company.brand_*, ver PATCH /api/companies/:id/branding
+  // y el brief del onboarding) — field_name tal como los graba recordFieldChanges,
+  // en camelCase (mismas keys que el body del PATCH, no las columnas snake_case).
+  brandName: 'Nombre de marca',
+  brandLogoKey: 'Logo',
+  brandPrimary: 'Color principal',
+  brandSecondary: 'Color secundario',
+  brandIdentity: 'Identidad de marca (brief)',
 }
 
 // ─── Fallback: camelCase → Title Case (strips trailing "Id") ─────────────────

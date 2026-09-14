@@ -1,19 +1,41 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft, PenLine, ClipboardList, FolderUp, CheckCircle2, Circle, Paperclip, Megaphone } from 'lucide-react'
-import { useOnboardingDetail } from '@/lib/hooks'
-import { openFile } from '@/lib/hooks/misc'
+import {
+  ChevronLeft,
+  PenLine,
+  ClipboardList,
+  FolderUp,
+  CheckCircle2,
+  Circle,
+  Paperclip,
+  Megaphone,
+  Check,
+  Loader2,
+  Plus,
+  Trash2,
+} from 'lucide-react'
+import {
+  useOnboardingDetail,
+  useAddDealBrandFile,
+  useDeleteDealBrandFile,
+  useUpdateDealBrandIdentity,
+} from '@/lib/hooks'
+import { openFile, FILE_PURPOSE_ACCEPT } from '@/lib/hooks/misc'
 import { intakeStatus } from '@/lib/status'
 import { formatSize, formatDate } from '@/lib/utils'
 import { ONBOARDING_BRIEF_BLOCKS, ONBOARDING_MATERIAL_CATEGORIES } from '@portal/lib/onboarding-content'
-import { ONBOARDING_DELIVERY_CHANNELS } from '@portal/lib/types'
+import { ONBOARDING_DELIVERY_CHANNELS, type OnboardingAsset } from '@portal/lib/types'
+import { useAutosaveField } from '@portal/lib/use-autosave-field'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SkeletonGroup } from '@/components/ui/loading-region'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 
@@ -57,6 +79,162 @@ function AssetLink({ storageKey, name, sizeBytes }: { storageKey: string; name: 
         </span>
       )}
     </button>
+  )
+}
+
+/** Fila de archivo de marca (categoría "Logo y manual de marca") con opción de archivar. */
+function BrandAssetRow({ asset, dealId }: { asset: OnboardingAsset; dealId: string }) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const deleteFile = useDeleteDealBrandFile()
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <AssetLink storageKey={asset.storageKey} name={asset.name} sizeBytes={asset.sizeBytes} />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+        onClick={() => setConfirmOpen(true)}
+        aria-label={`Eliminar ${asset.name}`}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="¿Eliminar este archivo?"
+        description={asset.name}
+        confirmLabel="Eliminar"
+        destructive
+        pending={deleteFile.isPending}
+        onConfirm={() =>
+          deleteFile.mutate(
+            { dealId, assetId: asset.id },
+            { onSuccess: () => setConfirmOpen(false) },
+          )
+        }
+      />
+      {deleteFile.isError && (
+        <p role="alert" className="text-xs text-destructive">
+          No se pudo eliminar.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** "Agregar archivo" para la categoría de marca — mismo propósito de subida que el resto de materiales. */
+function BrandFileUploader({ dealId }: { dealId: string }) {
+  const addFile = useAddDealBrandFile()
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  async function handleSelect(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setUploading(true)
+    setError(null)
+    try {
+      await addFile.mutateAsync({ dealId, file })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo subir el archivo')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <label className="inline-block cursor-pointer">
+        <input
+          ref={inputRef}
+          type="file"
+          accept={FILE_PURPOSE_ACCEPT.onboarding_material}
+          className="sr-only"
+          onChange={(e) => void handleSelect(e)}
+          disabled={uploading}
+        />
+        <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-xs font-medium hover:bg-accent">
+          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+          Agregar archivo
+        </span>
+      </label>
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Identidad de marca (brief, q11) — único campo editable del brief ───────────
+// El autoguardado en sí (debounce, orden de respuestas, flush al desmontar)
+// vive en el hook compartido `useAutosaveField` — ver
+// portal-lib/lib/use-autosave-field.ts (mismo patrón que el portal).
+
+function BrandIdentityField({ dealId, value }: { dealId: string; value: string }) {
+  const update = useUpdateDealBrandIdentity()
+  const auto = useAutosaveField<string>({
+    serverValue: value,
+    toKey: (v) => v.trim(),
+    isValid: (v) => {
+      const t = v.trim()
+      return t.length > 0 && t.length <= 500
+    },
+    save: (v) => update.mutateAsync({ dealId, brandIdentity: v.trim() }),
+    debounceMs: 800,
+  })
+
+  const trimmed = auto.value.trim()
+
+  function handleChange(next: string) {
+    auto.setValue(next)
+    const nextTrimmed = next.trim()
+    if (nextTrimmed.length > 0 && nextTrimmed.length <= 500) auto.schedule(next)
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Textarea
+        aria-label="¿Ya tenés identidad de marca definida (logo, colores, tipografías)?"
+        value={auto.value}
+        onChange={(e) => handleChange(e.target.value)}
+        onBlur={auto.flush}
+        rows={3}
+        maxLength={500}
+        className="text-sm"
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        {/* UNA sola live region: antes el caso de error anidaba otro
+            `role="alert"` (asertivo) adentro de este `aria-live="polite"` y
+            se anunciaba dos veces. */}
+        <span aria-live="polite" role="status" className="inline-flex min-h-[1rem] items-center gap-1.5 text-muted-foreground">
+          {trimmed.length === 0 && <span className="text-destructive">No puede quedar vacío.</span>}
+          {trimmed.length > 0 && auto.state === 'saving' && (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin" /> Guardando…
+            </>
+          )}
+          {trimmed.length > 0 && auto.state === 'saved' && (
+            <>
+              <Check className="h-3 w-3 text-badge-success-fg" /> Guardado
+            </>
+          )}
+          {trimmed.length > 0 && auto.state === 'error' && (
+            <span className="inline-flex items-center gap-1.5 text-destructive">
+              {auto.error}
+              <button type="button" onClick={() => void auto.commit(auto.value)} className="font-medium underline underline-offset-2">
+                Reintentar
+              </button>
+            </span>
+          )}
+        </span>
+        <span className="tabular-nums text-muted-foreground">{auto.value.length}/500</span>
+      </div>
+    </div>
   )
 }
 
@@ -168,9 +346,15 @@ export default function OnboardingDetailPage() {
                     {block.fields.map((f) => (
                       <div key={f.key}>
                         <dt className="text-xs text-muted-foreground">{f.label}</dt>
-                        <dd className="mt-0.5 text-sm text-foreground/90">
-                          {String(brief[f.key] ?? '') || '—'}
-                        </dd>
+                        {f.key === 'brandIdentity' ? (
+                          <div className="mt-1">
+                            <BrandIdentityField dealId={onboarding.dealId} value={brief.brandIdentity} />
+                          </div>
+                        ) : (
+                          <dd className="mt-0.5 text-sm text-foreground/90">
+                            {String(brief[f.key] ?? '') || '—'}
+                          </dd>
+                        )}
                       </div>
                     ))}
                     {block.title === 'Tu negocio y tu programa' && (
@@ -222,13 +406,22 @@ export default function OnboardingDetailPage() {
                   {item?.note && <p className="mt-2 text-sm text-muted-foreground">{item.note}</p>}
                   {files.length > 0 && (
                     <ul className="mt-3 space-y-1.5">
-                      {files.map((f) => (
-                        <li key={f.id}>
-                          <AssetLink storageKey={f.storageKey} name={f.name} sizeBytes={f.sizeBytes} />
-                        </li>
-                      ))}
+                      {files.map((f) =>
+                        cat.key === 'logoBrand' ? (
+                          <li key={f.id}>
+                            <BrandAssetRow asset={f} dealId={onboarding.dealId} />
+                          </li>
+                        ) : (
+                          <li key={f.id}>
+                            <AssetLink storageKey={f.storageKey} name={f.name} sizeBytes={f.sizeBytes} />
+                          </li>
+                        ),
+                      )}
                     </ul>
                   )}
+                  {/* Solo "Logo y manual de marca" acepta agregar archivos desde el admin — el
+                      resto de las categorías son materiales que el cliente sube en el wizard. */}
+                  {cat.key === 'logoBrand' && <BrandFileUploader dealId={onboarding.dealId} />}
                 </div>
               )
             })}
