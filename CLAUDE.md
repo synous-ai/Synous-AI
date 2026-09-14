@@ -293,6 +293,37 @@ producción. Ver `docs/ARCHITECTURE.md` para el detalle.
 
 ---
 
+## Git y deploy (Vercel)
+
+**En este repo se commitea como `synous-ai <synous.ai@gmail.com>`**, no con la
+identidad personal de cada uno. Está configurado en el `.git/config` local del
+repo, y lo heredan todos los worktrees:
+
+```bash
+git config user.name "synous-ai"
+git config user.email "synous.ai@gmail.com"
+
+# Verificar antes de commitear
+git config user.email   # → synous.ai@gmail.com
+```
+
+Razón: el equipo de Vercel está en plan **Hobby**, que no permite colaborar en
+repos privados. Vercel solo despliega commits cuyo autor es el dueño de la
+cuenta (el usuario de GitHub `synous-ai`). Un commit con otra identidad hace
+fallar el preview del PR con *"Git author … must have access to the project on
+Vercel"* o *"Deployment was blocked"*. Los merges a `main` que hace `synous-ai`
+sí despliegan.
+
+- No cambies la identidad local del repo a tu email personal: los previews
+  dejan de funcionar.
+- Cada clon se configura por separado: en otra máquina hay que correr los dos
+  `git config` de arriba, o sus PRs quedan sin preview.
+- Costo de esta decisión: el historial no distingue quién escribió cada commit.
+  Si se pasa a Pro, se puede volver a las identidades personales e invitar a
+  cada uno al equipo con `vercel teams invite <email>`.
+
+---
+
 ## Variables de entorno
 
 El archivo `.env.example` tiene todas las variables requeridas.
