@@ -18,7 +18,7 @@ const SECTIONS: LegalSection[] = [
           escribirnos a <ContactEmail />.
         </p>
         <p>
-          Esta política aplica al panel interno (<strong>app.synousai.com</strong>), al portal de
+          Esta política aplica al panel interno (<strong>admin.synousai.com</strong>), al portal de
           clientes (los subdominios de <strong>synousai.com</strong> asignados a cada cliente) y a las
           páginas públicas de propuestas y reservas de reuniones.
         </p>
