@@ -5,6 +5,7 @@ import { db } from '../../db'
 import { proposal, deal, contact, company, onboardingSubmission } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { env } from '../../config/env'
+import { publicSiteBaseUrl } from '../../lib/portal-url'
 import type { ModelProvider } from '../../lib/ai'
 import type { ProposalContent } from './proposals.types'
 import {
@@ -62,8 +63,7 @@ function str(v: unknown): string | undefined {
 
 /** URL pública de la propuesta (link para enviarle al cliente). */
 function publicUrl(token: string): string {
-  const base = env.ADMIN_URL ?? 'http://localhost:3000'
-  return `${base}/p/${token}`
+  return `${publicSiteBaseUrl()}/p/${token}`
 }
 
 /** Provider de IA configurado para la instancia (env MODEL_PROVIDER, default gemini). */

@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '../../db'
-import { deal, pipeline, pipelineStage, contact, clientAccount, clientDealAccess } from '../../db/schema'
+import { deal, pipeline, pipelineStage, contact, clientAccount, clientDealAccess, company } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
 import { notifyUser } from '../notifications/notify'
 import { ensureClerkUserType, createClientPortalInvitation } from '../../lib/clerk-provisioning'
 import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
+import { tenantPortalUrl } from '../../lib/portal-url'
 import { portalInvitationHtml } from '../onboarding/emails/portal-invitation'
 import {
   PRODUCTION_PIPELINE_LABEL,
@@ -65,6 +66,8 @@ export interface PortalActivation {
   isNewAccount: boolean
   /** La cuenta todavía no está vinculada a un usuario de Clerk (primera vez, o un intento previo falló). */
   needsClerkUser: boolean
+  /** Slug de la empresa del deal: su portal vive en `<slug>.<raíz>`. */
+  companySlug: string | null
 }
 
 /**
@@ -123,6 +126,9 @@ export async function activateClientPortal(
   const isNewAccount = !existing
   const needsClerkUser = !account!.clerkUserId
   if (!isNewAccount && !needsClerkUser) return null
+  const [dealCompany] = d.companyId
+    ? await tx.select({ slug: company.slug }).from(company).where(eq(company.id, d.companyId)).limit(1)
+    : []
   return {
     clientAccountId: account!.id,
     email: c.email,
@@ -131,6 +137,7 @@ export async function activateClientPortal(
     dealName: d.name,
     isNewAccount,
     needsClerkUser,
+    companySlug: dealCompany?.slug ?? null,
   }
 }
 
@@ -149,7 +156,7 @@ export async function completeClientPortalActivation(activation: PortalActivatio
     if (activation.isNewAccount) {
       const invitation = await createClientPortalInvitation({
         email: activation.email,
-        redirectUrl: `${clientPortalBaseUrl()}/portal/accept-invitation`,
+        redirectUrl: `${tenantPortalUrl(activation.companySlug) ?? `${clientPortalBaseUrl()}/portal`}/accept-invitation`,
       })
       invitationUrl = invitation?.invitationUrl ?? null
     }

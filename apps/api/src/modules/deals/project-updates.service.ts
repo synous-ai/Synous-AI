@@ -9,12 +9,13 @@ import {
   clientAccount,
   clientDealAccess,
   contact,
+  company,
 } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { writeAudit, type Tx } from '../../lib/audit'
 import { assertDealInPortal } from '../../lib/portal-access'
 import { sendEmail } from '../../lib/mailer'
-import { portalHomeUrl } from '../../lib/portal-url'
+import { portalHomeUrl, tenantPortalUrl } from '../../lib/portal-url'
 import { PRODUCTION_PIPELINE_LABEL } from '../onboarding/assignees'
 import { projectUpdateHtml, projectUpdateSubject } from './emails/project-update-published'
 import type { CreateProjectUpdateDTO } from './project-updates.schema'
@@ -141,7 +142,12 @@ export async function createDealUpdate(
  */
 async function notifyClientOfUpdate(portalId: string, dealId: string, row: ProjectUpdateRow): Promise<void> {
   try {
-    const [d] = await db.select({ name: deal.name }).from(deal).where(eq(deal.id, dealId)).limit(1)
+    const [d] = await db
+      .select({ name: deal.name, companySlug: company.slug })
+      .from(deal)
+      .leftJoin(company, eq(company.id, deal.companyId))
+      .where(eq(deal.id, dealId))
+      .limit(1)
     if (!d) return
 
     let phaseLabel: string | null = null
@@ -183,7 +189,7 @@ async function notifyClientOfUpdate(portalId: string, dealId: string, row: Proje
             dealName: d.name,
             phaseLabel,
             body: row.body,
-            portalUrl: portalHomeUrl(r.brandSlug),
+            portalUrl: tenantPortalUrl(d.companySlug) ?? portalHomeUrl(r.brandSlug),
           }),
         })
       } catch (err) {
