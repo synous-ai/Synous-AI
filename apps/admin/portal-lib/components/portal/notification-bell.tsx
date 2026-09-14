@@ -123,7 +123,7 @@ export function ClientNotificationBell() {
           además lo anuncia cuando cambia. `null` mientras carga: así no suena
           en cada carga del portal, solo cuando llega algo nuevo. */}
       <NotificationBell
-        count={unread ? unread.count : null}
+        count={typeof unread?.count === 'number' ? unread.count : null}
         size={40}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}

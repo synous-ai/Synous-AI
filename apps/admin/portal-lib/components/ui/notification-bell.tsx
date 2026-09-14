@@ -12,7 +12,9 @@
  *  - Colores del tema del portal (`bg-secondary`, `text-muted-foreground`,
  *    `bg-destructive`…) en vez de hex con variantes `dark:`. El shell del portal
  *    es claro siempre, pero next-themes pone `.dark` en <html> según el sistema:
- *    con `dark:` la campana salía oscura sobre el portal claro.
+ *    con `dark:` la campana salía oscura sobre el portal claro. Se suma un hover
+ *    (fondo `bg-accent`, glifo `text-foreground`) que el original no tenía, y
+ *    el color de los dígitos sale del token del badge en vez de `text-white`.
  *  - `count` acepta `null` = "todavía no se sabe" (la consulta no volvió). Sin
  *    esto la campana sonaba en cada carga del portal, al pasar de 0 al número
  *    real; ahora el primer valor conocido no suena y solo suena lo que llega.
