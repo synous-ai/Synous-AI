@@ -43,6 +43,7 @@ import {
   portalHref,
   usePortalNav,
   type PortalTabId,
+  portalBase,
 } from '@portal/components/portal/portal-nav'
 
 // Display font for the brand mark and every heading in the portal shell.
@@ -132,8 +133,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // El middleware ya bloquea antes de llegar acá, pero cubrimos el caso
   // de sesión expirada durante la navegación.
   useEffect(() => {
-    if (isLoaded && !isSignedIn) router.replace('/portal/login')
-  }, [isLoaded, isSignedIn, router])
+    if (isLoaded && !isSignedIn) router.replace(`${portalBase(pathname)}/login`)
+  }, [isLoaded, isSignedIn, router, pathname])
 
   // Pantalla de carga mientras Clerk verifica la sesión.
   if (!isLoaded || !isSignedIn) {

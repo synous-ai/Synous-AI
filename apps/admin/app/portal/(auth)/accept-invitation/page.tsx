@@ -18,10 +18,11 @@
  */
 
 import { Suspense, useState, type FormEvent, type ReactNode } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useSignUp } from '@clerk/nextjs/legacy'
 import { useAuth } from '@clerk/nextjs'
 import { isClerkAPIResponseError } from '@clerk/nextjs/errors'
+import { portalBase } from '@portal/components/portal/portal-nav'
 import './accept-invitation.css'
 
 const MIN_PASSWORD_LENGTH = 8
@@ -61,6 +62,7 @@ export default function AcceptInvitationPage() {
 function AcceptInvitationForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const loginHref = `${portalBase(usePathname())}/login`
   const ticket = searchParams.get('__clerk_ticket')
   const { isSignedIn } = useAuth()
   const { isLoaded, signUp, setActive } = useSignUp()
@@ -78,7 +80,7 @@ function AcceptInvitationForm() {
     return (
       <InvitationShell>
         <p className="invite-note">Este link de invitación es inválido o está incompleto.</p>
-        <a className="invite-link" href="/portal/login">
+        <a className="invite-link" href={loginHref}>
           Ir al login del portal
         </a>
       </InvitationShell>
@@ -205,7 +207,7 @@ function AcceptInvitationForm() {
           {submitting ? 'Creando cuenta…' : 'Crear cuenta y entrar'}
         </button>
 
-        <a className="invite-link" href="/portal/login">
+        <a className="invite-link" href={loginHref}>
           ¿Ya tenés cuenta? Ingresá acá
         </a>
       </form>
