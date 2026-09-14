@@ -14,6 +14,7 @@ import {
   Check,
   Trash2,
   AlertCircle,
+  ExternalLink,
 } from 'lucide-react'
 import {
   useCompanyDetail,
@@ -36,6 +37,12 @@ import { ActivityTimeline } from '@/components/activity/activity-timeline'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
 import { Users, StickyNote, ListTodo, History } from 'lucide-react'
+
+/** Portal del cliente en su subdominio; sin dominio raíz (dev), por `/c/<slug>`. */
+function portalUrl(slug: string): string {
+  const root = process.env.NEXT_PUBLIC_ROOT_DOMAIN
+  return root ? `https://${slug}.${root}` : `/c/${slug}`
+}
 
 type DetailTab = 'activity' | 'contacts' | 'deals' | 'notes' | 'tasks' | 'history'
 
@@ -199,7 +206,7 @@ export default function CompanyDetailPage() {
               </div>
 
               {/* Edit button */}
-              <div className="mb-4 flex justify-center">
+              <div className="mb-4 flex justify-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -209,6 +216,14 @@ export default function CompanyDetailPage() {
                   <Pencil className="h-3.5 w-3.5" />
                   Editar
                 </Button>
+                {co.slug && (
+                  <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                    <a href={portalUrl(co.slug)} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Ver portal
+                    </a>
+                  </Button>
+                )}
               </div>
 
               {/* Fields */}

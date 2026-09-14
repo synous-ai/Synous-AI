@@ -48,6 +48,8 @@ export interface ApiClientOptions {
   setToken?: (token: string) => void
   /** Called when a 401 cannot be recovered — should clear the session and redirect. */
   onAuthFailure: () => void
+  /** Headers extra en cada pedido (el portal manda el slug del tenant para la vista de admin). */
+  getHeaders?: () => Record<string, string>
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +102,7 @@ export function createApiClient(opts: ApiClientOptions) {
   }
 
   async function raw<T>(path: string, options: RequestOptions, retry: boolean): Promise<T> {
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = { ...opts.getHeaders?.() }
     if (options.body !== undefined) headers['Content-Type'] = 'application/json'
     // getToken acepta sync y async — se awaitea siempre de forma segura
     const token = await Promise.resolve(opts.getToken())
@@ -147,7 +149,7 @@ export function createApiClient(opts: ApiClientOptions) {
   async function apiList<T>(path: string): Promise<ApiEnvelope<T>> {
     // getToken acepta sync y async — se awaitea siempre de forma segura
     const token = await Promise.resolve(opts.getToken())
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = { ...opts.getHeaders?.() }
     if (token) headers.Authorization = `Bearer ${token}`
     const res = await fetch(`${API_URL}${path}`, { headers, credentials: 'include' })
     if (res.status === 401) {

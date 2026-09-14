@@ -37,10 +37,23 @@ export async function getPortalToken(): Promise<string | null> {
   }
 }
 
+/** Slug del tenant: cookie `dd_tenant`, que el middleware setea en el subdominio del cliente. */
+function tenantSlug(): string | null {
+  if (typeof document === 'undefined') return null
+  const m = document.cookie.match(/(?:^|;\s*)dd_tenant=([^;]+)/)
+  return m?.[1] ? decodeURIComponent(m[1]) : null
+}
+
 const client = createApiClient({
   // No hay refresh vía cookie propio — Clerk auto-gestiona su sesión.
   // refreshPath se omite deliberadamente: tryRefresh() devuelve false de inmediato.
   getToken: getPortalToken,
+  // Un admin del equipo que abre el portal de un cliente lo ve en solo lectura:
+  // el API resuelve de qué empresa es por este slug. Para un cliente no cambia nada.
+  getHeaders: (): Record<string, string> => {
+    const slug = tenantSlug()
+    return slug ? { 'X-Portal-View': slug } : {}
+  },
   // onAuthFailure: el backend devolvió 401 con una sesión de Clerk activa —
   // es una sesión "huérfana" (usuario de Clerk sin client_account vinculado,
   // p. ej. un admin o una cuenta re-vinculada). Redirigir a login sin cerrar

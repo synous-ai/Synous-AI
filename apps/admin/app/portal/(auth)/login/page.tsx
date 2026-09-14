@@ -27,7 +27,7 @@ import { SignIn, useAuth } from '@clerk/nextjs'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { API_URL } from '@synous/shared'
-import { apiGet } from '@portal/lib/api'
+import { apiGet, ApiError } from '@portal/lib/api'
 import { portalHref } from '@portal/components/portal/portal-nav'
 import './login.css'
 
@@ -98,6 +98,7 @@ function readSlugCookie(): string | null {
 
 export default function PortalLoginPage() {
   const [branding, setBranding] = useState<PublicBranding | null>(null)
+  const [viewError, setViewError] = useState<string | null>(null)
   const { isLoaded, isSignedIn } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
@@ -116,9 +117,12 @@ export default function PortalLoginPage() {
       .then(() => {
         if (!cancelled) router.replace(portalHref(pathname, 'dashboard'))
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         // 401 → onAuthFailure ya cerró la sesión de Clerk (sin redirigir porque
         // estamos en /portal/login); el <SignIn> se monta al flip de isSignedIn.
+        // Un admin del equipo no recibe 401: si este portal no se puede ver
+        // (sin activar, slug inexistente) se le explica en vez de un form vacío.
+        if (!cancelled && err instanceof ApiError && err.status !== 401) setViewError(err.message)
       })
     return () => {
       cancelled = true
@@ -205,6 +209,12 @@ export default function PortalLoginPage() {
           <p className="portal-login-sub">
             {brandName ? `Accedé al portal de ${brandName}.` : 'Accedé al portal de tu proyecto.'}
           </p>
+
+          {viewError && (
+            <p className="portal-login-sub" role="alert">
+              {viewError}
+            </p>
+          )}
 
           <div className="portal-login-clerk">
             {/* En host de tenant el portal se sirve limpio (`/dashboard`); bajo el prefijo físico, `/portal/dashboard`. */}

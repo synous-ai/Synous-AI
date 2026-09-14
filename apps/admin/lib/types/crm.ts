@@ -17,6 +17,8 @@ export interface Contact {
 export interface Company {
   id: string
   name: string
+  /** Subdominio del portal del cliente (`<slug>.<raíz>`). */
+  slug: string | null
   domain: string | null
   industry: string | null
   phone: string | null
