@@ -12,15 +12,7 @@
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import {
-  File as FileIcon,
-  FileArchive,
-  FileAudio,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileVideo,
-} from 'lucide-react'
+import { KIND_BY_EXTENSION, extensionOf, type AssetKind } from '@portal/lib/file-kind'
 import { CardHeader, CardTitle } from '@portal/components/ui/card'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
 import { openFile } from '@portal/lib/files'
@@ -46,35 +38,10 @@ export function plural(count: number, one: string, many: string): string {
 
 // ─── Tipos de archivo ─────────────────────────────────────────────────────────
 
-export type AssetKind = 'image' | 'pdf' | 'video' | 'audio' | 'spreadsheet' | 'archive' | 'other'
-
-const KIND_BY_EXTENSION: Record<string, AssetKind> = {
-  png: 'image',
-  jpg: 'image',
-  jpeg: 'image',
-  gif: 'image',
-  webp: 'image',
-  pdf: 'pdf',
-  mp4: 'video',
-  mov: 'video',
-  mp3: 'audio',
-  wav: 'audio',
-  ogg: 'audio',
-  m4a: 'audio',
-  xlsx: 'spreadsheet',
-  csv: 'spreadsheet',
-  zip: 'archive',
-}
-
-export const KIND_ICON: Record<AssetKind, LucideIcon> = {
-  image: FileImage,
-  pdf: FileText,
-  video: FileVideo,
-  audio: FileAudio,
-  spreadsheet: FileSpreadsheet,
-  archive: FileArchive,
-  other: FileIcon,
-}
+// La clasificación por extensión y los íconos viven en `@portal/lib/file-kind`
+// (compartidos con Documentos). Se reexportan para no romper a quien importa de acá.
+export { KIND_ICON } from '@portal/lib/file-kind'
+export type { AssetKind } from '@portal/lib/file-kind'
 
 /** Formato legible para los MIME largos de Office, cuando el nombre no trae extensión. */
 const FORMAT_BY_MIME: Record<string, string> = {
@@ -85,13 +52,6 @@ const FORMAT_BY_MIME: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
   'video/quicktime': 'MOV',
   'audio/mpeg': 'MP3',
-}
-
-function extensionOf(name: string): string | null {
-  const dot = name.lastIndexOf('.')
-  if (dot <= 0 || dot === name.length - 1) return null
-  const ext = name.slice(dot + 1).toLowerCase()
-  return ext.length <= 5 ? ext : null
 }
 
 /** El MIME viene del ledger de subidas (verificado por magic bytes); la extensión es el respaldo. */
