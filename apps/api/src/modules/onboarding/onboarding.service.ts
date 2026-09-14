@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { db, type DB } from '../../db'
 import { clientOnboarding, clientAsset, deal, clientAccount, clientDealAccess, contact, company } from '../../db/schema'
 import { Errors } from '../../lib/errors'
-import type { Tx } from '../../lib/audit'
+import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
+import { clientDealIds, resolveActiveClientDeal } from '../../lib/portal-access'
 import { notifyUser, notifyAdmins } from '../notifications/notify'
 import { moveDealToProduction } from '../deals/stage.service'
 import { sendEmail, clientPortalBaseUrl } from '../../lib/mailer'
@@ -13,6 +14,7 @@ import { tenantPortalUrl } from '../../lib/portal-url'
 import { onboardingCompletedHtml } from './emails/onboarding-completed'
 import type { ClientTokenPayload } from '../../middleware/authenticate-client'
 import { claimUpload, prepareUploadClaim } from '../uploads/uploads.service'
+import { notifyBrandChange, resolveBrandLogoKey, removeBrandAssetFromMaterials } from '../branding/branding.service'
 import {
   ONBOARDING_STATUS,
   type OnboardingBriefDTO,
@@ -57,15 +59,15 @@ interface ActiveDeal {
  * Resuelve el deal activo del cliente autenticado, vía client_deal_access.
  * Si el cliente tiene varios deals (poco común hoy), toma el más reciente no
  * archivado — es el proyecto que está por arrancar.
+ *
+ * Delegado a `resolveActiveClientDeal` (lib/portal-access.ts) — la consulta
+ * en sí vive ahí, compartida con branding.service.ts. Acá solo se agrega el
+ * `throw` de negocio: en el wizard de onboarding, no tener deal activo SÍ es
+ * un error (a diferencia de un caller que solo necesita "no hay a quién
+ * notificar").
  */
 async function resolveActiveDeal(clientId: string): Promise<ActiveDeal> {
-  const [row] = await db
-    .select({ id: deal.id, portalId: deal.portalId })
-    .from(clientDealAccess)
-    .innerJoin(deal, eq(deal.id, clientDealAccess.dealId))
-    .where(and(eq(clientDealAccess.clientId, clientId), eq(deal.archived, false)))
-    .orderBy(desc(deal.createdAt))
-    .limit(1)
+  const row = await resolveActiveClientDeal(clientId)
   if (!row) throw Errors.notFound('No hay un proyecto activo asociado a esta cuenta')
   return row
 }
@@ -143,18 +145,22 @@ async function findOnboardingOrInitial(activeDeal: ActiveDeal, clientId: string)
 
 export async function getOnboardingState(clientId: string, opts: { readOnly?: boolean } = {}): Promise<OnboardingStateDTO> {
   const activeDeal = await resolveActiveDeal(clientId)
-  // Las dos queries son independientes entre sí: assets depende solo de
-  // activeDeal.id, no de la fila onboarding — se resuelven en paralelo.
-  const [onboarding, assets] = await Promise.all([
+  // Las tres queries son independientes entre sí — se resuelven en paralelo.
+  const [onboarding, rawAssets, brandLogoKey] = await Promise.all([
     opts.readOnly
       ? findOnboardingOrInitial(activeDeal, clientId)
       : getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId),
     db
       .select()
       .from(clientAsset)
-      .where(and(eq(clientAsset.dealId, activeDeal.id), isNull(clientAsset.intakeId)))
+      .where(and(eq(clientAsset.dealId, activeDeal.id), isNull(clientAsset.intakeId), eq(clientAsset.archived, false)))
       .orderBy(desc(clientAsset.uploadedAt)),
+    resolveBrandLogoKey(clientId),
   ])
+  // Defensa en profundidad: el logo NUNCA aparece en "archivos de marca" (es
+  // el campo de identidad, `brand_logo_key`), aunque comparta `field_name:
+  // 'logoBrand'` con el checklist de materiales por historia del wizard.
+  const assets = brandLogoKey ? rawAssets.filter((a) => a.storageKey !== brandLogoKey) : rawAssets
   return { onboarding, assets }
 }
 
@@ -321,7 +327,7 @@ async function assertOwnedAssets(dealId: string, materials: Record<string, { ass
   const owned = await db
     .select({ id: clientAsset.id })
     .from(clientAsset)
-    .where(and(eq(clientAsset.dealId, dealId), inArray(clientAsset.id, allAssetIds)))
+    .where(and(eq(clientAsset.dealId, dealId), inArray(clientAsset.id, allAssetIds), eq(clientAsset.archived, false)))
   const ownedSet = new Set(owned.map((o) => o.id))
   const invalid = allAssetIds.filter((id) => !ownedSet.has(id))
   if (invalid.length > 0) {
@@ -601,23 +607,278 @@ export interface AdminOnboardingDetailDTO {
 }
 
 export async function getOnboardingByDeal(portalId: string, dealId: string): Promise<AdminOnboardingDetailDTO> {
-  // Las dos queries son independientes (la de assets solo depende del dealId
-  // recibido, no de la fila onboarding) — se resuelven en paralelo.
-  const [[row], assets] = await Promise.all([
-    db
-      .select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email })
-      .from(clientOnboarding)
-      .innerJoin(deal, eq(deal.id, clientOnboarding.dealId))
-      .innerJoin(clientAccount, eq(clientAccount.id, clientOnboarding.clientId))
-      .where(and(eq(clientOnboarding.portalId, portalId), eq(clientOnboarding.dealId, dealId)))
-      .limit(1),
+  const [row] = await db
+    .select({ onboarding: clientOnboarding, dealName: deal.name, clientEmail: clientAccount.email })
+    .from(clientOnboarding)
+    .innerJoin(deal, eq(deal.id, clientOnboarding.dealId))
+    .innerJoin(clientAccount, eq(clientAccount.id, clientOnboarding.clientId))
+    .where(and(eq(clientOnboarding.portalId, portalId), eq(clientOnboarding.dealId, dealId)))
+    .limit(1)
+  if (!row) throw Errors.notFound('Onboarding no encontrado para este deal')
+
+  const [rawAssets, brandLogoKey] = await Promise.all([
     db
       .select()
       .from(clientAsset)
-      .where(and(eq(clientAsset.dealId, dealId), isNull(clientAsset.intakeId)))
+      .where(and(eq(clientAsset.dealId, dealId), isNull(clientAsset.intakeId), eq(clientAsset.archived, false)))
       .orderBy(desc(clientAsset.uploadedAt)),
+    resolveBrandLogoKey(row.onboarding.clientId),
   ])
-  if (!row) throw Errors.notFound('Onboarding no encontrado para este deal')
+  // Misma defensa en profundidad que getOnboardingState: el logo nunca es un "archivo de marca" suelto.
+  const assets = brandLogoKey ? rawAssets.filter((a) => a.storageKey !== brandLogoKey) : rawAssets
 
   return { onboarding: row.onboarding, assets, dealName: row.dealName, clientEmail: row.clientEmail }
+}
+
+// ── Cliente: identidad de marca (brief.brandIdentity, editable post-completado) ──
+
+/**
+ * Único campo del brief (q11) editable DESPUÉS de completado el onboarding —
+ * las otras 15 respuestas quedan congeladas (a propósito, NO se llama a
+ * `assertNotCompleted` acá). 409 si el brief nunca se envió (`briefAnswers`
+ * null): todavía no hay nada que editar, primero tiene que pasar por
+ * `POST /brief`.
+ */
+export async function updateBrandIdentity(clientId: string, brandIdentity: string): Promise<ClientOnboardingRow> {
+  const activeDeal = await resolveActiveDeal(clientId)
+  // get-or-create fuera de la tx (ya es idempotente/a prueba de carreras por su
+  // cuenta — onConflictDoNothing + relectura). Solo hace falta el id de la fila.
+  const initial = await getOrCreateOnboarding(db, activeDeal.portalId, activeDeal.id, clientId)
+
+  const result = await db.transaction(async (tx) => {
+    // Lock + decisión de no-op DENTRO de la misma tx: leer antes (sin lock) y
+    // decidir "sin cambios" con esa lectura es TOCTOU — un PATCH concurrente
+    // podía pisar el valor entre el SELECT y el UPDATE, y esta request
+    // devolvía 200 con datos ya desactualizados sin haber escrito nada.
+    const [locked] = await tx
+      .select()
+      .from(clientOnboarding)
+      .where(eq(clientOnboarding.id, initial.id))
+      .limit(1)
+      .for('update')
+    if (!locked) throw Errors.internal('No se pudo leer el onboarding')
+    if (locked.briefAnswers === null) throw Errors.conflict('Todavía no enviaste el brief del proyecto')
+
+    const briefAnswers = locked.briefAnswers as Record<string, unknown>
+    const previousValue = typeof briefAnswers.brandIdentity === 'string' ? briefAnswers.brandIdentity : null
+    if (previousValue === brandIdentity) return { row: locked, changed: false as const }
+
+    const [updatedRow] = await tx
+      .update(clientOnboarding)
+      .set({
+        // jsonb_set sobre UNA sola clave: el resto de las 15 respuestas del
+        // brief no se toca. `to_jsonb(...::text)` escapa el valor como
+        // parámetro bindeado — no interpolación de string.
+        briefAnswers: sql`jsonb_set(${clientOnboarding.briefAnswers}, '{brandIdentity}', to_jsonb(${brandIdentity}::text))`,
+        updatedAt: new Date(),
+      })
+      .where(eq(clientOnboarding.id, locked.id))
+      .returning()
+    if (!updatedRow) throw Errors.internal('No se pudo guardar la identidad de marca')
+
+    await recordFieldChanges({
+      tx,
+      portalId: activeDeal.portalId,
+      entityType: 'client_onboarding',
+      entityId: locked.id,
+      before: { brandIdentity: previousValue },
+      after: { brandIdentity },
+      changedBy: null,
+    })
+    await writeAudit({
+      tx,
+      portalId: activeDeal.portalId,
+      clientId,
+      entityType: 'client_onboarding',
+      entityId: locked.id,
+      action: 'BRAND_IDENTITY_UPDATE',
+      payload: { section: 'marca', changes: [{ field: 'brandIdentity', oldValue: previousValue, newValue: brandIdentity }] },
+    })
+    return { row: updatedRow, changed: true as const }
+  })
+
+  // notifyBrandChange usa `db` (no `tx`) — llamarlo DESPUÉS del commit, nunca
+  // dentro de la transacción (segunda conexión al pool mientras esta retiene
+  // la suya). Solo si hubo un cambio real.
+  if (result.changed) {
+    await notifyBrandChange({ portalId: activeDeal.portalId, dealId: activeDeal.id, clientId, fields: ['Identidad de marca'], action: 'update' })
+  }
+  return result.row
+}
+
+// ── Admin: archivos y identidad de marca del deal (detalle de onboarding) ───
+
+/**
+ * A diferencia de `assertDealInPortal` (lib/portal-access.ts) — pensada para
+ * validar un FK que llega en el BODY y devuelve 400 "Deal inexistente" — acá
+ * `dealId` es el RECURSO de la URL (`/api/onboarding/deals/:dealId/...`):
+ * mismo criterio 404 que el resto del namespace (`getOnboardingByDeal`), no
+ * 400. Un deal de otro portal, archivado, o inexistente son indistinguibles
+ * desde afuera — todos 404.
+ */
+async function assertOnboardingDeal(portalId: string, dealId: string): Promise<void> {
+  const [row] = await db
+    .select({ id: deal.id })
+    .from(deal)
+    .where(and(eq(deal.id, dealId), eq(deal.portalId, portalId), eq(deal.archived, false)))
+    .limit(1)
+  if (!row) throw Errors.notFound('Deal no encontrado')
+}
+
+/**
+ * Cliente "dueño" del deal para colgarle un client_asset: preferimos el
+ * `client_id` de `client_onboarding` (el que efectivamente hizo el wizard) y,
+ * si el deal todavía no tiene fila de onboarding, el primero con acceso vía
+ * `client_deal_access`. 409 si ninguno de los dos resuelve — no hay a quién
+ * asociarle el archivo.
+ */
+async function resolveDealOwnerClientId(dealId: string): Promise<string> {
+  const [onboardingRow] = await db
+    .select({ clientId: clientOnboarding.clientId })
+    .from(clientOnboarding)
+    .where(eq(clientOnboarding.dealId, dealId))
+    .limit(1)
+  if (onboardingRow) return onboardingRow.clientId
+
+  const [accessRow] = await db.select({ clientId: clientDealAccess.clientId }).from(clientDealAccess).where(eq(clientDealAccess.dealId, dealId)).limit(1)
+  if (accessRow) return accessRow.clientId
+
+  throw Errors.conflict('Este deal todavía no tiene una cuenta de cliente asociada')
+}
+
+/**
+ * Admin: agrega un archivo de marca al deal, desde el detalle de onboarding.
+ * Mismo propósito de subida (`onboarding_material`) que el flujo del
+ * cliente — `policy.ts` habilita el actor `hub` para ese propósito
+ * específicamente por este endpoint. NO notifica (regla de negocio: los
+ * cambios que origina el propio equipo no generan la campanita de "el
+ * cliente cambió su marca").
+ */
+export async function addDealBrandFile(portalId: string, userId: string, dealId: string, storageKey: string): Promise<ClientAssetRow> {
+  await assertOnboardingDeal(portalId, dealId)
+  const clientId = await resolveDealOwnerClientId(dealId)
+
+  const preparedClaim = await prepareUploadClaim({
+    storageKey,
+    portalId,
+    actor: { kind: 'hub', userId, portalId },
+    purpose: 'onboarding_material',
+  })
+
+  return db.transaction(async (tx) => {
+    const upload = await claimUpload(tx, preparedClaim)
+    const [inserted] = await tx
+      .insert(clientAsset)
+      .values({
+        portalId,
+        dealId,
+        clientId,
+        intakeId: null,
+        fieldName: 'logoBrand',
+        name: upload.originalName,
+        type: upload.contentType.startsWith('image/') ? 'foto' : 'documento',
+        mimeType: upload.contentType,
+        storageKey: upload.storageKey,
+        sizeBytes: upload.sizeBytes,
+      })
+      .returning()
+    if (!inserted) throw Errors.internal('No se pudo guardar el archivo')
+    await writeAudit({
+      tx,
+      portalId,
+      userId,
+      entityType: 'client_asset',
+      entityId: inserted.id,
+      action: 'BRAND_FILE_ADD',
+      payload: { section: 'marca', changes: [{ field: 'brandFiles', oldValue: null, newValue: inserted.name }] },
+    })
+    return inserted
+  })
+}
+
+/** Admin: soft delete de un archivo de marca del deal. 404 si no matchea deal/portal/campo/estado. */
+export async function archiveDealBrandFile(portalId: string, userId: string, dealId: string, assetId: string): Promise<void> {
+  await assertOnboardingDeal(portalId, dealId)
+
+  await db.transaction(async (tx) => {
+    const [asset] = await tx
+      .select({ id: clientAsset.id, name: clientAsset.name })
+      .from(clientAsset)
+      .where(
+        and(
+          eq(clientAsset.id, assetId),
+          eq(clientAsset.dealId, dealId),
+          eq(clientAsset.portalId, portalId),
+          eq(clientAsset.fieldName, 'logoBrand'),
+          eq(clientAsset.archived, false),
+        ),
+      )
+      .limit(1)
+      .for('update')
+    if (!asset) throw Errors.notFound('Archivo no encontrado')
+
+    await tx.update(clientAsset).set({ archived: true, archivedAt: new Date() }).where(eq(clientAsset.id, assetId))
+    await removeBrandAssetFromMaterials(tx, dealId, assetId)
+    await writeAudit({
+      tx,
+      portalId,
+      userId,
+      entityType: 'client_asset',
+      entityId: assetId,
+      action: 'BRAND_FILE_ARCHIVE',
+      payload: { section: 'marca', changes: [{ field: 'brandFiles', oldValue: asset.name, newValue: null }] },
+    })
+  })
+}
+
+/** Admin: misma edición que `updateBrandIdentity`, pero auditada con el hub_user que la hizo. NO notifica. */
+export async function updateDealBrandIdentity(portalId: string, userId: string, dealId: string, brandIdentity: string): Promise<ClientOnboardingRow> {
+  await assertOnboardingDeal(portalId, dealId)
+
+  return db.transaction(async (tx) => {
+    // Mismo criterio que updateBrandIdentity: lock + decisión de no-op dentro
+    // de la tx, no sobre una lectura previa sin lock (TOCTOU).
+    const [locked] = await tx
+      .select()
+      .from(clientOnboarding)
+      .where(and(eq(clientOnboarding.dealId, dealId), eq(clientOnboarding.portalId, portalId)))
+      .limit(1)
+      .for('update')
+    if (!locked) throw Errors.notFound('Onboarding no encontrado para este deal')
+    if (locked.briefAnswers === null) throw Errors.conflict('Todavía no se envió el brief del proyecto')
+
+    const briefAnswers = locked.briefAnswers as Record<string, unknown>
+    const previousValue = typeof briefAnswers.brandIdentity === 'string' ? briefAnswers.brandIdentity : null
+    if (previousValue === brandIdentity) return locked
+
+    const [updated] = await tx
+      .update(clientOnboarding)
+      .set({
+        briefAnswers: sql`jsonb_set(${clientOnboarding.briefAnswers}, '{brandIdentity}', to_jsonb(${brandIdentity}::text))`,
+        updatedAt: new Date(),
+      })
+      .where(eq(clientOnboarding.id, locked.id))
+      .returning()
+    if (!updated) throw Errors.internal('No se pudo guardar la identidad de marca')
+
+    await recordFieldChanges({
+      tx,
+      portalId,
+      entityType: 'client_onboarding',
+      entityId: locked.id,
+      before: { brandIdentity: previousValue },
+      after: { brandIdentity },
+      changedBy: userId,
+    })
+    await writeAudit({
+      tx,
+      portalId,
+      userId,
+      entityType: 'client_onboarding',
+      entityId: locked.id,
+      action: 'BRAND_IDENTITY_UPDATE',
+      payload: { section: 'marca', changes: [{ field: 'brandIdentity', oldValue: previousValue, newValue: brandIdentity }] },
+    })
+    return updated
+  })
 }

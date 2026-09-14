@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiPatch, apiList } from './api'
+import { apiGet, apiPost, apiPatch, apiDelete, apiList } from './api'
 import { fetchAllPages } from '@/lib/fetch-all-pages'
 import { uploadFile, getFileAccessUrl } from './files'
 import type {
@@ -20,6 +20,7 @@ import type {
   OnboardingAsset,
   CompleteOnboardingResultDTO,
   ClientBranding,
+  UpdateClientBrandingInput,
   ClientNotification,
 } from './types'
 
@@ -362,6 +363,90 @@ export function useClientBranding() {
   })
 }
 
+/**
+ * Guarda nombre/logo/colores de marca (sección "Identidad visual" del tab
+ * Marca del onboarding — reusa el mismo endpoint que /marca).
+ *
+ * A PROPÓSITO no escribe la caché acá (nada de `onSuccess` con
+ * `setQueryData`): nombre, logo, color principal y color secundario son 4
+ * campos que autoguardan de forma INDEPENDIENTE contra esta misma mutation
+ * (una sola instancia compartida en `BrandKitEditor`) y la MISMA query key —
+ * si dos PATCHes están en vuelo y el más viejo resuelve después del más
+ * nuevo, un `onSuccess` acá pisaría la caché (y el tema re-aplicado) con
+ * datos vencidos sin forma de saber que llegó tarde. `BrandKitEditor.save()`
+ * SÍ lleva ese orden (un id por request) y escribe la caché + reaplica el
+ * tema (`useBranding().apply(...)`) solo si su propia respuesta sigue siendo
+ * la más reciente — ver ese componente.
+ */
+export function useUpdateClientBranding() {
+  return useMutation<ClientBranding, Error, UpdateClientBrandingInput>({
+    mutationFn: (input) => apiPatch<ClientBranding>('/api/client/branding', input),
+  })
+}
+
+/**
+ * Sube y vincula un archivo de marca (pestaña Marca → "Archivos de marca").
+ * Mismo propósito de subida ('onboarding_material') que los materiales del
+ * paso 7 — el logo NUNCA sale de acá, ver `useUpdateClientBranding`.
+ */
+export function useAddBrandFile() {
+  const queryClient = useQueryClient()
+  return useMutation<
+    OnboardingAsset,
+    Error,
+    { file: File; onProgress?: (percent: number) => void; signal?: AbortSignal }
+  >({
+    mutationFn: async ({ file, onProgress, signal }) => {
+      const { storageKey } = await uploadFile(file, { purpose: 'onboarding_material', onProgress, signal })
+      return apiPost<OnboardingAsset>('/api/client/branding/files', { storageKey })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY })
+    },
+  })
+}
+
+/** Soft delete de un archivo de marca (fila `client_asset`, fieldName 'logoBrand'). */
+export function useDeleteBrandFile() {
+  const queryClient = useQueryClient()
+  return useMutation<{ success: true }, Error, string>({
+    mutationFn: (id) => apiDelete<{ success: true }>(`/api/client/branding/files/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY })
+    },
+  })
+}
+
+/**
+ * Edita `brandIdentity` (única respuesta del brief editable después de
+ * completado el onboarding). Actualiza la fila `onboarding` en la caché SIN
+ * invalidar — invalidar tiraría también un refetch de `assets` que no cambió
+ * y podría pisar una subida recién hecha que todavía no confirmó el backend.
+ *
+ * `requestIdRef` ordena las respuestas: si el cliente edita, el debounce
+ * dispara un PATCH, edita de nuevo antes de que resuelva y ese segundo PATCH
+ * resuelve PRIMERO, la respuesta del primero (más vieja) NO debe pisar la
+ * caché con el texto anterior — solo la última request lanzada puede
+ * escribir.
+ */
+export function useUpdateBrandIdentity() {
+  const queryClient = useQueryClient()
+  const requestIdRef = useRef(0)
+  return useMutation<ClientOnboarding, Error, string>({
+    mutationFn: (brandIdentity) => {
+      const myId = ++requestIdRef.current
+      return apiPatch<ClientOnboarding>('/api/client/onboarding/brand-identity', { brandIdentity }).then((updated) => {
+        if (myId === requestIdRef.current) {
+          queryClient.setQueryData<OnboardingStateDTO | undefined>(ONBOARDING_QUERY_KEY, (prev) =>
+            prev ? { ...prev, onboarding: updated } : prev,
+          )
+        }
+        return updated
+      })
+    },
+  })
+}
+
 // ─── Notificaciones ──────────────────────────────────────────────────────────
 // Ver apps/api/src/modules/notifications/notifications.router.ts
 // (prefix /api/client/notifications). El destinatario lo resuelve el backend
@@ -472,5 +557,50 @@ export function usePortalPendingCounts(): PortalPending {
     },
     isLoading: deliverables.isLoading || intakes.isLoading || crs.isLoading || invoices.isLoading,
     isError: deliverables.isError || intakes.isError || crs.isError || invoices.isError,
+  }
+}
+
+// ─── Vista de solo lectura del equipo (portal-view) ──────────────────────────
+// Ver apps/api/src/modules/client-auth — GET /api/client-auth/me resuelve
+// `viewer` cuando el caller es un admin viendo el portal de una empresa con
+// `X-Portal-View: <slug>` (ver apps/api/src/lib/portal-access.ts). Un cliente
+// normal siempre recibe `viewer: null`. Hook único: antes `PortalViewBanner`
+// duplicaba este fetch a mano — cualquier otro componente que necesite saber
+// si está en modo solo lectura reusa esto en vez de volver a pedirlo.
+
+export interface PortalViewer {
+  companyId: string
+  companySlug: string
+}
+
+interface ClientMeDTO {
+  id: string
+  viewer: PortalViewer | null
+}
+
+const CLIENT_ME_QUERY_KEY = ['client-auth', 'me'] as const
+
+export interface PortalViewerResult {
+  isPortalView: boolean
+  viewer: PortalViewer | null
+  isLoading: boolean
+  /** La query falló (red, 500, …) — `isPortalView` es `false` en ese caso, pero eso NO significa "confirmado no-viewer". */
+  isError: boolean
+  /** La query resolvió con éxito — recién ahí `isPortalView` es un dato confiable, no un default. */
+  isSuccess: boolean
+}
+
+export function usePortalViewer(): PortalViewerResult {
+  const query = useQuery<ClientMeDTO>({
+    queryKey: CLIENT_ME_QUERY_KEY,
+    queryFn: () => apiGet<ClientMeDTO>('/api/client-auth/me'),
+    staleTime: Infinity,
+  })
+  return {
+    isPortalView: Boolean(query.data?.viewer),
+    viewer: query.data?.viewer ?? null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    isSuccess: query.isSuccess,
   }
 }

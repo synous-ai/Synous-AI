@@ -32,3 +32,9 @@ export type ClientUpdateBrandingDTO = z.infer<typeof ClientUpdateBrandingSchema>
 export const SlugParamSchema = z.object({
   slug: z.string().min(1).max(40),
 })
+
+/** Vincula un archivo de marca YA subido (POST /api/client/branding/files, POST /api/onboarding/deals/:dealId/brand-files). */
+export const BrandFileUploadSchema = z.object({
+  storageKey: z.string().min(1).max(500),
+})
+export type BrandFileUploadDTO = z.infer<typeof BrandFileUploadSchema>
