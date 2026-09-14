@@ -39,7 +39,7 @@ import {
   type ElementType,
 } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { House, FileText, ClipboardList, GitPullRequest, Receipt, FolderOpen } from 'lucide-react'
+import { House, FileText, ClipboardList, GitPullRequest, Receipt, FolderOpen, ClipboardCheck } from 'lucide-react'
 import { useClientOnboarding, usePortalPendingCounts, type PortalPending } from '@portal/lib/hooks'
 
 /** El id de la sección ES su segmento de URL. No hay mapa que mantener. */
@@ -50,6 +50,7 @@ export type PortalTabId =
   | 'requests'
   | 'invoices'
   | 'documents'
+  | 'onboarding'
 
 const TABS: { id: PortalTabId; label: string; Icon: ElementType }[] = [
   { id: 'dashboard', label: 'Inicio', Icon: House },
@@ -58,6 +59,8 @@ const TABS: { id: PortalTabId; label: string; Icon: ElementType }[] = [
   { id: 'requests', label: 'Solicitudes', Icon: GitPullRequest },
   { id: 'invoices', label: 'Facturas', Icon: Receipt },
   { id: 'documents', label: 'Documentos', Icon: FolderOpen },
+  // Consulta de lo que el cliente cargó en el wizard; sin badge, no espera ninguna acción.
+  { id: 'onboarding', label: 'Onboarding', Icon: ClipboardCheck },
 ]
 
 /**

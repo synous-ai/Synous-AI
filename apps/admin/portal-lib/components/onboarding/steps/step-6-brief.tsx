@@ -33,7 +33,7 @@ import {
   type OnboardingBriefAnswers,
   type OnboardingDeliveryChannel,
 } from '@portal/lib/types'
-import { ONBOARDING_BRIEF_BLOCKS } from '@portal/lib/onboarding-content'
+import { ONBOARDING_BRIEF_BLOCKS, ONBOARDING_DELIVERY_CHANNELS_QUESTION } from '@portal/lib/onboarding-content'
 import { cn } from '@portal/lib/utils'
 
 // ── Zod schema — mismas 16 claves y validaciones que OnboardingBriefSchema en el backend ──
@@ -225,7 +225,7 @@ export function Step6Brief({
 
         {block.withChannels && (
           <div className="space-y-2">
-            <Label>¿Cómo entregás hoy tu programa?</Label>
+            <Label>{ONBOARDING_DELIVERY_CHANNELS_QUESTION}</Label>
             <Controller
               control={control}
               name="deliveryChannels"

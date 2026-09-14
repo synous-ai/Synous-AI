@@ -19,6 +19,7 @@ import type {
   OnboardingMaterialCategory,
   OnboardingAsset,
   CompleteOnboardingResultDTO,
+  ClientBranding,
   ClientNotification,
 } from './types'
 
@@ -341,6 +342,23 @@ export function useCompleteOnboarding() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY })
     },
+  })
+}
+
+// ─── Marca ───────────────────────────────────────────────────────────────────
+// Ver apps/api/src/modules/branding/branding.router.ts (prefix /api/client/branding).
+
+export const CLIENT_BRANDING_QUERY_KEY = ['client', 'branding'] as const
+
+/**
+ * Marca vigente del cliente. Una sola query para el formulario de /marca y la
+ * sección Onboarding: al guardar, el formulario escribe la respuesta en esta
+ * misma key y la otra vista no queda desactualizada.
+ */
+export function useClientBranding() {
+  return useQuery<ClientBranding>({
+    queryKey: CLIENT_BRANDING_QUERY_KEY,
+    queryFn: () => apiGet<ClientBranding>('/api/client/branding'),
   })
 }
 
