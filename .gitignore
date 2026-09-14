@@ -22,6 +22,8 @@ next-env.d.ts
 
 # ── Archivos subidos por usuarios (almacenamiento local) ──────
 uploads/
+# El módulo de la API se llama igual que el directorio de datos.
+!apps/api/src/modules/uploads/
 
 # ── Tests / coverage ──────────────────────────────────────────
 coverage/
