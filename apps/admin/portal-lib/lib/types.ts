@@ -279,6 +279,14 @@ export interface ClientBranding {
   brandSecondary: string | null
 }
 
+/** PATCH /api/client/branding — solo los campos presentes se escriben; `null` explícito borra el valor. */
+export interface UpdateClientBrandingInput {
+  brandName?: string | null
+  brandLogoKey?: string | null
+  brandPrimary?: string | null
+  brandSecondary?: string | null
+}
+
 export interface CompleteOnboardingResultDTO {
   onboarding: ClientOnboarding
   ownerId: string | null

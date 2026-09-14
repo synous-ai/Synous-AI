@@ -34,6 +34,10 @@ const EVENT_LABELS: Record<string, { label: string; description: string }> = {
     label: 'Mensaje del cliente',
     description: 'Cuando un cliente envía un comentario o mensaje desde el portal.',
   },
+  client_brand_updated: {
+    label: 'Cliente actualizó su marca',
+    description: 'Cuando un cliente cambia el logo, nombre, colores o archivos de marca desde el portal.',
+  },
 }
 
 export function NotificacionesSection() {

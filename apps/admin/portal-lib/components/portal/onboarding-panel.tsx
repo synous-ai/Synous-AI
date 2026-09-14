@@ -2,7 +2,13 @@
 
 /**
  * Sección "Onboarding" del Client Portal: lo que el cliente nos compartió al
- * arrancar el proyecto (respuestas, archivos y marca), en SOLO LECTURA.
+ * arrancar el proyecto (respuestas, archivos y marca).
+ *
+ * Los tabs "Respuestas" y "Archivos" son de SOLO LECTURA (lo que se envió en
+ * el wizard de 8 pasos no se vuelve a editar acá). El tab "Marca" es la
+ * excepción: identidad visual, archivos de marca y la respuesta de brief
+ * sobre la marca se pueden seguir editando después — ver
+ * `onboarding-brand-section.tsx`.
  *
  * ─── Sin endpoint propio ni copia de datos ─────────────────────────────────
  * Lee las fuentes de verdad que ya existen:
@@ -22,39 +28,40 @@
  * existe (nombre, logo, colores, archivos de marca y la respuesta del brief).
  */
 
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
-  Check,
   ClipboardCheck,
   ClipboardList,
-  Copy,
   Download,
   Eye,
-  File as FileIcon,
-  FileArchive,
-  FileAudio,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileVideo,
   FolderUp,
   Loader2,
-  Palette,
   PenLine,
   RotateCw,
 } from 'lucide-react'
 import { Badge } from '@portal/components/ui/badge'
 import { Button } from '@portal/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@portal/components/ui/card'
-import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
 import { Skeleton } from '@portal/components/ui/skeleton'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@portal/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@portal/components/ui/tabs'
 import { SectionHeader } from '@portal/components/portal/section-header'
-import { useClientBranding, useClientOnboarding } from '@portal/lib/hooks'
-import { getFileAccessUrl, openFile, useFileUrl } from '@portal/lib/files'
+import { OnboardingBrandSection } from '@portal/components/portal/onboarding-brand-section'
+import {
+  Answer,
+  CHECKERBOARD,
+  EmptyState,
+  KIND_ICON,
+  assetKind,
+  assetMeta,
+  isPreviewable,
+  plural,
+  useAssetDownload,
+} from '@portal/components/portal/onboarding-shared'
+import { useClientOnboarding } from '@portal/lib/hooks'
+import { getFileAccessUrl } from '@portal/lib/files'
 import {
   ONBOARDING_BRIEF_BLOCKS,
   ONBOARDING_DELIVERY_CHANNELS_QUESTION,
@@ -68,170 +75,13 @@ import {
   type OnboardingBriefAnswers,
   type OnboardingMaterialsState,
 } from '@portal/lib/types'
-import { formatDate, formatSize } from '@portal/lib/utils'
+import { formatDate } from '@portal/lib/utils'
 
 const LONG_DATE: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long', year: 'numeric' }
 
 const CHANNEL_LABELS: Record<string, string> = Object.fromEntries(
   ONBOARDING_DELIVERY_CHANNELS.map((c) => [c.value, c.label]),
 )
-
-const BRAND_IDENTITY_LABEL =
-  ONBOARDING_BRIEF_BLOCKS.flatMap((b) => b.fields).find((f) => f.key === 'brandIdentity')?.label ??
-  '¿Ya tenés identidad de marca definida?'
-
-/** Damero detrás de logos e imágenes: sin él, un PNG transparente se pierde en el fondo negro. */
-const CHECKERBOARD: CSSProperties = {
-  backgroundImage: 'repeating-conic-gradient(rgba(255,255,255,0.05) 0% 25%, transparent 0% 50%)',
-  backgroundSize: '16px 16px',
-}
-
-/**
- * Tope de miniaturas en la pestaña Marca. Cada una es un `POST /api/files/access`
- * (rate limit de 120/min) más un refresco antes de que venza la URL; el resto de
- * las imágenes se muestra con ícono y se abre en el drawer igual.
- */
-const THUMBNAIL_LIMIT = 12
-
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`
-}
-
-// ─── Tipos de archivo ─────────────────────────────────────────────────────────
-
-type AssetKind = 'image' | 'pdf' | 'video' | 'audio' | 'spreadsheet' | 'archive' | 'other'
-
-const KIND_BY_EXTENSION: Record<string, AssetKind> = {
-  png: 'image',
-  jpg: 'image',
-  jpeg: 'image',
-  gif: 'image',
-  webp: 'image',
-  pdf: 'pdf',
-  mp4: 'video',
-  mov: 'video',
-  mp3: 'audio',
-  wav: 'audio',
-  ogg: 'audio',
-  m4a: 'audio',
-  xlsx: 'spreadsheet',
-  csv: 'spreadsheet',
-  zip: 'archive',
-}
-
-const KIND_ICON: Record<AssetKind, LucideIcon> = {
-  image: FileImage,
-  pdf: FileText,
-  video: FileVideo,
-  audio: FileAudio,
-  spreadsheet: FileSpreadsheet,
-  archive: FileArchive,
-  other: FileIcon,
-}
-
-/** Formato legible para los MIME largos de Office, cuando el nombre no trae extensión. */
-const FORMAT_BY_MIME: Record<string, string> = {
-  'application/pdf': 'PDF',
-  'application/zip': 'ZIP',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
-  'video/quicktime': 'MOV',
-  'audio/mpeg': 'MP3',
-}
-
-function extensionOf(name: string): string | null {
-  const dot = name.lastIndexOf('.')
-  if (dot <= 0 || dot === name.length - 1) return null
-  const ext = name.slice(dot + 1).toLowerCase()
-  return ext.length <= 5 ? ext : null
-}
-
-/** El MIME viene del ledger de subidas (verificado por magic bytes); la extensión es el respaldo. */
-function assetKind(asset: OnboardingAsset): AssetKind {
-  const mime = asset.mimeType ?? ''
-  if (mime.startsWith('image/')) return 'image'
-  if (mime === 'application/pdf') return 'pdf'
-  if (mime.startsWith('video/')) return 'video'
-  if (mime.startsWith('audio/')) return 'audio'
-  if (mime.includes('spreadsheet')) return 'spreadsheet'
-  if (mime === 'application/zip') return 'archive'
-  const ext = extensionOf(asset.name)
-  return (ext && KIND_BY_EXTENSION[ext]) || 'other'
-}
-
-/** Solo lo que el browser sabe mostrar solo; el resto se descarga. */
-function isPreviewable(kind: AssetKind): boolean {
-  return kind === 'image' || kind === 'pdf' || kind === 'video' || kind === 'audio'
-}
-
-function formatLabel(asset: OnboardingAsset): string {
-  const ext = extensionOf(asset.name)
-  if (ext) return ext.toUpperCase()
-  if (asset.mimeType) return FORMAT_BY_MIME[asset.mimeType] ?? (asset.mimeType.split('/')[1] ?? '').toUpperCase()
-  return 'Archivo'
-}
-
-function assetMeta(asset: OnboardingAsset): string {
-  return [formatLabel(asset), formatSize(asset.sizeBytes), `Subido el ${formatDate(asset.uploadedAt)}`]
-    .filter(Boolean)
-    .join(' · ')
-}
-
-/**
- * "Descargar" pide una URL de acceso temporal: un `<a href>` pelado no puede
- * (ver openFile en lib/file-transfer.ts). Mismo patrón que Documentos.
- */
-function useAssetDownload(storageKey: string) {
-  const [downloading, setDownloading] = useState(false)
-  const [failed, setFailed] = useState(false)
-
-  async function download() {
-    setDownloading(true)
-    setFailed(false)
-    try {
-      await openFile(storageKey)
-    } catch {
-      setFailed(true)
-    } finally {
-      setDownloading(false)
-    }
-  }
-
-  return { downloading, failed, download }
-}
-
-// ─── Piezas comunes ───────────────────────────────────────────────────────────
-
-function EmptyState({ icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
-  return (
-    <div className="flex flex-col items-center gap-3 py-12 text-center">
-      <EmptyIllustration icon={icon} />
-      <div>
-        <p className="font-medium text-muted-foreground">{title}</p>
-        <p className="mt-0.5 text-sm text-muted-foreground/70">{description}</p>
-      </div>
-    </div>
-  )
-}
-
-function Answer({ value }: { value: string | undefined }) {
-  const text = value?.trim()
-  if (!text) return <dd className="mt-1 text-sm italic text-muted-foreground/70">Sin respuesta</dd>
-  return <dd className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">{text}</dd>
-}
-
-function SectionCardHeader({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
-  return (
-    <CardHeader className="pb-4">
-      <CardTitle className="flex items-center gap-2 text-base">
-        <Icon className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
-        {title}
-      </CardTitle>
-      <p className="text-sm text-muted-foreground">{description}</p>
-    </CardHeader>
-  )
-}
 
 // ─── Resumen ──────────────────────────────────────────────────────────────────
 
@@ -487,256 +337,6 @@ function MaterialsSection({
   )
 }
 
-// ─── Marca ────────────────────────────────────────────────────────────────────
-
-function ColorSwatch({ label, hex }: { label: string; hex: string }) {
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    if (!copied) return
-    const timer = setTimeout(() => setCopied(false), 2000)
-    return () => clearTimeout(timer)
-  }, [copied])
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(hex)
-      setCopied(true)
-    } catch {
-      /* sin permiso de portapapeles: el código queda visible para copiarlo a mano */
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border p-3">
-      <span aria-hidden className="h-10 w-10 shrink-0 rounded-lg border border-white/10" style={{ backgroundColor: hex }} />
-      <div className="min-w-0 flex-1">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="font-mono text-sm uppercase text-foreground">{hex}</p>
-      </div>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => void copy()}
-        aria-label={`Copiar ${label.toLowerCase()} (${hex})`}
-        title={copied ? 'Copiado' : 'Copiar'}
-      >
-        {copied ? <Check className="text-primary" /> : <Copy />}
-      </Button>
-      <span className="sr-only" aria-live="polite">
-        {copied ? `${label} copiado` : ''}
-      </span>
-    </div>
-  )
-}
-
-function BrandKitCard() {
-  const { data, isLoading, isError, isFetching, refetch } = useClientBranding()
-  const [logoBroken, setLogoBroken] = useState(false)
-
-  useEffect(() => setLogoBroken(false), [data?.logoUrl])
-
-  const hasBrand = Boolean(data && (data.brandName || data.logoUrl || data.brandPrimary || data.brandSecondary))
-
-  return (
-    <Card>
-      <SectionCardHeader
-        icon={Palette}
-        title="Identidad visual"
-        description="El nombre, logo y colores con los que trabajamos tu proyecto."
-      />
-      <CardContent>
-        {/* Primero `data`: con marca en caché, un refetch fallido no tapa lo que ya se ve. */}
-        {!data && (isLoading || !isError) ? (
-          <SkeletonGroup label="Cargando tu marca…" className="flex flex-col gap-5 sm:flex-row">
-            <Skeleton className="h-24 w-full rounded-xl sm:w-40" />
-            <div className="flex-1 space-y-3">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-4 w-40" />
-              <Skeleton className="h-16 w-full rounded-xl" />
-            </div>
-          </SkeletonGroup>
-        ) : !data ? (
-          <div role="alert" className="flex flex-wrap items-center gap-3">
-            <p className="text-sm text-destructive">No pudimos cargar tu identidad visual.</p>
-            <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
-              {isFetching ? <Loader2 className="animate-spin" /> : <RotateCw />}
-              Reintentar
-            </Button>
-          </div>
-        ) : !hasBrand ? (
-          <p className="text-sm text-muted-foreground/70">Todavía no hay una identidad visual cargada.</p>
-        ) : (
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-            <div
-              className="flex h-24 w-full shrink-0 items-center justify-center rounded-xl border border-border p-3 sm:w-40"
-              style={CHECKERBOARD}
-            >
-              {data.logoUrl && !logoBroken ? (
-                // Ruta pública de logos (redirige a una URL de corta vida): no necesita token.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={data.logoUrl}
-                  alt={`Logo de ${data.brandName || 'tu marca'}`}
-                  onError={() => setLogoBroken(true)}
-                  className="max-h-full max-w-full object-contain"
-                />
-              ) : (
-                <span className="text-xs text-muted-foreground">{logoBroken ? 'No se pudo cargar el logo' : 'Sin logo'}</span>
-              )}
-            </div>
-            <div className="min-w-0 flex-1 space-y-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Nombre de la marca</p>
-                <p className="mt-0.5 text-sm font-medium text-foreground">{data.brandName || 'Sin nombre'}</p>
-              </div>
-              {(data.brandPrimary || data.brandSecondary) && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {data.brandPrimary && <ColorSwatch label="Color principal" hex={data.brandPrimary} />}
-                  {data.brandSecondary && <ColorSwatch label="Color secundario" hex={data.brandSecondary} />}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function BrandFileTile({
-  asset,
-  withThumbnail,
-  onPreview,
-}: {
-  asset: OnboardingAsset
-  withThumbnail: boolean
-  onPreview: (asset: OnboardingAsset) => void
-}) {
-  const kind = assetKind(asset)
-  const Icon = KIND_ICON[kind]
-  const previewable = isPreviewable(kind)
-  const thumbnail = useFileUrl(withThumbnail ? asset.storageKey : null)
-  const [broken, setBroken] = useState(false)
-  const { downloading, failed, download } = useAssetDownload(asset.storageKey)
-
-  const showImage = withThumbnail && thumbnail.url && !broken
-  const loadingThumbnail = withThumbnail && !thumbnail.url && !thumbnail.error && !broken
-
-  return (
-    <li className="overflow-hidden rounded-xl border border-border bg-card">
-      <button
-        type="button"
-        onClick={() => onPreview(asset)}
-        disabled={!previewable}
-        aria-label={`Ver ${asset.name}`}
-        className="flex aspect-[4/3] w-full items-center justify-center p-4 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default"
-        style={CHECKERBOARD}
-      >
-        {showImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={thumbnail.url!}
-            alt=""
-            onError={() => setBroken(true)}
-            className="max-h-full max-w-full object-contain"
-          />
-        ) : loadingThumbnail ? (
-          <Skeleton className="h-full w-full rounded-md" />
-        ) : (
-          <Icon className="h-8 w-8 text-muted-foreground" strokeWidth={1.5} />
-        )}
-      </button>
-      <div className="flex items-center gap-2 border-t border-border p-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground" title={asset.name}>
-            {asset.name}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {[formatLabel(asset), formatSize(asset.sizeBytes)].filter(Boolean).join(' · ')}
-          </p>
-          {failed && (
-            <p role="alert" className="text-xs text-destructive">
-              No se pudo abrir
-            </p>
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => void download()}
-          disabled={downloading}
-          aria-label={`Descargar ${asset.name}`}
-        >
-          {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-        </Button>
-      </div>
-    </li>
-  )
-}
-
-function BrandSection({
-  brief,
-  assets,
-  onPreview,
-}: {
-  brief: OnboardingBriefAnswers | null
-  assets: OnboardingAsset[]
-  onPreview: (asset: OnboardingAsset) => void
-}) {
-  const brandFiles = assets.filter((a) => a.fieldName === 'logoBrand')
-  const thumbnailIds = new Set(
-    brandFiles
-      .filter((a) => assetKind(a) === 'image')
-      .slice(0, THUMBNAIL_LIMIT)
-      .map((a) => a.id),
-  )
-
-  return (
-    <div className="space-y-4">
-      <BrandKitCard />
-
-      <Card>
-        <SectionCardHeader
-          icon={FileImage}
-          title="Archivos de marca"
-          description="Logo, manual y piezas que subiste en el onboarding."
-        />
-        <CardContent>
-          {brandFiles.length === 0 ? (
-            <p className="text-sm text-muted-foreground/70">No subiste archivos de marca durante el onboarding.</p>
-          ) : (
-            <ul className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3">
-              {brandFiles.map((asset) => (
-                <BrandFileTile
-                  key={asset.id}
-                  asset={asset}
-                  withThumbnail={thumbnailIds.has(asset.id)}
-                  onPreview={onPreview}
-                />
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <SectionCardHeader
-          icon={ClipboardList}
-          title="Lo que nos contaste de tu marca"
-          description="Tu respuesta en el brief del onboarding."
-        />
-        <CardContent>
-          <dl>
-            <dt className="text-sm text-muted-foreground">{BRAND_IDENTITY_LABEL}</dt>
-            <Answer value={brief?.brandIdentity} />
-          </dl>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
 // ─── Preview ──────────────────────────────────────────────────────────────────
 
 /**
@@ -903,7 +503,7 @@ export function OnboardingPanel() {
     <SectionHeader
       eyebrow="Onboarding"
       title="Lo que nos compartiste"
-      description="Tus respuestas, archivos y marca del arranque del proyecto. Es una vista de consulta: si algo cambió, avisale al equipo."
+      description="Tus respuestas, archivos y marca del arranque del proyecto."
     />
   )
 
@@ -951,7 +551,7 @@ export function OnboardingPanel() {
           <MaterialsSection materials={onboarding.materials ?? {}} assets={assets} onPreview={setPreviewAsset} />
         </TabsContent>
         <TabsContent value="brand" className="mt-4">
-          <BrandSection brief={onboarding.briefAnswers} assets={assets} onPreview={setPreviewAsset} />
+          <OnboardingBrandSection brief={onboarding.briefAnswers} assets={assets} onPreview={setPreviewAsset} />
         </TabsContent>
       </Tabs>
 
