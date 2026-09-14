@@ -199,7 +199,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
     architecture,
     handoff,
     method,
-    team,
+    // team — la sección "Quiénes somos" está oculta más abajo.
     work,
     scope,
     guarantees,
@@ -527,6 +527,10 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
         </section>
 
         {/* ── Quiénes somos ────────────────────────────────────────────── */}
+        {/* Oculta por ahora. El contenido sigue en `proposal-content.ts`:
+            volver a mostrarla es descomentar este bloque y la línea `team`
+            del destructuring de arriba. */}
+        {/*
         <section className="section shell" id="quienes-somos">
           <Reveal>
             <div className="section-head">
@@ -549,6 +553,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
             ))}
           </div>
         </section>
+        */}
 
         {/* ── Información importante ───────────────────────────────────── */}
         {/* Terms and exclusions gathered into one block after pricing: what
