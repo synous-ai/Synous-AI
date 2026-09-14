@@ -37,6 +37,7 @@ import { Skeleton } from '@portal/components/ui/skeleton'
 import { SkeletonGroup } from '@portal/components/ui/loading-region'
 import { ClientNotificationBell } from '@portal/components/portal/notification-bell'
 import { PortalSidebar } from '@portal/components/portal/portal-sidebar'
+import { PortalViewBanner } from '@portal/components/portal/portal-view-banner'
 import { ClientOnboardingWizard } from '@portal/components/onboarding/client-onboarding-wizard'
 import {
   PortalNavProvider,
@@ -168,6 +169,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className={cn('portal-editorial flex min-h-screen flex-col', editorialSerif.variable)}>
+      <PortalViewBanner />
       {/* Header: brand mark on one side, account controls on the other. The
           client cannot re-brand the portal, so no "Mi Marca" entry point. */}
       <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-md">

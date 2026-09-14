@@ -41,11 +41,11 @@ export async function clientOnboardingRoutes(app: FastifyInstance): Promise<void
       schema: {
         tags: [TAG],
         summary: 'Estado del onboarding post-venta',
-        description: 'Lazy-create: si el cliente no tiene onboarding para su deal activo, se crea. Incluye los client_asset subidos en el paso de materiales.',
+        description: 'Lazy-create: si el cliente no tiene onboarding para su deal activo, se crea (en la vista de admin se devuelve el estado inicial sin crearlo). Incluye los client_asset subidos en el paso de materiales.',
         security: CLIENT_SECURITY,
       },
     },
-    async (request) => ok(await getOnboardingState(request.clientAccount!.sub)),
+    async (request) => ok(await getOnboardingState(request.clientAccount!.sub, { readOnly: Boolean(request.portalViewer) })),
   )
 
   r.patch(

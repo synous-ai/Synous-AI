@@ -2,6 +2,8 @@ import { eq } from 'drizzle-orm'
 import { db } from '../../db'
 import { clientAccount } from '../../db/schema'
 import { Errors } from '../../lib/errors'
+import { writeAudit } from '../../lib/audit'
+import type { PortalViewer } from '../../middleware/clerk-auth'
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -49,4 +51,23 @@ export async function getClientAccount(id: string): Promise<PublicClientAccount>
 
   if (!account) throw Errors.notFound('Cuenta de cliente no encontrada')
   return toPublicClient(account)
+}
+
+/**
+ * Deja constancia de que un admin del equipo abrió el portal de un cliente en la
+ * vista de solo lectura. Se registra por carga del portal (`GET /me`), no por
+ * cada pedido.
+ */
+export async function recordPortalView(viewer: PortalViewer, client: PublicClientAccount): Promise<void> {
+  await db.transaction((tx) =>
+    writeAudit({
+      tx,
+      portalId: client.portalId,
+      userId: viewer.hubUserId,
+      entityType: 'company',
+      entityId: viewer.companyId,
+      action: 'PORTAL_VIEW',
+      payload: { clientAccountId: client.id, companySlug: viewer.companySlug },
+    }),
+  )
 }
