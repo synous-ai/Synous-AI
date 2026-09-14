@@ -269,3 +269,29 @@
     padding: 18px;
   }
 }
+
+/* ── Header: logo con link y acceso ───────────────────────────────────── */
+
+.legal-page .legal-header-home {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.legal-page .legal-header-nav .legal-header-login {
+  border-color: var(--accent-deep);
+  background: #1c73ca33;
+  color: var(--title);
+}
+
+.legal-page .legal-header-nav .legal-header-login:hover {
+  background: #1c73ca59;
+}
+
+/* En la home el header suma "Ingresar": en pantallas chicas los documentos
+   quedan en el cuerpo y el footer para que la barra no desborde. */
+@media (max-width: 520px) {
+  .legal-header-has-login .legal-header-doc {
+    display: none;
+  }
+}

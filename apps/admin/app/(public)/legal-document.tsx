@@ -21,6 +21,52 @@ export function ContactEmail() {
   return <a href={`mailto:${LEGAL_CONTACT_EMAIL}`}>{LEGAL_CONTACT_EMAIL}</a>
 }
 
+export function SiteHeader({ current, withLogin = false }: { current?: LegalDocId; withLogin?: boolean }) {
+  return (
+    <header className={`legal-header${withLogin ? ' legal-header-has-login' : ''}`}>
+      <Link className="legal-header-home" href="/" aria-label="Synous AI, inicio">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="legal-header-logo" src="/brand/logotipo.svg" alt="Synous AI" />
+      </Link>
+      <nav className="legal-header-nav legal-mono" aria-label="Sitio">
+        {DOCS.map((doc) => (
+          <Link
+            key={doc.id}
+            className="legal-header-doc"
+            href={doc.href}
+            aria-current={doc.id === current ? 'page' : undefined}
+          >
+            {doc.label}
+          </Link>
+        ))}
+        {withLogin && (
+          <Link className="legal-header-login" href="/login">
+            Ingresar
+          </Link>
+        )}
+      </nav>
+    </header>
+  )
+}
+
+export function SiteFooter() {
+  return (
+    <footer className="legal-footer">
+      <div className="legal-footer-inner">
+        <span>© {new Date().getFullYear()} Synous AI</span>
+        <nav className="legal-footer-links" aria-label="Documentos legales">
+          {DOCS.map((doc) => (
+            <Link key={doc.id} href={doc.href}>
+              {doc.label}
+            </Link>
+          ))}
+          <ContactEmail />
+        </nav>
+      </div>
+    </footer>
+  )
+}
+
 export function LegalDocument({
   current,
   eyebrow,
@@ -36,17 +82,7 @@ export function LegalDocument({
 }) {
   return (
     <div className="brand-surface legal-page">
-      <header className="legal-header">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className="legal-header-logo" src="/brand/logotipo.svg" alt="Synous AI" />
-        <nav className="legal-header-nav legal-mono" aria-label="Documentos legales">
-          {DOCS.map((doc) => (
-            <Link key={doc.id} href={doc.href} aria-current={doc.id === current ? 'page' : undefined}>
-              {doc.label}
-            </Link>
-          ))}
-        </nav>
-      </header>
+      <SiteHeader current={current} />
 
       <main className="legal-shell">
         <p className="legal-eyebrow legal-mono">{eyebrow}</p>
@@ -74,19 +110,7 @@ export function LegalDocument({
         ))}
       </main>
 
-      <footer className="legal-footer">
-        <div className="legal-footer-inner">
-          <span>© {new Date().getFullYear()} Synous AI</span>
-          <nav className="legal-footer-links" aria-label="Documentos legales">
-            {DOCS.map((doc) => (
-              <Link key={doc.id} href={doc.href}>
-                {doc.label}
-              </Link>
-            ))}
-            <ContactEmail />
-          </nav>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   )
 }

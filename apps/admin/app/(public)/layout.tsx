@@ -16,10 +16,10 @@ const mono = JetBrains_Mono({
 })
 
 /**
- * Páginas legales públicas (privacidad y términos). Usan la misma superficie de
- * marca que las páginas del prospecto y quedan fuera del chrome del panel: las
- * enlazan la pantalla de consentimiento de Google y el login, sin sesión.
+ * Sitio público en el apex (home, privacidad y términos). Usa la misma
+ * superficie de marca que las páginas del prospecto y queda fuera del chrome del
+ * panel: lo revisa la verificación de Google y se ve sin sesión.
  */
-export default function LegalLayout({ children }: { children: React.ReactNode }) {
+export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return <div className={`${jakarta.variable} ${mono.variable}`}>{children}</div>
 }
