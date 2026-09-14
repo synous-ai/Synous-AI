@@ -13,7 +13,7 @@ const SECTIONS: LegalSection[] = [
     title: 'Aceptación',
     body: (
       <p>
-        Estas condiciones regulan el uso del panel (<strong>app.synousai.com</strong>), del portal de
+        Estas condiciones regulan el uso del panel (<strong>admin.synousai.com</strong>), del portal de
         clientes y de las páginas públicas de propuestas y reservas de Synous AI (en adelante, “la
         plataforma”). Al acceder o usar la plataforma aceptás estas condiciones.
       </p>

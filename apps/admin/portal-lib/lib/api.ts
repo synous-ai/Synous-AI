@@ -54,9 +54,10 @@ const client = createApiClient({
     )
     const clerk = (window as unknown as { Clerk?: { session?: unknown; signOut?: () => Promise<void> } }).Clerk
     const goLogin = (): void => {
-      if (!window.location.pathname.startsWith('/portal/login')) {
-        window.location.href = '/portal/login'
-      }
+      // En el subdominio del cliente el portal se sirve sin prefijo (`/login`).
+      const { pathname } = window.location
+      const loginPath = pathname.startsWith('/portal') ? '/portal/login' : '/login'
+      if (pathname !== loginPath) window.location.href = loginPath
     }
     if (clerk?.session && typeof clerk.signOut === 'function') {
       void clerk.signOut().then(goLogin, goLogin)

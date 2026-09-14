@@ -49,9 +49,14 @@ interface Props {
  * Además se devuelve ABSOLUTA: es un link para mandarle a un lead por fuera de
  * la app, así que una ruta relativa no le sirve a nadie. En el server render no
  * hay `window`, así que ahí se cae a la ruta relativa hasta que hidrata.
+ *
+ * La reserva es del sitio público (el apex), no del panel: con el dominio raíz
+ * configurado el link sale con `https://<raíz>` aunque se copie desde `admin.*`.
  */
 function buildPublicUrl(portalId: string, slug: string): string {
   const path = `/book/${portalId}/${slug}`
+  const root = process.env.NEXT_PUBLIC_ROOT_DOMAIN
+  if (root) return `https://${root}${path}`
   return typeof window === 'undefined' ? path : `${window.location.origin}${path}`
 }
 
