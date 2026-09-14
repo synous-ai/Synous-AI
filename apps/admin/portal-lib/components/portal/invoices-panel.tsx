@@ -40,7 +40,11 @@ function formatDateShort(dateStr: string | null): string {
 
 function InvoiceRow({ invoice }: { invoice: ClientInvoice }) {
   const hasBalance = Number(invoice.balance) > 0
-  const isOverdue = invoice.status === 'overdue'
+  // `isOverdue` viene pre-calculado por fecha desde el backend (misma lógica
+  // que el admin) — no confiar en `status` crudo, que solo cambia a 'overdue'
+  // con una transición manual del equipo (no hay cron). Así el listado nunca
+  // dice "emitida" para una factura que la tarjeta de Inicio ya marcó vencida.
+  const isOverdue = invoice.isOverdue
 
   return (
     <Card>
@@ -48,8 +52,8 @@ function InvoiceRow({ invoice }: { invoice: ClientInvoice }) {
         {/* Number + status */}
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-sm font-semibold">#{invoice.number}</span>
-          <Badge variant={INVOICE_STATUS_VARIANT[invoice.status] ?? 'default'}>
-            {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
+          <Badge variant={isOverdue ? INVOICE_STATUS_VARIANT.overdue : (INVOICE_STATUS_VARIANT[invoice.status] ?? 'default')}>
+            {isOverdue ? INVOICE_STATUS_LABEL.overdue : (INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status)}
           </Badge>
         </div>
 

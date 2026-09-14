@@ -75,6 +75,8 @@ export interface ClientInvoice {
   issueDate: string | null
   dueDate: string | null
   balance: string
+  /** Vencida por fecha (misma lógica que el admin), no por el `status` crudo. */
+  isOverdue: boolean
 }
 
 // Documentos del cliente (read-only)

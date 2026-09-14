@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest'
+import { isInvoiceOverdue } from './finance-shared'
 
 /**
  * Unit tests para la lógica de estados derivados de factura (F3 — Finanzas).
- * No tocan la DB; prueban la función pura computeDerived aislada.
+ * No ejecutan queries: la mayoría prueba una réplica pura inlineada (ver nota
+ * abajo); el describe de `isInvoiceOverdue` importa la función real de
+ * `finance-shared.ts` directamente porque es pura de por sí (no toca `db`,
+ * solo recibe `{status, dueDate}` + `balance` + una fecha ya resuelta) — sin
+ * réplica que pueda desalinearse de la lógica real.
  *
- * Nota: inlineamos la lógica para evitar acoplar el test al módulo de DB.
- * La función exportada `computeDerived` en finance.service.ts opera sobre
- * filas Drizzle completas (InvoiceRow), pero la lógica pura es equivalente.
+ * Nota: el resto de los describes de este archivo inlinean la lógica para
+ * evitar acoplar el test al módulo de DB. La función exportada
+ * `computeDerived` en finance.service.ts opera sobre filas Drizzle completas
+ * (InvoiceRow), pero la lógica pura es equivalente.
  */
 
 // ── Lógica pura inlineada ─────────────────────────────────────────────────────
@@ -118,6 +124,57 @@ describe('computeDerived — derivedStatus', () => {
     const { derivedStatus, balance } = computeDerived('sent', 1000, null, paymentAmountBase, TODAY)
     expect(derivedStatus).toBe('parcial')
     expect(balance).toBe('999.00')
+  })
+})
+
+// ── isInvoiceOverdue (F-Etapa A portal) — función real, fecha inyectada ──────
+
+/**
+ * Tests de `isInvoiceOverdue` (finance-shared.ts) — la MISMA función que usa
+ * `computeDerivedStatus` (admin) y `listClientInvoices` (portal de cliente)
+ * para decidir "vencida". Antes el portal solo miraba el `status` almacenado
+ * ('overdue' es una transición manual del equipo, sin cron): una factura
+ * 'sent' vencida por fecha se veía "vencida" en el admin pero "emitida" en el
+ * portal — este helper es el fix, y este describe prueba la función real
+ * (no una copia inline) para que un cambio en la lógica real rompa el test.
+ *
+ * `today` se pasa explícito en cada caso (tercer parámetro, opcional en la
+ * firma real — por defecto usa `todayInBuenosAires()`) para que los tests no
+ * dependan del reloj del sistema ni de la zona horaria de quien los corre.
+ */
+describe('isInvoiceOverdue — regla de fecha compartida con el admin', () => {
+  const TODAY = '2026-06-13'
+
+  it('vencida por fecha + saldo pendiente → true', () => {
+    expect(isInvoiceOverdue({ status: 'sent', dueDate: '2026-01-01' }, 500, TODAY)).toBe(true)
+  })
+
+  it('vencida por fecha pero totalmente pagada (balance = 0) → false', () => {
+    expect(isInvoiceOverdue({ status: 'sent', dueDate: '2026-01-01' }, 0, TODAY)).toBe(false)
+  })
+
+  it('todavía no vence (due_date futuro) → false', () => {
+    expect(isInvoiceOverdue({ status: 'sent', dueDate: '2026-12-31' }, 500, TODAY)).toBe(false)
+  })
+
+  it('due_date === hoy → todavía NO vencida (límite inclusivo para el cliente)', () => {
+    expect(isInvoiceOverdue({ status: 'sent', dueDate: TODAY }, 500, TODAY)).toBe(false)
+  })
+
+  it("status almacenado 'overdue' + saldo pendiente + fecha vencida → true", () => {
+    expect(isInvoiceOverdue({ status: 'overdue', dueDate: '2026-01-01' }, 500, TODAY)).toBe(true)
+  })
+
+  it('anulada (void) → false sin importar fecha ni saldo', () => {
+    expect(isInvoiceOverdue({ status: 'void', dueDate: '2026-01-01' }, 500, TODAY)).toBe(false)
+  })
+
+  it('borrador (draft) → false sin importar fecha ni saldo', () => {
+    expect(isInvoiceOverdue({ status: 'draft', dueDate: '2026-01-01' }, 500, TODAY)).toBe(false)
+  })
+
+  it('sin due_date → false aunque tenga saldo pendiente', () => {
+    expect(isInvoiceOverdue({ status: 'sent', dueDate: null }, 500, TODAY)).toBe(false)
   })
 })
 
