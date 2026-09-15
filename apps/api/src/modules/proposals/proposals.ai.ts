@@ -171,12 +171,14 @@ export async function generateProposalContent(
     dateLabel: currentDateLabel(),
     heroLede: parsed.heroLede ?? '',
 
-    scopeHeading: parsed.scopeHeading ?? 'Alcance del proyecto.',
+    // Los campos que el modelo omita quedan vacíos, no con un placeholder: el
+    // vacío cae a la plantilla al renderizar, el placeholder la pisa.
+    scopeHeading: parsed.scopeHeading ?? '',
     scopeLede: parsed.scopeLede ?? '',
     scopePhases: parsed.scopePhases ?? [],
     ...(parsed.scopePaths?.length ? { scopePaths: parsed.scopePaths } : {}),
 
-    investmentHeading: parsed.investmentHeading ?? 'Inversión.',
+    investmentHeading: parsed.investmentHeading ?? '',
     investmentPhases: parsed.investmentPhases ?? [],
     ...(parsed.investmentNote ? { investmentNote: parsed.investmentNote } : {}),
 
@@ -193,24 +195,22 @@ export async function generateProposalContent(
  * de partida editable, no un borrador presentable.
  */
 export function fallbackProposalContent(input: ProposalGenerationInput): ProposalContent {
-  const projectLabel = input.projectType
-    ? PROJECT_TYPE_LABEL[input.projectType] ?? 'Proyecto a medida'
-    : 'Proyecto a medida'
-
   return {
+    // Lo único que el fallback sabe de verdad: a quién va dirigida y cuándo.
     clientName: input.companyName || input.contactName,
     dateLabel: currentDateLabel(),
-    heroLede: `${projectLabel} para ${input.companyName || input.contactName}.`,
 
-    scopeHeading: 'Alcance del proyecto.',
-    scopeLede: input.currentSolution ?? '',
+    // Todo lo demás va vacío A PROPÓSITO. Un campo vacío cae a la plantilla al
+    // renderizarse; un placeholder como "Alcance del proyecto." la PISA, y la
+    // propuesta sale con relleno en vez del texto real. El fallback significa
+    // "no tengo nada que decir acá", no "invento algo".
+    heroLede: '',
+    scopeHeading: '',
+    scopeLede: '',
     scopePhases: [],
-
-    investmentHeading: 'Inversión.',
+    investmentHeading: '',
     investmentPhases: [],
-
-    termsNote:
-      'Las fechas se confirman en el kickoff y requieren que los materiales y las aprobaciones se entreguen en los tiempos acordados.',
+    termsNote: '',
     exclusions: [],
   }
 }
