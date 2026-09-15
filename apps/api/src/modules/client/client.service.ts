@@ -2,9 +2,25 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { ListQuery } from '../../lib/crm-schemas'
 import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db } from '../../db'
-import { deal, deliverable, invoice, payment, clientDealAccess, pipeline, pipelineStage, projectUpdate } from '../../db/schema'
+import {
+  deal,
+  deliverable,
+  document,
+  documentFolder,
+  invoice,
+  payment,
+  clientDealAccess,
+  pipeline,
+  pipelineStage,
+  projectUpdate,
+  recordHistory,
+} from '../../db/schema'
 import { Errors } from '../../lib/errors'
-import { clientDealIds } from '../../lib/portal-access'
+import { assertFolderInDeal, clientDealIds } from '../../lib/portal-access'
+import { writeAudit, recordFieldChanges } from '../../lib/audit'
+import { claimUpload, prepareUploadClaim } from '../uploads/uploads.service'
+import { getClientDocumentDTOById, type ClientDocumentDTO } from '../documents/documents.service'
+import type { ClientCreateDocumentFolderDTO, ClientCreateDocumentDTO, ClientUpdateDocumentDTO } from '../documents/documents.schema'
 import { PRODUCTION_PIPELINE_LABEL } from '../onboarding/assignees'
 import { notifyAdmins } from '../notifications/notify'
 import { isInvoiceOverdue } from '../finance/finance-shared'
@@ -315,4 +331,342 @@ export async function getClientProject(clientId: string): Promise<ClientProjectD
     phases,
     updates,
   }
+}
+
+// ─── Carpetas y documentos del cliente (portal) ────────────────────────────
+//
+// Todas las escrituras exigen `dealId ∈ clientDealIds`: `document.portal_id`
+// es el tenant de la AGENCIA, no el de la empresa cliente — sin este chequeo
+// un cliente podría escribir en un deal de otra empresa del mismo portal, o
+// (con deal_id null) en "Generales", que es de solo lectura para el cliente.
+// Fuera de esos ids se responde 404 SIEMPRE, sin distinguir "no existe" de
+// "no es tuyo" — mismo criterio que `assertClientCR` en change-requests.
+
+export interface ClientDocumentFolderDTO {
+  id: string
+  dealId: string
+  name: string
+  /** Documentos activos dentro de la carpeta (no cuenta los archivados). */
+  documentCount: number
+  createdAt: Date
+  /** Solo las carpetas que el cliente autenticado creó. */
+  canManage: boolean
+}
+
+function toClientFolderDTO(
+  row: { id: string; dealId: string; name: string; createdAt: Date; createdByClientAccountId: string | null },
+  documentCount: number,
+  clientId: string,
+): ClientDocumentFolderDTO {
+  return {
+    id: row.id,
+    dealId: row.dealId,
+    name: row.name,
+    documentCount,
+    createdAt: row.createdAt,
+    canManage: row.createdByClientAccountId === clientId,
+  }
+}
+
+export async function listClientDocumentFolders(clientId: string, dealId: string): Promise<ClientDocumentFolderDTO[]> {
+  const ids = await clientDealIds(clientId)
+  if (!ids.includes(dealId)) throw Errors.notFound('Proyecto no encontrado')
+
+  const rows = await db
+    .select({
+      id: documentFolder.id,
+      dealId: documentFolder.dealId,
+      name: documentFolder.name,
+      createdAt: documentFolder.createdAt,
+      createdByClientAccountId: documentFolder.createdByClientAccountId,
+      documentCount: sql<number>`count(${document.id}) filter (where ${document.archived} = false)::int`,
+    })
+    .from(documentFolder)
+    .leftJoin(document, eq(document.folderId, documentFolder.id))
+    .where(and(eq(documentFolder.dealId, dealId), eq(documentFolder.archived, false)))
+    .groupBy(documentFolder.id)
+    .orderBy(desc(documentFolder.createdAt))
+
+  return rows.map((row) => toClientFolderDTO(row, row.documentCount, clientId))
+}
+
+/**
+ * El 23505 del índice único parcial `uq_document_folder_deal_name` es la
+ * única violación posible de este insert/update — cualquier otro código tiene
+ * que seguir siendo un 500, no disfrazarse de "nombre en uso" (mismo criterio
+ * que `updateClientBranding` en branding.service.ts con `brand_slug`).
+ */
+function mapFolderNameConflict(err: unknown): never {
+  if ((err as { code?: string }).code === '23505') {
+    throw Errors.conflict('Ya existe una carpeta con ese nombre en este proyecto')
+  }
+  throw err
+}
+
+export async function createClientDocumentFolder(
+  clientId: string,
+  portalId: string,
+  input: ClientCreateDocumentFolderDTO,
+): Promise<ClientDocumentFolderDTO> {
+  const ids = await clientDealIds(clientId)
+  if (!ids.includes(input.dealId)) throw Errors.notFound('Proyecto no encontrado')
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(documentFolder)
+        .values({ portalId, dealId: input.dealId, name: input.name, createdByClientAccountId: clientId })
+        .returning()
+      if (!row) throw Errors.internal('No se pudo crear la carpeta')
+
+      await writeAudit({
+        tx,
+        portalId,
+        clientId,
+        entityType: 'document_folder',
+        entityId: row.id,
+        action: 'CREATE',
+        payload: { name: row.name, dealId: input.dealId },
+      })
+
+      return toClientFolderDTO(row, 0, clientId)
+    })
+  } catch (err) {
+    return mapFolderNameConflict(err)
+  }
+}
+
+export async function renameClientDocumentFolder(
+  clientId: string,
+  portalId: string,
+  folderId: string,
+  name: string,
+): Promise<ClientDocumentFolderDTO> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(documentFolder)
+        .where(and(eq(documentFolder.id, folderId), eq(documentFolder.archived, false)))
+        .limit(1)
+        .for('update')
+      if (!row) throw Errors.notFound('Carpeta no encontrada')
+
+      const ids = await clientDealIds(clientId)
+      if (!ids.includes(row.dealId)) throw Errors.notFound('Carpeta no encontrada')
+      if (row.createdByClientAccountId !== clientId) throw Errors.forbidden('Solo podés renombrar carpetas que creaste')
+
+      const [updated] = await tx.update(documentFolder).set({ name, updatedAt: new Date() }).where(eq(documentFolder.id, folderId)).returning()
+      if (!updated) throw Errors.internal('No se pudo renombrar la carpeta')
+
+      await recordFieldChanges({
+        tx,
+        portalId,
+        entityType: 'document_folder',
+        entityId: folderId,
+        before: { name: row.name },
+        after: { name },
+        changedBy: null,
+        sourceType: 'CLIENT_PORTAL',
+      })
+      await writeAudit({
+        tx,
+        portalId,
+        clientId,
+        entityType: 'document_folder',
+        entityId: folderId,
+        action: 'RENAME',
+        payload: { oldName: row.name, newName: name },
+      })
+
+      const [countRow] = await tx
+        .select({ documentCount: sql<number>`count(*) filter (where ${document.archived} = false)::int` })
+        .from(document)
+        .where(eq(document.folderId, folderId))
+
+      return toClientFolderDTO(updated, countRow?.documentCount ?? 0, clientId)
+    })
+  } catch (err) {
+    return mapFolderNameConflict(err)
+  }
+}
+
+/**
+ * Archiva la carpeta (soft delete) y libera sus documentos activos a la raíz
+ * del proyecto (`folder_id = null`) en la MISMA transacción — nunca puede
+ * quedar una carpeta archivada con documentos todavía colgando de ella.
+ */
+export async function archiveClientDocumentFolder(clientId: string, portalId: string, folderId: string): Promise<{ movedDocuments: number }> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(documentFolder)
+      .where(and(eq(documentFolder.id, folderId), eq(documentFolder.archived, false)))
+      .limit(1)
+      .for('update')
+    if (!row) throw Errors.notFound('Carpeta no encontrada')
+
+    const ids = await clientDealIds(clientId)
+    if (!ids.includes(row.dealId)) throw Errors.notFound('Carpeta no encontrada')
+    if (row.createdByClientAccountId !== clientId) throw Errors.forbidden('Solo podés archivar carpetas que creaste')
+
+    const movedDocs = await tx
+      .update(document)
+      .set({ folderId: null })
+      .where(and(eq(document.folderId, folderId), eq(document.archived, false)))
+      .returning({ id: document.id })
+
+    if (movedDocs.length > 0) {
+      await tx.insert(recordHistory).values(
+        movedDocs.map((d) => ({
+          portalId,
+          entityType: 'document',
+          entityId: d.id,
+          fieldName: 'folderId',
+          oldValue: folderId,
+          newValue: null,
+          sourceType: 'CLIENT_PORTAL',
+          changedBy: null,
+        })),
+      )
+    }
+
+    await tx.update(documentFolder).set({ archived: true, archivedAt: new Date() }).where(eq(documentFolder.id, folderId))
+    await writeAudit({
+      tx,
+      portalId,
+      clientId,
+      entityType: 'document_folder',
+      entityId: folderId,
+      action: 'ARCHIVE',
+      payload: { movedDocuments: movedDocs.length },
+    })
+
+    return { movedDocuments: movedDocs.length }
+  })
+}
+
+// ─── Documentos ──────────────────────────────────────────────────────────────
+
+export async function createClientDocument(
+  clientId: string,
+  portalId: string,
+  input: ClientCreateDocumentDTO,
+): Promise<ClientDocumentDTO> {
+  const ids = await clientDealIds(clientId)
+  if (!ids.includes(input.dealId)) throw Errors.notFound('Proyecto no encontrado')
+
+  // Fuera de la tx (llamadas de red) — mismo patrón que createDocument (admin)
+  // y updateClientBranding.
+  const preparedClaim = await prepareUploadClaim({
+    storageKey: input.storageKey,
+    portalId,
+    actor: { kind: 'client', clientId, portalId },
+    purpose: 'deal_document',
+  })
+
+  return db.transaction(async (tx) => {
+    // Folder y deal siempre del mismo proyecto — la FK compuesta de la base
+    // ya lo garantiza, pero este guard da un 400 legible antes del insert.
+    await assertFolderInDeal(portalId, input.dealId, input.folderId, tx)
+    await claimUpload(tx, preparedClaim)
+
+    const [row] = await tx
+      .insert(document)
+      .values({
+        portalId,
+        dealId: input.dealId,
+        folderId: input.folderId ?? null,
+        name: input.name,
+        type: 'other',
+        source: 'manual',
+        storageKey: input.storageKey,
+        uploadedByClientAccountId: clientId,
+      })
+      .returning()
+    if (!row) throw Errors.internal('No se pudo crear el documento')
+
+    await writeAudit({
+      tx,
+      portalId,
+      clientId,
+      entityType: 'document',
+      entityId: row.id,
+      action: 'CREATE',
+      payload: { name: row.name, dealId: input.dealId, folderId: row.folderId },
+    })
+
+    return getClientDocumentDTOById(row.id, clientId, tx)
+  })
+}
+
+export async function updateClientDocument(
+  clientId: string,
+  portalId: string,
+  documentId: string,
+  patch: ClientUpdateDocumentDTO,
+): Promise<ClientDocumentDTO> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(document)
+      .where(and(eq(document.id, documentId), eq(document.archived, false)))
+      .limit(1)
+      .for('update')
+    if (!row) throw Errors.notFound('Documento no encontrado')
+
+    const ids = await clientDealIds(clientId)
+    if (!row.dealId || !ids.includes(row.dealId)) throw Errors.notFound('Documento no encontrado')
+    // Un documento de DocuSeal nunca tiene uploaded_by_client_account_id (lo
+    // crea el equipo al mandarlo a firmar): esta condición ya lo cubre, pero
+    // se deja explícito porque es una regla de negocio propia, no un efecto
+    // colateral de la otra.
+    if (row.docusealSubmissionId !== null) throw Errors.forbidden('No podés editar un documento firmado por DocuSeal')
+    if (row.uploadedByClientAccountId !== clientId) throw Errors.forbidden('Solo podés editar documentos que subiste')
+
+    // Mover solo dentro del MISMO deal: assertFolderInDeal valida que la
+    // carpeta destino pertenezca a `row.dealId` (nunca al de otro proyecto).
+    if (patch.folderId !== undefined) await assertFolderInDeal(portalId, row.dealId, patch.folderId, tx)
+
+    const setPatch: { name?: string; folderId?: string | null } = {}
+    if (patch.name !== undefined) setPatch.name = patch.name
+    if (patch.folderId !== undefined) setPatch.folderId = patch.folderId
+
+    const [updated] = await tx.update(document).set(setPatch).where(eq(document.id, documentId)).returning()
+    if (!updated) throw Errors.internal('No se pudo actualizar el documento')
+
+    await recordFieldChanges({
+      tx,
+      portalId,
+      entityType: 'document',
+      entityId: documentId,
+      before: { name: row.name, folderId: row.folderId },
+      after: setPatch,
+      changedBy: null,
+      sourceType: 'CLIENT_PORTAL',
+    })
+    await writeAudit({ tx, portalId, clientId, entityType: 'document', entityId: documentId, action: 'UPDATE', payload: setPatch })
+
+    return getClientDocumentDTOById(documentId, clientId, tx)
+  })
+}
+
+export async function archiveClientDocument(clientId: string, portalId: string, documentId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(document)
+      .where(and(eq(document.id, documentId), eq(document.archived, false)))
+      .limit(1)
+      .for('update')
+    if (!row) throw Errors.notFound('Documento no encontrado')
+
+    const ids = await clientDealIds(clientId)
+    if (!row.dealId || !ids.includes(row.dealId)) throw Errors.notFound('Documento no encontrado')
+    if (row.docusealSubmissionId !== null) throw Errors.forbidden('No podés archivar un documento firmado por DocuSeal')
+    if (row.uploadedByClientAccountId !== clientId) throw Errors.forbidden('Solo podés archivar documentos que subiste')
+
+    await tx.update(document).set({ archived: true, archivedAt: new Date() }).where(eq(document.id, documentId))
+    await writeAudit({ tx, portalId, clientId, entityType: 'document', entityId: documentId, action: 'ARCHIVE', payload: { archived: true } })
+  })
 }

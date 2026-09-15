@@ -34,3 +34,40 @@ export const SendForSignatureSchema = z.object({
   name: z.string().min(1).max(200).optional(),
 })
 export type SendForSignatureDTO = z.infer<typeof SendForSignatureSchema>
+
+// ─── Carpetas y documentos del cliente (portal) ────────────────────────────
+// `.trim()` en los nombres: el CHECK de `document_folder` valida
+// char_length(btrim(name)) — sin el trim acá, un nombre de solo espacios pasa
+// el `min(1)` de Zod y revienta como un 500 de constraint en vez de un 400 legible.
+
+export const ClientCreateDocumentFolderSchema = z.object({
+  dealId: z.string().min(1),
+  name: z.string().trim().min(1, 'El nombre es requerido').max(120),
+})
+export type ClientCreateDocumentFolderDTO = z.infer<typeof ClientCreateDocumentFolderSchema>
+
+export const ClientRenameDocumentFolderSchema = z.object({
+  name: z.string().trim().min(1, 'El nombre es requerido').max(120),
+})
+export type ClientRenameDocumentFolderDTO = z.infer<typeof ClientRenameDocumentFolderSchema>
+
+export const ClientListDocumentFoldersQuerySchema = z.object({
+  dealId: z.string().min(1),
+})
+export type ClientListDocumentFoldersQueryDTO = z.infer<typeof ClientListDocumentFoldersQuerySchema>
+
+export const ClientCreateDocumentSchema = z.object({
+  dealId: z.string().min(1),
+  folderId: z.string().min(1).optional(),
+  name: z.string().min(1, 'El nombre es requerido'),
+  storageKey: z.string().min(1),
+})
+export type ClientCreateDocumentDTO = z.infer<typeof ClientCreateDocumentSchema>
+
+export const ClientUpdateDocumentSchema = z
+  .object({
+    name: z.string().min(1, 'El nombre es requerido').optional(),
+    folderId: z.string().min(1).nullable().optional(),
+  })
+  .refine((v) => v.name !== undefined || v.folderId !== undefined, { message: 'Nada para actualizar' })
+export type ClientUpdateDocumentDTO = z.infer<typeof ClientUpdateDocumentSchema>

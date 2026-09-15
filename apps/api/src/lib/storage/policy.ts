@@ -61,7 +61,10 @@ export interface PurposePolicy {
  * de la landing de propuestas (sigue en el CHECK de la migración 0040).
  */
 export const FILE_PURPOSE_POLICIES = {
-  deal_document: { actors: ['hub'], contentTypes: OFFICE_DOCS, maxBytes: 50 * MB },
+  // 'client': el portal sube documentos propios a sus proyectos (document-folders).
+  // files.authz decide el acceso de lectura por la fila de `document`, no por el
+  // propósito, así que no hace falta un propósito separado por actor.
+  deal_document: { actors: ['hub', 'client'], contentTypes: OFFICE_DOCS, maxBytes: 50 * MB },
   library_item: { actors: ['hub'], contentTypes: OFFICE_DOCS, maxBytes: 50 * MB },
   expense_receipt: { actors: ['hub'], contentTypes: ['application/pdf', ...IMAGES], maxBytes: 10 * MB },
   proposal_logo: { actors: ['hub'], contentTypes: [...IMAGES, 'image/gif'], maxBytes: 2 * MB },
