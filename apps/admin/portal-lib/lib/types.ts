@@ -89,7 +89,7 @@ export interface ClientDocument {
   signedAt: string | null
   /**
    * Estado de la firma en DocuSeal — DocuSeal es la fuente de verdad, acá solo
-   * se refleja para derivar un label de UI (ver documents-panel.tsx). `null`
+   * se refleja para derivar un label de UI (ver documents-shared.tsx). `null`
    * para documentos que nunca pasaron por un flujo de firma (facturas, otros).
    */
   docusealStatus: 'pending' | 'completed' | 'declined' | 'expired' | null
