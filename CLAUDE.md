@@ -148,6 +148,8 @@ src/modules/<nombre>/
   Cobertura real hoy: `deal`, `contact`, `company`, y desde la migración `0038`
   también `document` y `deliverable`, y desde la `0041` `note` y `task` (antes se
   borraban en duro; sus endpoints `DELETE` mantienen la ruta pero ahora archivan).
+  Desde la `0043` también `document_folder`: archivar una carpeta nunca borra
+  sus documentos, los devuelve a la raíz del proyecto (`document.folder_id = null`).
 - Cada cambio de campo en una entidad núcleo se registra en `record_history` (referencia polimórfica `entity_type` + `entity_id`, guarda `old_value` y `new_value`). Implementarlo en el service, no en el router.
 - Siempre filtrar `WHERE archived = false` en queries de listado.
 
@@ -170,12 +172,15 @@ src/modules/<nombre>/
   usuario del portal A puede colgar de su deal una entidad del portal B.
   Usar los helpers de `apps/api/src/lib/portal-access.ts`:
   `assertDealInPortal`, `assertCompanyInPortal`, `assertContactInPortal`,
-  `assertHubUsersInPortal` (todos aceptan un `executor` opcional para pasarles
-  el `tx` cuando corren dentro de una transacción). `null`/`undefined` pasan
-  siempre: desvincular una relación es legítimo. Ya aplicado en `deals`,
-  `finance` (invoices/expenses), `documents` y `calendar` (event types); al
-  agregar un endpoint nuevo que reciba un FK-id en el body, agregar la guardia
-  correspondiente ahí también.
+  `assertHubUsersInPortal`, `assertFolderInDeal` (todos aceptan un `executor`
+  opcional para pasarles el `tx` cuando corren dentro de una transacción).
+  `null`/`undefined` pasan siempre: desvincular una relación es legítimo. Ya
+  aplicado en `deals`, `finance` (invoices/expenses), `documents` y `calendar`
+  (event types); al agregar un endpoint nuevo que reciba un FK-id en el body,
+  agregar la guardia correspondiente ahí también.
+  `assertFolderInDeal(portalId, dealId, folderId, executor)` es la guardia de
+  `document_folder`: además valida que la carpeta sea del MISMO deal (no solo
+  del mismo portal) y toma un lock `FOR SHARE` sobre la fila dentro de la tx.
 - **Rate limit es opt-in por ruta.** `@fastify/rate-limit` está registrado con
   `global: false`: una ruta NO queda limitada a menos que declare
   `config: { rateLimit: { max, timeWindow } }` explícitamente. Se usa en rutas

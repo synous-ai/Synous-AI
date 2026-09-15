@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db, type DB } from '../db'
-import { clientDealAccess, company, contact, deal, hubUser } from '../db/schema'
+import { clientDealAccess, company, contact, deal, documentFolder, hubUser } from '../db/schema'
 import type { Tx } from './audit'
 import { Errors } from './errors'
 
@@ -123,6 +123,44 @@ export async function assertContactInPortal(
     .where(and(eq(contact.id, contactId), eq(contact.portalId, portalId)))
     .limit(1)
   if (!row) throw Errors.badRequest('Contacto inexistente')
+}
+
+/**
+ * Verifica que `folderId` (si viene) sea una carpeta VIVA del mismo `dealId` y
+ * `portalId` del caller. `null`/`undefined` pasan: un documento en la raíz no
+ * tiene carpeta, y desvincularlo es legítimo.
+ *
+ * La FK compuesta `document(folder_id, deal_id)` de la base ya impide que un
+ * documento cuelgue de una carpeta de OTRO deal — pero con MATCH SIMPLE
+ * (default de Postgres) esa FK no se evalúa si `deal_id` es NULL (documentos
+ * sin deal, p. ej. adjuntos de un CR), así que sin este guard un folder_id de
+ * otro portal/deal podía colarse igual en esa combinación. Este guard además
+ * da un 400 legible en vez de que la FK reviente con un 500 de constraint.
+ *
+ * `FOR SHARE` dentro de la tx: evita que la carpeta se archive a mitad de
+ * camino entre este chequeo y el INSERT/UPDATE del documento que lo usa.
+ */
+export async function assertFolderInDeal(
+  portalId: string,
+  dealId: string,
+  folderId: string | null | undefined,
+  executor: Executor = db,
+): Promise<void> {
+  if (!folderId) return
+  const [row] = await executor
+    .select({ id: documentFolder.id })
+    .from(documentFolder)
+    .where(
+      and(
+        eq(documentFolder.id, folderId),
+        eq(documentFolder.dealId, dealId),
+        eq(documentFolder.portalId, portalId),
+        eq(documentFolder.archived, false),
+      ),
+    )
+    .limit(1)
+    .for('share')
+  if (!row) throw Errors.badRequest('Carpeta inexistente')
 }
 
 export async function assertHubUsersInPortal(
