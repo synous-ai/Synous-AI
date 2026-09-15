@@ -212,7 +212,7 @@ export const proposal = {
   scope: {
     eyebrow: 'LA ESTRATEGIA',
     heading: 'Dos proyectos. Una misma infraestructura.',
-    lede: 'Cada fase resuelve un problema distinto, pero se construyen sobre la misma base. La primera devuelve una presencia a la altura de lo que UIRTUS ya es; la segunda es comenzar a construir su visión.',
+    lede: 'Cada fase resuelve un problema distinto, pero se construyen sobre la misma base. La primera devuelve una presencia a la altura de lo que UIRTUS ya es; la segunda empieza a construir la visión que viene después.',
     phases: [
       {
         label: 'FASE 01 — PRESENCIA',

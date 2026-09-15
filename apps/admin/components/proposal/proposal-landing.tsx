@@ -2,6 +2,7 @@ import Aurora from '@/components/proposal/aurora/aurora'
 import { ArchitectureFlow } from '@/components/proposal/architecture-flow'
 import { GlowButton } from '@/components/proposal/glow-button'
 import { GradualBlur } from '@/components/proposal/gradual-blur'
+import { SectionDots } from '@/components/proposal/section-dots'
 import { SmoothScroll } from '@/components/proposal/smooth-scroll'
 import { WorkBento } from '@/components/proposal/work-bento'
 import { PhaseCards } from '@/components/proposal/phase-cards'
@@ -494,8 +495,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
         {/* ── Garantías: van después del precio, donde la duda aparece ─── */}
         <section className="section shell guarantees-section" id="garantias">
           {/* Dotted arc rising behind the heading, from the reference set. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="section-dots" src="/dots.svg" alt="" aria-hidden="true" />
+          <SectionDots />
           <Reveal>
             <div className="section-head section-head-center">
               <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{guarantees.eyebrow}</p>
@@ -605,20 +605,25 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
         {/* La página cierra pidiendo una decisión concreta: sin esto el lector
             termina el FAQ y no sabe qué se espera de él. */}
         <section className="section shell handoff-section" id="siguiente-paso">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="section-light" src="/light4.webp" alt="" aria-hidden="true" />
-          <Reveal>
-            <div className="section-head section-head-center handoff-head">
-              <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{handoff.eyebrow}</p>
-              <h2>{handoff.heading}</h2>
+          {/* The light lives INSIDE this panel, clipped to its rounded box. The
+              artwork carries its own dark ground, so letting it bleed over the
+              page would show a visible edge against the navy. */}
+          <div className="handoff-panel">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="section-light" src="/light4.webp" alt="" aria-hidden="true" />
+            <Reveal>
+              <div className="section-head section-head-center handoff-head">
+                <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{handoff.eyebrow}</p>
+                <h2>{handoff.heading}</h2>
 
-              <div className="cta-row handoff-cta">
-                <GlowButton href={handoff.whatsappUrl} external>
-                  {handoff.primaryCta}
-                </GlowButton>
+                <div className="cta-row handoff-cta">
+                  <GlowButton href={handoff.whatsappUrl} external>
+                    {handoff.primaryCta}
+                  </GlowButton>
+                </div>
               </div>
-            </div>
-          </Reveal>
+            </Reveal>
+          </div>
         </section>
 
       </main>

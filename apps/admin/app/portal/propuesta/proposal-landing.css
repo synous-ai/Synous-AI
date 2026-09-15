@@ -651,6 +651,10 @@
   letter-spacing: -0.03em;
   font-weight: 500;
   color: var(--title);
+  /* Reparte el titular en líneas de largo parejo en vez de llenar la primera
+     y dejar una palabra suelta abajo. Un titular de dos líneas equilibradas se
+     lee como una unidad; uno con la segunda línea huérfana, como un error. */
+  text-wrap: balance;
 }
 
 /* 15px under the heading: enough to read as its own paragraph rather than a
@@ -662,6 +666,10 @@
   font-weight: 500;
   line-height: 1.7;
   color: var(--muted);
+  /* Evita la línea huérfana: el navegador reparte el texto para que la última
+     línea no quede con una sola palabra suelta. Sin esto, cualquier retoque
+     del copy puede volver a dejar una palabra colgando abajo. */
+  text-wrap: pretty;
 }
 
 /* ── Section ornaments ────────────────────────────────────────────────── */
@@ -698,6 +706,18 @@
   max-width: none;
   transform: translateX(-50%);
   opacity: 0.4;
+  /**
+   * El archivo es un RECTÁNGULO: `light3.webp` ni siquiera tiene canal alfa, y
+   * su fondo no es negro puro sino un gris muy oscuro, así que `screen` no lo
+   * anula del todo y el borde del recuadro se lee como una línea recta
+   * cruzando la sección.
+   *
+   * El mask apaga la imagen antes de llegar a sus propios bordes, así lo único
+   * que queda es el núcleo del resplandor. Es lo que la vuelve iluminación en
+   * vez de una imagen pegada encima.
+   */
+  mask: radial-gradient(ellipse 60% 55% at 50% 42%, #000 45%, transparent 100%);
+  -webkit-mask: radial-gradient(ellipse 60% 55% at 50% 42%, #000 45%, transparent 100%);
   mix-blend-mode: screen;
   filter: hue-rotate(310deg) saturate(1.1) brightness(1.15);
   pointer-events: none;
@@ -957,6 +977,63 @@
  * El argumento de la sección es que cada etapa se apoya en la anterior, y una
  * pila de tarjetas iguales no lo dice — el trazo sí.
  */
+/**
+ * Superficie clara. La única sección de la página que invierte el fondo: el
+ * argumento acá es que las piezas encajan entre sí, y sobre claro el recorrido
+ * se lee como un plano en vez de como otra sección más del mismo navy.
+ *
+ * Se hace REDEFINIENDO LOS TOKENS, no pisando reglas. Todo lo que hay adentro
+ * ya lee `var(--title)`, `var(--surface)`, `var(--edge)`…, así que al cambiar
+ * los valores en este scope la sección entera se adapta sola. Un override por
+ * selector obligaría a mantener dos copias de cada regla en paralelo.
+ *
+ * Valores medidos sobre el fondo (#eef3fb) y sobre las tarjetas (#fff):
+ * título 18:1, cuerpo 8:1, apagado 5:1, acento 4.9:1 — todos AA.
+ */
+.proposal-page .architecture-section {
+  /* El acento pálido de la marca da 1.67:1 sobre claro: ilegible. En esta
+     superficie el acento es el azul profundo, un punto más oscuro que
+     --accent-deep para que pase AA también sobre el fondo y no sólo sobre
+     las tarjetas blancas. */
+  --accent: #1a6bbd;
+  --accent-bright: #1559a0;
+
+  /* Las "superficies" se invierten: el fondo es el claro y lo elevado es el
+     blanco puro, al revés que en el resto de la página. */
+  --surface: var(--paper);
+  --surface-raised: var(--paper);
+  --surface-high: var(--paper-shade);
+
+  --edge: #c9d8ef;
+  --edge-soft: #dae4f4;
+  --edge-lit: #a9c4e8;
+
+  --title: #030520;
+  --body-text: #33415c;
+  --muted: #3d4a63;
+  --muted-dim: #5a6883;
+
+  color: var(--body-text);
+  background: var(--paper-shade);
+  /* La sección es un `.shell` de ancho acotado, pero el fondo tiene que cruzar
+     la página entera. El box-shadow lo extiende a los lados y el clip-path
+     recorta el desborde vertical para que no invada las secciones vecinas. */
+  box-shadow: 0 0 0 100vmax var(--paper-shade);
+  clip-path: inset(0 -100vmax);
+}
+
+/* El resplandor de la marca está hecho para sumar luz sobre navy: sobre claro
+   sólo ensucia. */
+.proposal-page .architecture-section .section-light {
+  display: none;
+}
+
+/* Sobre navy el badge se enciende; sobre claro tiene que asentarse. */
+.proposal-page .architecture-section .section-eyebrow {
+  background: var(--paper);
+  color: var(--accent);
+}
+
 /* Ancho fijo de 1000px: es el mismo lienzo en el que el componente calcula el
    trazo, así ambos comparten coordenadas. Debajo de eso, el media query lo
    convierte en una pila. */
@@ -975,7 +1052,9 @@
   z-index: 0;
   width: 100%;
   height: 100%;
-  color: #96c0ff5c;
+  /* El trazo se dibuja con `currentColor`, así que sale del acento del scope:
+     pálido sobre navy, azul profundo sobre la superficie clara. */
+  color: color-mix(in srgb, var(--accent) 42%, transparent);
   pointer-events: none;
 }
 
@@ -1009,6 +1088,18 @@
   transform: translateY(-3px);
 }
 
+/**
+ * Las sombras son lo único que no sale de un token: los `inset` claros simulan
+ * un borde iluminado, que es un gesto de superficie oscura. Sobre blanco sólo
+ * ensucian, así que acá la tarjeta se separa del fondo con una sombra proyectada
+ * normal.
+ */
+.proposal-page .architecture-section .arch-flow-card {
+  box-shadow:
+    0 1px 2px #0305201a,
+    0 10px 30px #03052014;
+}
+
 .arch-flow-card.is-left {
   left: var(--arch-inset);
 }
@@ -1028,7 +1119,7 @@
   font-weight: 600;
   line-height: 1;
   letter-spacing: -2px;
-  color: #96c0ff1f;
+  color: color-mix(in srgb, var(--accent) 12%, transparent);
   user-select: none;
 }
 
@@ -1062,7 +1153,7 @@
   position: absolute;
   width: 7px;
   height: 7px;
-  border: 1px solid #96c0ff4d;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .arch-flow-card .tick-1 {
@@ -1165,6 +1256,26 @@
 
 /* ── El siguiente paso ────────────────────────────────────────────────── */
 
+/**
+ * Panel de cierre. La luz de `light4.webp` trae su propio fondo oscuro, así
+ * que suelta sobre la página se le ve el borde recortado contra el navy. Acá
+ * queda ENCERRADA en un panel del ancho del contenido: el `overflow: hidden`
+ * la corta contra un borde redondeado que sí es parte del diseño, y el propio
+ * panel aporta la caja que antes faltaba para que el cierre no flote.
+ */
+.handoff-panel {
+  position: relative;
+  padding: clamp(40px, 6vw, 72px) clamp(24px, 5vw, 64px);
+  border: 1px solid var(--edge);
+  border-radius: 24px;
+  background: linear-gradient(180deg, #0a1128, var(--surface) 70%);
+  box-shadow:
+    inset 0 1px 0 #96c0ff2e,
+    0 18px 50px #00030d66;
+  overflow: hidden;
+  isolation: isolate;
+}
+
 .handoff-head {
   align-items: center;
 }
@@ -1174,8 +1285,20 @@
   margin-top: 34px;
 }
 
+/**
+ * Dentro del panel la luz se ancla arriba y se funde antes de llegar a los
+ * bordes: el `overflow` ya garantiza que no se escape, y el mask evita que el
+ * corte se note como una línea recta.
+ */
+.handoff-panel .section-light {
+  top: -38%;
+  width: min(900px, 120%);
+  opacity: 0.5;
+}
+
 /* Dotted arc, faded at the edges so it reads as texture rather than a pasted
-   graphic with a hard boundary. */
+   graphic with a hard boundary. Inline SVG (see `section-dots.tsx`) so each
+   circle can light up on its own — an <img> would be a single opaque box. */
 .section-dots {
   position: absolute;
   top: 12px;
@@ -1184,10 +1307,58 @@
   width: min(400px, 86%);
   height: auto;
   transform: translateX(-50%);
-  opacity: 0.5;
-  mask: radial-gradient(ellipse at 50% 40%, #000 35%, transparent 75%);
-  -webkit-mask: radial-gradient(ellipse at 50% 40%, #000 35%, transparent 75%);
+  mask: radial-gradient(ellipse at 50% 40%, #000 55%, transparent 88%);
+  -webkit-mask: radial-gradient(ellipse at 50% 40%, #000 55%, transparent 88%);
   pointer-events: none;
+}
+
+/**
+ * El arco se RELLENA de abajo hacia arriba.
+ *
+ * Cada punto comparte el mismo ciclo y se diferencia solo por su `delay`, que
+ * el componente calcula con el índice invertido: el de más abajo arranca
+ * primero y el frente de luz sube. Una vez encendido, el punto SE QUEDA
+ * encendido mientras los de arriba se van sumando — de ahí la lectura de
+ * relleno y no de parpadeo. Al final del ciclo el arco entero se apaga junto y
+ * vuelve a empezar.
+ *
+ * El reposo es el navy apagado del archivo original, así que un navegador que
+ * ignore la animación sigue mostrando el arco estático de siempre.
+ */
+.section-dots circle {
+  fill: #202539;
+  animation: section-dot-fill 6s linear infinite;
+}
+
+@keyframes section-dot-fill {
+  0% {
+    fill: #202539;
+    filter: none;
+  }
+  /* Encendido rápido: el frente de luz tiene que leerse como un borde que
+     sube, no como un degradado lento. El halo es lo que hace que el punto
+     parezca emitir luz y no sólo cambiar de color. */
+  4% {
+    fill: #7cc4ff;
+    filter: drop-shadow(0 0 26px #7cc4ff);
+  }
+  /* Se mantiene mientras el resto del arco se completa. */
+  82% {
+    fill: #7cc4ff;
+    filter: drop-shadow(0 0 26px #7cc4ff);
+  }
+  /* Apagado común: todos los puntos llegan acá a la vez, sin importar su
+     delay, así que el arco se vacía de una en vez de desarmarse por partes. */
+  100% {
+    fill: #202539;
+    filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-dots circle {
+    animation: none;
+  }
 }
 
 @media (max-width: 680px) {
@@ -1204,6 +1375,22 @@
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 18px;
   margin-top: 42px;
+}
+
+/**
+ * Altura pareja en una fila de tarjetas.
+ *
+ * El grid estira sus hijos por defecto, pero el hijo acá es el `<Reveal>`, no
+ * la tarjeta: sin esto el wrapper se estira y la tarjeta adentro se queda con
+ * su alto natural, así que la fila queda despareja según cuánto texto tenga
+ * cada una. El wrapper pasa el alto hacia abajo y la tarjeta lo toma.
+ */
+.card-grid > .reveal {
+  display: flex;
+}
+
+.card-grid > .reveal > .card {
+  flex: 1;
 }
 
 .card-grid-tight {
@@ -1679,6 +1866,9 @@
   flex-direction: column;
   align-items: center;
   overflow: hidden;
+  /* Holds the backdrop video's negative z-index: without it the video would
+     fall behind the page background instead of behind this section's text. */
+  isolation: isolate;
   /* Every other section draws its rule inside `.shell`; this one is full-bleed,
      so the rule moves onto the inner wrapper to keep the page rhythm. */
   border-top: 0;
@@ -1705,29 +1895,52 @@
 /* El escenario de la grilla: ancla el video a las tarjetas, no a la sección.
    `align-self` porque el contenedor centra sus hijos, y sin esto el escenario
    se encogería al ancho de su contenido. */
+/**
+ * Ancla del video: lo posiciona respecto de la grilla de tarjetas, no de la
+ * sección, así el resplandor no se corre cuando cambia el alto del titular.
+ *
+ * Deliberadamente SIN `isolation`. Un contexto de apilado acá encerraría el
+ * `z-index: -1` del video adentro del escenario, y como el escenario se pinta
+ * después del titular, el video terminaba TAPANDO el badge y el h2. El
+ * contexto vive en `.method-section`, que sí envuelve a los dos.
+ */
 .method-stage {
   position: relative;
   align-self: stretch;
   width: 100%;
-  isolation: isolate;
 }
 
 /**
- * El video se cuelga del tope del escenario y sube la mitad de su alto, así
- * queda cortado por la primera fila de tarjetas.
+ * El video se apoya SOBRE el borde superior de las tarjetas: se centra en ese
+ * borde y desde ahí reparte su alto para arriba y para abajo, de manera que la
+ * primera fila de tarjetas lo corta por el medio.
  *
- * Antes colgaba de la sección con un `top` fijo, y esa distancia dependía del
- * alto del titular: cada vez que el texto de arriba cambiaba, el resplandor se
- * corría. Anclado acá, la referencia es la grilla misma.
+ * Dos decisiones que importan:
+ *
+ * 1. Se ancla al escenario (`.method-stage`, que envuelve la grilla), no a la
+ *    sección. Colgado de la sección la distancia pasaba por el titular, y
+ *    cualquier cambio de texto arriba corría el resplandor.
+ * 2. El alto es fijo, no derivado del video. Con `height: auto` el alto depende
+ *    del ancho y del aspecto del archivo, así que el sobrante hacia arriba
+ *    llegaba a taparle el badge y el titular. Con un alto conocido, el
+ *    `translateY(-50%)` deja exactamente la mitad de cada lado.
  */
 .method-backdrop {
+  --method-video-height: 420px;
+  /**
+   * Qué fracción del video queda POR ENCIMA del borde superior de las
+   * tarjetas. 0.5 es exactamente mitad y mitad; bajarlo hunde el video en la
+   * grilla, que es lo que evita que el resplandor trepe hacia el titular.
+   */
+  --method-video-rise: 0.42;
+
   position: absolute;
-  bottom: calc(100% - 150px);
+  top: 0;
   left: 50%;
   width: min(1000px, 130%);
-  height: auto;
-  transform: translateX(-50%);
-  object-fit: contain;
+  height: var(--method-video-height);
+  transform: translate(-50%, calc(var(--method-video-height) * var(--method-video-rise) * -1));
+  object-fit: cover;
   opacity: 0.85;
   filter: blur(4px) saturate(0.6) brightness(1.1);
   mix-blend-mode: screen;
@@ -1788,7 +2001,8 @@
 
 @media (max-width: 680px) {
   .method-backdrop {
-    top: 24px;
+    --method-video-height: 260px;
+
     width: 160%;
   }
 }
@@ -2429,7 +2643,6 @@
   grid-template-columns: 40fr 60fr;
   gap: 18px;
   margin-top: 42px;
-  align-items: start;
 }
 
 .important-card {
@@ -3079,9 +3292,22 @@
     padding: 18px;
   }
 
+  /**
+   * En columna el eje principal pasa a ser el vertical, así que el
+   * `justify-content: center` de la regla base deja de centrar en horizontal:
+   * ahí manda `align-items`. Con `stretch` los botones de ancho completo se
+   * estiran bien, pero el CTA del hero es un `.glow-button` con
+   * `width: fit-content` — no puede estirarse, y quedaba pegado a la
+   * izquierda. Se centra explícitamente más abajo.
+   */
   .cta-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  /* El CTA del hero tiene ancho propio: se centra en vez de estirarse. */
+  .cta-row > .glow-button {
+    align-self: center;
   }
 
   .button-primary,
