@@ -20,7 +20,7 @@ export type TeamMember = { name: string; title: string; description: string }
 
 export type ScopePhase = { label: string; title: string; body: string }
 
-export type ScopePath = { icon: 'modules' | 'versions'; title: string; body: string }
+export type ScopePath = { icon: 'modules' | 'versions' | 'mobile'; title: string; body: string }
 
 /** Un nivel de la arquitectura conceptual: qué se construye y en qué fase. */
 export type ArchitectureLayer = { label: string; title: string; body: string }
@@ -221,8 +221,8 @@ export const proposal = {
       },
       {
         label: 'FASE 02 — PRODUCTO',
-        title: 'MVP de la aplicación UIRTUS',
-        body: 'El primer paso para transformar herramientas y procesos que hoy existen de forma independiente en una experiencia digital propia para los clientes de UIRTUS. Una base preparada para sumar funcionalidades a medida que el producto demuestre qué necesita realmente.',
+        title: 'MVP de la aplicación web UIRTUS',
+        body: 'Una aplicación web responsive, diseñada mobile first: se usa desde el navegador del celular, sin instalación ni tiendas. Es el primer paso para transformar herramientas y procesos que hoy existen por separado en una experiencia digital propia para los clientes de UIRTUS, sobre una base preparada para crecer —incluida una futura versión nativa— a medida que el producto demuestre qué necesita.',
       },
     ] satisfies ScopePhase[],
     pathsHeading: 'El MVP no define el techo de la aplicación. Define la base.',
@@ -238,6 +238,11 @@ export const proposal = {
         icon: 'versions',
         title: 'Por versiones',
         body: 'Para agrupar varias mejoras en una evolución más ambiciosa del producto.',
+      },
+      {
+        icon: 'mobile',
+        title: 'Fase 3 — Aplicación móvil nativa',
+        body: 'Publicación en App Store y Google Play sobre la misma arquitectura, sin rehacer lo construido. Se cotiza una vez validado el MVP.',
       },
     ] satisfies ScopePath[],
   },
@@ -306,8 +311,9 @@ export const proposal = {
         payment: '50% al inicio · 50% en la entrega',
       },
       {
-        name: 'MVP de la aplicación',
+        name: 'MVP de la aplicación web',
         includes: [
+          'Aplicación web responsive, diseñada mobile first',
           'Portal institucional dentro de la app',
           'Diagnóstico UIRTUS integrado',
           'Panel de clientes',
@@ -375,6 +381,7 @@ export const proposal = {
     },
     exclusionsTitle: "Lo que no entra en esta cotización",
     exclusions: [
+      "Desarrollo móvil nativo y publicación en App Store / Google Play: corresponde a la Fase 3 y se cotiza por separado",
       "Identidad visual de marca (logo, manual, redes sociales)",
       "Soporte a usuarios finales",
       "Funcionalidades no definidas en el alcance. Si aparece algo nuevo, se evalúa costo e impacto y se aprueba antes de desarrollar",
