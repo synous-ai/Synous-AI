@@ -648,6 +648,48 @@
   text-align: center;
 }
 
+/**
+ * En mobile los encabezados se alinean a la izquierda.
+ *
+ * Un titular centrado sobre una columna angosta parte en muchas líneas cortas
+ * de borde irregular a ambos lados, y el ojo pierde dónde empieza cada renglón.
+ * Alineado a la izquierda hay un solo margen fijo del que engancharse.
+ *
+ * Alcanza a los encabezados de sección, no a lo que está centrado por su propia
+ * forma: la tarjeta de la fecha, los precios y el pie siguen como están.
+ */
+@media (max-width: 680px) {
+  .proposal-page .hero,
+  .section-head-center,
+  .proposal-page .subheading-lede,
+  .method-head,
+  .scope-paths .subheading,
+  .investment-section .section-closing {
+    text-align: left;
+  }
+
+  /* Los que además son flex tienen que soltar el centrado del eje transversal,
+     o el texto queda a la izquierda pero el bloque sigue centrado. */
+  .section-head-center,
+  .method-head {
+    align-items: flex-start;
+    margin-inline: 0;
+  }
+
+  /**
+   * Y los que se centran con `margin: auto` sobre un `max-width` tienen que
+   * soltar ese auto. Si no, el texto se alinea a la izquierda pero dentro de
+   * una caja que sigue centrada en la pantalla: el bloque entero queda
+   * flotando con aire desparejo a los costados.
+   */
+  .proposal-page .eyebrow,
+  .proposal-page .hero h1,
+  .proposal-page .lede,
+  .proposal-page .subheading-lede {
+    margin-inline: 0;
+  }
+}
+
 /* Box, size and colour come from the badge system at the top of this file. */
 .section-eyebrow {
   margin-bottom: 4px;
@@ -3380,9 +3422,10 @@
     align-items: stretch;
   }
 
-  /* El CTA del hero tiene ancho propio: se centra en vez de estirarse. */
+  /* El CTA del hero tiene ancho propio, así que `stretch` no lo mueve: se
+     alinea con el encabezado, que en mobile arranca en el margen izquierdo. */
   .cta-row > .glow-button {
-    align-self: center;
+    align-self: flex-start;
   }
 
   .button-primary,
