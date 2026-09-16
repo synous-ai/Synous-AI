@@ -191,6 +191,17 @@
   box-shadow: inset 0 0 15px 4px #1c2542a6;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  transition:
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.35s ease;
+}
+
+/* Al bajar, el header sube fuera de la pantalla (su alto + el margen superior
+   + un resto para la sombra). Si el foco del teclado está adentro, se queda. */
+.proposal-header.is-hidden:not(:focus-within) {
+  transform: translate(-50%, calc(-100% - 40px));
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Corner ticks: two-sided brackets that step outward on hover, so the header
@@ -354,6 +365,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .proposal-header,
   .proposal-header .tick,
   .header-logo {
     transition: none;
@@ -810,16 +822,54 @@
   color: var(--muted);
 }
 
-/* La comparación con el precio por separado: es el argumento del ahorro, así
-   que va al pie del copy y no perdida entre los números. */
-.proposal-page .combo-compare {
+/* Las ventajas de hacer los dos juntos: el mismo tilde que los incluidos. */
+.proposal-page .combo-benefits {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.proposal-page .combo-benefits li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--body-text);
+}
+
+.proposal-page .combo-benefits svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  padding: 3px;
+  border: 1px solid #96c0ff66;
+  border-radius: 50%;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+/* De dónde sale el precio por separado. */
+.proposal-page .combo-option-breakdown {
+  margin-top: 8px;
+  font-family: var(--font-proposal-mono), ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  color: var(--muted-dim);
+}
+
+/* La comparación con el precio por separado va dentro de cada forma de pago,
+   pegada a su precio: el ahorro depende de cómo se pague. */
+.proposal-page .combo-option-compare {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--edge);
+  gap: 8px;
+  margin-top: 12px;
   font-size: 13px;
   font-weight: 500;
 }
@@ -2531,6 +2581,19 @@
   color: var(--body-text);
 }
 
+/* La aclaración bajo los incluidos: el precio sigue siendo lo que manda. */
+.proposal-page .tier-note {
+  margin-top: 22px;
+  padding: 14px 16px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: #96c0ff0a;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
 .tier-includes svg {
   width: 20px;
   height: 20px;
@@ -2684,6 +2747,28 @@
   font-weight: 500;
   line-height: 1.7;
   color: var(--muted);
+}
+
+.proposal-page .important-card > p + .important-note {
+  margin-top: 14px;
+}
+
+/* El rótulo de cada bloque de la letra chica: "Plazos.", "Revisiones.". */
+.proposal-page .important-label {
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--title);
+}
+
+/* Aclaración de alcance al pie de las exclusiones, en voz baja. */
+.proposal-page .exclusion-note {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--edge);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.65;
+  color: var(--muted-dim);
 }
 
 @media (max-width: 900px) {
@@ -2976,6 +3061,16 @@
 
 .scope-phase-card .phase-badge + h3 {
   font-size: 18px;
+}
+
+/* Qué cambia según lo que se contrate: separado del cuerpo, más bajo. */
+.proposal-page .scope-phase-card .scope-phase-note {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--edge);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--muted-dim);
 }
 
 .scope-paths {

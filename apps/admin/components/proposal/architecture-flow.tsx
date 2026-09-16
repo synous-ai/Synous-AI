@@ -23,6 +23,9 @@ type Layer = {
  *
  * Bajo el breakpoint la curva se va y las tarjetas se apilan: a ese ancho el
  * serpenteo no entra y la lectura lineal es más clara.
+ *
+ * Sin número de paso en cada tarjeta: la etiqueta ya dice a qué proyecto
+ * pertenece, y un "03" al lado de "PROYECTO 02" se leía como otra numeración.
  */
 
 /** Ancho del lienzo en el que se calculan las posiciones. */
@@ -137,9 +140,6 @@ export function ArchitectureFlow({ layers }: { layers: Layer[] }) {
             <span className="tick tick-3" aria-hidden="true" />
             <span className="tick tick-4" aria-hidden="true" />
 
-            <p className="arch-flow-step" aria-hidden="true">
-              {String(index + 1).padStart(2, '0')}
-            </p>
             <p className="arch-flow-label">{layer.label}</p>
             <h3 className="arch-flow-title">{layer.title}</h3>
             <p className="arch-flow-body">{layer.body}</p>

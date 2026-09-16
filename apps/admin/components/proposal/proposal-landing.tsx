@@ -2,6 +2,7 @@ import Aurora from '@/components/proposal/aurora/aurora'
 import { ArchitectureFlow } from '@/components/proposal/architecture-flow'
 import { GlowButton } from '@/components/proposal/glow-button'
 import { GradualBlur } from '@/components/proposal/gradual-blur'
+import { HideOnScrollHeader } from '@/components/proposal/hide-on-scroll-header'
 import { SectionDots } from '@/components/proposal/section-dots'
 import { SmoothScroll } from '@/components/proposal/smooth-scroll'
 import { WorkBento } from '@/components/proposal/work-bento'
@@ -10,6 +11,11 @@ import { Reveal } from '@/components/proposal/reveal'
 import { FaqList } from '@/components/proposal/faq-list'
 import { NAV } from '@/app/portal/propuesta/proposal-content'
 import type { ResolvedProposal } from '@/app/portal/propuesta/resolve-proposal'
+
+/** Monto en dólares con separador de miles argentino: 7800 → "USD 7.800". */
+function usd(amount: number): string {
+  return `USD ${amount.toLocaleString('es-AR')}`
+}
 
 /** Backdrop palette: deep indigo through the brand's pale and electric blues. */
 const AURORA_STOPS: [string, string, string] = ['#181ba2', '#99c0fe', '#383cff']
@@ -216,8 +222,9 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
       {/* Sits under the film grain (9999) so the texture stays on top. */}
       <GradualBlur height="7rem" strength={2} divCount={6} />
       {/* Floating pill rather than a full-width bar: corner ticks mark its
-          bounds, and they step outward when the header is hovered. */}
-      <header className="proposal-header">
+          bounds, and they step outward when the header is hovered. Hides on
+          scroll down and comes back on scroll up. */}
+      <HideOnScrollHeader className="proposal-header">
         <CornerTicks />
         <a className="header-logo-link" href="#top" aria-label="Inicio">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -232,7 +239,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
             ))}
           </ul>
         </nav>
-      </header>
+      </HideOnScrollHeader>
 
       <main>
         {/* ── Hero ─────────────────────────────────────────────────────── */}
@@ -320,6 +327,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                 <p className="phase-badge"><span className="badge-orb" aria-hidden="true" />{phase.label}</p>
                 <h3>{phase.title}</h3>
                 <p>{phase.body}</p>
+                {phase.note && <p className="scope-phase-note">{phase.note}</p>}
               </article>
             ))}
           </div>
@@ -387,6 +395,8 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                   ))}
                 </ul>
 
+                {phase.note && <p className="tier-note">{phase.note}</p>}
+
                 {phase.price && (
                   <div className="pricing-single">
                     <p className="tier-price">{phase.price}</p>
@@ -429,24 +439,40 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                 </p>
                 <h3 className="combo-title">{investment.combo.title}</h3>
                 <p className="combo-body">{investment.combo.body}</p>
-
-                <p className="combo-compare">
-                  <span className="combo-compare-label">{investment.combo.separateLabel}</span>
-                  <s className="combo-strike">{investment.combo.separatePrice}</s>
-                  <span className="combo-saving">
-                    {investment.combo.savingLabel} {investment.combo.savingAmount}
-                  </span>
-                </p>
+                <ul className="combo-benefits">
+                  {investment.combo.benefits.map((line) => (
+                    <li key={line}>
+                      <Check />
+                      {line}
+                    </li>
+                  ))}
+                </ul>
               </div>
 
               <div className="combo-options">
-                {investment.combo.options.map((option) => (
-                  <div className="combo-option" key={option.label}>
-                    <p className="combo-option-label">{option.label}</p>
-                    <p className="combo-option-price">{option.price}</p>
-                    <p className="combo-option-terms">{option.terms}</p>
-                  </div>
-                ))}
+                {investment.combo.options.map((option) => {
+                  const separate = option.sitePrice + option.platformPrice
+                  return (
+                    <div className="combo-option" key={option.label}>
+                      <p className="combo-option-label">{option.label}</p>
+                      <p className="combo-option-price">{usd(option.price)}</p>
+                      {/* Cada forma de pago se compara contra su propio precio por
+                          separado: una sola comparación para las dos mentía en una. */}
+                      <p className="combo-option-compare">
+                        <span className="combo-compare-label">{investment.combo.separateLabel}</span>
+                        <s className="combo-strike">{usd(separate)}</s>
+                        <span className="combo-saving">
+                          {investment.combo.savingLabel} {usd(separate - option.price)}
+                        </span>
+                      </p>
+                      <p className="combo-option-breakdown">
+                        {investment.combo.siteLabel} {usd(option.sitePrice)} + {investment.combo.platformLabel}{' '}
+                        {usd(option.platformPrice)}
+                      </p>
+                      <p className="combo-option-terms">{option.terms}</p>
+                    </div>
+                  )
+                })}
               </div>
             </article>
           </Reveal>
@@ -571,7 +597,14 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
               <article className="important-card">
                 <ImportantIcon variant="timeline" />
                 <h3>{important.terms.title}</h3>
-                <p>{important.terms.body}</p>
+                <p>
+                  <strong className="important-label">{important.terms.bodyLabel}</strong> {important.terms.body}
+                </p>
+                {important.terms.notes.map((note) => (
+                  <p className="important-note" key={note.label}>
+                    <strong className="important-label">{note.label}</strong> {note.text}
+                  </p>
+                ))}
               </article>
 
               <article className="important-card">
@@ -585,6 +618,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                     </li>
                   ))}
                 </ul>
+                <p className="exclusion-note">{important.exclusionsNote}</p>
               </article>
             </div>
           </Reveal>
