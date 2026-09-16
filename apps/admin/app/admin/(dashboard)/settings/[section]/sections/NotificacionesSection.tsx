@@ -26,6 +26,26 @@ const EVENT_LABELS: Record<string, { label: string; description: string }> = {
     label: 'Change Request rechazado',
     description: 'Cuando un cliente rechaza una solicitud de cambio.',
   },
+  cr_submitted: {
+    label: 'Nueva solicitud de cambio',
+    description: 'Cuando un cliente crea una solicitud de cambio nueva desde su portal.',
+  },
+  cr_adjustment_requested: {
+    label: 'Ajuste pedido en una CR',
+    description: 'Cuando un cliente pide un ajuste de alcance, precio o plazo sobre una propuesta enviada.',
+  },
+  cr_cancelled_by_client: {
+    label: 'CR cancelada por el cliente',
+    description: 'Cuando un cliente cancela una solicitud de cambio propia.',
+  },
+  cr_client_commented: {
+    label: 'Comentario del cliente en una CR',
+    description: 'Cuando un cliente comenta en una solicitud de cambio.',
+  },
+  cr_client_attached: {
+    label: 'Archivo adjunto del cliente en una CR',
+    description: 'Cuando un cliente adjunta un archivo a una solicitud de cambio.',
+  },
   task_due: {
     label: 'Tarea por vencer',
     description: 'Cuando una tarea asignada a ti está próxima a vencer.',

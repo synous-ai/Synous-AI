@@ -2,6 +2,7 @@ import { pgTable, text, integer, boolean, timestamp, index, check } from 'drizzl
 import { sql } from 'drizzle-orm'
 import { deal } from './deals'
 import { clientAccount } from './client-portal'
+import { changeRequest } from './change-requests'
 import { hubUser } from './users'
 import { createId } from '../../lib/id'
 
@@ -29,6 +30,12 @@ export const deliverable = pgTable('deliverable', {
    * `assertClientDeliverable` en modules/client.
    */
   visibleToClient: boolean('visible_to_client').notNull().default(true),
+  /**
+   * Change request que origina este entregable. Se vincula A MANO desde el
+   * admin — aprobar una CR no crea entregables sola. Ver el comentario gemelo
+   * en `invoice.change_request_id`.
+   */
+  changeRequestId: text('change_request_id').references(() => changeRequest.id),
   reviewedBy: text('reviewed_by').references(() => clientAccount.id),
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
   createdBy: text('created_by').references(() => hubUser.id),
@@ -39,4 +46,5 @@ export const deliverable = pgTable('deliverable', {
   check('deliverable_type_check', sql`${table.type} IN ('design','prototype','staging','final')`),
   check('deliverable_status_check', sql`${table.status} IN ('pending_review','approved','changes_requested')`),
   index('idx_deliverable_deal').on(table.dealId),
+  index('idx_deliverable_change_request').on(table.changeRequestId),
 ])

@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db, type DB } from '../db'
-import { clientDealAccess, company, contact, deal, documentFolder, hubUser } from '../db/schema'
+import { changeRequest, clientDealAccess, company, contact, deal, documentFolder, hubUser } from '../db/schema'
 import type { Tx } from './audit'
 import { Errors } from './errors'
 
@@ -161,6 +161,42 @@ export async function assertFolderInDeal(
     .limit(1)
     .for('share')
   if (!row) throw Errors.badRequest('Carpeta inexistente')
+}
+
+/**
+ * Verifica que `changeRequestId` (si viene) sea una CR del portal del caller y
+ * —cuando se pasa `dealId`— del MISMO proyecto que la entidad que se vincula.
+ *
+ * Lo usan `invoice` y `deliverable`, que guardan el vínculo con la CR que los
+ * origina: sin el guard, un usuario del portal A podía colgar su factura de una
+ * change request del portal B y leerla después desde el detalle.
+ *
+ * El `dealId` NO es un extra cosmético: dentro de UN portal conviven los deals
+ * de todos los clientes, y el detalle de la CR se lee también desde el portal
+ * del cliente. Vincular por error la factura del deal de la Empresa B a una CR
+ * del deal de la Empresa A no rompe ningún tenant, pero le muestra a A los
+ * números de B. `dealId` ausente = solo chequeo de portal (una factura sin
+ * proyecto asociado es legítima y no hay contra qué comparar).
+ */
+export async function assertChangeRequestInPortal(
+  portalId: string,
+  changeRequestId: string | null | undefined,
+  executor: Executor = db,
+  dealId?: string | null,
+): Promise<void> {
+  if (!changeRequestId) return
+  const [row] = await executor
+    .select({ id: changeRequest.id })
+    .from(changeRequest)
+    .where(
+      and(
+        eq(changeRequest.id, changeRequestId),
+        eq(changeRequest.portalId, portalId),
+        dealId ? eq(changeRequest.dealId, dealId) : undefined,
+      ),
+    )
+    .limit(1)
+  if (!row) throw Errors.badRequest('Change request inexistente')
 }
 
 export async function assertHubUsersInPortal(

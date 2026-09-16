@@ -17,7 +17,7 @@ const ProposalScopePhaseSchema = z.object({
 })
 
 const ProposalScopePathSchema = z.object({
-  icon: z.enum(['modules', 'versions']),
+  icon: z.enum(['modules', 'versions', 'mobile']),
   title: z.string().max(160),
   body: z.string().max(1200),
 })

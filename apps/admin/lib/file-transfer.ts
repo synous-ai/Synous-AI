@@ -34,6 +34,7 @@ export type FilePurpose =
   | 'proposal_logo'
   | 'brand_logo'
   | 'onboarding_material'
+  | 'cr_attachment'
 
 /**
  * Listas MIME por purpose — reflejan (solo eso, la API sigue siendo la única
@@ -49,6 +50,8 @@ export const FILE_PURPOSE_ACCEPT: Record<FilePurpose, string> = {
   brand_logo: 'image/png,image/jpeg,image/webp',
   onboarding_material:
     'application/pdf,image/png,image/jpeg,image/webp,image/gif,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/zip,video/mp4,video/quicktime,audio/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav',
+  cr_attachment:
+    'application/pdf,image/png,image/jpeg,image/webp,image/gif,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/zip',
 }
 
 export interface UploadedFile {
