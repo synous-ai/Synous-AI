@@ -1,13 +1,11 @@
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { API_URL } from '@/lib/config'
 import { ProposalLanding } from '@/components/proposal/proposal-landing'
 import { resolveProposal } from '@/app/portal/propuesta/resolve-proposal'
-import type { PublicProposal } from '@/lib/types/proposals'
+import { fetchPublicProposal, proposalMetadata } from '../proposal-metadata'
 
-export const metadata = {
-  title: 'Propuesta — Synous',
-  description: 'Tu propuesta a medida.',
-  robots: { index: false, follow: false },
+export function generateMetadata({ params }: { params: { token: string } }): Promise<Metadata> {
+  return proposalMetadata(params.token)
 }
 
 /** El contenido depende del token y cambia hasta que se envía: nunca se cachea. */
@@ -22,23 +20,9 @@ export const dynamic = 'force-dynamic'
  * como si la propuesta sigue en borrador, así un link filtrado antes de tiempo
  * no revela que exista.
  */
-async function fetchProposal(token: string): Promise<PublicProposal | null> {
-  try {
-    const res = await fetch(`${API_URL}/api/public/proposals/${encodeURIComponent(token)}`, {
-      cache: 'no-store',
-    })
-    if (!res.ok) return null
-    const json = (await res.json()) as { data?: PublicProposal }
-    return json.data ?? null
-  } catch {
-    // La API caída no debe tirar una traza a la cara del cliente.
-    return null
-  }
-}
-
 export default async function PublicProposalPage({ params }: { params: { token: string } }) {
-  const data = await fetchProposal(params.token)
+  const data = await fetchPublicProposal(params.token)
   if (!data) notFound()
 
-  return <ProposalLanding proposal={resolveProposal(data.content)} />
+  return <ProposalLanding proposal={resolveProposal()} />
 }

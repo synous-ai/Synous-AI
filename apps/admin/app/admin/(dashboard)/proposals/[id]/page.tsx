@@ -16,9 +16,9 @@ import { Skeleton } from '@/components/ui/skeleton'
  * La edición por campos quedó fuera a propósito. La landing pública cambió de
  * forma y su estructura todavía se está definiendo con propuestas reales;
  * construir el editor contra un shape que va a moverse deja formularios que hay
- * que rehacer. Mientras tanto el contenido se ajusta en `proposal.content` y la
- * landing completa lo que falte desde la plantilla, así una propuesta a medio
- * cargar igual se ve entera.
+ * que rehacer. Hoy la landing muestra siempre la plantilla del código
+ * (`app/portal/propuesta/proposal-content.ts`) e ignora `proposal.content`:
+ * editar ese JSON no cambia lo que ve el cliente.
  */
 export default function ProposalDetailPage() {
   const { id } = useParams<{ id: string }>()

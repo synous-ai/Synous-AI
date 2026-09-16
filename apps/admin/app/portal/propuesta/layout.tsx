@@ -22,7 +22,7 @@ const mono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Propuesta | Synous',
+  title: 'Propuesta UIRTUS | Synous',
   description: 'Convertimos metodologías en productos y operaciones en sistemas.',
   robots: { index: false, follow: false },
 }
