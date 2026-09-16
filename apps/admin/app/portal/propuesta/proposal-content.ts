@@ -260,7 +260,7 @@ export const proposal = {
       {
         label: 'PROYECTO 02 — PLATAFORMA',
         title: 'MVP de la Plataforma UIRTUS',
-        body: 'Una plataforma web responsive que se usa desde la computadora, la tablet o el celular, sin instalar nada. Reconstruye sobre bases sólidas lo que hoy UIRTUS resuelve de forma más artesanal: el Diagnóstico, el portal privado de clientes y el backoffice con el que el equipo sigue cada proceso.',
+        body: 'Una plataforma web responsive que se usa desde la computadora, la tablet o el celular, sin instalar nada. Lleva a una base sólida y unificada lo que hoy UIRTUS ya resuelve con herramientas separadas: el Diagnóstico, el portal privado de clientes y el backoffice con el que el equipo sigue cada proceso.',
         note: 'Incluye la migración de la información existente necesaria para operar: no se parte de cero.',
       },
     ] satisfies ScopePhase[],
@@ -271,12 +271,12 @@ export const proposal = {
       {
         icon: 'modules',
         title: 'Por módulos',
-        body: 'Para incorporar funcionalidades puntuales sin comprometer una inversión mayor.',
+        body: 'Para incorporar funcionalidades puntuales, a medida que se vuelven necesarias.',
       },
       {
         icon: 'versions',
         title: 'Por versiones',
-        body: 'Para agrupar varias mejoras en una evolución más ambiciosa del producto.',
+        body: 'Para agrupar varias mejoras en una nueva evolución del producto.',
       },
     ] satisfies ScopePath[],
   },
@@ -368,7 +368,7 @@ export const proposal = {
           },
           {
             label: 'En tres pagos',
-            price: 'USD 7.500',
+            price: 'USD 6.900',
             terms: '40% al inicio · 30% en hito intermedio · 30% en la entrega',
           },
         ],
@@ -407,9 +407,9 @@ export const proposal = {
         },
         {
           label: 'En tres pagos',
-          price: 9300,
+          price: 8400,
           sitePrice: 2350,
-          platformPrice: 7500,
+          platformPrice: 6900,
           terms: '40% al inicio · 30% en hito intermedio · 30% en la entrega',
         },
       ] satisfies ComboOption[],
