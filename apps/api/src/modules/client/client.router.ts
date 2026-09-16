@@ -53,7 +53,7 @@ export async function clientRoutes(app: FastifyInstance): Promise<void> {
         tags: [TAG],
         summary: 'Estado de proyecto visible al cliente',
         description:
-          'Fase actual del deal activo dentro del pipeline "Producción" (si ya está ahí), roadmap completo de las 9 fases y novedades curadas por el equipo. No expone tareas internas.',
+          'Estado del proyecto del deal activo: estado derivado (preparación / en curso / completado), fase actual y próxima dentro del pipeline "Producción", roadmap completo de las 9 fases, fechas reales (arranque, entrada a la fase actual, entrega estimada) y novedades curadas por el equipo. No expone tareas internas ni datos administrativos.',
         security,
       },
     },

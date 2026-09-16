@@ -560,6 +560,27 @@ export function useClientNotifications() {
   })
 }
 
+/**
+ * Actividad completa para la vista `/actividad`.
+ *
+ * Query propia (no reusa `useClientNotifications`) porque necesita más
+ * profundidad: la campana y el Inicio muestran lo último, esta pantalla existe
+ * justamente para mirar más atrás. Cuelga del MISMO prefijo
+ * `['client','notifications']`, así que marcar leído desde la campana la
+ * invalida sin que haya que enumerarla en ningún lado.
+ *
+ * Corta en 50 y no sigue el cursor: sin filtros ni búsqueda, una lista
+ * infinita de eventos no le resuelve nada al cliente, y 50 cubre de sobra la
+ * vida de un proyecto en curso. Si algún día hace falta más, el endpoint ya es
+ * paginado por cursor.
+ */
+export function useClientActivity() {
+  return useQuery<ClientNotification[]>({
+    queryKey: [...NOTIFICATIONS_KEY, 'all'],
+    queryFn: () => apiGet<ClientNotification[]>('/api/client/notifications?limit=50'),
+  })
+}
+
 export function useClientUnreadCount() {
   return useQuery<{ count: number }>({
     queryKey: [...NOTIFICATIONS_KEY, 'unread'],
@@ -595,24 +616,48 @@ export function useMarkAllNotificationsRead() {
 // ─── Pendientes por sección ──────────────────────────────────────────────────
 
 export interface PortalPending {
-  /** Ítems que esperan acción del cliente, por sección. */
+  /**
+   * Ítems ABIERTOS en la sección — lo que alimenta el badge del sidebar.
+   * Para entregables incluye `changes_requested`, que sigue abierto aunque la
+   * pelota ya sea del equipo (ver `deliverablesAwaitingReview`).
+   */
   deliverables: Deliverable[]
   forms: ClientIntake[]
   requests: ChangeRequest[]
   invoices: ClientInvoice[]
+  /**
+   * Entregables que esperan una acción del CLIENTE: solo `pending_review`.
+   *
+   * Es un subconjunto de `deliverables` y existe porque las dos preguntas son
+   * distintas y las dos son legítimas: el badge del sidebar cuenta lo que
+   * sigue abierto en la sección, mientras que "Requiere tu atención" del
+   * Inicio solo puede listar lo que el cliente todavía tiene que hacer. Un
+   * entregable en `changes_requested` ya recibió su feedback: el que tiene que
+   * mover ficha es el equipo.
+   *
+   * Vive acá, y no adentro del Inicio, para que las dos definiciones se lean
+   * juntas y no vuelvan a divergir en silencio.
+   */
+  deliverablesAwaitingReview: Deliverable[]
   counts: { deliverables: number; forms: number; requests: number; invoices: number; total: number }
   isLoading: boolean
   isError: boolean
+  /**
+   * Reintenta las cuatro queries. Lo usa el estado de error del Inicio: un
+   * fallo de red no debería obligar al cliente a recargar la página entera y
+   * volver a pedir todo lo que ya había cargado bien.
+   */
+  refetch: () => void
 }
 
 /**
  * Qué está esperando una acción del cliente en cada sección.
  *
  * Devuelve las LISTAS además de los conteos: el sidebar solo necesita el
- * número para el badge, pero las tarjetas del panel de inicio miran el detalle
- * (la de facturas distingue vencida de emitida). Si el hook devolviera solo
- * números, el panel volvería a filtrar por su cuenta y los criterios podrían
- * divergir — que es justo lo que esto evita.
+ * número para el badge, pero el Inicio mira el detalle de cada ítem (título,
+ * monto, vencimiento) para armar tarjetas concretas. Si el hook devolviera
+ * solo números, el Inicio volvería a filtrar por su cuenta y los criterios
+ * podrían divergir — que es justo lo que esto evita.
  */
 export function usePortalPendingCounts(): PortalPending {
   const deliverables = useClientDeliverables()
@@ -639,6 +684,7 @@ export function usePortalPendingCounts(): PortalPending {
     forms: pendingForms,
     requests: pendingRequests,
     invoices: alertInvoices,
+    deliverablesAwaitingReview: pendingDeliverables.filter((d) => d.status === 'pending_review'),
     counts: {
       deliverables: pendingDeliverables.length,
       forms: pendingForms.length,
@@ -649,6 +695,12 @@ export function usePortalPendingCounts(): PortalPending {
     },
     isLoading: deliverables.isLoading || intakes.isLoading || crs.isLoading || invoices.isLoading,
     isError: deliverables.isError || intakes.isError || crs.isError || invoices.isError,
+    refetch: () => {
+      void deliverables.refetch()
+      void intakes.refetch()
+      void crs.refetch()
+      void invoices.refetch()
+    },
   }
 }
 

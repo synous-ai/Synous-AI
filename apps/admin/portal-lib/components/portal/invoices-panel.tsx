@@ -8,6 +8,8 @@ import { Receipt } from 'lucide-react'
 import { RowListSkeleton } from '@portal/components/ui/skeletons'
 import { formatCurrency } from '@portal/lib/utils'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
+import { useHashTarget, HASH_TARGET_CLASS, HASH_SCROLL_MARGIN } from '@portal/lib/use-hash-target'
+import { cn } from '@portal/lib/utils'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -97,6 +99,8 @@ function InvoiceRow({ invoice }: { invoice: ClientInvoice }) {
 export function InvoicesPanel() {
   const query = useClientInvoices()
   const invoices = query.data ?? []
+  // Ancla del Inicio: `/invoices#invoice-<id>` apunta a la factura concreta.
+  const targetId = useHashTarget(query.isSuccess)
 
   if (query.isLoading) {
     return <RowListSkeleton count={4} label="Cargando facturas…" />
@@ -126,9 +130,18 @@ export function InvoicesPanel() {
 
   return (
     <div className="space-y-2">
-      {invoices.map((inv) => (
-        <InvoiceRow key={inv.id} invoice={inv} />
-      ))}
+      {invoices.map((inv) => {
+        const anchorId = `invoice-${inv.id}`
+        return (
+          <div
+            key={inv.id}
+            id={anchorId}
+            className={cn('rounded-2xl', HASH_SCROLL_MARGIN, targetId === anchorId && HASH_TARGET_CLASS)}
+          >
+            <InvoiceRow invoice={inv} />
+          </div>
+        )
+      })}
     </div>
   )
 }

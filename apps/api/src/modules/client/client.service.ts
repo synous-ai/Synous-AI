@@ -230,11 +230,55 @@ export interface ClientProjectUpdateDTO {
   createdAt: Date
 }
 
+/**
+ * Estado del proyecto tal como lo entiende el cliente. Se DERIVA del pipeline
+ * y de los flags de la etapa — no hay ninguna columna "estado de proyecto":
+ *
+ * - `preparation`  el deal todavía no entró al pipeline "Producción".
+ * - `in_progress`  está en Producción, parado en una fase abierta.
+ * - `completed`    está en Producción y su fase actual tiene `is_closed`.
+ *
+ * Hoy NINGUNA de las 9 fases seedeadas de Producción es `is_closed` (ver
+ * db/seed.ts: la última, "Evolución", es acompañamiento continuo), así que
+ * `completed` no se dispara con los datos actuales. Se implementa igual
+ * porque el schema lo admite: si el equipo agrega una fase de cierre, el
+ * portal la representa sin tocar una línea de este archivo. Lo que NO se hace
+ * es inventar un criterio propio de "proyecto terminado".
+ */
+export type ClientProjectStatus = 'preparation' | 'in_progress' | 'completed'
+
 export interface ClientProjectDTO {
   deal: { id: string; name: string }
+  status: ClientProjectStatus
   inProduction: boolean
   currentPhase: { id: string; label: string; description: string | null } | null
+  /**
+   * Lo que viene después. En Producción es la fase siguiente por
+   * `display_order` (`null` en la última o si el proyecto terminó). Antes de
+   * Producción es la PRIMERA fase de ese pipeline: el próximo paso real.
+   */
+  nextPhase: { id: string; label: string; description: string | null } | null
   phases: ClientProjectPhaseDTO[] | null
+  /**
+   * Cuándo arrancó el proyecto = cuándo el deal entró al pipeline "Producción",
+   * leído de `record_history` (`field_name = 'pipelineId'`). `null` si no hay
+   * rastro: un deal movido a mano en la base, o migrado, no tiene ese registro
+   * y es preferible no mostrar fecha antes que mostrar `deal.created_at`, que
+   * es cuándo se creó el LEAD (meses antes del arranque real).
+   */
+  startedAt: Date | null
+  /** Desde cuándo está en la fase actual (`record_history`, `field_name = 'stageId'`). */
+  currentPhaseSince: Date | null
+  /**
+   * `deal.delivery_date` — la fecha de entrega comprometida del proyecto, un
+   * campo PROPIO y distinto de `close_date` (que es el cierre estimado de la
+   * VENTA). Se expone solo para deals ya en Producción y solo si el equipo la
+   * cargó; si está vacía, el portal no muestra ninguna estimación en vez de
+   * arriesgar una promesa que nadie hizo.
+   */
+  estimatedDelivery: string | null
+  /** Sellado solo cuando `status === 'completed'`: el momento en que entró a la fase de cierre. */
+  completedAt: Date | null
   updates: ClientProjectUpdateDTO[]
 }
 
@@ -244,6 +288,7 @@ interface ActiveClientDeal {
   name: string
   pipelineId: string
   stageId: string
+  deliveryDate: string | null
 }
 
 /**
@@ -254,7 +299,14 @@ interface ActiveClientDeal {
  */
 async function resolveActiveClientDeal(clientId: string): Promise<ActiveClientDeal> {
   const [row] = await db
-    .select({ id: deal.id, portalId: deal.portalId, name: deal.name, pipelineId: deal.pipelineId, stageId: deal.stageId })
+    .select({
+      id: deal.id,
+      portalId: deal.portalId,
+      name: deal.name,
+      pipelineId: deal.pipelineId,
+      stageId: deal.stageId,
+      deliveryDate: deal.deliveryDate,
+    })
     .from(clientDealAccess)
     .innerJoin(deal, eq(deal.id, clientDealAccess.dealId))
     .where(and(eq(clientDealAccess.clientId, clientId), eq(deal.archived, false)))
@@ -265,11 +317,20 @@ async function resolveActiveClientDeal(clientId: string): Promise<ActiveClientDe
 }
 
 /**
- * Estado de proyecto visible al cliente: fase actual dentro del pipeline
- * "Producción" (si el deal ya está ahí), roadmap completo de las 9 fases con
- * `isCurrent`/`isDone`, y las novedades curadas por el equipo (no archivadas).
+ * Estado de proyecto visible al cliente: estado derivado (`preparation` /
+ * `in_progress` / `completed`), fase actual y próxima dentro del pipeline
+ * "Producción", roadmap completo con `isCurrent`/`isDone`, las fechas reales
+ * del proyecto (arranque y entrada a la fase actual, leídas de
+ * `record_history`; entrega estimada desde `deal.close_date`) y las novedades
+ * curadas por el equipo (no archivadas).
+ *
  * Las novedades se devuelven SIEMPRE (aunque el deal todavía esté en Ventas);
- * `currentPhase`/`phases` solo se resuelven si `inProduction` es true.
+ * todo lo relativo a fases y fechas solo se resuelve si `inProduction` es
+ * true. NADA acá se inventa: si un dato no existe en la base viaja como
+ * `null` y el portal simplemente no lo muestra.
+ *
+ * Queries: pipeline (1) + stages (1) + record_history (1) + updates (1). Las
+ * tres últimas son por deal, no por fila — no hay N+1.
  */
 export async function getClientProject(clientId: string): Promise<ClientProjectDTO> {
   const activeDeal = await resolveActiveClientDeal(clientId)
@@ -278,7 +339,12 @@ export async function getClientProject(clientId: string): Promise<ClientProjectD
   const inProduction = pl?.label === PRODUCTION_PIPELINE_LABEL
 
   let currentPhase: ClientProjectDTO['currentPhase'] = null
+  let nextPhase: ClientProjectDTO['nextPhase'] = null
   let phases: ClientProjectPhaseDTO[] | null = null
+  let status: ClientProjectStatus = 'preparation'
+  let startedAt: Date | null = null
+  let currentPhaseSince: Date | null = null
+  let completedAt: Date | null = null
 
   if (inProduction) {
     const stages = await db
@@ -287,12 +353,14 @@ export async function getClientProject(clientId: string): Promise<ClientProjectD
         label: pipelineStage.label,
         description: pipelineStage.description,
         displayOrder: pipelineStage.displayOrder,
+        isClosed: pipelineStage.isClosed,
       })
       .from(pipelineStage)
       .where(and(eq(pipelineStage.pipelineId, activeDeal.pipelineId), eq(pipelineStage.archived, false)))
       .orderBy(asc(pipelineStage.displayOrder))
 
-    const current = stages.find((s) => s.id === activeDeal.stageId)
+    const currentIndex = stages.findIndex((s) => s.id === activeDeal.stageId)
+    const current = currentIndex >= 0 ? stages[currentIndex] : undefined
     const currentDisplayOrder = current?.displayOrder ?? -1
 
     phases = stages.map((s) => ({
@@ -306,6 +374,68 @@ export async function getClientProject(clientId: string): Promise<ClientProjectD
 
     if (current) {
       currentPhase = { id: current.id, label: current.label, description: current.description }
+      status = current.isClosed ? 'completed' : 'in_progress'
+      const next = stages[currentIndex + 1]
+      // En una fase de cierre no hay "próximo hito": el proyecto terminó.
+      if (next && !current.isClosed) {
+        nextPhase = { id: next.id, label: next.label, description: next.description }
+      }
+    }
+
+    // Fechas reales del proyecto, leídas del historial de cambios del deal.
+    // Una sola query para los dos datos: la traza de `pipelineId` (arranque) y
+    // la de `stageId` (fase actual) están en la misma tabla, y el índice
+    // `idx_record_history_entity` cubre (entity_type, entity_id, field_name).
+    const historyRows = await db
+      .select({
+        fieldName: recordHistory.fieldName,
+        newValue: recordHistory.newValue,
+        changedAt: recordHistory.changedAt,
+      })
+      .from(recordHistory)
+      .where(
+        and(
+          eq(recordHistory.portalId, activeDeal.portalId),
+          eq(recordHistory.entityType, 'deal'),
+          eq(recordHistory.entityId, activeDeal.id),
+          inArray(recordHistory.fieldName, ['pipelineId', 'stageId']),
+        ),
+      )
+      .orderBy(asc(recordHistory.changedAt))
+
+    // Arranque: la PRIMERA vez que el deal entró a este pipeline. Se toma la
+    // primera y no la última a propósito — si el equipo lo sacó y lo volvió a
+    // meter, el proyecto arrancó igual la primera vez.
+    startedAt =
+      historyRows.find((h) => h.fieldName === 'pipelineId' && h.newValue === activeDeal.pipelineId)?.changedAt ?? null
+
+    // Fase actual: la ÚLTIMA entrada a la etapa en la que está parado ahora.
+    for (const h of historyRows) {
+      if (h.fieldName === 'stageId' && h.newValue === activeDeal.stageId) currentPhaseSince = h.changedAt
+    }
+
+    if (status === 'completed') completedAt = currentPhaseSince
+  } else {
+    // Todavía en Ventas: el "próximo paso" es la PRIMERA fase del pipeline de
+    // Producción de este portal. Es un dato real (la fase que efectivamente
+    // sigue, con su descripción cliente-facing), no un texto inventado — y si
+    // el portal no tiene pipeline de Producción, queda en null y no se muestra.
+    const [productionPipeline] = await db
+      .select({ id: pipeline.id })
+      .from(pipeline)
+      .where(and(eq(pipeline.portalId, activeDeal.portalId), eq(pipeline.label, PRODUCTION_PIPELINE_LABEL)))
+      .limit(1)
+
+    if (productionPipeline) {
+      const [firstStage] = await db
+        .select({ id: pipelineStage.id, label: pipelineStage.label, description: pipelineStage.description })
+        .from(pipelineStage)
+        .where(and(eq(pipelineStage.pipelineId, productionPipeline.id), eq(pipelineStage.archived, false)))
+        .orderBy(asc(pipelineStage.displayOrder))
+        .limit(1)
+      if (firstStage) {
+        nextPhase = { id: firstStage.id, label: firstStage.label, description: firstStage.description }
+      }
     }
   }
 
@@ -326,9 +456,18 @@ export async function getClientProject(clientId: string): Promise<ClientProjectD
 
   return {
     deal: { id: activeDeal.id, name: activeDeal.name },
+    status,
     inProduction,
     currentPhase,
+    nextPhase,
     phases,
+    startedAt,
+    currentPhaseSince,
+    // Solo en Producción: una fecha de entrega cargada durante la venta, con
+    // el proyecto todavía sin arrancar, no es un compromiso que el cliente
+    // deba leer en su portal.
+    estimatedDelivery: inProduction ? activeDeal.deliveryDate : null,
+    completedAt,
     updates,
   }
 }

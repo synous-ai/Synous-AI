@@ -41,6 +41,7 @@ const Schema = z.object({
   companyId: z.string().optional(),
   primaryContactId: z.string().optional(),
   closeDate: z.string().optional(),
+  deliveryDate: z.string().optional(),
 })
 type FormValues = z.infer<typeof Schema>
 
@@ -87,6 +88,7 @@ export function DealDialog({
         companyId: deal?.companyId ? String(deal.companyId) : '',
         primaryContactId: deal?.primaryContactId ? String(deal.primaryContactId) : '',
         closeDate: deal?.closeDate ?? '',
+        deliveryDate: deal?.deliveryDate ?? '',
       })
       setError(null)
     }
@@ -102,6 +104,7 @@ export function DealDialog({
             name: values.name,
             amount: toNum(values.amount),
             closeDate: values.closeDate || undefined,
+            deliveryDate: values.deliveryDate || undefined,
             companyId: values.companyId || undefined,
             primaryContactId: values.primaryContactId || undefined,
           },
@@ -119,6 +122,7 @@ export function DealDialog({
           companyId: values.companyId || undefined,
           primaryContactId: values.primaryContactId || undefined,
           closeDate: values.closeDate || undefined,
+          deliveryDate: values.deliveryDate || undefined,
         })
       }
       onClose()
@@ -195,6 +199,36 @@ export function DealDialog({
                 )}
               />
             </div>
+
+            {/*
+              Entrega estimada — campo aparte de "Fecha de Cierre" a propósito:
+              una es cuándo esperamos FIRMAR y la otra cuándo esperamos
+              ENTREGAR. Es la ÚNICA fecha del deal que el cliente ve en su
+              portal (y solo una vez que el deal está en Producción), así que
+              el aviso de abajo no es decorativo: lo que se cargue acá se lee
+              del otro lado como un compromiso.
+            */}
+            <FormField
+              control={control}
+              name="deliveryDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Entrega estimada</FormLabel>
+                  <FormControl>
+                    <DateField
+                      value={field.value || undefined}
+                      onChange={(iso) => field.onChange(iso ?? '')}
+                      placeholder="Sin fecha comprometida"
+                    />
+                  </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    El cliente ve esta fecha en su portal cuando el proyecto está en Producción. Si la dejás
+                    vacía, no se le muestra ninguna estimación.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             {!isEdit && pipeline && (
               <FormField
