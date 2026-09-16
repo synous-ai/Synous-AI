@@ -273,11 +273,31 @@ export interface ClientProjectUpdate {
   createdAt: string
 }
 
+/**
+ * Estado del proyecto, DERIVADO en el backend del pipeline y de los flags de
+ * la etapa (no hay columna "estado de proyecto"). Ver `ClientProjectStatus` en
+ * apps/api/src/modules/client/client.service.ts.
+ *
+ * `completed` no se dispara con las 9 fases seedeadas hoy (ninguna es
+ * `is_closed`): existe para cuando el equipo agregue una fase de cierre.
+ */
+export type ClientProjectStatus = 'preparation' | 'in_progress' | 'completed'
+
 export interface ClientProject {
   deal: { id: string; name: string }
+  status: ClientProjectStatus
   inProduction: boolean
   currentPhase: { id: string; label: string; description: string | null } | null
+  /** La fase que sigue por `displayOrder`. `null` en la última o si el proyecto terminó. */
+  nextPhase: { id: string; label: string; description: string | null } | null
   phases: ClientProjectPhase[] | null
+  /** Entrada al pipeline "Producción" (`record_history`). `null` si no hay rastro. */
+  startedAt: string | null
+  /** Entrada a la fase actual (`record_history`). `null` si no hay rastro. */
+  currentPhaseSince: string | null
+  /** `deal.close_date`, solo para deals ya en Producción. `null` si el equipo no lo cargó. */
+  estimatedDelivery: string | null
+  completedAt: string | null
   updates: ClientProjectUpdate[]
 }
 

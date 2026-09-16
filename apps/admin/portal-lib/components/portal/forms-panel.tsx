@@ -12,6 +12,8 @@ import { Label } from '@portal/components/ui/label'
 import { CheckCircle2, ClipboardList, Loader2 } from 'lucide-react'
 import { CardListSkeleton } from '@portal/components/ui/skeletons'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
+import { useHashTarget, HASH_TARGET_CLASS, HASH_SCROLL_MARGIN } from '@portal/lib/use-hash-target'
+import { cn } from '@portal/lib/utils'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -136,11 +138,35 @@ export function IntakeFormCard({ intake }: { intake: ClientIntake }) {
   )
 }
 
+/** Envoltorio de ancla — ver la nota gemela en `deliverables-panel.tsx`. */
+function IntakeTarget({
+  id,
+  targetId,
+  children,
+}: {
+  id: string
+  targetId: string | null
+  children: React.ReactNode
+}) {
+  const anchorId = `form-${id}`
+  return (
+    <div
+      id={anchorId}
+      className={cn('rounded-2xl', HASH_SCROLL_MARGIN, targetId === anchorId && HASH_TARGET_CLASS)}
+    >
+      {children}
+    </div>
+  )
+}
+
 // ─── Panel ────────────────────────────────────────────────────────────────────
 
 export function FormsPanel() {
   const query = useClientIntakes()
   const intakes = query.data ?? []
+  // Ancla del Inicio: `/forms#form-<id>` abre la sección sobre el formulario
+  // concreto que hay que completar.
+  const targetId = useHashTarget(query.isSuccess)
 
   if (query.isLoading) {
     return <CardListSkeleton count={3} cardClassName="h-36" label="Cargando formularios…" />
@@ -180,7 +206,9 @@ export function FormsPanel() {
           </h3>
           <div className="space-y-3">
             {pending.map((intake) => (
-              <IntakeFormCard key={intake.id} intake={intake} />
+              <IntakeTarget key={intake.id} id={intake.id} targetId={targetId}>
+                <IntakeFormCard intake={intake} />
+              </IntakeTarget>
             ))}
           </div>
         </section>
@@ -192,7 +220,9 @@ export function FormsPanel() {
           </h3>
           <div className="space-y-3">
             {completed.map((intake) => (
-              <IntakeFormCard key={intake.id} intake={intake} />
+              <IntakeTarget key={intake.id} id={intake.id} targetId={targetId}>
+                <IntakeFormCard intake={intake} />
+              </IntakeTarget>
             ))}
           </div>
         </section>

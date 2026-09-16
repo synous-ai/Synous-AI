@@ -26,6 +26,7 @@ export interface NewDealInput {
   companyId?: string
   primaryContactId?: string
   closeDate?: string
+  deliveryDate?: string
 }
 
 export function useCreateDeal() {
@@ -40,6 +41,7 @@ export interface UpdateDealInput {
   name?: string
   amount?: number
   closeDate?: string
+  deliveryDate?: string
   companyId?: string
   primaryContactId?: string
 }

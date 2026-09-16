@@ -16,3 +16,27 @@ export function timeAgo(iso: string): string {
   if (d < 7) return `hace ${d} d`
   return new Date(iso).toLocaleDateString('es')
 }
+
+/**
+ * Sello de tiempo de la línea de actividad: "Hoy · 18:32", "Ayer · 14:21",
+ * "12 sep · 10:04".
+ *
+ * A diferencia de `timeAgo`, acá la hora SIEMPRE está presente. En un feed de
+ * eventos el orden dentro del día importa ("la factura se emitió antes o
+ * después de que aprobara el entregable"), y "hace 5 h" no deja reconstruirlo.
+ * El día se nombra en relativo solo para hoy y ayer, que es hasta donde ese
+ * atajo se lee sin ambigüedad.
+ */
+export function dayAndTime(iso: string): string {
+  const date = new Date(iso)
+  const time = date.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86_400_000)
+
+  if (days === 0) return `Hoy · ${time}`
+  if (days === 1) return `Ayer · ${time}`
+
+  const day = date.toLocaleDateString('es', { day: 'numeric', month: 'short' })
+  return `${day} · ${time}`
+}

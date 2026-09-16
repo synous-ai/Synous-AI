@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import { CardListSkeleton } from '@portal/components/ui/skeletons'
 import { EmptyIllustration } from '@portal/components/ui/empty-illustration'
+import { useHashTarget, HASH_TARGET_CLASS, HASH_SCROLL_MARGIN } from '@portal/lib/use-hash-target'
+import { cn } from '@portal/lib/utils'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -179,11 +181,39 @@ export function DeliverableCard({ deliverable }: { deliverable: Deliverable }) {
   )
 }
 
+/**
+ * Envoltorio de ancla. Va acá y no adentro de `DeliverableCard` para que la
+ * card siga siendo puramente una card: quién es el destino de un link lo sabe
+ * el listado, no el ítem.
+ */
+function DeliverableTarget({
+  id,
+  targetId,
+  children,
+}: {
+  id: string
+  targetId: string | null
+  children: React.ReactNode
+}) {
+  const anchorId = `deliverable-${id}`
+  return (
+    <div
+      id={anchorId}
+      className={cn('rounded-2xl', HASH_SCROLL_MARGIN, targetId === anchorId && HASH_TARGET_CLASS)}
+    >
+      {children}
+    </div>
+  )
+}
+
 // ─── Panel ────────────────────────────────────────────────────────────────────
 
 export function DeliverablesPanel() {
   const query = useClientDeliverables()
   const deliverables = query.data ?? []
+  // Ancla del Inicio: `/deliverables#deliverable-<id>` lleva al entregable
+  // concreto en vez de dejar al cliente buscándolo en la lista.
+  const targetId = useHashTarget(query.isSuccess)
 
   if (query.isLoading) {
     return <CardListSkeleton count={3} label="Cargando entregables…" />
@@ -225,7 +255,9 @@ export function DeliverablesPanel() {
           </h3>
           <div className="space-y-3">
             {actionable.map((d) => (
-              <DeliverableCard key={d.id} deliverable={d} />
+              <DeliverableTarget key={d.id} id={d.id} targetId={targetId}>
+                <DeliverableCard deliverable={d} />
+              </DeliverableTarget>
             ))}
           </div>
         </section>
@@ -237,7 +269,9 @@ export function DeliverablesPanel() {
           </h3>
           <div className="space-y-3">
             {approved.map((d) => (
-              <DeliverableCard key={d.id} deliverable={d} />
+              <DeliverableTarget key={d.id} id={d.id} targetId={targetId}>
+                <DeliverableCard deliverable={d} />
+              </DeliverableTarget>
             ))}
           </div>
         </section>

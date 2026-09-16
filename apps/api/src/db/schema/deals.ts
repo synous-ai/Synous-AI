@@ -19,6 +19,18 @@ export const deal = pgTable('deal', {
   amount: numeric('amount', { precision: 12, scale: 2 }),
   currency: char('currency', { length: 3 }).notNull().default('USD'),
   closeDate: date('close_date'),
+  /**
+   * Fecha de entrega comprometida del PROYECTO. Distinta de `close_date`, que
+   * es la fecha estimada de cierre de la VENTA: una es cuándo esperamos firmar,
+   * la otra cuándo esperamos entregar, y confundirlas le muestra al cliente una
+   * promesa que nadie hizo.
+   *
+   * Es la única fecha del deal que el Client Portal expone ("Entrega
+   * estimada", ver `getClientProject`), y solo cuando el deal ya está en el
+   * pipeline "Producción". Nullable a propósito: si el equipo no la cargó, el
+   * portal no muestra ninguna estimación.
+   */
+  deliveryDate: date('delivery_date'),
   custom: jsonb('custom').notNull().default({}),
   archived: boolean('archived').notNull().default(false),
   archivedAt: timestamp('archived_at', { withTimezone: true }),

@@ -3,7 +3,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { buildApp } from '../../app'
 import { db, closeDb } from '../../db'
-import { contact, deal, clientAccount, clientDealAccess } from '../../db/schema'
+import { contact, deal, clientAccount, clientDealAccess, pipelineStage, recordHistory } from '../../db/schema'
 import {
   ensurePortalAndUser,
   ensurePipeline,
@@ -88,6 +88,24 @@ describe('GET /api/client/project — deal todavía en Ventas', () => {
     expect(res.body.data.updates).toEqual([])
   })
 
+  it('el estado derivado es "preparation" y no expone ninguna fecha de proyecto', async () => {
+    const res = await request(app.server).get('/api/client/project').set(clientAuth())
+    expect(res.body.data.status).toBe('preparation')
+    // El próximo paso es la primera fase REAL del pipeline de Producción del
+    // portal, no un texto fijo: si el pipeline cambia de primera fase, cambia.
+    expect(res.body.data.nextPhase.label).toBe('Diagnóstico')
+    expect(res.body.data.nextPhase.description).toBe(stageByLabel('Diagnóstico').description)
+    expect(res.body.data.startedAt).toBeNull()
+    expect(res.body.data.currentPhaseSince).toBeNull()
+    expect(res.body.data.completedAt).toBeNull()
+  })
+
+  it('NO expone la entrega estimada fuera de Producción: todavía no hay proyecto que entregar', async () => {
+    await db.update(deal).set({ deliveryDate: '2026-11-30' }).where(eq(deal.id, dealId))
+    const res = await request(app.server).get('/api/client/project').set(clientAuth())
+    expect(res.body.data.estimatedDelivery).toBeNull()
+  })
+
   it('sin token de cliente devuelve 401', async () => {
     const res = await request(app.server).get('/api/client/project')
     expect(res.status).toBe(401)
@@ -131,6 +149,84 @@ describe('GET /api/client/project — deal movido a Producción / Diagnóstico',
       else expect(p.isDone).toBe(false)
     }
     expect(phases.find((p) => p.label === 'Construcción')!.isCurrent).toBe(true)
+  })
+
+  it('status es "in_progress" y nextPhase es la fase siguiente por displayOrder', async () => {
+    const res = await request(app.server).get('/api/client/project').set(clientAuth())
+    expect(res.body.data.status).toBe('in_progress')
+    // El deal quedó en Construcción por el test anterior; la que sigue es Verificación.
+    expect(res.body.data.currentPhase.label).toBe('Construcción')
+    expect(res.body.data.nextPhase.label).toBe('Verificación')
+    expect(res.body.data.nextPhase.description).toBe(stageByLabel('Verificación').description)
+  })
+
+  it('ya en Producción SÍ expone delivery_date como entrega estimada', async () => {
+    const res = await request(app.server).get('/api/client/project').set(clientAuth())
+    expect(res.body.data.estimatedDelivery).toBe('2026-11-30')
+  })
+
+  it('close_date NUNCA se filtra como entrega: son dos fechas distintas', async () => {
+    // Cierre de la VENTA cargado, entrega del PROYECTO vacía: el portal no
+    // debe mostrar ninguna estimación. Es la regresión que justifica que
+    // `delivery_date` exista como columna propia.
+    await db.update(deal).set({ closeDate: '2026-02-01', deliveryDate: null }).where(eq(deal.id, dealId))
+    const res = await request(app.server).get('/api/client/project').set(clientAuth())
+    expect(res.body.data.estimatedDelivery).toBeNull()
+
+    await db.update(deal).set({ deliveryDate: '2026-11-30' }).where(eq(deal.id, dealId))
+  })
+
+  it('sin filas en record_history las fechas viajan null en vez de inventar deal.createdAt', async () => {
+    // Los tests de arriba mueven el deal con UPDATE directo, sin pasar por
+    // changeStage: no hay historial, y ese es justamente el caso a cubrir.
+    const res = await request(app.server).get('/api/client/project').set(clientAuth())
+    expect(res.body.data.startedAt).toBeNull()
+    expect(res.body.data.currentPhaseSince).toBeNull()
+  })
+
+  it('startedAt sale de la PRIMERA entrada al pipeline y currentPhaseSince de la ÚLTIMA entrada a la fase actual', async () => {
+    const construccion = stageByLabel('Construcción')
+    const first = new Date('2026-01-10T10:00:00Z')
+    const reentry = new Date('2026-03-01T10:00:00Z')
+    const stageEntry = new Date('2026-05-20T15:30:00Z')
+    const staleStageEntry = new Date('2026-04-01T09:00:00Z')
+
+    await db.insert(recordHistory).values([
+      // Entrada al pipeline de Producción (la que define el arranque)…
+      { portalId, entityType: 'deal', entityId: dealId, fieldName: 'pipelineId', oldValue: ventas.pipelineId, newValue: production.pipelineId, changedAt: first },
+      // …y una re-entrada posterior, que NO debe pisar el arranque real.
+      { portalId, entityType: 'deal', entityId: dealId, fieldName: 'pipelineId', oldValue: ventas.pipelineId, newValue: production.pipelineId, changedAt: reentry },
+      // Dos entradas a la MISMA fase: vale la más reciente.
+      { portalId, entityType: 'deal', entityId: dealId, fieldName: 'stageId', oldValue: null, newValue: construccion.id, changedAt: staleStageEntry },
+      { portalId, entityType: 'deal', entityId: dealId, fieldName: 'stageId', oldValue: null, newValue: construccion.id, changedAt: stageEntry },
+      // Ruido que no debe confundir: entrada a OTRA fase, posterior a todo.
+      { portalId, entityType: 'deal', entityId: dealId, fieldName: 'stageId', oldValue: null, newValue: stageByLabel('Ajustes').id, changedAt: new Date('2026-06-01T00:00:00Z') },
+    ])
+
+    const res = await request(app.server).get('/api/client/project').set(clientAuth())
+    expect(new Date(res.body.data.startedAt).toISOString()).toBe(first.toISOString())
+    expect(new Date(res.body.data.currentPhaseSince).toISOString()).toBe(stageEntry.toISOString())
+  })
+
+  it('una fase con is_closed marca el proyecto como completado, sin próximo hito', async () => {
+    const evolucion = stageByLabel('Evolución')
+    await db.update(deal).set({ stageId: evolucion.id }).where(eq(deal.id, dealId))
+    const closedAt = new Date('2026-07-15T12:00:00Z')
+    await db.insert(recordHistory).values({
+      portalId, entityType: 'deal', entityId: dealId, fieldName: 'stageId', oldValue: null, newValue: evolucion.id, changedAt: closedAt,
+    })
+    // El pipeline de test se comparte entre archivos: se marca y se revierte
+    // dentro del mismo test para no filtrar el flag a otras suites.
+    await db.update(pipelineStage).set({ isClosed: true }).where(eq(pipelineStage.id, evolucion.id))
+    try {
+      const res = await request(app.server).get('/api/client/project').set(clientAuth())
+      expect(res.body.data.status).toBe('completed')
+      expect(res.body.data.nextPhase).toBeNull()
+      expect(new Date(res.body.data.completedAt).toISOString()).toBe(closedAt.toISOString())
+    } finally {
+      await db.update(pipelineStage).set({ isClosed: false }).where(eq(pipelineStage.id, evolucion.id))
+      await db.update(deal).set({ stageId: stageByLabel('Construcción').id }).where(eq(deal.id, dealId))
+    }
   })
 })
 

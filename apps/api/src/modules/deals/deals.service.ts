@@ -231,6 +231,7 @@ const DEAL_FIELDS: FieldMap = {
   companyId: { column: deal.companyId, kind: 'text' },
   ownerId: { column: deal.ownerId, kind: 'text' },
   closeDate: { column: deal.closeDate, kind: 'date' },
+  deliveryDate: { column: deal.deliveryDate, kind: 'date' },
   createdAt: { column: deal.createdAt, kind: 'date' },
 }
 

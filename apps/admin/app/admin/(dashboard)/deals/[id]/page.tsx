@@ -76,7 +76,7 @@ import { PillTabs } from '@/components/ui/pill-tabs'
 import { DetailViewSkeleton, ListSkeleton } from '@/components/ui/skeletons'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent } from '@/components/ui/empty'
 import { EmptyIllustration } from '@/components/ui/empty-illustration'
-import { StickyNote, ListTodo, Users, PackageCheck, GitPullRequest, History, FolderOpen, Download, Megaphone, Archive, EyeOff } from 'lucide-react'
+import { StickyNote, ListTodo, Users, PackageCheck, GitPullRequest, History, FolderOpen, Download, Megaphone, Archive, EyeOff, CalendarCheck } from 'lucide-react'
 
 type DetailTab =
   | 'activity'
@@ -682,6 +682,16 @@ export default function DealDetailPage(): React.JSX.Element {
                     icon={Clock}
                     label="Fecha de cierre"
                     value={new Date(d.closeDate).toLocaleDateString('es')}
+                  />
+                )}
+                {/* La entrega estimada es la única fecha del deal que el
+                    cliente ve en su portal — se muestra acá aparte del cierre
+                    de venta para que quede claro cuál es cuál. */}
+                {d.deliveryDate && (
+                  <Field
+                    icon={CalendarCheck}
+                    label="Entrega estimada"
+                    value={new Date(d.deliveryDate).toLocaleDateString('es')}
                   />
                 )}
               </div>

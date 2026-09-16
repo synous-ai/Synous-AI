@@ -119,7 +119,7 @@ export async function dealsRoutes(app: FastifyInstance): Promise<void> {
         tags: [TAG],
         summary: 'Búsqueda avanzada de deals',
         description:
-          'Filtra deals con un filterBranch sobre campos permitidos (name, amount, currency, pipelineId, stageId, companyId, ownerId, closeDate, createdAt).',
+          'Filtra deals con un filterBranch sobre campos permitidos (name, amount, currency, pipelineId, stageId, companyId, ownerId, closeDate, deliveryDate, createdAt).',
         security,
         body: SearchBodySchema,
       },

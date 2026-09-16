@@ -22,6 +22,7 @@ export const HISTORY_FIELD_LABELS: Record<string, string> = {
   priority: 'Prioridad',
   dueDate: 'Vencimiento',
   closeDate: 'Fecha de cierre',
+  deliveryDate: 'Entrega estimada',
   companyId: 'Empresa',
   primaryContactId: 'Contacto principal',
   ownerId: 'Responsable',
@@ -116,6 +117,7 @@ export function formatHistoryValue(
 
     case 'dueDate':
     case 'closeDate':
+    case 'deliveryDate':
     case 'startsAt':
     case 'endsAt':
     case 'archivedAt': {

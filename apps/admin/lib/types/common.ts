@@ -69,6 +69,8 @@ export interface DashboardDeal {
   primaryContactId: string | null
   companyId: string | null
   closeDate: string | null
+  /** Entrega comprometida del proyecto. Es la ÚNICA fecha del deal que ve el cliente en su portal. */
+  deliveryDate: string | null
   ownerId: string | null
   createdAt: string
 }

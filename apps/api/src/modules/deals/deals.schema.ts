@@ -4,7 +4,8 @@ export const CreateDealSchema = z.object({
   name: z.string().min(1),
   amount: z.number().nonnegative().optional(),
   currency: z.string().length(3).optional(),
-  closeDate: z.string().date().optional(), // YYYY-MM-DD
+  closeDate: z.string().date().optional(), // YYYY-MM-DD — cierre de la VENTA
+  deliveryDate: z.string().date().optional(), // YYYY-MM-DD — entrega del PROYECTO (la ve el cliente)
   pipelineId: z.string().min(1),
   stageId: z.string().min(1),
   primaryContactId: z.string().min(1).optional(),
@@ -21,6 +22,7 @@ export const UpdateDealSchema = z
     amount: z.number().nonnegative(),
     currency: z.string().length(3),
     closeDate: z.string().date(),
+    deliveryDate: z.string().date(),
     primaryContactId: z.string().min(1),
     companyId: z.string().min(1),
     ownerId: z.string().min(1),
