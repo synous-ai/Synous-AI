@@ -30,21 +30,29 @@ function Minus() {
   )
 }
 
-function PathIcon({ variant }: { variant: 'modules' | 'versions' }) {
+function PathIcon({ variant }: { variant: 'modules' | 'versions' | 'mobile' }) {
   return (
     <span className="path-card-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        {variant === 'modules' ? (
+        {variant === 'modules' && (
           <>
             <rect x="3" y="3" width="7" height="7" rx="1.5" />
             <rect x="14" y="3" width="7" height="7" rx="1.5" />
             <rect x="3" y="14" width="7" height="7" rx="1.5" />
             <path d="M17.5 14v7M14 17.5h7" />
           </>
-        ) : (
+        )}
+        {variant === 'versions' && (
           <>
             <path d="M7 7h10M7 12h7M7 17h4" />
             <path d="m16 15 3 3-3 3" />
+          </>
+        )}
+        {variant === 'mobile' && (
+          <>
+            <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+            <path d="M10.5 5.5h3" />
+            <path d="M11 18.5h2" />
           </>
         )}
       </svg>
