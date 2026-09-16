@@ -1158,21 +1158,6 @@
   right: var(--arch-inset);
 }
 
-/* El número de paso, grande y al fondo: ordena la lectura sin competir. */
-.arch-flow-step {
-  position: absolute;
-  top: 18px;
-  right: 24px;
-  font-family: var(--font-proposal-mono), ui-monospace, monospace;
-  font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
-  font-size: 40px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -2px;
-  color: color-mix(in srgb, var(--accent) 12%, transparent);
-  user-select: none;
-}
-
 .arch-flow-label {
   font-family: var(--font-proposal-mono), ui-monospace, monospace;
   font-feature-settings: 'tnum' 1, 'ss02' 1, 'cv02' 1;
@@ -1271,11 +1256,6 @@
     left: auto;
     right: auto;
     width: 100%;
-  }
-
-  /* Apiladas, el número de paso es lo que marca el orden. */
-  .arch-flow-step {
-    font-size: 34px;
   }
 }
 

@@ -1,5 +1,5 @@
 import { ImageResponse } from 'next/og'
-import { proposalIdentity } from '../proposal-metadata'
+import { proposal as template } from '@/app/portal/propuesta/proposal-content'
 
 export const dynamic = 'force-dynamic'
 
@@ -7,13 +7,16 @@ export const dynamic = 'force-dynamic'
  * Imagen de la vista previa del link (1200×630), con el nombre del cliente.
  *
  * Todo es texto y degradé, sin archivos: así no depende de dónde quede
- * `public/` en el deploy. Sin propuesta visible (token inválido o borrador)
- * sale la versión genérica, sin revelar nada.
+ * `public/` en el deploy.
+ *
+ * NO consulta la API: el endpoint público marca la propuesta como vista y
+ * avisa a los admins la primera vez, y esta imagen la piden los bots de
+ * WhatsApp, Slack y compañía apenas se pega el link, antes de que el cliente
+ * lo abra. Nombre y fecha salen de la plantilla, que es pública igual.
  */
-export async function GET(_request: Request, { params }: { params: { token: string } }) {
-  const identity = await proposalIdentity(params.token)
-  const client = identity?.client
-  const date = identity?.date
+export function GET() {
+  const client: string | undefined = template.envelope.recipient
+  const date: string | undefined = template.envelope.dateLabel
 
   return new ImageResponse(
     (

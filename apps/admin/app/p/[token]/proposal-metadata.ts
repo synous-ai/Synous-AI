@@ -28,11 +28,15 @@ export const fetchPublicProposal = cache(async (token: string): Promise<PublicPr
 })
 
 /**
- * Origen del request (`https://synousai.com`, `http://localhost:3002`). Las
- * vistas previas de WhatsApp y compañía necesitan URLs absolutas, y la misma
- * propuesta se sirve desde más de un host.
+ * Base de las URLs absolutas de la vista previa (WhatsApp y compañía no
+ * aceptan relativas). Manda el dominio raíz configurado, igual que el
+ * middleware; los headers del request quedan sólo para local, donde no hay
+ * dominio raíz.
  */
 function requestOrigin(): URL | undefined {
+  const root = process.env['NEXT_PUBLIC_ROOT_DOMAIN']
+  if (root) return new URL(`https://${root.toLowerCase()}`)
+
   const h = headers()
   const host = h.get('x-forwarded-host') ?? h.get('host')
   if (!host) return undefined
