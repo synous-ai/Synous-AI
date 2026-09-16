@@ -18,7 +18,13 @@ export type Phase = { label: string; title: string; description: string }
 
 export type TeamMember = { name: string; title: string; description: string }
 
-export type ScopePhase = { label: string; title: string; body: string }
+export type ScopePhase = {
+  label: string
+  title: string
+  body: string
+  /** Aclaración corta al pie de la tarjeta: qué cambia según lo que se contrate. */
+  note?: string
+}
 
 export type ScopePath = { icon: 'modules' | 'versions'; title: string; body: string }
 
@@ -43,13 +49,37 @@ export type CaseStudy = { name: string; kind: string; description: string; prove
 
 export type PricingOption = { label: string; price: string; terms: string }
 
+/**
+ * Una forma de pago del combo, con su propia comparación: el precio por
+ * separado cambia según cómo se pague, así que el ahorro también.
+ *
+ * Los montos van como números y ni el total por separado ni el ahorro se
+ * escriben: se calculan al renderizar (`sitePrice + platformPrice - price`). Tipearlo a mano fue lo que dejó un
+ * "Ahorro USD 850" sobre una opción que ahorraba 550.
+ */
+export type ComboOption = {
+  label: string
+  /** Precio del combo con esta forma de pago, en USD. */
+  price: number
+  /** Precio del sitio contratado solo, en USD. */
+  sitePrice: number
+  /** Precio de la plataforma contratada sola con esta misma forma de pago, en USD. */
+  platformPrice: number
+  terms: string
+}
+
 export type InvestmentPhase = {
   name: string
   price?: string
   includes: string[]
+  /** Aclaración corta bajo los incluidos: qué cambia según lo que se contrate. */
+  note?: string
   payment?: string
   options?: PricingOption[]
 }
+
+/** Un bloque rotulado de la letra chica: "Revisiones.", "Moneda y pagos.". */
+export type LabeledNote = { label: string; text: string }
 
 export type FaqEntry = { question: string; answer: string }
 
@@ -72,11 +102,18 @@ export const proposal = {
     validity: '30 días',
   },
 
+  /** El sobre (`/p/<token>`): la primera pantalla del link, antes de la propuesta. */
+  envelope: {
+    recipient: 'UIRTUS',
+    dateLabel: 'SEPTIEMBRE 2026',
+    statement: 'Proyecto a medida para UIRTUS.',
+  },
+
   hero: {
     eyebrow: 'PROPUESTA · SEPTIEMBRE 2026',
     headline: 'Una infraestructura digital a la altura de la consultora',
     headlineHighlight: 'UIRTUS',
-    lede: 'UIRTUS ya no es solamente un estudio contable. Hoy conviven distintas áreas, herramientas propias, un diagnóstico, contenidos y una visión clara de construir un ecosistema digital propio. Esta propuesta cubre los dos proyectos que lo hacen posible: la presencia institucional y la aplicación, trabajados en paralelo sobre una misma arquitectura.',
+    lede: 'UIRTUS ya no es solamente un estudio contable. Hoy conviven distintas áreas, herramientas propias, un diagnóstico, contenidos y una visión clara de construir un ecosistema digital propio. Esta propuesta contempla dos proyectos que forman parte de ese mismo ecosistema: su nueva presencia institucional y la nueva Plataforma UIRTUS.',
     primaryCta: 'Ver propuesta',
   },
 
@@ -108,9 +145,9 @@ export const proposal = {
   milestone: {
     eyebrow: 'EL PRIMER HITO',
     heading: 'Llegar al 9 de noviembre con UIRTUS presentada como corresponde.',
-    lede: 'Para el evento, la prioridad no es tener todo el ecosistema terminado. Es llegar con una presencia oficial, profesional y funcional desde la cual puedan presentar UIRTUS, sus áreas y el Diagnóstico UIRTUS como una herramienta propia de la consultora.',
+    lede: 'Si avanzan con los dos proyectos, el objetivo es llegar al evento con el ecosistema inicial funcionando: la nueva presencia oficial, el Diagnóstico UIRTUS y la primera versión de la Plataforma UIRTUS. Con un plazo estimado de 45 días, la fecha es alcanzable siempre que materiales, accesos, devoluciones y aprobaciones lleguen en los tiempos acordados.',
     dateLabel: '09 NOV',
-    dateTitle: 'Sitio institucional y MVP de su primer producto.',
+    dateTitle: 'Sitio institucional + MVP de la Plataforma UIRTUS.',
   },
 
 
@@ -142,13 +179,13 @@ export const proposal = {
         label: '04',
         title: 'Desarrollo',
         description:
-          'Convertimos el prototipo aprobado en un producto funcional. Integramos cada parte y mostramos avances periódicos hasta completar el alcance acordado.',
+          'Convertimos el prototipo aprobado en un producto funcional y mostramos avances periódicos. A mitad de camino hacemos la primera revisión formal del avance; si trabajamos los dos proyectos, los revisamos juntos para decidir de forma coordinada.',
       },
       {
         label: '05',
         title: 'Lanzamiento',
         description:
-          'QA, configuración, capacitación, documentación y salida a producción. Entregamos el sistema y también cómo usarlo.',
+          'Antes de entregar hacemos la segunda revisión formal. Después vienen QA, configuración, capacitación, documentación y salida a producción: entregamos el sistema y también cómo usarlo.',
       },
       {
         label: '06',
@@ -211,23 +248,25 @@ export const proposal = {
 
   scope: {
     eyebrow: 'LA ESTRATEGIA',
-    heading: 'Dos proyectos. Una misma infraestructura.',
-    lede: 'Cada fase resuelve un problema distinto, pero se construyen sobre la misma base. La primera devuelve una presencia a la altura de lo que UIRTUS ya es; la segunda empieza a construir la visión que viene después.',
+    heading: 'Dos proyectos. Un mismo ecosistema.',
+    lede: 'Cada proyecto resuelve algo distinto y se puede contratar por separado. El primero construye la nueva presencia de UIRTUS; el segundo reconstruye su producto y la experiencia privada de sus clientes. Juntos, se desarrollan en paralelo sobre una misma base.',
     phases: [
       {
-        label: 'FASE 01 — PRESENCIA',
+        label: 'PROYECTO 01 — PRESENCIA',
         title: 'Sitio institucional + CMS',
-        body: 'El punto de entrada oficial a UIRTUS: quiénes son, qué hacen, sus áreas y servicios, el Diagnóstico UIRTUS y el acceso de clientes. Con un CMS propio para que el equipo pueda actualizar información sin depender de terceros.',
+        body: 'La nueva presencia oficial de UIRTUS: quiénes son, sus áreas, servicios y metodología, contenidos y casos, contacto, la entrada al Diagnóstico UIRTUS y el acceso de clientes. Incluye un CMS para que el equipo actualice el contenido institucional sin depender de terceros.',
+        note: 'Si se contrata solo, el sitio se conecta con el Diagnóstico y el panel de clientes actuales. Si se contratan los dos proyectos, se conecta directamente con los nuevos.',
       },
       {
-        label: 'FASE 02 — PRODUCTO',
-        title: 'MVP de la aplicación UIRTUS',
-        body: 'El primer paso para transformar herramientas y procesos que hoy existen de forma independiente en una experiencia digital propia para los clientes de UIRTUS. Una base preparada para sumar funcionalidades a medida que el producto demuestre qué necesita realmente.',
+        label: 'PROYECTO 02 — PLATAFORMA',
+        title: 'MVP de la Plataforma UIRTUS',
+        body: 'Una plataforma web responsive que se usa desde la computadora, la tablet o el celular, sin instalar nada. Reconstruye sobre bases sólidas lo que hoy UIRTUS resuelve de forma más artesanal: el Diagnóstico, el portal privado de clientes y el backoffice con el que el equipo sigue cada proceso.',
+        note: 'Incluye la migración de la información existente necesaria para operar: no se parte de cero.',
       },
     ] satisfies ScopePhase[],
-    pathsHeading: 'El MVP no define el techo de la aplicación. Define la base.',
+    pathsHeading: 'El MVP no define el techo de la plataforma. Define la base.',
     pathsLede: 'Una vez validada la primera versión, UIRTUS puede seguir evolucionando según lo que tenga mayor impacto en ese momento.',
-    pathsNote: 'Ejemplos que aparecieron durante nuestra conversación: gestión de ingresos y gastos, vencimientos, obligaciones, herramientas financieras, medios de pago y un futuro Consultor UIRTUS impulsado por IA. Son visión futura, no están incluidos en esta propuesta.',
+    pathsNote: 'Ejemplos que surgieron en la conversación: ingresos y gastos, vencimientos, obligaciones, herramientas financieras, medios de pago, el Consultor UIRTUS con IA, integraciones y, si más adelante aparece una necesidad real, una app móvil nativa. La arquitectura los tiene en cuenta, pero ninguno está incluido en esta propuesta.',
     paths: [
       {
         icon: 'modules',
@@ -249,12 +288,12 @@ export const proposal = {
   architecture: {
     eyebrow: 'CÓMO SE CONECTA TODO',
     heading: 'No estamos construyendo piezas aisladas.',
-    lede: 'La arquitectura se plantea desde el inicio para que el sitio, el diagnóstico, el panel y las futuras funcionalidades puedan convivir dentro del mismo ecosistema. Así, cada nueva etapa aprovecha lo que ya fue construido en lugar de empezar nuevamente desde cero.',
+    lede: 'El sitio es la puerta de entrada pública; la plataforma concentra el producto y la operación privada. Si se contratan los dos proyectos, todo se desarrolla conectado desde el inicio, y cada evolución posterior aprovecha lo construido en lugar de empezar de cero.',
     layers: [
-      { label: 'FASE 01', title: 'Sitio UIRTUS', body: 'Diagnóstico · Áreas · Contenido' },
-      { label: 'FASE 01', title: 'Acceso de clientes', body: 'La puerta que conecta las dos fases' },
-      { label: 'FASE 02', title: 'Aplicación UIRTUS', body: 'Panel de cliente · Herramientas · Gestión' },
-      { label: 'EVOLUCIÓN', title: 'Nuevas versiones del producto', body: 'Lo que el producto pida cuando esté funcionando' },
+      { label: 'PROYECTO 01', title: 'Sitio UIRTUS', body: 'Presencia institucional\u00a0· Áreas\u00a0· Servicios\u00a0· Contenido' },
+      { label: 'PROYECTO 02', title: 'Diagnóstico UIRTUS', body: 'Cuestionario\u00a0· Resultados\u00a0· Prioridades\u00a0· Informe' },
+      { label: 'PROYECTO 02', title: 'Plataforma UIRTUS', body: 'Portal de clientes\u00a0· Backoffice\u00a0· Seguimiento\u00a0· Gestión' },
+      { label: 'EVOLUCIÓN', title: 'Nuevos módulos', body: 'Finanzas\u00a0· Automatizaciones\u00a0· IA\u00a0· Integraciones' },
     ] satisfies ArchitectureLayer[],
   },
 
@@ -287,33 +326,37 @@ export const proposal = {
 
   investment: {
     eyebrow: 'INVERSIÓN',
-    heading: 'Dos proyectos, una sola inversión.',
+    heading: 'Cada proyecto por separado, o los dos juntos.',
     lede: 'Cada proyecto tiene su precio, y tomarlos juntos tiene el suyo. Trabajarlos en paralelo comparte arquitectura, decisiones y horas de equipo — y ese ahorro vuelve al presupuesto.',
     phases: [
       {
-        name: 'Sitio institucional + CMS',
+        name: 'Proyecto 01 · Sitio institucional + CMS',
         price: 'USD 2.350',
         includes: [
-          'Sitio institucional con áreas y servicios',
-          'CMS para gestión de contenido',
-          'Integración del Diagnóstico UIRTUS',
-          'Acceso al panel de clientes',
+          'Diseño y desarrollo del sitio institucional',
+          'Áreas, servicios, metodología, casos, contenidos y contacto',
+          'CMS para gestionar el contenido institucional',
+          'Entrada e integración del Diagnóstico UIRTUS',
+          'Acceso de clientes',
           'Diseño responsive',
           'Deploy y configuración',
-          'Capacitación de uso del CMS',
+          'Capacitación para administrar el sitio',
           '15 días de estabilización técnica',
         ],
+        note: 'Si se contrata solo, el sitio se integra con las herramientas actuales de UIRTUS como solución transitoria. Si se contratan los dos proyectos, se conecta directamente con el nuevo Diagnóstico y la nueva Plataforma UIRTUS.',
         payment: '50% al inicio · 50% en la entrega',
       },
       {
-        name: 'MVP de la aplicación',
+        name: 'Proyecto 02 · MVP de la Plataforma UIRTUS',
         includes: [
-          'Portal institucional dentro de la app',
-          'Diagnóstico UIRTUS integrado',
-          'Panel de clientes',
-          'Panel de administración',
-          'Integración del sitio con el panel de administración',
-          'Arquitectura preparada para sumar módulos o versiones',
+          'Acceso único para clientes, equipo y administración',
+          'Diagnóstico UIRTUS reconstruido, con informe e historial',
+          'Portal privado del cliente',
+          'Backoffice: reuniones, tareas, indicadores y documentos',
+          'Administración de usuarios, perfiles y configuración',
+          'Migración de la información necesaria',
+          'Integración con el sitio institucional',
+          'Responsive y preparada para crecer',
           'Capacitación y documentación',
           '15 días de estabilización técnica',
         ],
@@ -340,26 +383,39 @@ export const proposal = {
     combo: {
       label: 'LOS DOS PROYECTOS',
       title: 'Todo el ecosistema, en un solo proyecto.',
-      body: 'Es la forma en que recomendamos encararlo. Trabajar las dos fases en paralelo permite decidir la arquitectura una sola vez, sin rehacer nada al pasar de una a la otra, y llegar al evento con el sitio publicado mientras la aplicación ya está en marcha.',
+      body: 'Es la forma en que recomendamos encararlo. Trabajar los dos proyectos al mismo tiempo permite:',
+      benefits: [
+        'Definir la arquitectura una sola vez',
+        'Diseñar una experiencia unificada',
+        'Conectar sitio, Diagnóstico y plataforma desde el comienzo',
+        'Avanzar en los dos frentes en paralelo',
+        'Llegar al 09/11 con el ecosistema inicial funcionando',
+      ],
       separateLabel: 'Por separado',
-      separatePrice: 'USD 8.650',
       savingLabel: 'Ahorro',
-      savingAmount: 'USD 850',
+      siteLabel: 'Sitio',
+      platformLabel: 'Plataforma',
+      // Los precios individuales repiten los de las tarjetas de arriba: si
+      // cambian allá, cambian acá. El total y el ahorro se calculan solos.
       options: [
         {
           label: 'En dos pagos',
-          price: 'USD 7.800',
+          price: 7800,
+          sitePrice: 2350,
+          platformPrice: 6300,
           terms: '50% al inicio · 50% en la entrega',
         },
         {
           label: 'En tres pagos',
-          price: 'USD 9.300',
+          price: 9300,
+          sitePrice: 2350,
+          platformPrice: 7500,
           terms: '40% al inicio · 30% en hito intermedio · 30% en la entrega',
         },
-      ] satisfies PricingOption[],
+      ] satisfies ComboOption[],
     },
 
-    note: 'Los precios están en dólares. Cada proyecto se puede tomar por separado, pero la arquitectura está pensada para construirlos juntos: es donde el presupuesto rinde más y donde el resultado llega antes.',
+    note: 'Cada proyecto se puede contratar por separado. Juntos comparten arquitectura, diseño y equipo: por eso el presupuesto rinde más y el ecosistema llega completo al 9 de noviembre.',
   },
 
   /**
@@ -370,19 +426,37 @@ export const proposal = {
     eyebrow: "INFORMACIÓN IMPORTANTE",
     heading: "Lo esencial antes de comenzar.",
     terms: {
-      title: "Sobre los plazos",
-      body: "Las fechas se confirman en el kickoff y requieren que los materiales y las aprobaciones se entreguen en los tiempos acordados.",
+      title: "Plazos, revisiones y pagos",
+      bodyLabel: "Plazos.",
+      // Lo único de esta tarjeta que pisa la base (`termsNote`).
+      body: "El plazo estimado es de alrededor de 45 días desde el inicio efectivo, con el objetivo de tener los proyectos acordados listos para el 9 de noviembre de 2026. Para cumplirlo, UIRTUS entrega materiales, contenidos, accesos, información, devoluciones y aprobaciones en los tiempos que definimos en el kickoff. Si alguna de esas entregas se demora, el cronograma se corre en la misma medida.",
+      // Revisiones y cobro son la forma de trabajar de Synous, igual en toda
+      // propuesta: no vienen de la base.
+      notes: [
+        {
+          label: "Revisiones.",
+          text: "Hay dos instancias formales: la revisión del avance funcional y la revisión previa a la entrega. No hay cambios ilimitados: lo que se pida después de una aprobación, o lo que modifique el alcance, se evalúa aparte.",
+        },
+        {
+          label: "Moneda y pagos.",
+          text: "Los precios están expresados en dólares estadounidenses. Los pagos se pueden hacer en USD o en su equivalente en pesos, tomando como referencia el dólar blue del día efectivo del pago.",
+        },
+      ] satisfies LabeledNote[],
     },
     exclusionsTitle: "Lo que no entra en esta cotización",
     exclusions: [
-      "Identidad visual de marca (logo, manual, redes sociales)",
-      "Soporte a usuarios finales",
-      "Funcionalidades no definidas en el alcance. Si aparece algo nuevo, se evalúa costo e impacto y se aprueba antes de desarrollar",
+      "Identidad visual completa de marca (logo, manual, redes sociales)",
+      "Aplicación móvil nativa para App Store o Google Play",
+      "Soporte directo a usuarios finales (los clientes de UIRTUS)",
+      "Funcionalidades nuevas fuera del alcance acordado",
       "Cambios ilimitados",
-      "Medios de pago",
-      "Los módulos de gestión: gastos, ingresos, vencimientos, facturas",
-      "Consultor UIRTUS (asistente IA)",
+      "Roles y permisos avanzados no definidos para el MVP",
+      "Medios de pago y suscripciones",
+      "Módulos financieros: gastos, ingresos, vencimientos, facturación",
+      "Consultor UIRTUS con IA",
+      "Integraciones bancarias o fiscales (ARCA, bancos, tarjetas) no contempladas",
     ],
+    exclusionsNote: "El MVP contempla los perfiles necesarios para operar esta primera versión. Roles adicionales, permisos granulares o experiencias específicas por perfil quedan para futuras evoluciones, salvo que se acuerden expresamente. Lo que viene después puede estar previsto en la arquitectura, pero no se desarrolla dentro de este alcance.",
   },
 
   faq: {
@@ -392,7 +466,7 @@ export const proposal = {
       {
         question: '¿Cuánto tarda?',
         answer:
-          'Alrededor de 45 días, y el plazo exacto se confirma en la fase de arquitectura según el alcance final. Trabajamos por hitos justamente para evitar proyectos eternos: siempre hay fecha de entrega y demos en el camino.',
+          'El plazo estimado de desarrollo es de alrededor de 45 días desde el inicio efectivo. El cronograma se confirma en el kickoff y depende de que los materiales, accesos, devoluciones y aprobaciones de UIRTUS lleguen en los tiempos acordados.',
       },
       {
         question: '¿Qué pasa si aparece algo nuevo a mitad del proyecto?',
@@ -410,14 +484,24 @@ export const proposal = {
           'Están incluidos 15 días de estabilización técnica para resolver errores del desarrollo y acompañar la puesta en marcha. Después, si quieren, se puede continuar con un plan mensual de evolución. No es obligatorio.',
       },
       {
-        question: '¿Llegamos con el sitio al evento de noviembre?',
+        question: '¿Llegamos al evento del 9 de noviembre?',
         answer:
-          'Sí. Es la fecha que ordena la Fase 1 y el plazo que nos comprometemos a cumplir.',
+          'Sí. El objetivo es llegar a esa fecha con los proyectos contratados funcionando, siempre que materiales, accesos, devoluciones y aprobaciones lleguen en los tiempos acordados.',
       },
       {
-        question: '¿El Diagnóstico UIRTUS también va a estar en la app?',
+        question: '¿El Diagnóstico UIRTUS también está en la plataforma?',
         answer:
-          'Sí, está incluido en el MVP. La idea es que el diagnóstico sea entrada al ecosistema tanto desde el sitio como desde la app.',
+          'Sí. El Diagnóstico forma parte del nuevo ecosistema: desde el sitio funciona como puerta de entrada pública, y dentro de la Plataforma UIRTUS vive la lógica que permite realizarlo, procesarlo, consultar sus resultados y usar esa información en la experiencia del cliente.',
+      },
+      {
+        question: '¿Qué pasa con el Diagnóstico y el panel de clientes que UIRTUS ya tiene?',
+        answer:
+          'No se parte de cero en conocimiento ni en información. Se preserva la lógica validada, se migra la información necesaria y se reconstruyen los dos sobre una infraestructura pensada para sostener la evolución de UIRTUS.',
+      },
+      {
+        question: '¿Qué pasa si contratamos solamente el sitio?',
+        answer:
+          'El sitio se publica igual y se integra con el Diagnóstico y el panel de clientes actuales como solución transitoria. Si más adelante suman la Plataforma UIRTUS, el sitio ya queda preparado para conectarse con ella.',
       },
     ] satisfies FaqEntry[],
   },

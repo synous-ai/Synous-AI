@@ -23,7 +23,7 @@ const mono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Tu propuesta | Synous',
+  title: 'Propuesta | Synous',
   description: 'Convertimos metodologías en productos y operaciones en sistemas.',
   robots: { index: false, follow: false },
 }

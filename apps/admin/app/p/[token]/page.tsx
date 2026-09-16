@@ -1,29 +1,19 @@
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { API_URL } from '@/lib/config'
 import ColorBends from '@/components/proposal/color-bends/color-bends'
 import { AnnouncementBars } from '@/components/proposal/announcement-bars'
 import { LetterScene } from '@/components/proposal/letter-scene'
-import type { PublicProposal } from '@/lib/types/proposals'
+import { proposal as template } from '@/app/portal/propuesta/proposal-content'
+import { fetchPublicProposal, proposalMetadata } from './proposal-metadata'
 
 /** Backdrop palette, drawn from the brand navy and accent blues. */
 const BEND_COLORS = ['#010511', '#0b1430', '#1c73ca', '#96c0ff']
 
-/** Shown while the proposal has no statement of its own. */
-const FALLBACK_STATEMENT = 'Convertimos metodologías en productos y operaciones en sistemas.'
-
 export const dynamic = 'force-dynamic'
 
-async function fetchProposal(token: string): Promise<PublicProposal | null> {
-  try {
-    const res = await fetch(`${API_URL}/api/public/proposals/${encodeURIComponent(token)}`, {
-      cache: 'no-store',
-    })
-    if (!res.ok) return null
-    const json = (await res.json()) as { data?: PublicProposal }
-    return json.data ?? null
-  } catch {
-    return null
-  }
+/** Es el link que se comparte: su título y vista previa llevan el nombre del cliente. */
+export function generateMetadata({ params }: { params: { token: string } }): Promise<Metadata> {
+  return proposalMetadata(params.token)
 }
 
 /**
@@ -32,14 +22,14 @@ async function fetchProposal(token: string): Promise<PublicProposal | null> {
  * both screens.
  *
  * The backend answers 404 both for an unknown token and for a proposal still in
- * draft, so a link shared early reveals nothing.
+ * draft, so a link shared early reveals nothing. The texts come from the
+ * template, never from the stored `content`.
  */
 export default async function PublicProposalEnvelope({ params }: { params: { token: string } }) {
-  const data = await fetchProposal(params.token)
+  const data = await fetchPublicProposal(params.token)
   if (!data) notFound()
 
-  const recipient = data.content.clientName
-  const dateLabel = data.content.dateLabel
+  const { recipient, dateLabel, statement } = template.envelope
 
   return (
     <main className="brand-surface proposal-stage stage">
@@ -68,7 +58,7 @@ export default async function PublicProposalEnvelope({ params }: { params: { tok
           href={`/p/${params.token}/propuesta`}
           dateLabel={dateLabel}
           recipient={recipient}
-          statement={data.content.heroLede || FALLBACK_STATEMENT}
+          statement={statement}
         />
       </div>
     </main>
