@@ -7,6 +7,7 @@ export type DocumentType = z.infer<typeof DocumentTypeEnum>
 export const CreateDocumentSchema = z.object({
   dealId: z.string().min(1),
   crId: z.string().min(1).optional(),
+  folderId: z.string().min(1).optional(),
   name: z.string().min(1, 'El nombre es requerido'),
   type: DocumentTypeEnum,
   storageKey: z.string().min(1).optional(),
@@ -19,6 +20,35 @@ export const CreateDocumentSchema = z.object({
 })
 
 export type CreateDocumentDTO = z.infer<typeof CreateDocumentSchema>
+
+/** Body de PATCH /api/documents/:id — renombrar y/o mover cualquier documento del deal. */
+export const UpdateDocumentSchema = z
+  .object({
+    name: z.string().min(1, 'El nombre es requerido').optional(),
+    folderId: z.string().min(1).nullable().optional(),
+  })
+  .refine((v) => v.name !== undefined || v.folderId !== undefined, { message: 'Nada para actualizar' })
+export type UpdateDocumentDTO = z.infer<typeof UpdateDocumentSchema>
+
+// ─── Carpetas del admin ─────────────────────────────────────────────────────
+// `.trim()` en los nombres: mismo motivo que las carpetas del cliente — el
+// CHECK de `document_folder` valida char_length(btrim(name)).
+
+export const CreateDocumentFolderSchema = z.object({
+  dealId: z.string().min(1),
+  name: z.string().trim().min(1, 'El nombre es requerido').max(120),
+})
+export type CreateDocumentFolderDTO = z.infer<typeof CreateDocumentFolderSchema>
+
+export const RenameDocumentFolderSchema = z.object({
+  name: z.string().trim().min(1, 'El nombre es requerido').max(120),
+})
+export type RenameDocumentFolderDTO = z.infer<typeof RenameDocumentFolderSchema>
+
+export const ListDocumentFoldersQuerySchema = z.object({
+  dealId: z.string().min(1),
+})
+export type ListDocumentFoldersQueryDTO = z.infer<typeof ListDocumentFoldersQuerySchema>
 
 export const ListDocumentsQuerySchema = z.object({
   dealId: z.string().min(1).optional(),

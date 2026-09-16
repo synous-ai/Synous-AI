@@ -6,8 +6,24 @@ import { authenticate } from '../../middleware/authenticate'
 import { authorize } from '../../middleware/authorize'
 import { IdParamSchema } from '../../lib/crm-schemas'
 import { ADMIN_SECURITY } from '../../lib/http'
-import { CreateDocumentSchema, ListDocumentsQuerySchema } from './documents.schema'
-import { listDocuments, createDocument, archiveDocument } from './documents.service'
+import {
+  CreateDocumentSchema,
+  ListDocumentsQuerySchema,
+  UpdateDocumentSchema,
+  CreateDocumentFolderSchema,
+  RenameDocumentFolderSchema,
+  ListDocumentFoldersQuerySchema,
+} from './documents.schema'
+import {
+  listDocuments,
+  createDocument,
+  archiveDocument,
+  updateDocument,
+  listDocumentFolders,
+  createDocumentFolder,
+  renameDocumentFolder,
+  archiveDocumentFolder,
+} from './documents.service'
 import { sendForSignature, getSignedDocuments } from './docuseal.service'
 import { SendForSignatureSchema } from './documents.schema'
 
@@ -56,6 +72,23 @@ export async function documentsRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  r.patch(
+    '/:id',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Renombrar o mover un documento',
+        description: 'Cualquier documento del deal, sin importar quién lo subió (equipo o cliente). Mover solo entre carpetas del MISMO proyecto.',
+        security,
+        params: IdParamSchema,
+        body: UpdateDocumentSchema,
+      },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
+    },
+    async (request) =>
+      ok(await updateDocument(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body)),
+  )
+
   r.delete(
     '/:id',
     {
@@ -72,6 +105,74 @@ export async function documentsRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       await archiveDocument(request.hubUser!.portalId, request.hubUser!.sub, request.params.id)
       return reply.status(204).send()
+    },
+  )
+
+  // ── Carpetas ─────────────────────────────────────────────────────────────
+  // El equipo administra cualquier carpeta del deal, incluidas las creadas por
+  // un cliente desde el Portal. Roles: crear/renombrar/mover → owner, member,
+  // collaborator; archivar → SOLO owner (misma regla que DELETE /:id).
+
+  r.get(
+    '/folders',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Listar carpetas de un proyecto',
+        description: 'Carpetas activas de un deal, con la cantidad de documentos activos que contienen.',
+        security,
+        querystring: ListDocumentFoldersQuerySchema,
+      },
+    },
+    async (request) => ok(await listDocumentFolders(request.hubUser!.portalId, request.query.dealId)),
+  )
+
+  r.post(
+    '/folders',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Crear carpeta',
+        security,
+        body: CreateDocumentFolderSchema,
+      },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
+    },
+    async (request, reply) =>
+      reply.status(201).send(ok(await createDocumentFolder(request.hubUser!.portalId, request.hubUser!.sub, request.body))),
+  )
+
+  r.patch(
+    '/folders/:id',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Renombrar carpeta',
+        security,
+        params: IdParamSchema,
+        body: RenameDocumentFolderSchema,
+      },
+      preHandler: [authorize('owner', 'member', 'collaborator')],
+    },
+    async (request) =>
+      ok(await renameDocumentFolder(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body.name)),
+  )
+
+  r.delete(
+    '/folders/:id',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Archivar carpeta',
+        description: 'Soft delete: la carpeta deja de listarse y sus documentos vuelven a la raíz del proyecto (folder_id = null).',
+        security,
+        params: IdParamSchema,
+      },
+      preHandler: [authorize('owner')],
+    },
+    async (request) => {
+      const { movedDocuments } = await archiveDocumentFolder(request.hubUser!.portalId, request.hubUser!.sub, request.params.id)
+      return ok({ success: true, movedDocuments })
     },
   )
 
