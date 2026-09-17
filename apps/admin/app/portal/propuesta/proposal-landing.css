@@ -1452,6 +1452,19 @@
   z-index: 0;
 }
 
+/**
+ * En el hito la luz se ubica por SU propio alto, no por el del panel. El
+ * `top: -38%` de arriba depende de cuánto mida el panel: con la bajada en dos
+ * párrafos el panel crece, la luz sube de más y su centro (el 42% del archivo,
+ * donde apunta el mask) quedaba por encima del borde, recortado. Así el centro
+ * cae siempre a 90px del borde superior, con cualquier largo de texto.
+ */
+.milestone-section .light-panel .section-light {
+  top: 90px;
+  width: min(1100px, 140%);
+  transform: translate(-50%, -42%);
+}
+
 /* Dotted arc, faded at the edges so it reads as texture rather than a pasted
    graphic with a hard boundary. Inline SVG (see `section-dots.tsx`) so each
    circle can light up on its own — an <img> would be a single opaque box. */
@@ -1958,8 +1971,12 @@
   max-width: 62%;
 }
 
+/* En el portafolio el texto va a todo el ancho, como en las otras dos cards:
+   el degradado de la base ya lo separa del mockup. Con 72% CASC quedaba en una
+   columna angosta y alta, y en mobile esta regla le ganaba a la de ancho
+   completo por especificidad. */
 .portfolio-card.bento-cell-wide .bento-copy {
-  max-width: 72%;
+  max-width: none;
 }
 
 .bento-cell-narrow {
@@ -2000,6 +2017,12 @@
   }
 
   .bento-cell-lead {
+    padding-top: 170px;
+  }
+
+  /* Apiladas, las tres cards del portafolio dejan el mismo aire arriba para el
+     mockup: sin esto CASC quedaba más baja y con el texto encima de la imagen. */
+  .portfolio-card.bento-cell-wide {
     padding-top: 170px;
   }
 
