@@ -3,6 +3,7 @@ import { ArchitectureFlow } from '@/components/proposal/architecture-flow'
 import { GlowButton } from '@/components/proposal/glow-button'
 import { GradualBlur } from '@/components/proposal/gradual-blur'
 import { HideOnScrollHeader } from '@/components/proposal/hide-on-scroll-header'
+import { ImportantPanel } from '@/components/proposal/important-panel'
 import { SectionDots } from '@/components/proposal/section-dots'
 import { SmoothScroll } from '@/components/proposal/smooth-scroll'
 import { WorkBento } from '@/components/proposal/work-bento'
@@ -303,7 +304,11 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
               <div className="section-head section-head-center">
                 <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{milestone.eyebrow}</p>
                 <h2>{milestone.heading}</h2>
-                <p className="section-lede">{milestone.lede}</p>
+                {milestone.lede.map((paragraph) => (
+                  <p className="section-lede" key={paragraph}>
+                    {paragraph}
+                  </p>
+                ))}
               </div>
             </Reveal>
           </div>
@@ -323,7 +328,11 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
               <article className="card scope-phase-card" key={phase.title}>
                 <p className="phase-badge"><span className="badge-orb" aria-hidden="true" />{phase.label}</p>
                 <h3>{phase.title}</h3>
-                <p>{phase.body}</p>
+                {phase.body.map((paragraph) => (
+                  <p className="scope-phase-body" key={paragraph}>
+                    {paragraph}
+                  </p>
+                ))}
                 {phase.note && <p className="scope-phase-note">{phase.note}</p>}
               </article>
             ))}
@@ -341,7 +350,16 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                 </article>
               ))}
             </div>
-            <p className="scope-future-note">{scope.pathsNote}</p>
+            {/* Misma forma que las tarjetas de proyecto: se lee como visión del
+                producto, no como letra chica. */}
+            <article className="card scope-phase-card scope-future-card">
+              <p className="phase-badge">
+                <span className="badge-orb" aria-hidden="true" />
+                {scope.future.eyebrow}
+              </p>
+              <h3>{scope.future.title}</h3>
+              <p className="scope-phase-body">{scope.future.body}</p>
+            </article>
           </div>
         </section>
 
@@ -591,9 +609,15 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
 
           <Reveal>
             <div className="important-grid">
-              <article className="important-card">
-                <ImportantIcon variant="timeline" />
-                <h3>{important.terms.title}</h3>
+              {/* Cerradas por defecto: la sección se escanea rápido y cada card
+                  se abre sola, sin cerrar la otra. */}
+              <ImportantPanel
+                icon={<ImportantIcon variant="timeline" />}
+                title={important.terms.title}
+                summary={important.terms.summary}
+                openLabel={important.terms.openLabel}
+                closeLabel={important.terms.closeLabel}
+              >
                 <p>
                   <strong className="important-label">{important.terms.bodyLabel}</strong> {important.terms.body}
                 </p>
@@ -602,11 +626,15 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                     <strong className="important-label">{note.label}</strong> {note.text}
                   </p>
                 ))}
-              </article>
+              </ImportantPanel>
 
-              <article className="important-card">
-                <ImportantIcon variant="scope" />
-                <h3>{important.exclusionsTitle}</h3>
+              <ImportantPanel
+                icon={<ImportantIcon variant="scope" />}
+                title={important.exclusionsTitle}
+                summary={important.exclusionsSummary}
+                openLabel={important.exclusionsOpenLabel}
+                closeLabel={important.exclusionsCloseLabel}
+              >
                 <ul className="exclusion-list">
                   {important.exclusions.map((item) => (
                     <li key={item}>
@@ -616,7 +644,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
                   ))}
                 </ul>
                 <p className="exclusion-note">{important.exclusionsNote}</p>
-              </article>
+              </ImportantPanel>
             </div>
           </Reveal>
         </section>
