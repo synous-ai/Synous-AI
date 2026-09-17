@@ -9,6 +9,44 @@ import { twMerge } from 'tailwind-merge'
 // escondía de las pruebas rápidas y del typecheck.
 export { slugify, SLUG_RESERVED } from './slug'
 
+// Dominio Change Request (estados, labels, transiciones, motivos). Re-export
+// explícito por la misma razón que `./slug`.
+export {
+  CHANGE_REQUEST_STATUSES,
+  CHANGE_REQUEST_STATUS_META,
+  CLIENT_VISIBLE_STATUSES,
+  CHANGE_REQUEST_TERMINAL_STATUSES,
+  ADMIN_TRANSITIONS,
+  CLIENT_TRANSITIONS,
+  isClientDecidable,
+  clientActionsFor,
+  CHANGE_REQUEST_BUCKET_LABEL,
+  clientBucketFor,
+  adminBucketFor,
+  CHANGE_REQUEST_PRIORITIES,
+  CHANGE_REQUEST_PRIORITY_LABEL,
+  CR_REJECTION_REASONS,
+  CR_REJECTION_REASON_LABEL,
+  CR_ADJUSTMENT_AREAS,
+  CR_ADJUSTMENT_AREA_LABEL,
+  CR_EVENT_TYPES,
+  CR_EVENT_LABEL,
+  CR_PROPOSAL_STATUSES,
+} from './change-requests'
+export type {
+  ChangeRequestStatus,
+  ChangeRequestTone,
+  ChangeRequestStatusMeta,
+  ChangeRequestClientAction,
+  ChangeRequestBucket,
+  ChangeRequestPriority,
+  CRRejectionReason,
+  CRAdjustmentArea,
+  CREventType,
+  CRActorRole,
+  CRProposalStatus,
+} from './change-requests'
+
 // ---------------------------------------------------------------------------
 // Styling
 // ---------------------------------------------------------------------------

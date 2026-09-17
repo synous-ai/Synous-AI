@@ -38,6 +38,10 @@ pnpm-debug.log*
 # ── Tooling de agentes / editores (no es parte del producto) ──
 .atl/
 .claude/
+# Skills instaladas por el runtime de agentes: se resuelven por lock desde
+# su repo de origen, no son código de este proyecto.
+.agents/
+skills-lock.json
 resend-light-style/
 .skill-registry.cache.json
 .vscode/

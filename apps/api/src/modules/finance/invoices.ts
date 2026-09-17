@@ -3,7 +3,7 @@ import { db } from '../../db'
 import { invoice, invoiceItem, payment, company } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
-import { assertCompanyInPortal, assertDealInPortal } from '../../lib/portal-access'
+import { assertChangeRequestInPortal, assertCompanyInPortal, assertDealInPortal } from '../../lib/portal-access'
 import { notifyDealClients } from '../notifications/notify'
 import type { CreateInvoiceDTO, UpdateInvoiceDTO, ListInvoicesQuery } from './finance.schema'
 import {
@@ -146,6 +146,11 @@ export async function createInvoice(
     await assertCompanyInPortal(portalId, input.companyId, tx)
     if (input.dealId) await assertDealInPortal(portalId, input.dealId, tx)
     if (input.retainerId) await requireRetainer(portalId, input.retainerId, tx)
+    // La CR tiene que ser del MISMO deal que la factura: si no, el detalle de
+    // esa CR (que el cliente lee desde su portal) listaría una factura de otro
+    // proyecto. Sin `dealId` solo se valida el portal: una factura sin proyecto
+    // es legítima y no hay contra qué comparar.
+    await assertChangeRequestInPortal(portalId, input.changeRequestId, tx, input.dealId)
     const next = await nextInvoiceNumber(tx, portalId)
 
     // Totales calculados desde los ítems
@@ -176,6 +181,7 @@ export async function createInvoice(
         total: num(total),
         notes: input.notes ?? null,
         retainerId: input.retainerId ?? null,
+        changeRequestId: input.changeRequestId ?? null,
         createdBy: userId,
       })
       .returning()
@@ -208,6 +214,9 @@ export async function updateInvoice(
   if (inv.status !== 'draft') throw Errors.badRequest('Solo se puede editar una factura en borrador')
   await assertCompanyInPortal(portalId, input.companyId)
   if (input.dealId) await assertDealInPortal(portalId, input.dealId)
+  // El deal contra el que se valida es el que va a quedar en la fila: si el
+  // patch no lo toca, el que ya tenía.
+  await assertChangeRequestInPortal(portalId, input.changeRequestId, db, input.dealId ?? inv.dealId)
 
   const currency = input.currency ?? inv.currency
   const exchangeRate =
@@ -231,6 +240,7 @@ export async function updateInvoice(
       ...(input.currency !== undefined ? { currency } : {}),
       ...(needsRecalc ? { exchangeRate: num(exchangeRate), amountBase: num(amountBase) } : {}),
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      ...(input.changeRequestId !== undefined ? { changeRequestId: input.changeRequestId } : {}),
       updatedAt: new Date(),
     })
     .where(eq(invoice.id, id))

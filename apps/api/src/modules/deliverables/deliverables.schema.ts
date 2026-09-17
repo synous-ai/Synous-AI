@@ -16,6 +16,8 @@ export const CreateDeliverableSchema = z.object({
    * técnico, Diagnóstico), que el cliente no debe ver.
    */
   visibleToClient: z.boolean().optional(),
+  /** Change request que origina este entregable. Se vincula a mano; nada se genera solo. */
+  changeRequestId: z.string().min(1).optional(),
 })
 export type CreateDeliverableDTO = z.infer<typeof CreateDeliverableSchema>
 
@@ -27,6 +29,7 @@ export const UpdateDeliverableSchema = z
     status: DeliverableStatusEnum,
     feedback: z.string(),
     visibleToClient: z.boolean(),
+    changeRequestId: z.string().min(1),
   })
   .partial()
 export type UpdateDeliverableDTO = z.infer<typeof UpdateDeliverableSchema>

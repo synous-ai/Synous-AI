@@ -11,6 +11,14 @@
  *   <StatusBadge kind={kind}>{label}</StatusBadge>
  */
 
+import {
+  CHANGE_REQUEST_STATUS_META,
+  CHANGE_REQUEST_PRIORITY_LABEL,
+  type ChangeRequestStatus,
+  type ChangeRequestPriority,
+  type ChangeRequestTone,
+} from '@synous/shared'
+
 // ─── Kinds ────────────────────────────────────────────────────────────────────
 
 export type StatusKind = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
@@ -98,27 +106,33 @@ export function deliverableStatus(s: string): StatusResult {
   }
 }
 
+// Tono semántico del catálogo compartido → StatusKind del admin. Se mapea acá
+// UNA sola vez: ninguna pantalla de change requests vuelve a decidir colores.
+const CR_TONE_TO_KIND: Record<ChangeRequestTone, StatusKind> = {
+  neutral: 'neutral',
+  info: 'info',
+  warning: 'warning',
+  success: 'success',
+  danger: 'danger',
+}
+
+/**
+ * Estado de Change Request — SIEMPRE derivado de `CHANGE_REQUEST_STATUS_META`
+ * (`@synous/shared`). Prohibido hardcodear acá la matriz de labels/tonos: si
+ * el backend agrega un estado nuevo, este mapper lo resuelve solo.
+ */
 export function crStatus(s: string): StatusResult {
-  switch (s) {
-    case 'draft':
-      return { kind: 'neutral', label: 'Borrador' }
-    case 'sent':
-      return { kind: 'info', label: 'Enviado' }
-    case 'approved':
-      return { kind: 'success', label: 'Aprobado' }
-    case 'approved_verbally':
-      return { kind: 'success', label: 'Aprobado verbalmente' }
-    case 'rejected':
-      return { kind: 'danger', label: 'Rechazado' }
-    case 'disputed':
-      return { kind: 'danger', label: 'Disputado' }
-    case 'negotiating':
-      return { kind: 'warning', label: 'Negociando' }
-    case 'completed':
-      return { kind: 'success', label: 'Completado' }
-    default:
-      return { kind: 'neutral', label: s }
-  }
+  const meta = CHANGE_REQUEST_STATUS_META[s as ChangeRequestStatus]
+  if (!meta) return { kind: 'neutral', label: s }
+  return { kind: CR_TONE_TO_KIND[meta.tone], label: meta.adminLabel }
+}
+
+/** Prioridad de Change Request ('low' | 'normal' | 'high' — distinto del `priority()` genérico de arriba). */
+export function crPriority(p: string): StatusResult {
+  const label = CHANGE_REQUEST_PRIORITY_LABEL[p as ChangeRequestPriority] ?? p
+  if (p === 'high') return { kind: 'danger', label }
+  if (p === 'low') return { kind: 'neutral', label }
+  return { kind: 'info', label }
 }
 
 export function taskStatus(s: string): StatusResult {

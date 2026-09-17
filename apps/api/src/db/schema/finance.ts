@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import { portal } from './portal'
 import { deal } from './deals'
 import { company } from './companies'
+import { changeRequest } from './change-requests'
 import { hubUser } from './users'
 import { createId } from '../../lib/id'
 
@@ -65,6 +66,12 @@ export const invoice = pgTable('invoice', {
   notes: text('notes'),
   /** Retainer que generó esta factura (null si es una factura puntual). */
   retainerId: text('retainer_id').references(() => retainer.id),
+  /**
+   * Change request que origina esta factura. Se vincula A MANO desde el admin:
+   * aprobar una CR NO genera factura automáticamente (el equipo decide cuándo
+   * y cómo se cobra). Sirve para poder responder "¿esto ya se facturó?".
+   */
+  changeRequestId: text('change_request_id').references(() => changeRequest.id),
   createdBy: text('created_by').references(() => hubUser.id),
   archived: boolean('archived').notNull().default(false),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -81,6 +88,7 @@ export const invoice = pgTable('invoice', {
   index('idx_invoice_retainer').on(table.retainerId),
   index('idx_invoice_deal').on(table.dealId),
   index('idx_invoice_company').on(table.companyId),
+  index('idx_invoice_change_request').on(table.changeRequestId),
 ])
 
 export const invoiceItem = pgTable('invoice_item', {

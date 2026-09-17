@@ -56,6 +56,8 @@ export const CreateInvoiceSchema = z.object({
   items: z.array(InvoiceItemInputSchema).min(1),
   /** Retainer que origina esta factura (null = factura puntual). */
   retainerId: z.string().min(1).optional(),
+  /** Change request que origina esta factura. Se vincula a mano; nada se genera solo. */
+  changeRequestId: z.string().min(1).optional(),
 })
 export type CreateInvoiceDTO = z.infer<typeof CreateInvoiceSchema>
 

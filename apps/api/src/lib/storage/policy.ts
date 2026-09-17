@@ -69,6 +69,9 @@ export const FILE_PURPOSE_POLICIES = {
   expense_receipt: { actors: ['hub'], contentTypes: ['application/pdf', ...IMAGES], maxBytes: 10 * MB },
   proposal_logo: { actors: ['hub'], contentTypes: [...IMAGES, 'image/gif'], maxBytes: 2 * MB },
   brand_logo: { actors: ['hub', 'client'], contentTypes: IMAGES, maxBytes: 2 * MB },
+  // Adjuntos de una solicitud de cambio: capturas, briefs, referencias. Los
+  // sube el equipo O el cliente desde el portal — por eso los dos actores.
+  cr_attachment: { actors: ['hub', 'client'], contentTypes: OFFICE_DOCS, maxBytes: 25 * MB },
   // 'hub': el admin también puede subir archivos de marca al deal desde el
   // detalle de onboarding (ver onboarding.service.ts → addDealBrandFile).
   onboarding_material: {

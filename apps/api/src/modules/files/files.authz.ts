@@ -39,6 +39,7 @@ type DenyReason =
   | 'document_not_visible_to_client'
   | 'document_deal_not_accessible'
   | 'change_request_attachment_out_of_scope'
+  | 'change_request_attachment_draft'
   | 'client_asset_archived'
   | 'client_asset_out_of_scope'
   | 'library_item_client_denied'
@@ -129,7 +130,7 @@ export async function assertCanReadFile(actor: FileActor, storageKey: string): P
         .where(and(eq(document.storageKey, storageKey), eq(document.portalId, portalId)))
         .limit(1),
       db
-        .select({ dealId: changeRequest.dealId })
+        .select({ dealId: changeRequest.dealId, crStatus: changeRequest.status })
         .from(changeRequestAttachment)
         .innerJoin(changeRequest, eq(changeRequest.id, changeRequestAttachment.changeRequestId))
         .where(and(eq(changeRequestAttachment.storageKey, storageKey), eq(changeRequest.portalId, portalId)))
@@ -177,6 +178,10 @@ export async function assertCanReadFile(actor: FileActor, storageKey: string): P
   const attachment = attachmentRows[0]
   if (attachment) {
     if (actor.kind === 'hub') return
+    // Una CR en borrador es material interno: el detalle ya se la oculta al
+    // cliente (404), pero sin este chequeo sus adjuntos seguían siendo legibles
+    // para quien conociera la storageKey — la regla validaba el deal y nada más.
+    if (attachment.crStatus === 'draft') deny('change_request_attachment_draft')
     if ((await clientDealIds(actor.clientId)).includes(attachment.dealId)) return
     deny('change_request_attachment_out_of_scope')
   }

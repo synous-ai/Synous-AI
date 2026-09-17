@@ -53,6 +53,18 @@ async function createTestCR(overrides: {
     })
 }
 
+/**
+ * Manda la CR a `sent` por la ÚNICA puerta que existe: enviarle una propuesta
+ * al cliente. `POST /transition {status:'sent'}` ya no es válido — dejaba la CR
+ * esperando una decisión sin ninguna propuesta que decidir.
+ */
+async function sendProposalFor(crId: string, amount = 500) {
+  return request(app.server)
+    .post(`/api/change-requests/${crId}/proposals`)
+    .set(auth())
+    .send({ amount, send: true })
+}
+
 // ── Numeración relativa al deal ───────────────────────────────────────────────
 
 describe('change-requests — numeración relativa al deal', () => {
@@ -201,7 +213,7 @@ describe('change-requests — estado inicial y historial', () => {
 // ── Transición de estado ──────────────────────────────────────────────────────
 
 describe('change-requests — transitionCR', () => {
-  it('transicionar de draft a sent cambia el status y registra historial', async () => {
+  it('transicionar de draft a cancelled cambia el status y registra historial', async () => {
     const res = await createTestCR()
     expect(res.status).toBe(201)
     const crId = res.body.data.id as string
@@ -209,22 +221,22 @@ describe('change-requests — transitionCR', () => {
     const transition = await request(app.server)
       .post(`/api/change-requests/${crId}/transition`)
       .set(auth())
-      .send({ status: 'sent' })
+      .send({ status: 'cancelled' })
     expect(transition.status).toBe(200)
-    expect(transition.body.data.status).toBe('sent')
+    expect(transition.body.data.status).toBe('cancelled')
 
     const history = await db
       .select()
       .from(changeRequestHistory)
       .where(eq(changeRequestHistory.changeRequestId, crId))
 
-    // Debe haber al menos 2 entradas: draft (creación) + sent (transición)
+    // Debe haber al menos 2 entradas: draft (creación) + cancelled (transición)
     expect(history.length).toBeGreaterThanOrEqual(2)
     const lastEntry = history.sort(
       (a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime(),
     )[0]
     expect(lastEntry?.fromStatus).toBe('draft')
-    expect(lastEntry?.toStatus).toBe('sent')
+    expect(lastEntry?.toStatus).toBe('cancelled')
   })
 
   it('transición con comentario persiste el comment en el historial', async () => {
@@ -234,7 +246,7 @@ describe('change-requests — transitionCR', () => {
     await request(app.server)
       .post(`/api/change-requests/${crId}/transition`)
       .set(auth())
-      .send({ status: 'sent', comment: 'Enviada al cliente para revisión' })
+      .send({ status: 'cancelled', comment: 'El cliente lo pidió por teléfono' })
 
     const history = await db
       .select()
@@ -243,15 +255,16 @@ describe('change-requests — transitionCR', () => {
 
     const withComment = history.filter((h) => h.comment != null)
     expect(withComment.length).toBeGreaterThanOrEqual(1)
-    expect(withComment.at(-1)?.comment).toBe('Enviada al cliente para revisión')
+    expect(withComment.at(-1)?.comment).toBe('El cliente lo pidió por teléfono')
   })
 
   it('transicionar a completed registra completedAt en la CR', async () => {
     const res = await createTestCR()
     const crId = res.body.data.id as string
 
-    // Flujo: draft → sent → approved → completed
-    for (const status of ['sent', 'approved', 'completed']) {
+    // Flujo: draft → sent (enviando una propuesta) → approved → completed
+    await sendProposalFor(crId)
+    for (const status of ['approved', 'completed']) {
       await request(app.server)
         .post(`/api/change-requests/${crId}/transition`)
         .set(auth())
@@ -285,11 +298,8 @@ describe('change-requests — items', () => {
     const res = await createTestCR()
     const crId = res.body.data.id as string
 
-    // Mover a "sent"
-    await request(app.server)
-      .post(`/api/change-requests/${crId}/transition`)
-      .set(auth())
-      .send({ status: 'sent' })
+    // Mover a "sent" enviando una propuesta
+    await sendProposalFor(crId)
 
     const item = await request(app.server)
       .post(`/api/change-requests/${crId}/items`)
@@ -306,10 +316,7 @@ describe('change-requests — updateCR solo en draft', () => {
     const res = await createTestCR()
     const crId = res.body.data.id as string
 
-    await request(app.server)
-      .post(`/api/change-requests/${crId}/transition`)
-      .set(auth())
-      .send({ status: 'sent' })
+    await sendProposalFor(crId)
 
     const update = await request(app.server)
       .patch(`/api/change-requests/${crId}`)
