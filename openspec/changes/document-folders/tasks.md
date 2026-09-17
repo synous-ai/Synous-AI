@@ -47,12 +47,14 @@ Chain strategy: stacked-to-main
 
 ## PR1c: API admin (`/api/documents`) + docs
 
-- [ ] 3.1 `document-folders.test.ts` (RED) en `apps/api/src/modules/documents/`: crear/renombrar (owner/member/collaborator ok), archivar (solo owner, member→403), nombre duplicado 409 y reuso tras archivar, carpeta/deal de otro portal → rechazo, mover documento de cliente por el equipo, archivar carpeta libera documentos a la raíz + `record_history`.
-- [ ] 3.2 `documentsService.createFolder/renameFolder/archiveFolder/listFolders` en `documents.service.ts`: mismo patrón de tx, roles vía `ROLE_MATRIX`, `sourceType 'API'`.
-- [ ] 3.3 `documentsService.updateDocument` (rename/folderId) + `createDocument` con `folderId?` opcional; `createDocument` pasa a auditar CREATE.
-- [ ] 3.4 `GET/POST/PATCH/DELETE /api/documents/folders`, `PATCH /api/documents/:id` en `documents.router.ts` + schemas en `documents.schema.ts`; `DocumentDTO` suma `folderId`/`uploadedByClientAccountId`.
-- [ ] 3.5 Actualizar `docs/STORAGE.md`: documentar que `deal_document` ahora cubre subida de equipo Y cliente, y que `files.authz`/`claimablePendingRow` filtran por `uploaderIs(actor)` sin necesitar un purpose nuevo.
-- [ ] 3.6 Test: portal-view intenta escribir sobre carpetas/documentos admin → 403.
+- [x] 3.1 `document-folders.test.ts` en `apps/api/src/modules/documents/`: crear/renombrar (owner/member/collaborator ok), archivar (solo owner, member→403, collaborator→403), nombre duplicado 409 y reuso tras archivar, carpeta/deal de otro portal → rechazo, mover documento de cliente por el equipo, archivar carpeta libera documentos a la raíz + `record_history`. 19 tests, todos en verde.
+- [x] 3.2 `documentsService.listDocumentFolders/createDocumentFolder/renameDocumentFolder/archiveDocumentFolder` en `documents.service.ts`: mismo patrón de tx que el cliente, `sourceType` default `'API'` (via `recordFieldChanges`). Roles enforced en el router con `authorize(...)` — `ROLE_MATRIX` (frontend, `apps/admin/lib/roles.ts`) queda fuera de este PR (PR3, UI admin).
+- [x] 3.3 `documentsService.updateDocument` (rename/folderId, sin chequeo de dueño) + `createDocument` con `folderId?` opcional (valida `assertFolderInDeal`); `createDocument` pasa a auditar `CREATE`.
+- [x] 3.4 `GET/POST/PATCH/DELETE /api/documents/folders`, `PATCH /api/documents/:id` en `documents.router.ts` + schemas en `documents.schema.ts`; `DocumentDTO` suma `folderId`/`uploadedByClientAccountId`.
+- [x] 3.5 Actualizado `docs/STORAGE.md`: la fila de `deal_document` documenta que ahora cubre subida de equipo Y cliente (`files.authz`/`claimablePendingRow` ya filtraban por `uploaderIs(actor)` sin necesitar un purpose nuevo — sin cambios de código ahí, solo la tabla).
+- [x] 3.6 Test: portal-view (vía rutas `/api/client/*`) intenta crear/renombrar/archivar carpetas y documentos CREADOS POR EL EQUIPO (folder/documento de PR1c) → 403 sin ejecutar el cambio. Las rutas admin (`/api/documents/*`) usan `authenticate` (hub token), no `authenticateClient`: el concepto de portal-view no existe ahí — el guard relevante es el global de `authenticateClient` sobre las rutas de cliente, verificado también contra recursos creados por el equipo.
+
+Refactor de reuso (no listado como tarea aparte pero parte de este PR): `mapFolderNameConflict` y la liberación de documentos al archivar una carpeta (`releaseFolderDocuments`) se extrajeron a `documents.service.ts` y ahora los usan tanto `client.service.ts` (PR1b) como el admin — antes duplicados.
 
 ## PR2: UI portal (sobre PR0)
 

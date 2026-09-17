@@ -13,13 +13,12 @@ import {
   pipeline,
   pipelineStage,
   projectUpdate,
-  recordHistory,
 } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { assertFolderInDeal, clientDealIds } from '../../lib/portal-access'
 import { writeAudit, recordFieldChanges } from '../../lib/audit'
 import { claimUpload, prepareUploadClaim } from '../uploads/uploads.service'
-import { getClientDocumentDTOById, type ClientDocumentDTO } from '../documents/documents.service'
+import { getClientDocumentDTOById, mapFolderNameConflict, releaseFolderDocuments, type ClientDocumentDTO } from '../documents/documents.service'
 import type { ClientCreateDocumentFolderDTO, ClientCreateDocumentDTO, ClientUpdateDocumentDTO } from '../documents/documents.schema'
 import { PRODUCTION_PIPELINE_LABEL } from '../onboarding/assignees'
 import { notifyAdmins } from '../notifications/notify'
@@ -390,19 +389,6 @@ export async function listClientDocumentFolders(clientId: string, dealId: string
   return rows.map((row) => toClientFolderDTO(row, row.documentCount, clientId))
 }
 
-/**
- * El 23505 del índice único parcial `uq_document_folder_deal_name` es la
- * única violación posible de este insert/update — cualquier otro código tiene
- * que seguir siendo un 500, no disfrazarse de "nombre en uso" (mismo criterio
- * que `updateClientBranding` en branding.service.ts con `brand_slug`).
- */
-function mapFolderNameConflict(err: unknown): never {
-  if ((err as { code?: string }).code === '23505') {
-    throw Errors.conflict('Ya existe una carpeta con ese nombre en este proyecto')
-  }
-  throw err
-}
-
 export async function createClientDocumentFolder(
   clientId: string,
   portalId: string,
@@ -510,26 +496,7 @@ export async function archiveClientDocumentFolder(clientId: string, portalId: st
     if (!ids.includes(row.dealId)) throw Errors.notFound('Carpeta no encontrada')
     if (row.createdByClientAccountId !== clientId) throw Errors.forbidden('Solo podés archivar carpetas que creaste')
 
-    const movedDocs = await tx
-      .update(document)
-      .set({ folderId: null })
-      .where(and(eq(document.folderId, folderId), eq(document.archived, false)))
-      .returning({ id: document.id })
-
-    if (movedDocs.length > 0) {
-      await tx.insert(recordHistory).values(
-        movedDocs.map((d) => ({
-          portalId,
-          entityType: 'document',
-          entityId: d.id,
-          fieldName: 'folderId',
-          oldValue: folderId,
-          newValue: null,
-          sourceType: 'CLIENT_PORTAL',
-          changedBy: null,
-        })),
-      )
-    }
+    const movedDocuments = await releaseFolderDocuments(tx, portalId, folderId, 'CLIENT_PORTAL', null)
 
     await tx.update(documentFolder).set({ archived: true, archivedAt: new Date() }).where(eq(documentFolder.id, folderId))
     await writeAudit({
@@ -539,10 +506,10 @@ export async function archiveClientDocumentFolder(clientId: string, portalId: st
       entityType: 'document_folder',
       entityId: folderId,
       action: 'ARCHIVE',
-      payload: { movedDocuments: movedDocs.length },
+      payload: { movedDocuments },
     })
 
-    return { movedDocuments: movedDocs.length }
+    return { movedDocuments }
   })
 }
 
