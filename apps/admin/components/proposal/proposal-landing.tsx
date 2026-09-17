@@ -291,25 +291,22 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
 
         {/* ── El primer hito ───────────────────────────────────────────── */}
         {/* La fecha del evento ordena las prioridades del proyecto, así que
-            tiene sección propia en vez de ser una línea en los plazos. */}
+            tiene sección propia en vez de ser una línea perdida en los plazos. */}
         <section className="section shell milestone-section" id="primer-hito">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="section-light" src="/light3.webp" alt="" aria-hidden="true" />
-          <Reveal>
-            <div className="section-head section-head-center">
-              <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{milestone.eyebrow}</p>
-              <h2>{milestone.heading}</h2>
-              <p className="section-lede">{milestone.lede}</p>
-            </div>
-          </Reveal>
-
-          <Reveal>
-            <div className="milestone-card">
-              <CornerTicks />
-              <p className="milestone-date">{milestone.dateLabel}</p>
-              <h3 className="milestone-title">{milestone.dateTitle}</h3>
-            </div>
-          </Reveal>
+          {/* Mismo panel que el cierre: la luz vive DENTRO de la caja, recortada
+              por su borde redondeado. El archivo trae su propio fondo oscuro, y
+              suelto sobre la página se le ve el recorte contra el navy. */}
+          <div className="light-panel">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="section-light" src="/light3.webp" alt="" aria-hidden="true" />
+            <Reveal>
+              <div className="section-head section-head-center">
+                <p className="section-eyebrow"><span className="badge-orb" aria-hidden="true" />{milestone.eyebrow}</p>
+                <h2>{milestone.heading}</h2>
+                <p className="section-lede">{milestone.lede}</p>
+              </div>
+            </Reveal>
+          </div>
         </section>
 
         {/* ── Alcance solicitado ───────────────────────────────────────── */}
@@ -642,7 +639,7 @@ export function ProposalLanding({ proposal }: { proposal: ResolvedProposal }) {
           {/* The light lives INSIDE this panel, clipped to its rounded box. The
               artwork carries its own dark ground, so letting it bleed over the
               page would show a visible edge against the navy. */}
-          <div className="handoff-panel">
+          <div className="light-panel handoff-panel">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img className="section-light" src="/light4.webp" alt="" aria-hidden="true" />
             <Reveal>

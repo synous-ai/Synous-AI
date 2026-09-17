@@ -146,8 +146,6 @@ export const proposal = {
     eyebrow: 'EL PRIMER HITO',
     heading: 'Llegar al 9 de noviembre con UIRTUS presentada como corresponde.',
     lede: 'Si avanzan con los dos proyectos, el objetivo es llegar al evento con el ecosistema inicial funcionando: la nueva presencia oficial, el Diagnóstico UIRTUS y la primera versión de la Plataforma UIRTUS. Con un plazo estimado de 45 días, la fecha es alcanzable siempre que materiales, accesos, devoluciones y aprobaciones lleguen en los tiempos acordados.',
-    dateLabel: '09 NOV',
-    dateTitle: 'Sitio institucional + MVP de la Plataforma UIRTUS.',
   },
 
 
