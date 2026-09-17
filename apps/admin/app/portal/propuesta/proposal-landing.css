@@ -809,7 +809,9 @@
   position: absolute;
   top: -55%;
   right: -18%;
-  z-index: -1;
+  /* Sobre el degradado de la tarjeta, no debajo: la tarjeta aísla su apilado y
+     pinta su propio fondo. */
+  z-index: 0;
   width: 70%;
   max-width: none;
   opacity: 0.4;
@@ -1152,6 +1154,54 @@
   box-shadow:
     0 1px 2px #0305201a,
     0 10px 30px #03052014;
+  /* Recorta la trama contra el borde redondeado. El resto de las tarjetas con
+     textura ya lo traen; ésta se posiciona por índice y no lo necesitaba. */
+  overflow: hidden;
+}
+
+/**
+ * La misma trama, sobre superficie clara.
+ *
+ * El archivo es una grilla BLANCA recortada por alfa: sobre navy `screen` suma
+ * su luz, pero sobre blanco no tendría nada que sumar y desaparecería. El
+ * `invert` la vuelve negra y `multiply` la apoya como sombra, que es el
+ * equivalente claro del mismo gesto.
+ */
+.proposal-page .architecture-section .arch-flow-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: url('/GRID.webp');
+  background-position: center top;
+  background-size: 420px auto;
+  background-repeat: no-repeat;
+  filter: invert(1);
+  mix-blend-mode: multiply;
+  opacity: 0.07;
+  mask: radial-gradient(ellipse 80% 70% at 50% 25%, #000 30%, transparent 80%);
+  -webkit-mask: radial-gradient(ellipse 80% 70% at 50% 25%, #000 30%, transparent 80%);
+  pointer-events: none;
+}
+
+/**
+ * El contenido de la tarjeta, por delante de la trama.
+ *
+ * Se nombra elemento por elemento a propósito: un `> *` alcanzaría también a
+ * los `.tick` de las esquinas, que se ubican con `position: absolute`, y
+ * pisarles el `position` los devolvería al flujo normal. Ellos suben sólo el
+ * índice, sin tocar cómo se posicionan.
+ */
+.proposal-page .architecture-section .arch-flow-label,
+.proposal-page .architecture-section .arch-flow-title,
+.proposal-page .architecture-section .arch-flow-body,
+.proposal-page .architecture-section .arch-flow-step {
+  position: relative;
+  z-index: 1;
+}
+
+.proposal-page .architecture-section .arch-flow-card .tick {
+  z-index: 1;
 }
 
 .arch-flow-card.is-left {
@@ -1288,6 +1338,72 @@
   color: var(--muted-dim);
 }
 
+/* ── Textura de grilla ────────────────────────────────────────────────── */
+
+/**
+ * Trama técnica de fondo para las superficies grandes de la página: los dos
+ * paneles con luz, el combo y las tarjetas de precio.
+ *
+ * Va SÓLO en esas cuatro. La grilla es un acento de jerarquía: si la llevaran
+ * también las tarjetas chicas —origen, compromiso, caminos— dejaría de
+ * distinguir nada y quedaría como ruido de fondo parejo. Además el archivo
+ * mide 800px: en una tarjeta de 26px de padding no se leería como trama sino
+ * como manchas.
+ *
+ * Se dibuja en un `::before` en vez de en el `background` del contenedor
+ * porque esas cajas ya usan su background para el degradado, y porque así la
+ * opacidad de la textura se regula sin tocar el color de la superficie.
+ *
+ * Va POR ENCIMA del fondo, no detrás. Las tres cajas pintan su propio
+ * degradado y declaran `isolation: isolate`: un `z-index: -1` acá caería
+ * detrás de ese degradado y no se vería nada. Como la trama se compone con
+ * `screen`, estar encima no tapa nada — sólo suma su luz. El contenido de la
+ * tarjeta queda por delante porque los elementos posicionados que vienen
+ * después ganan, y `pointer-events: none` mantiene todo clickeable.
+ */
+.light-panel::before,
+.combo-card::before,
+.tier::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: url('/GRID.webp');
+  background-position: center top;
+  background-size: 760px auto;
+  background-repeat: no-repeat;
+  /* El archivo trae su propio canal alfa, así que `screen` sólo suma la luz de
+     la trama sobre el navy sin apoyarle un rectángulo encima. */
+  mix-blend-mode: screen;
+  opacity: 0.5;
+  /* Se apaga antes de los bordes: una grilla nítida que llega hasta el corte se
+     lee como una imagen pegada, no como textura de la superficie. */
+  mask: radial-gradient(ellipse 75% 65% at 50% 22%, #000 25%, transparent 78%);
+  -webkit-mask: radial-gradient(ellipse 75% 65% at 50% 22%, #000 25%, transparent 78%);
+  pointer-events: none;
+}
+
+/* En las tarjetas de precio la trama entra más chica: son columnas angostas y
+   a tamaño completo sólo se vería un recorte del centro de la imagen. */
+.tier::before {
+  background-size: 520px auto;
+  opacity: 0.42;
+}
+
+/**
+ * El contenido va por delante de la trama.
+ *
+ * Con la textura en `z-index: 0`, todo lo que tenga que leerse encima necesita
+ * un índice propio: un hijo sin posicionar se pinta antes que un hermano
+ * posicionado, sin importar el orden del DOM.
+ */
+.light-panel > .reveal,
+.combo-card > .combo-copy,
+.combo-card > .combo-options {
+  position: relative;
+  z-index: 1;
+}
+
 /* ── Panel con luz ────────────────────────────────────────────────────── */
 
 /**
@@ -1330,6 +1446,10 @@
   top: -38%;
   width: min(900px, 120%);
   opacity: 0.5;
+  /* Igual que la trama: por encima del degradado del panel, no detrás. El
+     panel aísla su apilado y pinta su propio fondo, así que un índice negativo
+     dejaría la luz enterrada bajo él. */
+  z-index: 0;
 }
 
 /* Dotted arc, faded at the edges so it reads as texture rather than a pasted
