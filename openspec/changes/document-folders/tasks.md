@@ -9,11 +9,11 @@
 | Chained PRs recommended | Yes |
 | Suggested split | PR1a (schema/migración/guard) → PR1b (API cliente) → PR1c (API admin) → PR2 (UI portal) → PR3 (UI admin) |
 | Delivery strategy | ask-on-risk |
-| Chain strategy | pending |
+| Chain strategy | stacked-to-main |
 
 Decision needed before apply: Yes
 Chained PRs recommended: Yes
-Chain strategy: pending
+Chain strategy: stacked-to-main
 400-line budget risk: High
 
 ### Suggested Work Units
@@ -37,13 +37,13 @@ Chain strategy: pending
 
 ## PR1b: API cliente (`/api/client`)
 
-- [ ] 2.1 `documents.client-writes.test.ts` (RED) en `apps/api/src/modules/client/`: subida raíz/carpeta, crear/renombrar/archivar carpeta propia, rechazo carpeta de otro deal, rechazo "Generales", nombre duplicado case-insensitive → 409, reusar tras archivar.
-- [ ] 2.2 `clientService.createFolder/renameFolder/archiveFolder/listFolders` en `apps/api/src/modules/client/client.service.ts`: `dealId ∈ clientDealIds` (404), `assertFolderInDeal` FOR SHARE, `record_history`+`audit_log` (sourceType `CLIENT_PORTAL`). Verif: 2.1 en verde.
-- [ ] 2.3 `POST/PATCH/DELETE /api/client/document-folders`, `GET .../document-folders?dealId` en `client.router.ts` + schemas Zod en `client.schema.ts`.
-- [ ] 2.4 `clientService.createDocument/updateDocument/archiveDocument`: `prepareUploadClaim`/`claimUpload` (purpose `deal_document`), dueño = cliente autenticado, rechazo sobre documento ajeno o DocuSeal, mover solo dentro del mismo deal.
-- [ ] 2.5 `POST /api/client/documents`, `PATCH/DELETE /api/client/documents/:id` en router + schemas.
-- [ ] 2.6 Test explícito (gap de spec): cliente cuyo `dealId` fue revocado de `clientDealIds` (o el deal se archivó) intenta subir/crear carpeta/renombrar/mover/archivar → 404, mismo trato que deal de otro cliente.
-- [ ] 2.7 Test: `X-Portal-View` sobre cualquiera de estas rutas → 403 sin ejecutar cambio (reusa guard global existente).
+- [x] 2.1 `documents.client-writes.test.ts` (RED) en `apps/api/src/modules/client/`: subida raíz/carpeta, crear/renombrar/archivar carpeta propia, rechazo carpeta de otro deal, rechazo "Generales", nombre duplicado case-insensitive → 409, reusar tras archivar.
+- [x] 2.2 `clientService.createFolder/renameFolder/archiveFolder/listFolders` en `apps/api/src/modules/client/client.service.ts`: `dealId ∈ clientDealIds` (404), `assertFolderInDeal` FOR SHARE, `record_history`+`audit_log` (sourceType `CLIENT_PORTAL`). Verif: 2.1 en verde.
+- [x] 2.3 `POST/PATCH/DELETE /api/client/document-folders`, `GET .../document-folders?dealId` en `client.router.ts` + schemas Zod (agregados en `documents.schema.ts`, compartido con el admin, en vez de un `client.schema.ts` nuevo).
+- [x] 2.4 `clientService.createDocument/updateDocument/archiveDocument`: `prepareUploadClaim`/`claimUpload` (purpose `deal_document`, ahora también actor `client` en `storage/policy.ts`), dueño = cliente autenticado, rechazo sobre documento ajeno o DocuSeal, mover solo dentro del mismo deal.
+- [x] 2.5 `POST /api/client/documents`, `PATCH/DELETE /api/client/documents/:id` en router + schemas.
+- [x] 2.6 Test explícito (gap de spec): cliente cuyo `dealId` fue revocado de `clientDealIds` intenta crear carpeta/documento/renombrar → 404, mismo trato que deal de otro cliente.
+- [x] 2.7 Test: `X-Portal-View` sobre estas rutas → 403 sin ejecutar cambio (reusa guard global existente en `authenticateClient`).
 
 ## PR1c: API admin (`/api/documents`) + docs
 

@@ -1,13 +1,15 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { ListQuery } from '../../lib/crm-schemas'
 import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
-import { db } from '../../db'
-import { changeRequest, document, hubUser } from '../../db/schema'
+import { db, type DB } from '../../db'
+import { changeRequest, clientAccount, contact, document, hubUser } from '../../db/schema'
 import { Errors } from '../../lib/errors'
 import { assertDealInPortal } from '../../lib/portal-access'
-import { writeAudit } from '../../lib/audit'
+import { writeAudit, type Tx } from '../../lib/audit'
 import { claimUpload, prepareUploadClaim } from '../uploads/uploads.service'
 import type { CreateDocumentDTO, ListDocumentsQueryDTO } from './documents.schema'
+
+type Executor = DB | Tx
 
 type DocumentRow = typeof document.$inferSelect
 
@@ -139,43 +141,110 @@ export async function archiveDocument(portalId: string, userId: string, id: stri
 export interface ClientDocumentDTO {
   id: string
   dealId: string | null
+  /** Carpeta del proyecto (null = raíz). Ver `document_folder`. */
+  folderId: string | null
   name: string
   type: string
   storageKey: string | null
   signedAt: string | null
   /** Estado de firma en DocuSeal (pending | completed | declined | expired). Null si el documento no pasó por DocuSeal. */
   docusealStatus: string | null
-  /** Nombre de la persona del equipo que lo subió (no el email ni el id). Null si no se puede resolver. */
+  /** Nombre de quien lo subió — persona del equipo O contacto del cliente. Null si no se puede resolver. */
   uploadedBy: string | null
+  /**
+   * ¿El cliente autenticado puede renombrarlo, moverlo o archivarlo? Solo lo
+   * propio y nunca un documento de DocuSeal — evita que la UI intente una
+   * acción que el service va a rechazar igual.
+   */
+  canManage: boolean
   createdAt: string
+}
+
+/** Fila cruda de la consulta compartida entre listado y lectura puntual del cliente. */
+interface ClientDocumentJoinRow {
+  id: string
+  dealId: string | null
+  folderId: string | null
+  name: string
+  type: string
+  source: string | null
+  storageKey: string | null
+  signedAt: Date | null
+  docusealStatus: string | null
+  uploadedByClientAccountId: string | null
+  createdAt: Date
+  uploaderFirstName: string | null
+  uploaderLastName: string | null
+  clientContactFirstName: string | null
+  clientContactLastName: string | null
+}
+
+/**
+ * Select base para el DTO client-facing. Doble LEFT JOIN: `hub_user` (subida
+ * del equipo) y `client_account → contact` (subida del propio cliente) —
+ * mutuamente excluyentes por el CHECK `document_creator_check`, así que como
+ * mucho uno de los dos resuelve un nombre.
+ */
+function clientDocumentSelect(executor: Executor = db) {
+  return executor
+    .select({
+      id: document.id,
+      dealId: document.dealId,
+      folderId: document.folderId,
+      name: document.name,
+      type: document.type,
+      source: document.source,
+      storageKey: document.storageKey,
+      signedAt: document.signedAt,
+      docusealStatus: document.docusealStatus,
+      uploadedByClientAccountId: document.uploadedByClientAccountId,
+      createdAt: document.createdAt,
+      uploaderFirstName: hubUser.firstName,
+      uploaderLastName: hubUser.lastName,
+      clientContactFirstName: contact.firstName,
+      clientContactLastName: contact.lastName,
+    })
+    .from(document)
+    .leftJoin(hubUser, eq(document.createdBy, hubUser.id))
+    .leftJoin(clientAccount, eq(document.uploadedByClientAccountId, clientAccount.id))
+    .leftJoin(contact, eq(clientAccount.contactId, contact.id))
+}
+
+function toClientDocumentDTO(row: ClientDocumentJoinRow, clientId: string): ClientDocumentDTO {
+  const uploadedBy = row.uploaderFirstName
+    ? [row.uploaderFirstName, row.uploaderLastName].filter(Boolean).join(' ').trim() || null
+    : row.clientContactFirstName
+      ? [row.clientContactFirstName, row.clientContactLastName].filter(Boolean).join(' ').trim() || null
+      : null
+  return {
+    id: row.id,
+    dealId: row.dealId,
+    folderId: row.folderId,
+    name: row.name,
+    type: row.type,
+    storageKey: row.storageKey,
+    signedAt: row.signedAt ? row.signedAt.toISOString() : null,
+    docusealStatus: row.docusealStatus,
+    uploadedBy,
+    canManage: row.uploadedByClientAccountId === clientId && row.source !== 'docuseal',
+    createdAt: row.createdAt.toISOString(),
+  }
 }
 
 export async function listClientDocuments(
   portalId: string,
+  clientId: string,
   dealIds: string[],
   query: ListQuery,
 ): Promise<Paginated<ClientDocumentDTO>> {
   if (dealIds.length === 0) return { items: [], nextCursor: null }
   const cursor = decodeCursor(query.cursor)
 
-  // LEFT JOIN (no INNER): `document.created_by` es nullable — los documentos
-  // de DocuSeal/generados pueden no tenerlo. Un INNER haría desaparecer del
-  // portal esos documentos, una regresión de visibilidad silenciosa.
-  const rows = await db
-    .select({
-      id: document.id,
-      dealId: document.dealId,
-      name: document.name,
-      type: document.type,
-      storageKey: document.storageKey,
-      signedAt: document.signedAt,
-      docusealStatus: document.docusealStatus,
-      createdAt: document.createdAt,
-      uploaderFirstName: hubUser.firstName,
-      uploaderLastName: hubUser.lastName,
-    })
-    .from(document)
-    .leftJoin(hubUser, eq(document.createdBy, hubUser.id))
+  // LEFT JOIN (no INNER) en `hub_user`: `document.created_by` es nullable —
+  // los documentos de DocuSeal/generados pueden no tenerlo. Un INNER haría
+  // desaparecer del portal esos documentos, una regresión de visibilidad
+  // silenciosa.
+  const rows = await clientDocumentSelect()
     .where(
       and(
         eq(document.portalId, portalId),
@@ -189,16 +258,21 @@ export async function listClientDocuments(
     .limit(query.limit + 1)
 
   const { items, nextCursor } = paginateRows(rows, query.limit)
-  const dtos = items.map((row) => ({
-    id: row.id,
-    dealId: row.dealId,
-    name: row.name,
-    type: row.type,
-    storageKey: row.storageKey,
-    signedAt: row.signedAt ? row.signedAt.toISOString() : null,
-    docusealStatus: row.docusealStatus,
-    uploadedBy: [row.uploaderFirstName, row.uploaderLastName].filter(Boolean).join(' ').trim() || null,
-    createdAt: row.createdAt.toISOString(),
-  }))
-  return { items: dtos, nextCursor }
+  return { items: items.map((row) => toClientDocumentDTO(row, clientId)), nextCursor }
+}
+
+/**
+ * Lectura puntual del DTO client-facing, para devolver la respuesta de un
+ * create/update sin repetir la proyección. `executor` acepta el `tx` abierto
+ * por el caller (client.service.ts) para no abrir una segunda conexión
+ * mientras la transacción retiene la suya.
+ */
+export async function getClientDocumentDTOById(
+  documentId: string,
+  clientId: string,
+  executor: Executor = db,
+): Promise<ClientDocumentDTO> {
+  const [row] = await clientDocumentSelect(executor).where(eq(document.id, documentId)).limit(1)
+  if (!row) throw Errors.notFound('Documento no encontrado')
+  return toClientDocumentDTO(row, clientId)
 }

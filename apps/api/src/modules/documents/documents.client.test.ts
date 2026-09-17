@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { db, closeDb } from '../../db'
-import { contact, deal, document } from '../../db/schema'
+import { contact, deal, document, documentFolder, clientAccount } from '../../db/schema'
 import { createId } from '../../lib/id'
 import { ensurePortalAndUser, ensurePipeline, type PipelineContext } from '../../test/helpers'
 import { listClientDocuments } from './documents.service'
@@ -21,6 +21,8 @@ let portalId: string
 let userId: string
 let ventas: PipelineContext
 let dealId: string
+/** Ningún documento de este archivo lo sube un cliente: solo importa para `canManage` (siempre false acá). */
+let noClientId: string
 
 beforeAll(async () => {
   const ctx = await ensurePortalAndUser()
@@ -42,6 +44,8 @@ beforeAll(async () => {
     })
     .returning()
   dealId = d!.id
+  // String cualquiera: ningún documento de este archivo tiene uploaded_by_client_account_id, así que canManage da false siempre — no hace falta un client_account real.
+  noClientId = `unused-${createId()}`
 })
 
 afterAll(async () => {
@@ -71,7 +75,7 @@ describe('listClientDocuments — docusealStatus', () => {
       },
     ])
 
-    const docs = (await listClientDocuments(portalId, [dealId], { limit: 100 })).items
+    const docs = (await listClientDocuments(portalId, noClientId, [dealId], { limit: 100 })).items
     const pending = docs.find((d) => d.name === 'Contrato pendiente de firma')
     const completed = docs.find((d) => d.name === 'Contrato firmado')
 
@@ -90,7 +94,7 @@ describe('listClientDocuments — uploadedBy', () => {
       createdBy: userId,
     })
 
-    const docs = (await listClientDocuments(portalId, [dealId], { limit: 100 })).items
+    const docs = (await listClientDocuments(portalId, noClientId, [dealId], { limit: 100 })).items
     const found = docs.find((d) => d.name === 'Documento con autor')
 
     // ensurePortalAndUser() crea al owner de test con firstName: 'Owner'.
@@ -107,10 +111,60 @@ describe('listClientDocuments — uploadedBy', () => {
       createdBy: null,
     })
 
-    const docs = (await listClientDocuments(portalId, [dealId], { limit: 100 })).items
+    const docs = (await listClientDocuments(portalId, noClientId, [dealId], { limit: 100 })).items
     const found = docs.find((d) => d.name === 'Documento sin autor (generado)')
 
     expect(found).toBeDefined()
     expect(found?.uploadedBy).toBeNull()
+  })
+})
+
+describe('listClientDocuments — folderId y canManage', () => {
+  it('expone folderId y canManage=true solo para el documento que subió ESE cliente (y no un docuseal ni el de otro)', async () => {
+    const email = `cli-canmanage-${createId()}@test.com`
+    const [c] = await db.insert(contact).values({ portalId, firstName: 'Cli', lastName: 'CanManage', email }).returning()
+    const [clientA] = await db
+      .insert(clientAccount)
+      .values({ portalId, contactId: c!.id, email, clerkUserId: `clerk_test_${createId()}` })
+      .returning()
+    const [folder] = await db
+      .insert(documentFolder)
+      .values({ portalId, dealId, name: `Carpeta ${createId()}`, createdByClientAccountId: clientA!.id })
+      .returning()
+
+    await db.insert(document).values([
+      {
+        portalId,
+        dealId,
+        folderId: folder!.id,
+        name: 'Subido por el cliente A',
+        type: 'other',
+        source: 'manual',
+        uploadedByClientAccountId: clientA!.id,
+      },
+      {
+        portalId,
+        dealId,
+        name: 'Contrato firmado (docuseal, sin creador)',
+        type: 'contract',
+        source: 'docuseal',
+        docusealStatus: 'completed',
+      },
+    ])
+
+    const docs = (await listClientDocuments(portalId, clientA!.id, [dealId], { limit: 100 })).items
+    const ownDoc = docs.find((d) => d.name === 'Subido por el cliente A')
+    const docusealDoc = docs.find((d) => d.name === 'Contrato firmado (docuseal, sin creador)')
+
+    expect(ownDoc?.folderId).toBe(folder!.id)
+    expect(ownDoc?.canManage).toBe(true)
+    // El propio nombre del contacto del cliente, no el de un hub_user.
+    expect(ownDoc?.uploadedBy).toBe('Cli CanManage')
+
+    expect(docusealDoc?.canManage).toBe(false)
+
+    // Otro cliente viendo el MISMO listado nunca puede administrar el documento de A.
+    const docsForOther = (await listClientDocuments(portalId, noClientId, [dealId], { limit: 100 })).items
+    expect(docsForOther.find((d) => d.name === 'Subido por el cliente A')?.canManage).toBe(false)
   })
 })
