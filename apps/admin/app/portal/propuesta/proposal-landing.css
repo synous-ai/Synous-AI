@@ -3733,3 +3733,27 @@
     display: none;
   }
 }
+
+/* ── Mobile: texto de lectura a 16px ──────────────────────────────────── */
+
+/**
+ * En el celular todo lo que se lee como texto corrido va a 16px: notas,
+ * resúmenes, condiciones de pago, descripciones y el pie. Los rótulos en
+ * mayúsculas y mono (badges, eyebrows, "FASE 01", montos chicos del combo)
+ * quedan como están: son etiquetas dentro de pastillas, no texto de lectura.
+ */
+@media (max-width: 680px) {
+  .proposal-page .combo-body,
+  .proposal-page .combo-benefits li,
+  .proposal-page .combo-option-terms,
+  .proposal-page .arch-flow-body,
+  .proposal-page .tier-note,
+  .proposal-page .tier-payment,
+  .proposal-page .option-terms,
+  .proposal-page .important-summary,
+  .proposal-page .important-action,
+  .proposal-page .footer-copyright,
+  .proposal-page .scope-phase-card .scope-phase-note {
+    font-size: 16px;
+  }
+}
