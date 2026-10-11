@@ -43,6 +43,7 @@ import { crRoutes } from './modules/change-requests/cr.router'
 import { clientCrRoutes } from './modules/change-requests/client-cr.router'
 import { libraryRoutes } from './modules/library/library.router'
 import { workItemsRoutes } from './modules/work-items/work-items.router'
+import { projectsRoutes } from './modules/projects/projects.router'
 import { financeRoutes } from './modules/finance/finance.router'
 import { notificationPrefsRoutes } from './modules/notification-prefs/notification-prefs.router'
 import { customFieldsRoutes } from './modules/custom-fields/custom-fields.router'
@@ -292,6 +293,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.register(clientCrRoutes, { prefix: '/api/client/change-requests' })
   app.register(libraryRoutes, { prefix: '/api/library' })
   app.register(workItemsRoutes, { prefix: '/api/work-items' })
+  app.register(projectsRoutes, { prefix: '/api/projects' })
   app.register(financeRoutes, { prefix: '/api/finance' })
   app.register(notificationPrefsRoutes, { prefix: '/api/notification-prefs' })
   app.register(customFieldsRoutes, { prefix: '/api/custom-fields' })
