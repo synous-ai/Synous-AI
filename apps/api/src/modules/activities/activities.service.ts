@@ -1,10 +1,16 @@
-import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, exists, inArray, sql, type SQL } from 'drizzle-orm'
 import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../lib/pagination'
 import { db, type DB } from '../../db'
 import { hubUser, note, task, taskAssignee } from '../../db/schema'
-import { writeAudit, type Tx } from '../../lib/audit'
+import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
 import { Errors } from '../../lib/errors'
-import { assertHubUsersInPortal, assertProjectInPortal } from '../../lib/portal-access'
+import {
+  assertCompanyInPortal,
+  assertContactInPortal,
+  assertDealInPortal,
+  assertHubUsersInPortal,
+  assertProjectInPortal,
+} from '../../lib/portal-access'
 import { normalizeChecklist } from '../../lib/checklist'
 import type { CreateNoteDTO, NoteQuery, CreateTaskDTO, UpdateTaskDTO, TaskQuery } from './activities.schema'
 
@@ -94,6 +100,20 @@ export async function syncTaskAssignees(tx: Tx, taskId: string, userIds: readonl
   }
 }
 
+/**
+ * "La tarea está asignada al usuario": usa task_assignee (N:M) para que los
+ * co-responsables también la vean. Para tareas con un solo responsable da el
+ * mismo resultado que `task.assigned_to = userId` (dual-write).
+ */
+export function taskAssignedToUser(userId: string): SQL {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(taskAssignee)
+      .where(and(eq(taskAssignee.taskId, task.id), eq(taskAssignee.hubUserId, userId))),
+  )
+}
+
 /** Siguiente posición libre al final de una columna (project, status) del kanban. */
 async function nextPosition(tx: Tx, projectId: string, status: string): Promise<number> {
   const [row] = await tx
@@ -122,6 +142,9 @@ export async function createTask(portalId: string, userId: string, input: Create
   const assignees = resolveAssignees(input) ?? []
   return db.transaction(async (tx) => {
     await assertProjectInPortal(portalId, input.projectId, tx)
+    if (input.dealId) await assertDealInPortal(portalId, input.dealId, tx)
+    await assertContactInPortal(portalId, input.contactId, tx)
+    await assertCompanyInPortal(portalId, input.companyId, tx)
     await assertHubUsersInPortal(portalId, assignees, tx)
     const status = input.status ?? 'pending'
     const position = input.projectId ? await nextPosition(tx, input.projectId, status) : 0
@@ -148,7 +171,7 @@ export async function createTask(portalId: string, userId: string, input: Create
 export async function listTasks(portalId: string, filters: TaskQuery): Promise<Paginated<TaskWithAssignees>> {
   const conds: SQL[] = [eq(task.portalId, portalId), eq(task.archived, false)]
   if (filters.status) conds.push(eq(task.status, filters.status))
-  if (filters.assignedTo) conds.push(eq(task.assignedTo, filters.assignedTo))
+  if (filters.assignedTo) conds.push(taskAssignedToUser(filters.assignedTo))
   if (filters.contactId) conds.push(eq(task.contactId, filters.contactId))
   if (filters.dealId) conds.push(eq(task.dealId, filters.dealId))
   if (filters.projectId) conds.push(eq(task.projectId, filters.projectId))
@@ -163,7 +186,36 @@ export async function listTasks(portalId: string, filters: TaskQuery): Promise<P
   return { items: await withAssignees(db, page.items), nextCursor: page.nextCursor }
 }
 
-export async function updateTask(portalId: string, id: string, input: UpdateTaskDTO): Promise<TaskWithAssignees> {
+/** Campos de la tarea que se auditan en record_history (se omiten body/steps por tamaño). */
+const TRACKED_TASK_FIELDS = ['title', 'priority', 'status', 'dueDate', 'assignedTo', 'projectId'] as const
+
+export async function recordTaskChanges(
+  tx: Tx,
+  portalId: string,
+  taskId: string,
+  before: TaskRow,
+  patch: Partial<typeof task.$inferInsert>,
+  userId: string | null,
+): Promise<void> {
+  const after: Record<string, unknown> = {}
+  for (const key of TRACKED_TASK_FIELDS) if (patch[key] !== undefined) after[key] = patch[key]
+  await recordFieldChanges({
+    tx,
+    portalId,
+    entityType: 'task',
+    entityId: taskId,
+    before: before as unknown as Record<string, unknown>,
+    after,
+    changedBy: userId,
+  })
+}
+
+export async function updateTask(
+  portalId: string,
+  id: string,
+  input: UpdateTaskDTO,
+  userId: string | null = null,
+): Promise<TaskWithAssignees> {
   return db.transaction(async (tx) => {
     const [existing] = await tx
       .select()
@@ -203,6 +255,7 @@ export async function updateTask(portalId: string, id: string, input: UpdateTask
 
     const [row] = await tx.update(task).set(patch).where(eq(task.id, id)).returning()
     if (!row) throw Errors.internal('No se pudo actualizar la tarea')
+    await recordTaskChanges(tx, portalId, id, existing, patch, userId)
     if (assignees !== undefined) await syncTaskAssignees(tx, id, assignees)
     return (await withAssignees(tx, [row]))[0]!
   })

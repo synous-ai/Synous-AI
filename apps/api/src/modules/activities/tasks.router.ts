@@ -63,7 +63,7 @@ export async function tasksRoutes(app: FastifyInstance): Promise<void> {
       },
       preHandler: [authorize('owner', 'member', 'collaborator')],
     },
-    async (request) => ok(await updateTask(request.hubUser!.portalId, request.params.id, request.body)),
+    async (request) => ok(await updateTask(request.hubUser!.portalId, request.params.id, request.body, request.hubUser!.sub)),
   )
 
   r.delete(

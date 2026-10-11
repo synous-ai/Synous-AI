@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lt, lte, gte, isNull, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, lt, lte, gte, isNull, isNotNull, sql, type SQL } from 'drizzle-orm'
 import { db } from '../../db'
 import {
   task,
@@ -12,6 +12,7 @@ import {
   note,
 } from '../../db/schema'
 import { startOfDay, endOfDay } from '../../lib/dates'
+import { taskAssignedToUser } from '../activities/activities.service'
 
 // ── Return types ──────────────────────────────────────────────────────────────
 
@@ -83,14 +84,15 @@ export async function getFollowUps(
   const sevenDaysEnd = endOfDay(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000))
 
   // Base conditions: open tasks within the portal
-  const baseConds = [
+  const baseConds: SQL[] = [
     eq(task.portalId, portalId),
     eq(task.archived, false),
     inArray(task.status, ['pending', 'in_progress']),
     isNotNull(task.dueDate),
     lte(task.dueDate, sevenDaysEnd), // only up to 7 days out
   ]
-  if (userId != null) baseConds.push(eq(task.assignedTo, userId))
+  // task_assignee: los co-responsables también ven la tarea en su foco.
+  if (userId != null) baseConds.push(taskAssignedToUser(userId))
 
   const openTasks = await db
     .select()

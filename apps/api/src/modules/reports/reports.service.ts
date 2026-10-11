@@ -11,6 +11,7 @@ import {
   pipeline,
   pipelineStage,
   task,
+  taskAssignee,
 } from '../../db/schema'
 import { getDealsNeedingAttention } from '../focus/focus.service'
 import type { AttentionDeal } from '../focus/focus.service'
@@ -295,21 +296,23 @@ async function fetchActivityByUser(
         )
         .groupBy(task.createdBy),
 
-      // tasks completed by assignedTo (in period)
+      // tasks completed (in period), counted for EVERY assignee via task_assignee:
+      // una tarea con dos responsables suma 1 a cada uno (es trabajo de ambos).
       db
-        .select({ userId: task.assignedTo, n: count() })
+        .select({ userId: taskAssignee.hubUserId, n: count() })
         .from(task)
+        .innerJoin(taskAssignee, eq(taskAssignee.taskId, task.id))
         .where(
           and(
             eq(task.portalId, portalId),
             eq(task.archived, false),
-            inArray(task.assignedTo, userIds),
+            inArray(taskAssignee.hubUserId, userIds),
             eq(task.status, 'completed'),
             gte(task.completedAt, from),
             lte(task.completedAt, to),
           ),
         )
-        .groupBy(task.assignedTo),
+        .groupBy(taskAssignee.hubUserId),
     ])
 
   // Build lookup maps: userId -> count
