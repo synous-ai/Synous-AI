@@ -1,7 +1,7 @@
 'use client'
 
-import { TasksView } from '@/components/tasks/tasks-view'
+import { TasksWorkspace } from '@/components/tasks/tasks-workspace'
 
 export default function TasksPage() {
-  return <TasksView />
+  return <TasksWorkspace />
 }

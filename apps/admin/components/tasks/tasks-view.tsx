@@ -71,7 +71,7 @@ function assigneesOf(t: Task, userMap: Map<string, TeamUser>): PersonLike[] {
   return primary ? [primary] : []
 }
 
-export function TasksView() {
+export function TasksView({ tabs }: { tabs?: React.ReactNode }) {
   const [view, setView] = useState<View>('board')
   const [scope, setScope] = useState<Scope>('open')
   const [newOpen, setNewOpen] = useState(false)
@@ -146,6 +146,7 @@ export function TasksView() {
         </div>
         <Button onClick={() => setNewOpen(true)}>Nueva Tarea</Button>
       </div>
+      {tabs && <div className="mb-6">{tabs}</div>}
 
       {/* Sub-tabs + view toggle + filtros */}
       <div className="mb-6 flex flex-wrap items-center gap-3">
