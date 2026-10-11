@@ -1,15 +1,11 @@
 /**
- * Home pública del apex. Hereda la superficie y el sistema de etiquetas de
- * legal.css; acá solo se arma el hero, las tarjetas y las secciones.
+ * Home pública del apex (en construcción). Hereda la superficie y el sistema de
+ * etiquetas de legal.css; acá solo se arma el hero.
  */
 
-.home-hero,
-.home-section {
+.home-hero {
   width: min(960px, 100%);
   margin-inline: auto;
-}
-
-.home-hero {
   padding-block: clamp(64px, 11vw, 128px) clamp(40px, 6vw, 64px);
 }
 
@@ -70,66 +66,4 @@
 .legal-page .home-button-ghost:hover {
   border-color: var(--accent);
   color: var(--title);
-}
-
-.legal-page .home-note {
-  margin-top: 18px;
-  color: var(--muted-dim);
-  letter-spacing: 1px;
-}
-
-.home-section {
-  padding-block: clamp(40px, 6vw, 64px);
-  border-top: 1px solid var(--edge);
-}
-
-.home-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 16px;
-  margin-top: 28px;
-}
-
-.home-card {
-  padding: 22px;
-  border: 1px solid var(--edge);
-  background: var(--surface);
-  transition: border-color 0.2s ease;
-}
-
-.home-card:hover {
-  border-color: var(--edge-lit);
-}
-
-.home-card-index {
-  color: var(--accent);
-}
-
-.legal-page .home-card h3 {
-  margin: 12px 0 0;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--title);
-}
-
-.legal-page .home-card p:not(.home-card-index) {
-  margin-top: 8px;
-  font-size: 14.5px;
-  line-height: 1.65;
-  color: var(--muted);
-}
-
-.legal-page .home-google p {
-  max-width: 68ch;
-  margin-top: 14px;
-  font-size: 16px;
-  line-height: 1.75;
-  color: var(--body-text);
-}
-
-.legal-page .home-google .legal-index {
-  margin-top: 0;
-  font-size: 11px;
-  color: var(--muted-dim);
 }

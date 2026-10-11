@@ -42,27 +42,168 @@ export interface ClientIntake {
   answers: Record<string, unknown> | null
 }
 
-// Change Requests — solicitudes de cambio enviadas por el equipo
-export type ChangeRequestStatus =
-  | 'sent'
-  | 'approved'
-  | 'rejected'
-  | 'negotiating'
-  | 'approved_verbally'
-  | 'disputed'
-  | 'completed'
+// Change Requests — solicitudes de cambio. Catálogo de estados/acciones ÚNICO
+// en @synous/shared (change-requests.ts): lo consumen la API, el admin y el
+// portal, así que ninguna superficie vuelve a definir su propio
+// `Record<status, label>`. Se re-exportan acá los tipos que ya importaban
+// otros archivos de portal-lib desde '@portal/lib/types' (p. ej.
+// requests-panel.tsx), para no tener que cambiar esos import paths.
+export type {
+  ChangeRequestStatus,
+  ChangeRequestPriority,
+  ChangeRequestBucket,
+  CRRejectionReason,
+  CRAdjustmentArea,
+  CREventType,
+  CRActorRole,
+  CRProposalStatus,
+} from '@synous/shared'
+import type {
+  ChangeRequestStatus,
+  ChangeRequestPriority,
+  CRActorRole,
+  CRProposalStatus,
+  CREventType,
+} from '@synous/shared'
 
+/** Fila de `change_request` tal como la devuelve la API (ver contrato del módulo). */
 export interface ChangeRequest {
   id: string
   dealId: string
   number: number
   title: string
   description: string
+  context: string | null
+  priority: ChangeRequestPriority
+  origin: 'client' | 'agency'
   status: ChangeRequestStatus
   totalAmount: string | null
+  currency: string
   timelineImpactDays: number
   newDeliveryDate: string | null
+  proposedScope: string | null
+  currentProposalId: string | null
+  approvedProposalId: string | null
+  /** Motivo de rechazo o área de ajuste, según cuál fue la última decisión — la API no distingue el shape acá. */
+  decisionReason: string | null
+  decisionComment: string | null
+  submittedAt: string | null
+  reviewStartedAt: string | null
+  approvedAt: string | null
+  rejectedAt: string | null
+  cancelledAt: string | null
+  completedAt: string | null
   createdAt: string
+  updatedAt: string
+  dealName: string | null
+  requestedByName: string | null
+  requestedByRole: 'admin' | 'client'
+  /**
+   * Si ESTE cliente (el que llamó al endpoint) puede cancelar la CR — ya
+   * calculado por el backend, que solo deja cancelar a quien la creó. `undefined`
+   * mientras el backend todavía no manda el campo (contrato en vuelo): se
+   * trata igual que "no mostrar la acción" para no ofrecer un botón que
+   * responde 403.
+   */
+  canCancel?: boolean
+}
+
+/** Línea de alcance de una CR o de una propuesta (mismo shape en los dos lugares). */
+export interface CRItem {
+  description: string
+  hours: number | null
+  unitPrice: string | number | null
+  quantity: number | null
+}
+
+export interface CRProposal {
+  id: string
+  changeRequestId: string
+  version: number
+  scope: string | null
+  amount: string | null
+  currency: string
+  timelineImpactDays: number | null
+  newDeliveryDate: string | null
+  note: string | null
+  status: CRProposalStatus
+  createdAt: string
+  sentAt: string | null
+  items: CRItem[]
+}
+
+export interface CRCommentAttachment {
+  id: string
+  name: string
+  storageKey: string
+  mimeType: string | null
+  sizeBytes: number | null
+}
+
+export interface CRComment {
+  id: string
+  body: string
+  authorName: string
+  authorRole: CRActorRole
+  createdAt: string
+  attachments: CRCommentAttachment[]
+}
+
+export interface CREvent {
+  id: string
+  eventType: CREventType
+  fromStatus: ChangeRequestStatus | null
+  toStatus: ChangeRequestStatus | null
+  comment: string | null
+  metadata: Record<string, unknown>
+  actorRole: CRActorRole
+  actorName: string | null
+  changedAt: string
+}
+
+export interface CRAttachment {
+  id: string
+  name: string
+  storageKey: string
+  mimeType: string | null
+  sizeBytes: number | null
+  uploadedByName: string | null
+  uploadedRole: CRActorRole
+  uploadedAt: string
+}
+
+/** GET /api/client/change-requests/:id */
+export interface ChangeRequestDetail {
+  changeRequest: ChangeRequest
+  items: CRItem[]
+  proposals: CRProposal[]
+  currentProposal: CRProposal | null
+  approvedProposal: CRProposal | null
+  comments: CRComment[]
+  events: CREvent[]
+  attachments: CRAttachment[]
+  links: { documents: unknown[]; invoices: unknown[]; deliverables: unknown[] }
+}
+
+/** GET /api/client/change-requests/summary — contadores reales para las tabs. */
+export interface ChangeRequestSummary {
+  all: number
+  needs_action: number
+  in_review: number
+  resolved: number
+}
+
+/**
+ * Adjunto ya subido (vía `uploadFile` de `@portal/lib/files`), listo para
+ * mandar en el `uploads` de crear-CR / comentar. Shape inferido de
+ * `CRAttachment`/`CRCommentAttachment` — no hay otro caller en el portal que
+ * ya mande un array `uploads` para copiarle la forma exacta.
+ */
+export interface CRUploadRef {
+  storageKey: string
+  name: string
+  mimeType: string
+  sizeBytes: number
 }
 
 // Facturas del cliente (read-only)

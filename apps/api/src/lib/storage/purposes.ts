@@ -10,6 +10,7 @@ export const FILE_PURPOSES = [
   'proposal_logo',
   'brand_logo',
   'onboarding_material',
+  'cr_attachment',
 ] as const
 
 export type FilePurpose = (typeof FILE_PURPOSES)[number]

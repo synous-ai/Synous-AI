@@ -1024,6 +1024,12 @@
   margin-top: 0;
 }
 
+/* La bajada del hito son dos párrafos: el segundo se separa del primero. */
+.milestone-section .section-lede + .section-lede {
+  margin-top: 14px;
+}
+
+
 /* ── Cómo se conecta todo ─────────────────────────────────────────────── */
 
 /**
@@ -1326,16 +1332,10 @@
   color: var(--muted);
 }
 
-/* Los ejemplos futuros van en voz baja: son contexto, no alcance vendido. */
-.proposal-page .scope-future-note {
-  max-width: 74ch;
-  margin: 26px 0 0;
-  padding-left: 20px;
-  border-left: 2px solid var(--edge-lit);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.7;
-  color: var(--muted-dim);
+/* La visión a futuro sigue a la grilla de caminos con el mismo espacio que
+   separa sus tarjetas. */
+.proposal-page .scope-future-card {
+  margin-top: 18px;
 }
 
 /* ── Textura de grilla ────────────────────────────────────────────────── */
@@ -1450,6 +1450,19 @@
      panel aísla su apilado y pinta su propio fondo, así que un índice negativo
      dejaría la luz enterrada bajo él. */
   z-index: 0;
+}
+
+/**
+ * En el hito la luz se ubica por SU propio alto, no por el del panel. El
+ * `top: -38%` de arriba depende de cuánto mida el panel: con la bajada en dos
+ * párrafos el panel crece, la luz sube de más y su centro (el 42% del archivo,
+ * donde apunta el mask) quedaba por encima del borde, recortado. Así el centro
+ * cae siempre a 90px del borde superior, con cualquier largo de texto.
+ */
+.milestone-section .light-panel .section-light {
+  top: 90px;
+  width: min(1100px, 140%);
+  transform: translate(-50%, -42%);
 }
 
 /* Dotted arc, faded at the edges so it reads as texture rather than a pasted
@@ -1958,8 +1971,12 @@
   max-width: 62%;
 }
 
+/* En el portafolio el texto va a todo el ancho, como en las otras dos cards:
+   el degradado de la base ya lo separa del mockup. Con 72% CASC quedaba en una
+   columna angosta y alta, y en mobile esta regla le ganaba a la de ancho
+   completo por especificidad. */
 .portfolio-card.bento-cell-wide .bento-copy {
-  max-width: 72%;
+  max-width: none;
 }
 
 .bento-cell-narrow {
@@ -2003,6 +2020,12 @@
     padding-top: 170px;
   }
 
+  /* Apiladas, las tres cards del portafolio dejan el mismo aire arriba para el
+     mockup: sin esto CASC quedaba más baja y con el texto encima de la imagen. */
+  .portfolio-card.bento-cell-wide {
+    padding-top: 170px;
+  }
+
   .bento-cell-wide .bento-copy {
     max-width: 100%;
   }
@@ -2025,6 +2048,11 @@
   /* Holds the backdrop video's negative z-index: without it the video would
      fall behind the page background instead of behind this section's text. */
   isolation: isolate;
+  /* El aislamiento hace que el `screen` del video se mezcle SOLO con lo que hay
+     dentro de la sección. Sin un fondo propio, eso es transparente: el negro del
+     video queda tal cual y se ve como un recuadro. Con el mismo color de la
+     página, el negro se funde y sólo suma la luz. */
+  background: var(--void);
   /* Every other section draws its rule inside `.shell`; this one is full-bleed,
      so the rule moves onto the inner wrapper to keep the page rhythm. */
   border-top: 0;
@@ -2104,9 +2132,11 @@
   z-index: -1;
 }
 
+/* Sin `z-index`: uno acá crearía otro grupo aislado alrededor del video, que
+   volvería a mezclarse contra transparente. El video ya queda detrás del texto
+   por su `z-index: -1` dentro del contexto de `.method-section`. */
 .method-inner {
   position: relative;
-  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2745,6 +2775,13 @@
   color: var(--accent);
 }
 
+/* Mismo anillo de foco que las cards de información importante. */
+.faq-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
 /* Plus that becomes a minus when the entry opens. */
 .faq-marker {
   position: relative;
@@ -2794,6 +2831,20 @@
   overflow: hidden;
 }
 
+/* En papel o PDF todas las respuestas salen abiertas, sin el +/−. */
+@media print {
+  .proposal-page .faq-answer {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .proposal-page .faq-marker {
+    display: none;
+  }
+}
+
 .faq-answer p {
   max-width: 74ch;
   padding-bottom: 24px;
@@ -2809,17 +2860,152 @@
    Both carry the same weight — the reader should take them equally seriously. */
 .important-grid {
   display: grid;
-  grid-template-columns: 40fr 60fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
   margin-top: 42px;
 }
 
+/* Con las dos cerradas miden lo mismo; si una se abre, la otra no se estira
+   para acompañarla. `is-expanded` sigue puesto mientras la card se cierra, así
+   la vecina no salta a la altura de la que se está achicando. */
+.important-grid:has(.is-expanded) {
+  align-items: start;
+}
+
 .important-card {
-  padding: 32px;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--edge);
   border-radius: 18px;
   background: linear-gradient(165deg, var(--surface-raised), var(--surface));
   box-shadow: inset 0 1px 0 #96c0ff1a;
+  transition: border-color 0.25s ease;
+}
+
+.important-card:hover,
+.important-card.is-open {
+  border-color: var(--edge-lit);
+}
+
+/* El encabezado envuelve al botón y le pasa el alto de la card. */
+.proposal-page .important-heading {
+  display: flex;
+  flex: 1 0 auto;
+  margin: 0;
+  font: inherit;
+}
+
+/* Toda la cabecera es el botón: ícono, título, resumen y acción. */
+.important-trigger {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 28px 32px;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.important-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.proposal-page .important-trigger .important-icon {
+  margin-bottom: 18px;
+}
+
+.proposal-page .important-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--title);
+}
+
+/* Anticipa lo que hay adentro, un escalón debajo del título. */
+.proposal-page .important-summary {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* Acción secundaria: texto chico con chevron, no un botón. */
+.proposal-page .important-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  transition: opacity 0.2s ease;
+}
+
+.important-chevron {
+  width: 15px;
+  height: 15px;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.important-card.is-open .important-chevron {
+  transform: rotate(180deg);
+}
+
+/* Mismo mecanismo que el FAQ: la fila pasa de 0fr a 1fr. */
+.important-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.25s ease;
+}
+
+.important-card.is-open .important-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.important-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.important-content {
+  margin: 0 32px 32px;
+  padding-top: 22px;
+  border-top: 1px solid var(--edge);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .important-card,
+  .important-body,
+  .important-chevron {
+    transition: none;
+  }
+}
+
+/* En papel o PDF no hay clics: las dos cards salen abiertas, sin animación y
+   sin controles. */
+@media print {
+  .proposal-page .important-body {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transition: none;
+  }
+
+  .proposal-page .important-action {
+    display: none;
+  }
 }
 
 .important-icon {
@@ -2840,22 +3026,14 @@
   height: 23px;
 }
 
-.proposal-page .important-card h3 {
-  margin-bottom: 20px;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
-  color: var(--title);
-}
-
-.proposal-page .important-card > p {
+.proposal-page .important-content > p {
   font-size: 16px;
   font-weight: 500;
   line-height: 1.7;
   color: var(--muted);
 }
 
-.proposal-page .important-card > p + .important-note {
+.proposal-page .important-content > p + .important-note {
   margin-top: 14px;
 }
 
@@ -3167,6 +3345,11 @@
 
 .scope-phase-card .phase-badge + h3 {
   font-size: 18px;
+}
+
+/* Cuerpo en varios párrafos: cada uno se separa del anterior. */
+.proposal-page .scope-phase-card .scope-phase-body + .scope-phase-body {
+  margin-top: 12px;
 }
 
 /* Qué cambia según lo que se contrate: separado del cuerpo, más bajo. */
@@ -3548,5 +3731,29 @@
 
   .portfolio-mockup-2 {
     display: none;
+  }
+}
+
+/* ── Mobile: texto de lectura a 16px ──────────────────────────────────── */
+
+/**
+ * En el celular todo lo que se lee como texto corrido va a 16px: notas,
+ * resúmenes, condiciones de pago, descripciones y el pie. Los rótulos en
+ * mayúsculas y mono (badges, eyebrows, "FASE 01", montos chicos del combo)
+ * quedan como están: son etiquetas dentro de pastillas, no texto de lectura.
+ */
+@media (max-width: 680px) {
+  .proposal-page .combo-body,
+  .proposal-page .combo-benefits li,
+  .proposal-page .combo-option-terms,
+  .proposal-page .arch-flow-body,
+  .proposal-page .tier-note,
+  .proposal-page .tier-payment,
+  .proposal-page .option-terms,
+  .proposal-page .important-summary,
+  .proposal-page .important-action,
+  .proposal-page .footer-copyright,
+  .proposal-page .scope-phase-card .scope-phase-note {
+    font-size: 16px;
   }
 }

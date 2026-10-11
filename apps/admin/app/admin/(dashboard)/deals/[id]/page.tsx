@@ -43,7 +43,6 @@ import {
   useAssignIntake,
   useDealCRs,
   useCreateCR,
-  useCRTransition,
   useDealDocuments,
   useCreateDocument,
   useDeleteDocument,
@@ -200,7 +199,6 @@ export default function DealDetailPage(): React.JSX.Element {
   const assignIntake = useAssignIntake()
   const crsQ = useDealCRs(id)
   const createCR = useCreateCR()
-  const crTransition = useCRTransition()
   const documentsQ = useDealDocuments(id)
   const createDocument = useCreateDocument()
   const deleteDocument = useDeleteDocument()
@@ -1378,40 +1376,27 @@ export default function DealDetailPage(): React.JSX.Element {
                         </Empty>
                       ) : (
                         <div className="space-y-2">
-                          {crsQ.data!.map((cr) => (
-                            <div
-                              key={cr.id}
-                              className="cursor-pointer rounded-xl border bg-background/60 px-3 py-2.5 transition-colors hover:bg-accent/50"
-                              onClick={() => router.push(`/change-requests/${cr.id}`)}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs text-muted-foreground">CR#{cr.number}</span>
-                                <span className="flex-1 text-sm font-medium">{cr.title}</span>
-                                {cr.totalAmount && (
-                                  <span className="font-mono text-xs text-muted-foreground">
-                                    {formatCurrency(cr.totalAmount)}
-                                  </span>
-                                )}
-                                {(() => {
-                                  const { kind, label } = crStatus(cr.status)
-                                  return <StatusBadge kind={kind}>{label}</StatusBadge>
-                                })()}
-                              </div>
-                              {cr.status === 'draft' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    crTransition.mutate({ id: cr.id, status: 'sent' })
-                                  }}
-                                  className="mt-1 h-auto px-0 text-xs font-medium text-primary hover:underline hover:bg-transparent"
-                                >
-                                  Enviar al cliente →
-                                </Button>
-                              )}
-                            </div>
-                          ))}
+                          {crsQ.data!.map((cr) => {
+                            const { kind, label } = crStatus(cr.status)
+                            return (
+                              <Link
+                                key={cr.id}
+                                href={`/change-requests/${cr.id}`}
+                                className="block rounded-xl border bg-background/60 px-3 py-2.5 transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs text-muted-foreground">CR#{cr.number}</span>
+                                  <span className="flex-1 text-sm font-medium">{cr.title}</span>
+                                  {cr.totalAmount && (
+                                    <span className="font-mono text-xs text-muted-foreground">
+                                      {formatCurrency(cr.totalAmount, cr.currency)}
+                                    </span>
+                                  )}
+                                  <StatusBadge kind={kind}>{label}</StatusBadge>
+                                </div>
+                              </Link>
+                            )
+                          })}
                         </div>
                       )}
                     </>

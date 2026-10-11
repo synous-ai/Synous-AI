@@ -1,6 +1,6 @@
 {
-  "id": "a5e2581d-2153-4e13-96e1-cf89ab046d53",
-  "prevId": "91f9e2f0-c808-4c83-a52c-2b92fa523ad6",
+  "id": "8ec91459-4b11-4196-acf7-b4b752087b71",
+  "prevId": "9a41afba-8184-45e0-a9b7-f6111d93b868",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6219,6 +6219,12 @@
           "notNull": true,
           "default": true
         },
+        "change_request_id": {
+          "name": "change_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "reviewed_by": {
           "name": "reviewed_by",
           "type": "text",
@@ -6273,6 +6279,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_deliverable_change_request": {
+          "name": "idx_deliverable_change_request",
+          "columns": [
+            {
+              "expression": "change_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -6282,6 +6303,19 @@
           "tableTo": "deal",
           "columnsFrom": [
             "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "deliverable_change_request_id_change_request_id_fk": {
+          "name": "deliverable_change_request_id_change_request_id_fk",
+          "tableFrom": "deliverable",
+          "tableTo": "change_request",
+          "columnsFrom": [
+            "change_request_id"
           ],
           "columnsTo": [
             "id"
@@ -6371,8 +6405,27 @@
           "primaryKey": false,
           "notNull": true
         },
+        "context": {
+          "name": "context",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priority": {
+          "name": "priority",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'normal'"
+        },
         "original_scope_ref": {
           "name": "original_scope_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proposed_scope": {
+          "name": "proposed_scope",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -6404,6 +6457,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "currency": {
+          "name": "currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
         "timeline_impact_days": {
           "name": "timeline_impact_days",
           "type": "integer",
@@ -6414,6 +6474,42 @@
         "new_delivery_date": {
           "name": "new_delivery_date",
           "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_proposal_id": {
+          "name": "current_proposal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approved_proposal_id": {
+          "name": "approved_proposal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision_reason": {
+          "name": "decision_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision_comment": {
+          "name": "decision_comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "submitted_at": {
+          "name": "submitted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "review_started_at": {
+          "name": "review_started_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -6429,6 +6525,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "rejected_at": {
+          "name": "rejected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "completed_at": {
           "name": "completed_at",
           "type": "timestamp with time zone",
@@ -6437,6 +6545,18 @@
         },
         "created_by": {
           "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_client": {
+          "name": "created_by_client",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "client_request_id": {
+          "name": "client_request_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -6474,6 +6594,55 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_cr_portal_status_created": {
+          "name": "idx_cr_portal_status_created",
+          "columns": [
+            {
+              "expression": "portal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "\"created_at\" desc",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_cr_deal_client_request": {
+          "name": "uq_cr_deal_client_request",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "client_request_id IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -6531,6 +6700,45 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "change_request_created_by_client_client_account_id_fk": {
+          "name": "change_request_created_by_client_client_account_id_fk",
+          "tableFrom": "change_request",
+          "tableTo": "client_account",
+          "columnsFrom": [
+            "created_by_client"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "change_request_current_proposal_fk": {
+          "name": "change_request_current_proposal_fk",
+          "tableFrom": "change_request",
+          "tableTo": "change_request_proposal",
+          "columnsFrom": [
+            "current_proposal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "change_request_approved_proposal_fk": {
+          "name": "change_request_approved_proposal_fk",
+          "tableFrom": "change_request",
+          "tableTo": "change_request_proposal",
+          "columnsFrom": [
+            "approved_proposal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -6552,7 +6760,15 @@
         },
         "change_request_status_check": {
           "name": "change_request_status_check",
-          "value": "\"change_request\".\"status\" IN ('draft','sent','approved','rejected','negotiating','approved_verbally','disputed','completed')"
+          "value": "\"change_request\".\"status\" IN ('draft','submitted','under_review','sent','negotiating','approved_verbally','approved','disputed','rejected','cancelled','completed')"
+        },
+        "change_request_priority_check": {
+          "name": "change_request_priority_check",
+          "value": "\"change_request\".\"priority\" IN ('low','normal','high')"
+        },
+        "change_request_decision_reason_check": {
+          "name": "change_request_decision_reason_check",
+          "value": "\"change_request\".\"decision_reason\" IN ('cost','timeline','no_longer_needed','requirement_changed','other')"
         }
       },
       "isRLSEnabled": false
@@ -6573,6 +6789,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "comment_id": {
+          "name": "comment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "name": {
           "name": "name",
           "type": "text",
@@ -6591,8 +6813,20 @@
           "primaryKey": false,
           "notNull": false
         },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "uploaded_by": {
           "name": "uploaded_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uploaded_by_client": {
+          "name": "uploaded_by_client",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -6620,6 +6854,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_cr_attachment_cr": {
+          "name": "idx_cr_attachment_cr",
+          "columns": [
+            {
+              "expression": "change_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -6636,12 +6885,38 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
+        "change_request_attachment_comment_id_change_request_comment_id_fk": {
+          "name": "change_request_attachment_comment_id_change_request_comment_id_fk",
+          "tableFrom": "change_request_attachment",
+          "tableTo": "change_request_comment",
+          "columnsFrom": [
+            "comment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
         "change_request_attachment_uploaded_by_hub_user_id_fk": {
           "name": "change_request_attachment_uploaded_by_hub_user_id_fk",
           "tableFrom": "change_request_attachment",
           "tableTo": "hub_user",
           "columnsFrom": [
             "uploaded_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "change_request_attachment_uploaded_by_client_client_account_id_fk": {
+          "name": "change_request_attachment_uploaded_by_client_client_account_id_fk",
+          "tableFrom": "change_request_attachment",
+          "tableTo": "client_account",
+          "columnsFrom": [
+            "uploaded_by_client"
           ],
           "columnsTo": [
             "id"
@@ -6789,6 +7064,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'status_changed'"
+        },
         "from_status": {
           "name": "from_status",
           "type": "text",
@@ -6799,13 +7081,26 @@
           "name": "to_status",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "comment": {
           "name": "comment",
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "actor_role": {
+          "name": "actor_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
         "changed_by_user": {
           "name": "changed_by_user",
@@ -6827,7 +7122,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_cr_history_cr": {
+          "name": "idx_cr_history_cr",
+          "columns": [
+            {
+              "expression": "change_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "\"changed_at\" desc",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "change_request_history_change_request_id_change_request_id_fk": {
           "name": "change_request_history_change_request_id_change_request_id_fk",
@@ -6872,7 +7189,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "change_request_history_event_type_check": {
+          "name": "change_request_history_event_type_check",
+          "value": "\"change_request_history\".\"event_type\" IN ('created','submitted','review_started','proposal_sent','proposal_updated','status_changed','comment_added','attachment_added','approved','rejected','adjustment_requested','cancelled','completed')"
+        },
+        "change_request_history_actor_role_check": {
+          "name": "change_request_history_actor_role_check",
+          "value": "\"change_request_history\".\"actor_role\" IN ('admin','client','system')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.change_request_item": {
@@ -6890,6 +7216,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "proposal_id": {
+          "name": "proposal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "description": {
           "name": "description",
@@ -6942,6 +7274,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_cr_item_proposal": {
+          "name": "idx_cr_item_proposal",
+          "columns": [
+            {
+              "expression": "proposal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -6957,12 +7304,208 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "change_request_item_proposal_id_change_request_proposal_id_fk": {
+          "name": "change_request_item_proposal_id_change_request_proposal_id_fk",
+          "tableFrom": "change_request_item",
+          "tableTo": "change_request_proposal",
+          "columnsFrom": [
+            "proposal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.change_request_proposal": {
+      "name": "change_request_proposal",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "change_request_id": {
+          "name": "change_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(12, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "timeline_impact_days": {
+          "name": "timeline_impact_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "new_delivery_date": {
+          "name": "new_delivery_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_client": {
+          "name": "decided_by_client",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_cr_proposal_cr_version": {
+          "name": "idx_cr_proposal_cr_version",
+          "columns": [
+            {
+              "expression": "change_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "\"version\" desc",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "change_request_proposal_change_request_id_change_request_id_fk": {
+          "name": "change_request_proposal_change_request_id_change_request_id_fk",
+          "tableFrom": "change_request_proposal",
+          "tableTo": "change_request",
+          "columnsFrom": [
+            "change_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "change_request_proposal_created_by_hub_user_id_fk": {
+          "name": "change_request_proposal_created_by_hub_user_id_fk",
+          "tableFrom": "change_request_proposal",
+          "tableTo": "hub_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "change_request_proposal_decided_by_client_client_account_id_fk": {
+          "name": "change_request_proposal_decided_by_client_client_account_id_fk",
+          "tableFrom": "change_request_proposal",
+          "tableTo": "client_account",
+          "columnsFrom": [
+            "decided_by_client"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_cr_proposal_version": {
+          "name": "uq_cr_proposal_version",
+          "nullsNotDistinct": false,
+          "columns": [
+            "change_request_id",
+            "version"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "change_request_proposal_status_check": {
+          "name": "change_request_proposal_status_check",
+          "value": "\"change_request_proposal\".\"status\" IN ('draft','sent','superseded','accepted','rejected')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.document": {
@@ -6989,6 +7532,12 @@
         },
         "cr_id": {
           "name": "cr_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "folder_id": {
+          "name": "folder_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -7066,6 +7615,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "uploaded_by_client_account_id": {
+          "name": "uploaded_by_client_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "archived": {
           "name": "archived",
           "type": "boolean",
@@ -7114,6 +7669,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_document_folder": {
+          "name": "idx_document_folder",
+          "columns": [
+            {
+              "expression": "folder_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "archived = false",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -7184,6 +7755,34 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "document_uploaded_by_client_account_id_client_account_id_fk": {
+          "name": "document_uploaded_by_client_account_id_client_account_id_fk",
+          "tableFrom": "document",
+          "tableTo": "client_account",
+          "columnsFrom": [
+            "uploaded_by_client_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "document_folder_deal_fk": {
+          "name": "document_folder_deal_fk",
+          "tableFrom": "document",
+          "tableTo": "document_folder",
+          "columnsFrom": [
+            "folder_id",
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id",
+            "deal_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -7209,6 +7808,195 @@
         "document_docuseal_status_check": {
           "name": "document_docuseal_status_check",
           "value": "\"document\".\"docuseal_status\" IN ('pending','completed','declined','expired')"
+        },
+        "document_creator_check": {
+          "name": "document_creator_check",
+          "value": "NOT (\"document\".\"created_by\" IS NOT NULL AND \"document\".\"uploaded_by_client_account_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.document_folder": {
+      "name": "document_folder",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "portal_id": {
+          "name": "portal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_client_account_id": {
+          "name": "created_by_client_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "archived": {
+          "name": "archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_document_folder_deal": {
+          "name": "idx_document_folder_deal",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_document_folder_deal_name": {
+          "name": "uq_document_folder_deal_name",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "archived = false",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "document_folder_portal_id_portal_id_fk": {
+          "name": "document_folder_portal_id_portal_id_fk",
+          "tableFrom": "document_folder",
+          "tableTo": "portal",
+          "columnsFrom": [
+            "portal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "document_folder_deal_id_deal_id_fk": {
+          "name": "document_folder_deal_id_deal_id_fk",
+          "tableFrom": "document_folder",
+          "tableTo": "deal",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "document_folder_created_by_hub_user_id_fk": {
+          "name": "document_folder_created_by_hub_user_id_fk",
+          "tableFrom": "document_folder",
+          "tableTo": "hub_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "document_folder_created_by_client_account_id_client_account_id_fk": {
+          "name": "document_folder_created_by_client_account_id_client_account_id_fk",
+          "tableFrom": "document_folder",
+          "tableTo": "client_account",
+          "columnsFrom": [
+            "created_by_client_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_document_folder_id_deal": {
+          "name": "uq_document_folder_id_deal",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "deal_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "document_folder_name_length_check": {
+          "name": "document_folder_name_length_check",
+          "value": "char_length(btrim(\"document_folder\".\"name\")) BETWEEN 1 AND 120"
+        },
+        "document_folder_creator_check": {
+          "name": "document_folder_creator_check",
+          "value": "(\"document_folder\".\"created_by\" IS NOT NULL) <> (\"document_folder\".\"created_by_client_account_id\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -8725,6 +9513,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "change_request_id": {
+          "name": "change_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "text",
@@ -8825,6 +9619,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_invoice_change_request": {
+          "name": "idx_invoice_change_request",
+          "columns": [
+            {
+              "expression": "change_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -8873,6 +9682,19 @@
           "tableTo": "retainer",
           "columnsFrom": [
             "retainer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "invoice_change_request_id_change_request_id_fk": {
+          "name": "invoice_change_request_id_change_request_id_fk",
+          "tableFrom": "invoice",
+          "tableTo": "change_request",
+          "columnsFrom": [
+            "change_request_id"
           ],
           "columnsTo": [
             "id"
@@ -10474,7 +11296,7 @@
       "checkConstraints": {
         "file_upload_purpose_check": {
           "name": "file_upload_purpose_check",
-          "value": "\"file_upload\".\"purpose\" IN ('deal_document','library_item','expense_receipt','proposal_logo','brand_logo','onboarding_material')"
+          "value": "\"file_upload\".\"purpose\" IN ('deal_document','library_item','expense_receipt','proposal_logo','brand_logo','onboarding_material','cr_attachment')"
         },
         "file_upload_status_check": {
           "name": "file_upload_status_check",

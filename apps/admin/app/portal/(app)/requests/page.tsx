@@ -1,13 +1,10 @@
 'use client'
 
+// El header (título, descripción y CTA "+ Nueva solicitud") vive dentro de
+// `RequestsPanel`: necesita el estado del sheet de creación, igual que
+// `DocumentsPanel` arma el suyo con sus propias acciones (búsqueda, filtro).
 import { RequestsPanel } from '@portal/components/portal/requests-panel'
-import { SectionHeader } from '@portal/components/portal/section-header'
 
 export default function RequestsPanelPage() {
-  return (
-    <div className="space-y-6">
-      <SectionHeader eyebrow="Tu proyecto" title="Solicitudes" description="Pedidos de cambio sobre el alcance acordado." />
-      <RequestsPanel />
-    </div>
-  )
+  return <RequestsPanel />
 }

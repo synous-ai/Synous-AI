@@ -1,5 +1,5 @@
 {
-  "id": "7b3353a0-80f4-44c1-921b-14c1f1be9a6f",
+  "id": "b5e6da54-fe3b-4a80-b3c2-2d6abab4355a",
   "prevId": "f5644014-ad71-4b9d-b852-fbb81bc798ef",
   "version": "7",
   "dialect": "postgresql",
@@ -3631,529 +3631,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.process_task": {
-      "name": "process_task",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "process_id": {
-          "name": "process_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "steps": {
-          "name": "steps",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_process_task_process": {
-          "name": "idx_process_task_process",
-          "columns": [
-            {
-              "expression": "process_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "position",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "process_task_process_id_process_id_fk": {
-          "name": "process_task_process_id_process_id_fk",
-          "tableFrom": "process_task",
-          "tableTo": "process",
-          "columnsFrom": [
-            "process_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.process": {
-      "name": "process",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "portal_id": {
-          "name": "portal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "archived": {
-          "name": "archived",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "process_portal_id_portal_id_fk": {
-          "name": "process_portal_id_portal_id_fk",
-          "tableFrom": "process",
-          "tableTo": "portal",
-          "columnsFrom": [
-            "portal_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "process_portal_slug_unique": {
-          "name": "process_portal_slug_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "portal_id",
-            "slug"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.project": {
-      "name": "project",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "portal_id": {
-          "name": "portal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deal_id": {
-          "name": "deal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "company_id": {
-          "name": "company_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'not_started'"
-        },
-        "stage": {
-          "name": "stage",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "priority": {
-          "name": "priority",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'medium'"
-        },
-        "start_date": {
-          "name": "start_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "due_date": {
-          "name": "due_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "repo_url": {
-          "name": "repo_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "staging_url": {
-          "name": "staging_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "production_url": {
-          "name": "production_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "notes_important": {
-          "name": "notes_important",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "archived": {
-          "name": "archived",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_project_portal_status": {
-          "name": "idx_project_portal_status",
-          "columns": [
-            {
-              "expression": "portal_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "archived",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_project_deal": {
-          "name": "idx_project_deal",
-          "columns": [
-            {
-              "expression": "deal_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "project_portal_id_portal_id_fk": {
-          "name": "project_portal_id_portal_id_fk",
-          "tableFrom": "project",
-          "tableTo": "portal",
-          "columnsFrom": [
-            "portal_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "project_deal_id_deal_id_fk": {
-          "name": "project_deal_id_deal_id_fk",
-          "tableFrom": "project",
-          "tableTo": "deal",
-          "columnsFrom": [
-            "deal_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "project_company_id_company_id_fk": {
-          "name": "project_company_id_company_id_fk",
-          "tableFrom": "project",
-          "tableTo": "company",
-          "columnsFrom": [
-            "company_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "project_created_by_hub_user_id_fk": {
-          "name": "project_created_by_hub_user_id_fk",
-          "tableFrom": "project",
-          "tableTo": "hub_user",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "project_status_check": {
-          "name": "project_status_check",
-          "value": "\"project\".\"status\" IN ('not_started','in_progress','in_review','waiting_client','on_hold','delivered')"
-        },
-        "project_stage_check": {
-          "name": "project_stage_check",
-          "value": "\"project\".\"stage\" IS NULL OR \"project\".\"stage\" IN ('discovery','design','development','qa','client_review','changes','delivery')"
-        },
-        "project_priority_check": {
-          "name": "project_priority_check",
-          "value": "\"project\".\"priority\" IN ('low','medium','high')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.project_member": {
-      "name": "project_member",
-      "schema": "",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "hub_user_id": {
-          "name": "hub_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "idx_project_member_user": {
-          "name": "idx_project_member_user",
-          "columns": [
-            {
-              "expression": "hub_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "project_member_project_id_project_id_fk": {
-          "name": "project_member_project_id_project_id_fk",
-          "tableFrom": "project_member",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "project_member_hub_user_id_hub_user_id_fk": {
-          "name": "project_member_hub_user_id_hub_user_id_fk",
-          "tableFrom": "project_member",
-          "tableTo": "hub_user",
-          "columnsFrom": [
-            "hub_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "project_member_project_id_hub_user_id_pk": {
-          "name": "project_member_project_id_hub_user_id_pk",
-          "columns": [
-            "project_id",
-            "hub_user_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.call": {
       "name": "call",
       "schema": "",
@@ -4796,35 +4273,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "steps": {
-          "name": "steps",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -4887,33 +4337,6 @@
           "columns": [
             {
               "expression": "deal_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_task_project_board": {
-          "name": "idx_task_project_board",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "position",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5060,19 +4483,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "task_project_id_project_id_fk": {
-          "name": "task_project_id_project_id_fk",
-          "tableFrom": "task",
-          "tableTo": "project",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -5081,89 +4491,13 @@
       "checkConstraints": {
         "task_status_check": {
           "name": "task_status_check",
-          "value": "\"task\".\"status\" IN ('pending','in_progress','in_review','completed','cancelled','blocked')"
+          "value": "\"task\".\"status\" IN ('pending','in_progress','completed','cancelled','blocked')"
         },
         "task_priority_check": {
           "name": "task_priority_check",
           "value": "\"task\".\"priority\" IN ('low','medium','high')"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.task_assignee": {
-      "name": "task_assignee",
-      "schema": "",
-      "columns": {
-        "task_id": {
-          "name": "task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "hub_user_id": {
-          "name": "hub_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "idx_task_assignee_user": {
-          "name": "idx_task_assignee_user",
-          "columns": [
-            {
-              "expression": "hub_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "task_assignee_task_id_task_id_fk": {
-          "name": "task_assignee_task_id_task_id_fk",
-          "tableFrom": "task_assignee",
-          "tableTo": "task",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "task_assignee_hub_user_id_hub_user_id_fk": {
-          "name": "task_assignee_hub_user_id_hub_user_id_fk",
-          "tableFrom": "task_assignee",
-          "tableTo": "hub_user",
-          "columnsFrom": [
-            "hub_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "task_assignee_task_id_hub_user_id_pk": {
-          "name": "task_assignee_task_id_hub_user_id_pk",
-          "columns": [
-            "task_id",
-            "hub_user_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.record_history": {
@@ -6993,6 +6327,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "folder_id": {
+          "name": "folder_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "name": {
           "name": "name",
           "type": "text",
@@ -7066,6 +6406,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "uploaded_by_client_account_id": {
+          "name": "uploaded_by_client_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "archived": {
           "name": "archived",
           "type": "boolean",
@@ -7114,6 +6460,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_document_folder": {
+          "name": "idx_document_folder",
+          "columns": [
+            {
+              "expression": "folder_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "archived = false",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -7184,6 +6546,34 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "document_uploaded_by_client_account_id_client_account_id_fk": {
+          "name": "document_uploaded_by_client_account_id_client_account_id_fk",
+          "tableFrom": "document",
+          "tableTo": "client_account",
+          "columnsFrom": [
+            "uploaded_by_client_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "document_folder_deal_fk": {
+          "name": "document_folder_deal_fk",
+          "tableFrom": "document",
+          "tableTo": "document_folder",
+          "columnsFrom": [
+            "folder_id",
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id",
+            "deal_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -7209,6 +6599,195 @@
         "document_docuseal_status_check": {
           "name": "document_docuseal_status_check",
           "value": "\"document\".\"docuseal_status\" IN ('pending','completed','declined','expired')"
+        },
+        "document_creator_check": {
+          "name": "document_creator_check",
+          "value": "NOT (\"document\".\"created_by\" IS NOT NULL AND \"document\".\"uploaded_by_client_account_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.document_folder": {
+      "name": "document_folder",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "portal_id": {
+          "name": "portal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_client_account_id": {
+          "name": "created_by_client_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "archived": {
+          "name": "archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_document_folder_deal": {
+          "name": "idx_document_folder_deal",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_document_folder_deal_name": {
+          "name": "uq_document_folder_deal_name",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "archived = false",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "document_folder_portal_id_portal_id_fk": {
+          "name": "document_folder_portal_id_portal_id_fk",
+          "tableFrom": "document_folder",
+          "tableTo": "portal",
+          "columnsFrom": [
+            "portal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "document_folder_deal_id_deal_id_fk": {
+          "name": "document_folder_deal_id_deal_id_fk",
+          "tableFrom": "document_folder",
+          "tableTo": "deal",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "document_folder_created_by_hub_user_id_fk": {
+          "name": "document_folder_created_by_hub_user_id_fk",
+          "tableFrom": "document_folder",
+          "tableTo": "hub_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "document_folder_created_by_client_account_id_client_account_id_fk": {
+          "name": "document_folder_created_by_client_account_id_client_account_id_fk",
+          "tableFrom": "document_folder",
+          "tableTo": "client_account",
+          "columnsFrom": [
+            "created_by_client_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_document_folder_id_deal": {
+          "name": "uq_document_folder_id_deal",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "deal_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "document_folder_name_length_check": {
+          "name": "document_folder_name_length_check",
+          "value": "char_length(btrim(\"document_folder\".\"name\")) BETWEEN 1 AND 120"
+        },
+        "document_folder_creator_check": {
+          "name": "document_folder_creator_check",
+          "value": "(\"document_folder\".\"created_by\" IS NOT NULL) <> (\"document_folder\".\"created_by_client_account_id\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false

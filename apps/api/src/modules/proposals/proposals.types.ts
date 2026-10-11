@@ -56,7 +56,7 @@ export interface ProposalScopePhase {
 }
 
 export interface ProposalScopePath {
-  icon: 'modules' | 'versions'
+  icon: 'modules' | 'versions' | 'mobile'
   title: string
   body: string
 }

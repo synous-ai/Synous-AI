@@ -103,6 +103,55 @@ export const NOTIFICATION_EVENTS = {
     actionUrl: (p) => `/change-requests/${p.crId}`,
   }),
 
+  /** El cliente abrió una solicitud desde el portal: entra a la cola del equipo. */
+  cr_submitted: def<{ crId: string; crNumber: number; title: string; dealName: string | null }>({
+    audience: 'admin',
+    priority: 'high',
+    title: (p) => `Nueva solicitud del cliente #${p.crNumber}`,
+    body: (p) => `${p.title}${p.dealName ? ` · ${p.dealName}` : ''}`,
+    actionUrl: (p) => `/change-requests/${p.crId}`,
+  }),
+
+  /**
+   * El cliente no rechazó ni aprobó: pide un ajuste sobre la propuesta. La
+   * pelota vuelve al equipo, por eso pesa igual que una decisión.
+   */
+  cr_adjustment_requested: def<{ crId: string; crNumber: number; area: string }>({
+    audience: 'admin',
+    priority: 'high',
+    title: (p) => `CR #${p.crNumber}: el cliente pidió un ajuste`,
+    body: (p) => `Área: ${p.area}.`,
+    actionUrl: (p) => `/change-requests/${p.crId}`,
+  }),
+
+  cr_cancelled_by_client: def<{ crId: string; crNumber: number; title: string }>({
+    audience: 'admin',
+    priority: 'normal',
+    title: (p) => `CR #${p.crNumber} cancelada por el cliente`,
+    body: (p) => p.title,
+    actionUrl: (p) => `/change-requests/${p.crId}`,
+  }),
+
+  cr_client_commented: def<{ crId: string; crNumber: number }>({
+    audience: 'admin',
+    priority: 'normal',
+    title: (p) => `Nuevo comentario del cliente en la CR #${p.crNumber}`,
+    actionUrl: (p) => `/change-requests/${p.crId}`,
+  }),
+
+  /**
+   * El cliente subió archivos a la solicitud (un plano, una captura, una
+   * referencia). Adjuntar sin avisar equivalía a que el equipo se enterara solo
+   * si entraba a mirar. Sin `dedupeKey`, igual que los comentarios: cada subida
+   * es un hecho propio.
+   */
+  cr_client_attached: def<{ crId: string; crNumber: number; count: number }>({
+    audience: 'admin',
+    priority: 'normal',
+    title: (p) => `El cliente adjuntó ${p.count === 1 ? 'un archivo' : `${p.count} archivos`} en la CR #${p.crNumber}`,
+    actionUrl: (p) => `/change-requests/${p.crId}`,
+  }),
+
   /** Bloquea el avance del proyecto: el equipo tiene que reaccionar. */
   deliverable_changes_requested: def<{ dealId: string; deliverableTitle: string }>({
     audience: 'admin',
@@ -265,6 +314,43 @@ export const NOTIFICATION_EVENTS = {
     audience: 'client',
     priority: 'normal',
     title: (p) => `Nuevo comentario en la solicitud #${p.crNumber}`,
+    actionUrl: () => `/requests`,
+  }),
+
+  /** El equipo adjuntó material a la solicitud. Contraparte de `cr_client_attached`. */
+  cr_attachment_added: def<{ crId: string; crNumber: number; count: number }>({
+    audience: 'client',
+    priority: 'normal',
+    title: (p) => `${p.count === 1 ? 'Nuevo archivo' : `${p.count} archivos nuevos`} en la solicitud #${p.crNumber}`,
+    actionUrl: () => `/requests`,
+  }),
+
+  /**
+   * REENVÍO de propuesta (versión 2 en adelante). El primer envío sigue siendo
+   * `cr_sent`: para el cliente son dos hechos distintos ("tenés algo para
+   * decidir" vs. "cambiamos lo que te habíamos mandado").
+   */
+  cr_proposal_updated: def<{ crId: string; crNumber: number; version: number }>({
+    audience: 'client',
+    priority: 'high',
+    title: (p) => `Propuesta actualizada en la solicitud #${p.crNumber}`,
+    body: (p) => `Versión ${p.version}. Necesitamos tu respuesta.`,
+    actionUrl: () => `/requests`,
+  }),
+
+  cr_completed: def<{ crId: string; crNumber: number; title: string }>({
+    audience: 'client',
+    priority: 'normal',
+    title: (p) => `Solicitud #${p.crNumber} completada`,
+    body: (p) => p.title,
+    actionUrl: () => `/requests`,
+  }),
+
+  cr_cancelled: def<{ crId: string; crNumber: number; title: string }>({
+    audience: 'client',
+    priority: 'normal',
+    title: (p) => `Solicitud #${p.crNumber} cancelada`,
+    body: (p) => p.title,
     actionUrl: () => `/requests`,
   }),
 

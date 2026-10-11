@@ -3,7 +3,7 @@ import { cursorWhere, decodeCursor, paginateRows, type Paginated } from '../../l
 import { db } from '../../db'
 import { deliverable, deal } from '../../db/schema'
 import { Errors } from '../../lib/errors'
-import { assertDealInPortal } from '../../lib/portal-access'
+import { assertChangeRequestInPortal, assertDealInPortal } from '../../lib/portal-access'
 import type { Tx } from '../../lib/audit'
 import type { CreateDeliverableDTO, UpdateDeliverableDTO, DeliverableListQueryType } from './deliverables.schema'
 import { notifyDealClients } from '../notifications/notify'
@@ -59,6 +59,9 @@ export async function createDeliverable(
 ): Promise<DeliverableRow> {
   return db.transaction(async (tx) => {
     await assertDealInPortal(portalId, input.dealId, tx)
+    // Mismo deal, no solo mismo portal: el detalle de la CR se lee desde el
+    // portal del cliente y un entregable de otro proyecto no puede colarse ahí.
+    await assertChangeRequestInPortal(portalId, input.changeRequestId, tx, input.dealId)
 
     const [row] = await tx
       .insert(deliverable)
@@ -68,6 +71,7 @@ export async function createDeliverable(
         type: input.type,
         url: input.url ?? null,
         description: input.description ?? null,
+        changeRequestId: input.changeRequestId ?? null,
         // Omitido → cae al default de la columna (true).
         ...(input.visibleToClient === undefined ? {} : { visibleToClient: input.visibleToClient }),
         createdBy: userId,
@@ -95,7 +99,8 @@ export async function updateDeliverable(
   input: UpdateDeliverableDTO,
 ): Promise<DeliverableRow> {
   return db.transaction(async (tx) => {
-    await requireDeliverableInPortal(tx, id, portalId)
+    const current = await requireDeliverableInPortal(tx, id, portalId)
+    await assertChangeRequestInPortal(portalId, input.changeRequestId, tx, current.dealId)
 
     const reviewTimestamp =
       input.status === 'approved' || input.status === 'changes_requested'

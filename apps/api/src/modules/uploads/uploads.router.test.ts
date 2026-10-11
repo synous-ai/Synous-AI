@@ -127,9 +127,18 @@ describe('POST /api/uploads — intent', () => {
   })
 
   it('el cliente pidiendo un propósito del equipo → 403 FILE_PURPOSE_FORBIDDEN', async () => {
-    const asClient = await intent(clientA.token, { purpose: 'deal_document', fileName: 'x.pdf', contentType: 'application/pdf', sizeBytes: 10 }, '/api/client/uploads')
+    // `library_item` sigue siendo exclusivo del equipo (material interno) —
+    // a diferencia de `deal_document`, que desde document-folders también
+    // acepta al cliente (sube sus propios documentos del proyecto).
+    const asClient = await intent(clientA.token, { purpose: 'library_item', fileName: 'x.zip', contentType: 'application/zip', sizeBytes: 10 }, '/api/client/uploads')
     expect(asClient.status).toBe(403)
     expect(asClient.body.error.code).toBe('FILE_PURPOSE_FORBIDDEN')
+  })
+
+  it('el cliente SÍ puede pedir deal_document (documentos propios del proyecto, portal → Documentos)', async () => {
+    const asClient = await intent(clientA.token, { purpose: 'deal_document', fileName: 'x.pdf', contentType: 'application/pdf', sizeBytes: 10 }, '/api/client/uploads')
+    expect(asClient.status).toBe(201)
+    expect(asClient.body.data.mode).toBe('server')
   })
 
   it('el equipo también puede reservar onboarding_material (agrega archivos de marca al deal desde el detalle de onboarding)', async () => {

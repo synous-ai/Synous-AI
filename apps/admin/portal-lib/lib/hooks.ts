@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { clientBucketFor, type ChangeRequestPriority, type CRRejectionReason, type CRAdjustmentArea } from '@synous/shared'
 import { apiGet, apiPost, apiPatch, apiDelete, apiList } from './api'
 import { fetchAllPages } from '@/lib/fetch-all-pages'
 import { uploadFile, getFileAccessUrl } from './files'
@@ -8,6 +9,10 @@ import type {
   Deliverable,
   ClientIntake,
   ChangeRequest,
+  ChangeRequestDetail,
+  ChangeRequestSummary,
+  CRComment,
+  CRUploadRef,
   ClientInvoice,
   ClientDocument,
   ClientDocusealSignedDocument,
@@ -93,11 +98,74 @@ export function useRespondIntake() {
 }
 
 // ─── Change Requests ──────────────────────────────────────────────────────────
+// Ver apps/api/src/modules/change-requests (prefix /api/client/change-requests).
+// El catálogo de estados/acciones/buckets es de @synous/shared — ningún hook
+// ni componente vuelve a hardcodear qué estados son "accionables" o qué
+// bucket le corresponde a cada uno (ver clientBucketFor / clientActionsFor).
+//
+// Una sola queryKey raíz (`CR_KEY`) para lista, resumen y detalle: invalidar
+// `CR_KEY` alcanza (por prefijo) a las tres, así que toda mutation de CR
+// invalida con una sola línea sin tener que enumerar cada variante.
+
+const CR_KEY = ['change-requests'] as const
 
 export function useClientChangeRequests() {
   return useQuery<ChangeRequest[]>({
-    queryKey: ['change-requests'],
+    queryKey: CR_KEY,
     queryFn: () => fetchAllPages<ChangeRequest>(apiList, '/api/client/change-requests'),
+  })
+}
+
+/** Contadores reales del backend para las tabs (Todas / Requieren acción / En revisión / Resueltas). */
+export function useCRSummary() {
+  return useQuery<ChangeRequestSummary>({
+    queryKey: [...CR_KEY, 'summary'],
+    queryFn: () => apiGet<ChangeRequestSummary>('/api/client/change-requests/summary'),
+  })
+}
+
+export function useClientChangeRequest(id: string) {
+  return useQuery<ChangeRequestDetail>({
+    queryKey: [...CR_KEY, id],
+    queryFn: () => apiGet<ChangeRequestDetail>(`/api/client/change-requests/${id}`),
+    enabled: Boolean(id),
+  })
+}
+
+export interface CreateCRInput {
+  dealId?: string
+  title: string
+  description: string
+  context?: string
+  priority?: ChangeRequestPriority
+  /**
+   * UUID generado por el caller, UNA sola vez por formulario abierto (ver
+   * CreateRequestSheet). Evita que un doble submit (doble click, reintento de
+   * red) cree dos solicitudes — el backend deduplica por este id.
+   */
+  clientRequestId: string
+  uploads?: CRUploadRef[]
+}
+
+/**
+ * Al servidor viaja SOLO la `storageKey`. Nombre, MIME y tamaño los resuelve el
+ * backend contra el ledger `file_upload` al reclamar la subida; mandarlos desde
+ * acá sugeriría que el cliente puede decidirlos, y no puede. `CRUploadRef`
+ * conserva esos campos porque los necesita la UI para listar lo ya adjuntado.
+ */
+function toUploadRefs(uploads: CRUploadRef[] | undefined): { storageKey: string }[] | undefined {
+  if (!uploads || uploads.length === 0) return undefined
+  return uploads.map(({ storageKey }) => ({ storageKey }))
+}
+
+export function useCreateCR() {
+  const queryClient = useQueryClient()
+  return useMutation<ChangeRequest, Error, CreateCRInput>({
+    mutationFn: ({ uploads, ...input }) =>
+      apiPost<ChangeRequest>('/api/client/change-requests', { ...input, uploads: toUploadRefs(uploads) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CR_KEY })
+    },
   })
 }
 
@@ -107,26 +175,52 @@ export function useApproveCR() {
     mutationFn: ({ id, comment }) =>
       apiPost<{ success: true }>(`/api/client/change-requests/${id}/approve`, comment ? { comment } : undefined),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['change-requests'] })
+      void queryClient.invalidateQueries({ queryKey: CR_KEY })
     },
   })
 }
 
 export function useRejectCR() {
   const queryClient = useQueryClient()
+  return useMutation<{ success: true }, Error, { id: string; reason?: CRRejectionReason; comment?: string }>({
+    mutationFn: ({ id, reason, comment }) =>
+      apiPost<{ success: true }>(`/api/client/change-requests/${id}/reject`, { reason, comment }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CR_KEY })
+    },
+  })
+}
+
+export function useRequestAdjustment() {
+  const queryClient = useQueryClient()
+  return useMutation<{ success: true }, Error, { id: string; area: CRAdjustmentArea; comment: string }>({
+    mutationFn: ({ id, area, comment }) =>
+      apiPost<{ success: true }>(`/api/client/change-requests/${id}/request-adjustment`, { area, comment }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CR_KEY })
+    },
+  })
+}
+
+export function useCancelCR() {
+  const queryClient = useQueryClient()
   return useMutation<{ success: true }, Error, { id: string; comment?: string }>({
     mutationFn: ({ id, comment }) =>
-      apiPost<{ success: true }>(`/api/client/change-requests/${id}/reject`, comment ? { comment } : undefined),
+      apiPost<{ success: true }>(`/api/client/change-requests/${id}/cancel`, comment ? { comment } : undefined),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['change-requests'] })
+      void queryClient.invalidateQueries({ queryKey: CR_KEY })
     },
   })
 }
 
 export function useCommentCR() {
-  return useMutation<void, Error, { id: string; body: string }>({
-    mutationFn: ({ id, body }) =>
-      apiPost<void>(`/api/client/change-requests/${id}/comments`, { body }),
+  const queryClient = useQueryClient()
+  return useMutation<CRComment, Error, { id: string; body: string; uploads?: CRUploadRef[] }>({
+    mutationFn: ({ id, body, uploads }) =>
+      apiPost<CRComment>(`/api/client/change-requests/${id}/comments`, { body, uploads: toUploadRefs(uploads) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CR_KEY })
+    },
   })
 }
 
@@ -532,9 +626,7 @@ export function usePortalPendingCounts(): PortalPending {
   const pendingForms = (intakes.data ?? []).filter(
     (i) => i.status === 'pending' || i.status === 'in_progress',
   )
-  const pendingRequests = (crs.data ?? []).filter((cr) =>
-    (['sent', 'negotiating'] as string[]).includes(cr.status),
-  )
+  const pendingRequests = (crs.data ?? []).filter((cr) => clientBucketFor(cr.status) === 'needs_action')
   // 'sent' y 'overdue' CON saldo pendiente: emitida sin saldar. Sin el chequeo
   // de balance, una factura marcada 'overdue' a mano pero ya cobrada seguía
   // sumando al badge del sidebar y a la tarjeta de Inicio.

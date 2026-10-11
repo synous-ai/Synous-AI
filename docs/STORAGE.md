@@ -28,7 +28,7 @@ el atributo `accept`; la API es la única autoridad.
 
 | Purpose | Quién sube | Superficie | Tipos | Máximo | Referencia en DB |
 |---|---|---|---|---|---|
-| `deal_document` | equipo | Admin → detalle de deal | PDF, PNG, JPEG, WebP, GIF, DOCX, XLSX, PPTX, ZIP | 50 MB | `document.storage_key` |
+| `deal_document` | equipo o cliente | Admin → detalle de deal · Portal → Documentos | PDF, PNG, JPEG, WebP, GIF, DOCX, XLSX, PPTX, ZIP | 50 MB | `document.storage_key` |
 | `library_item` | equipo | Admin → biblioteca | igual que `deal_document` | 50 MB | `library_item.storage_key` |
 | `expense_receipt` | equipo | API de gastos (sin UI todavía) | PDF, PNG, JPEG, WebP | 10 MB | `expense.storage_key` |
 | `proposal_logo` | — | Reservado, sin uploader: la landing de propuestas rediseñada no muestra logo del cliente. Sigue en el `CHECK` de la migración `0040`; quitarlo requiere una migración | PNG, JPEG, WebP, GIF | 2 MB | — |

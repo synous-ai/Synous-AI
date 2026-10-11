@@ -61,6 +61,19 @@ CREATE TABLE "task_assignee" (
 	CONSTRAINT "task_assignee_task_id_hub_user_id_pk" PRIMARY KEY("task_id","hub_user_id")
 );
 --> statement-breakpoint
+CREATE TABLE "team_member_profile" (
+	"hub_user_id" text PRIMARY KEY NOT NULL,
+	"portal_id" text NOT NULL,
+	"job_title" text,
+	"responsibilities" text,
+	"autonomous_decisions" text,
+	"approval_required" text,
+	"work_status" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "team_member_profile_work_status_check" CHECK ("team_member_profile"."work_status" IS NULL OR "team_member_profile"."work_status" IN ('available','working','blocked','waiting_approval'))
+);
+--> statement-breakpoint
 ALTER TABLE "task" DROP CONSTRAINT "task_status_check";--> statement-breakpoint
 ALTER TABLE "task" ADD COLUMN "project_id" text;--> statement-breakpoint
 ALTER TABLE "task" ADD COLUMN "position" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
@@ -76,6 +89,8 @@ ALTER TABLE "project_member" ADD CONSTRAINT "project_member_project_id_project_i
 ALTER TABLE "project_member" ADD CONSTRAINT "project_member_hub_user_id_hub_user_id_fk" FOREIGN KEY ("hub_user_id") REFERENCES "public"."hub_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "task_assignee" ADD CONSTRAINT "task_assignee_task_id_task_id_fk" FOREIGN KEY ("task_id") REFERENCES "public"."task"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "task_assignee" ADD CONSTRAINT "task_assignee_hub_user_id_hub_user_id_fk" FOREIGN KEY ("hub_user_id") REFERENCES "public"."hub_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "team_member_profile" ADD CONSTRAINT "team_member_profile_hub_user_id_hub_user_id_fk" FOREIGN KEY ("hub_user_id") REFERENCES "public"."hub_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "team_member_profile" ADD CONSTRAINT "team_member_profile_portal_id_portal_id_fk" FOREIGN KEY ("portal_id") REFERENCES "public"."portal"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_process_task_process" ON "process_task" USING btree ("process_id","position");--> statement-breakpoint
 CREATE INDEX "idx_project_portal_status" ON "project" USING btree ("portal_id","archived","status");--> statement-breakpoint
 CREATE INDEX "idx_project_deal" ON "project" USING btree ("deal_id");--> statement-breakpoint

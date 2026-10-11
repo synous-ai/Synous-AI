@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db'
-import { portal, hubUser, pipeline, pipelineStage } from '../db/schema'
+import { portal, hubUser, pipeline, pipelineStage, contact, clientAccount, clientDealAccess } from '../db/schema'
 
 /** Clerk user_id determinístico del hub_user owner de tests. */
 export const TEST_CLERK_USER_ID = 'clerk_test_owner'
@@ -208,6 +209,50 @@ export async function ensureHubUser(portalId: string, email: string, firstName: 
       .returning()
   }
   return u!.id
+}
+
+export interface ClientTestContext {
+  clientId: string
+  contactId: string
+  email: string
+  token: string
+}
+
+/**
+ * Crea (o vincula) una cuenta de CLIENTE del portal con acceso al `dealId`
+ * dado, vía `client_deal_access`. Pensado para autenticar como cliente en
+ * tests de superficies que viven bajo `/api/client/*`: no hay helper
+ * compartido para esto todavía y varias suites lo hacían a mano insertando
+ * `clientAccount` + `clientDealAccess` — este helper centraliza ese patrón.
+ *
+ * Si no se pasa `contactId`, crea un contacto nuevo (con email único) para
+ * no chocar con el `unique(portal_id, email)` de `contact` entre corridas.
+ * El token devuelto es el mismo formato `faketoken:<clerkUserId>` que acepta
+ * el mock de Clerk (`test/setup.ts`).
+ */
+export async function ensureClientAccount(
+  portalId: string,
+  dealId: string,
+  opts: { contactId?: string; email?: string } = {},
+): Promise<ClientTestContext> {
+  const stamp = randomUUID()
+  let contactId = opts.contactId
+  let email = opts.email
+  if (!contactId) {
+    email = email ?? `client-${stamp}@test.com`
+    const [c] = await db
+      .insert(contact)
+      .values({ portalId, firstName: 'Cliente', lastName: 'Test', email })
+      .returning()
+    contactId = c!.id
+  }
+  const clerkUserId = `clerk_test_client_${stamp}`
+  const [ca] = await db
+    .insert(clientAccount)
+    .values({ portalId, contactId, email: email ?? `client-${stamp}@test.com`, clerkUserId, isActive: true })
+    .returning()
+  await db.insert(clientDealAccess).values({ clientId: ca!.id, dealId })
+  return { clientId: ca!.id, contactId, email: ca!.email, token: `faketoken:${clerkUserId}` }
 }
 
 /**
