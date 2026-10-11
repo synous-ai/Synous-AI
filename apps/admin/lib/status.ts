@@ -127,12 +127,33 @@ export function taskStatus(s: string): StatusResult {
       return { kind: 'neutral', label: 'Pendiente' }
     case 'in_progress':
       return { kind: 'info', label: 'En progreso' }
+    case 'in_review':
+      return { kind: 'warning', label: 'En revisión' }
     case 'completed':
-      return { kind: 'success', label: 'Completado' }
+      return { kind: 'success', label: 'Completada' }
     case 'cancelled':
-      return { kind: 'neutral', label: 'Cancelado' }
+      return { kind: 'neutral', label: 'Cancelada' }
     case 'blocked':
       return { kind: 'danger', label: 'Bloqueada' }
+    default:
+      return { kind: 'neutral', label: s }
+  }
+}
+
+export function projectStatus(s: string): StatusResult {
+  switch (s) {
+    case 'not_started':
+      return { kind: 'neutral', label: 'Por iniciar' }
+    case 'in_progress':
+      return { kind: 'info', label: 'En progreso' }
+    case 'in_review':
+      return { kind: 'warning', label: 'En revisión' }
+    case 'waiting_client':
+      return { kind: 'warning', label: 'Esperando cliente' }
+    case 'on_hold':
+      return { kind: 'danger', label: 'En pausa' }
+    case 'delivered':
+      return { kind: 'success', label: 'Entregado' }
     default:
       return { kind: 'neutral', label: s }
   }

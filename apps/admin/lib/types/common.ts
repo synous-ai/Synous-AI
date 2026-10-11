@@ -1,3 +1,5 @@
+import type { ChecklistStep } from './projects'
+
 export interface ApiEnvelope<T> {
   data: T
   meta?: { nextCursor?: string | null; total?: number }
@@ -25,11 +27,19 @@ export interface Note {
   createdAt: string
 }
 
+export type TaskStatus = 'pending' | 'in_progress' | 'in_review' | 'completed' | 'cancelled' | 'blocked'
+
+export interface TaskAssignee {
+  id: string
+  firstName: string | null
+  lastName: string | null
+}
+
 export interface Task {
   id: string
   title: string
   body: string | null
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'blocked'
+  status: TaskStatus
   priority: 'low' | 'medium' | 'high'
   dueDate: string | null
   completedAt: string | null
@@ -37,6 +47,14 @@ export interface Task {
   dealId: string | null
   contactId: string | null
   companyId: string | null
+  /** Proyecto interno dueño de la tarea (null = tarea suelta o de deal). */
+  projectId: string | null
+  /** Orden dentro de la columna del kanban del proyecto. */
+  position: number
+  /** Checklist con un nivel de anidación. */
+  steps: ChecklistStep[]
+  /** Responsables (N:M). `assignedTo` es el primario. Ausente en endpoints que no lo hidratan. */
+  assignees?: TaskAssignee[]
   createdAt: string
 }
 

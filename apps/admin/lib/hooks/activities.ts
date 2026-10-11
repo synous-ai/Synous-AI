@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPatch, apiPost, apiDelete, apiList } from '../api'
 import { fetchAllPages } from '../fetch-all-pages'
-import type { Note, Task, TimelineItem } from '../types'
+import type { ChecklistStep, Note, Task, TaskStatus, TimelineItem } from '../types'
 import { useInvalidatePeople } from './contacts'
 
 export interface NoteInput {
@@ -31,6 +31,7 @@ export interface TaskFilters {
   status?: string
   assignedTo?: string
   dealId?: string
+  projectId?: string
   priority?: string
 }
 
@@ -52,12 +53,23 @@ export interface TaskInput {
   title: string
   body?: string
   priority?: 'low' | 'medium' | 'high'
-  status?: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'blocked'
+  status?: TaskStatus
   dueDate?: string
   assignedTo?: string
+  /** Responsables (N:M). Si viene, manda sobre `assignedTo`. */
+  assigneeIds?: string[]
   dealId?: string
   contactId?: string
   companyId?: string
+  projectId?: string
+  steps?: ChecklistStep[]
+}
+
+/** PATCH /api/tasks/:id — los campos nullable se limpian mandando `null`. */
+export interface UpdateTaskInput extends Omit<Partial<TaskInput>, 'dueDate' | 'assignedTo' | 'projectId'> {
+  dueDate?: string | null
+  assignedTo?: string | null
+  projectId?: string | null
 }
 
 export function useCreateTask() {
@@ -67,6 +79,7 @@ export function useCreateTask() {
     mutationFn: (input: TaskInput) => apiPost<Task>('/api/tasks', input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
       qc.invalidateQueries({ queryKey: ['focus'] })
       invalidatePeople()
     },
@@ -77,9 +90,10 @@ export function useUpdateTask() {
   const qc = useQueryClient()
   const invalidatePeople = useInvalidatePeople()
   return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Partial<TaskInput> }) => apiPatch<Task>(`/api/tasks/${id}`, input),
+    mutationFn: ({ id, input }: { id: string; input: UpdateTaskInput }) => apiPatch<Task>(`/api/tasks/${id}`, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
       qc.invalidateQueries({ queryKey: ['focus'] })
       invalidatePeople()
     },
@@ -93,6 +107,7 @@ export function useDeleteTask() {
     mutationFn: (id: string) => apiDelete<{ success: boolean }>(`/api/tasks/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
       invalidatePeople()
     },
   })
