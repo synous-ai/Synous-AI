@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { db, type DB } from '../db'
-import { clientDealAccess, company, contact, deal, hubUser } from '../db/schema'
+import { clientDealAccess, company, contact, deal, hubUser, project } from '../db/schema'
 import type { Tx } from './audit'
 import { Errors } from './errors'
 
@@ -137,4 +137,22 @@ export async function assertHubUsersInPortal(
     .from(hubUser)
     .where(and(eq(hubUser.portalId, portalId), inArray(hubUser.id, ids)))
   if (rows.length !== ids.length) throw Errors.badRequest('Usuario inexistente')
+}
+
+/**
+ * Verifica que el proyecto exista, pertenezca al portal y no esté archivado.
+ * `null`/`undefined` pasan (desvincular es legítimo).
+ */
+export async function assertProjectInPortal(
+  portalId: string,
+  projectId: string | null | undefined,
+  executor: Executor = db,
+): Promise<void> {
+  if (!projectId) return
+  const [row] = await executor
+    .select({ id: project.id })
+    .from(project)
+    .where(and(eq(project.id, projectId), eq(project.portalId, portalId), eq(project.archived, false)))
+    .limit(1)
+  if (!row) throw Errors.badRequest('Proyecto inexistente')
 }
