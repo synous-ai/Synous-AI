@@ -10,6 +10,7 @@ export * from './calendar'
 // proponga dropearlas. Ver el encabezado de cada archivo.
 export * from './prospecting'
 export * from './setter'
+export * from './projects'
 export * from './activities'
 export * from './history'
 export * from './lists'
