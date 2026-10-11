@@ -15,7 +15,7 @@ import { recordFieldChanges, writeAudit, type Tx } from '../../lib/audit'
 import { Errors } from '../../lib/errors'
 import { assertCompanyInPortal, assertDealInPortal, assertHubUsersInPortal } from '../../lib/portal-access'
 import { resetChecklist } from '../../lib/checklist'
-import { withAssignees, type TaskWithAssignees } from '../activities/activities.service'
+import { recordTaskChanges, withAssignees, type TaskWithAssignees } from '../activities/activities.service'
 import type { CreateProjectDTO, ListProjectsQuery, MoveTaskDTO, UpdateProjectDTO } from './projects.schema'
 import type {
   ProjectDetailDTO,
@@ -272,7 +272,8 @@ export async function updateProject(
     await assertCompanyInPortal(portalId, fields.companyId, tx)
     if (fields.dealId) await assertDealInPortal(portalId, fields.dealId, tx)
     if (memberIds) await assertHubUsersInPortal(portalId, memberIds, tx)
-    if (fields.kind) await findProcessForKind(tx, portalId, fields.kind)
+    // Si `kind` no cambia, no se revalida: el proceso pudo archivarse después.
+    if (fields.kind && fields.kind !== existing.kind) await findProcessForKind(tx, portalId, fields.kind)
 
     // El refine de Zod solo ve los campos del request: el orden de fechas se
     // revalida contra el valor ya guardado (p. ej. PATCH solo de dueDate).
@@ -297,7 +298,19 @@ export async function updateProject(
       after: patch,
       changedBy: userId,
     })
-    if (memberIds) await syncMembers(tx, id, memberIds)
+    if (memberIds) {
+      const before = (await loadMembers(tx, [id])).get(id) ?? []
+      await syncMembers(tx, id, memberIds)
+      await recordFieldChanges({
+        tx,
+        portalId,
+        entityType: ENTITY,
+        entityId: id,
+        before: { memberIds: before.map((m) => m.id).sort() },
+        after: { memberIds: [...new Set(memberIds)].sort() },
+        changedBy: userId,
+      })
+    }
     await writeAudit({ tx, portalId, userId, entityType: ENTITY, entityId: id, action: 'UPDATE', payload: input })
     return getProject(portalId, id, tx)
   })
@@ -372,6 +385,11 @@ export async function archiveProject(portalId: string, userId: string, id: strin
     await requireProject(tx, portalId, id)
     const now = new Date()
     await tx.update(project).set({ archived: true, archivedAt: now, updatedAt: now }).where(eq(project.id, id))
+    // Las tareas no quedan huérfanas en listados globales, foco y reportes.
+    await tx
+      .update(task)
+      .set({ archived: true, archivedAt: now, updatedAt: now })
+      .where(and(eq(task.projectId, id), eq(task.portalId, portalId), eq(task.archived, false)))
     await writeAudit({ tx, portalId, userId, entityType: ENTITY, entityId: id, action: 'ARCHIVE', payload: { archived: true } })
   })
 }
@@ -381,7 +399,12 @@ export async function archiveProject(portalId: string, userId: string, id: strin
  * de TODAS las tareas de `orderedIds` según su índice. Todos los ids tienen que
  * ser tareas activas de este proyecto (y por lo tanto de este portal).
  */
-export async function moveProjectTask(portalId: string, id: string, input: MoveTaskDTO): Promise<TaskWithAssignees[]> {
+export async function moveProjectTask(
+  portalId: string,
+  userId: string,
+  id: string,
+  input: MoveTaskDTO,
+): Promise<TaskWithAssignees[]> {
   const orderedIds = input.orderedIds
   if (new Set(orderedIds).size !== orderedIds.length) throw Errors.badRequest('orderedIds contiene ids repetidos')
   if (!orderedIds.includes(input.taskId)) throw Errors.badRequest('orderedIds debe incluir a taskId')
@@ -389,7 +412,7 @@ export async function moveProjectTask(portalId: string, id: string, input: MoveT
   await db.transaction(async (tx) => {
     await requireProject(tx, portalId, id)
     const rows = await tx
-      .select({ id: task.id, completedAt: task.completedAt })
+      .select()
       .from(task)
       .where(
         and(
@@ -412,13 +435,12 @@ export async function moveProjectTask(portalId: string, id: string, input: MoveT
       .where(inArray(task.id, orderedIds))
 
     const moved = rows.find((r) => r.id === input.taskId)
-    await tx
-      .update(task)
-      .set({
-        status: input.status,
-        completedAt: input.status === 'completed' ? (moved?.completedAt ?? now) : null,
-      })
-      .where(eq(task.id, input.taskId))
+    const movePatch = {
+      status: input.status,
+      completedAt: input.status === 'completed' ? (moved?.completedAt ?? now) : null,
+    }
+    await tx.update(task).set(movePatch).where(eq(task.id, input.taskId))
+    if (moved) await recordTaskChanges(tx, portalId, input.taskId, moved, { status: input.status }, userId)
   })
   return listProjectTasks(portalId, id)
 }

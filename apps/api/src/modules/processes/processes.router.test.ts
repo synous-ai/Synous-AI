@@ -53,6 +53,16 @@ describe('procesos', () => {
     expect(detail.body.data.tasks.map((t: { title: string }) => t.title)).toEqual(['Uno', 'Dos', 'Tres'])
   })
 
+  it('creaciones simultáneas con el mismo slug: una gana (201), el resto 409 (nunca 500)', async () => {
+    const slug = newSlug()
+    const results = await Promise.all(
+      Array.from({ length: 4 }, (_, i) => post('/api/processes', { slug, name: `Carrera ${i}` })),
+    )
+    const statuses = results.map((r) => r.status).sort()
+    expect(statuses.filter((s) => s === 201)).toHaveLength(1)
+    expect(statuses.filter((s) => s === 409)).toHaveLength(3)
+  })
+
   it('rechaza slug duplicado (409) e inválido (400)', async () => {
     const slug = newSlug()
     expect((await post('/api/processes', { slug, name: 'A' })).status).toBe(201)

@@ -75,7 +75,22 @@ export async function getProcess(portalId: string, id: string): Promise<ProcessD
   return { ...row, tasks: await listTasksOf(db, id) }
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; cause?: { code?: string } } | null
+  return e?.code === '23505' || e?.cause?.code === '23505'
+}
+
 export async function createProcess(portalId: string, userId: string, input: CreateProcessDTO): Promise<ProcessRow> {
+  try {
+    return await insertProcess(portalId, userId, input)
+  } catch (err) {
+    // Dos requests simultáneos pasan el check de abajo: el UNIQUE de la DB desempata.
+    if (isUniqueViolation(err)) throw Errors.conflict('Ya existe un proceso con ese slug')
+    throw err
+  }
+}
+
+async function insertProcess(portalId: string, userId: string, input: CreateProcessDTO): Promise<ProcessRow> {
   return db.transaction(async (tx) => {
     // El UNIQUE(portal_id, slug) incluye procesos archivados: el slug no se reutiliza.
     const [dup] = await tx

@@ -157,6 +157,6 @@ export async function projectsRoutes(app: FastifyInstance): Promise<void> {
       },
       preHandler: [canWrite],
     },
-    async (request) => ok(await moveProjectTask(request.hubUser!.portalId, request.params.id, request.body)),
+    async (request) => ok(await moveProjectTask(request.hubUser!.portalId, request.hubUser!.sub, request.params.id, request.body)),
   )
 }
