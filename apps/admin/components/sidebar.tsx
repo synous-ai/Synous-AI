@@ -89,6 +89,7 @@ const GROUPS: Group[] = [
       { label: 'Onboarding', href: '/onboarding' },
       { label: 'Change Requests', href: '/change-requests' },
       { label: 'Tareas', href: '/tasks' },
+      { label: 'Equipo', href: '/team' },
     ],
   },
   {

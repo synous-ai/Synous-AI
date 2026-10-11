@@ -76,6 +76,7 @@ export function useCreateProject() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['projects'] })
       void qc.invalidateQueries({ queryKey: ['tasks'] })
+      void qc.invalidateQueries({ queryKey: ['team'] })
     },
   })
 }
@@ -85,7 +86,10 @@ export function useUpdateProject() {
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateProjectInput }) =>
       apiPatch<ProjectDetail>(`/api/projects/${id}`, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['projects'] })
+      void qc.invalidateQueries({ queryKey: ['team'] })
+    },
   })
 }
 
@@ -96,6 +100,7 @@ export function useArchiveProject() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['projects'] })
       void qc.invalidateQueries({ queryKey: ['tasks'] })
+      void qc.invalidateQueries({ queryKey: ['team'] })
     },
   })
 }
@@ -107,6 +112,7 @@ export function useDuplicateProject() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['projects'] })
       void qc.invalidateQueries({ queryKey: ['tasks'] })
+      void qc.invalidateQueries({ queryKey: ['team'] })
     },
   })
 }
@@ -172,6 +178,7 @@ export function useMoveProjectTask(projectId: string) {
     onSuccess: (tasks) => qc.setQueryData(key, tasks),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['projects'] })
+      void qc.invalidateQueries({ queryKey: ['team'] })
     },
   })
 }

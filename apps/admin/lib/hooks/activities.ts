@@ -80,6 +80,7 @@ export function useCreateTask() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['team'] })
       qc.invalidateQueries({ queryKey: ['focus'] })
       invalidatePeople()
     },
@@ -94,6 +95,7 @@ export function useUpdateTask() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['team'] })
       qc.invalidateQueries({ queryKey: ['focus'] })
       invalidatePeople()
     },
@@ -108,6 +110,7 @@ export function useDeleteTask() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['team'] })
       invalidatePeople()
     },
   })

@@ -528,13 +528,19 @@ function PipelinesTab() {
 }
 
 export default function SettingsPage() {
+  const [tab, setTab] = useState('empresa')
+  // Deep link: /settings#usuarios abre esa pestaña (lo usa Equipo → Gestionar accesos).
+  useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    if (TABS.some((t) => t.value === hash)) setTab(hash)
+  }, [])
   return (
     <div className="p-6">
       <div className="mb-6">
         <p className="eyebrow">Ajustes</p>
         <h1 className="text-3xl font-semibold tracking-tight">Configuración</h1>
       </div>
-      <Tabs defaultValue="empresa">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 h-auto rounded-lg bg-muted/60 p-1">
           {TABS.map((t) => (
             <TabsTrigger
