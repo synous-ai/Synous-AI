@@ -70,6 +70,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { DealDialog } from '@/components/deals/deal-dialog'
+import { DealProjectAction } from '@/components/projects/deal-project-action'
 import { TaskDialog } from '@/components/tasks/task-dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ActivityTimeline } from '@/components/activity/activity-timeline'
@@ -726,6 +727,11 @@ export default function DealDetailPage(): React.JSX.Element {
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Proyecto interno: link al existente o crear uno desde este deal */}
+              <div className="mt-4">
+                <DealProjectAction dealId={d.id} dealName={d.name} companyId={d.companyId} />
               </div>
             </CardContent>
           </Card>
