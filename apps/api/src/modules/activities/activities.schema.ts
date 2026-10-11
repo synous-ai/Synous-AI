@@ -19,7 +19,7 @@ export const NoteQuerySchema = z.object({
 export type NoteQuery = z.infer<typeof NoteQuerySchema>
 
 // ── Tareas ─────────────────────────────────────────────
-const taskStatus = z.enum(['pending', 'in_progress', 'in_review', 'completed', 'cancelled'])
+const taskStatus = z.enum(['pending', 'in_progress', 'in_review', 'completed', 'cancelled', 'blocked'])
 const taskPriority = z.enum(['low', 'medium', 'high'])
 
 export const CreateTaskSchema = z.object({

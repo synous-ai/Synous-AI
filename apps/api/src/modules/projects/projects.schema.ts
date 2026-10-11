@@ -19,7 +19,7 @@ export const ProjectStageEnum = z.enum([
   'delivery',
 ])
 export const ProjectPriorityEnum = z.enum(['low', 'medium', 'high'])
-export const TaskStatusEnum = z.enum(['pending', 'in_progress', 'in_review', 'completed', 'cancelled'])
+export const TaskStatusEnum = z.enum(['pending', 'in_progress', 'in_review', 'completed', 'cancelled', 'blocked'])
 
 /** 'YYYY-MM-DD' que además es una fecha de calendario real (rechaza 2026-02-31). */
 const DateOnlySchema = z
