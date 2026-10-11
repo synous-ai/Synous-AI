@@ -45,6 +45,7 @@ import { libraryRoutes } from './modules/library/library.router'
 import { workItemsRoutes } from './modules/work-items/work-items.router'
 import { projectsRoutes } from './modules/projects/projects.router'
 import { processesRoutes } from './modules/processes/processes.router'
+import { teamRoutes } from './modules/team/team.router'
 import { financeRoutes } from './modules/finance/finance.router'
 import { notificationPrefsRoutes } from './modules/notification-prefs/notification-prefs.router'
 import { customFieldsRoutes } from './modules/custom-fields/custom-fields.router'
@@ -296,6 +297,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.register(workItemsRoutes, { prefix: '/api/work-items' })
   app.register(projectsRoutes, { prefix: '/api/projects' })
   app.register(processesRoutes, { prefix: '/api/processes' })
+  app.register(teamRoutes, { prefix: '/api/team' })
   app.register(financeRoutes, { prefix: '/api/finance' })
   app.register(notificationPrefsRoutes, { prefix: '/api/notification-prefs' })
   app.register(customFieldsRoutes, { prefix: '/api/custom-fields' })
