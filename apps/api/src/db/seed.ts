@@ -1,6 +1,122 @@
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db, closeDb } from './index'
-import { portal, hubUser, pipeline, pipelineStage, contact, deal, clientAccount, clientDealAccess, deliverable } from './schema'
+import { portal, hubUser, pipeline, pipelineStage, contact, deal, clientAccount, clientDealAccess, deliverable, processTemplate, processTask } from './schema'
+
+/** Tareas de la plantilla "Web App", en orden. Cada una con su checklist inicial. */
+const WEB_APP_PROCESS_TASKS: { title: string; notes: string; steps: string[] }[] = [
+  {
+    title: 'Kickoff & discovery',
+    notes: 'Alinear con el cliente objetivos, alcance y accesos antes de escribir código.',
+    steps: [
+      'Reunión de kickoff con el cliente',
+      'Definir objetivos de negocio y métricas de éxito',
+      'Relevar stakeholders y canal de comunicación',
+      'Pedir accesos (dominio, hosting, analytics, marca)',
+      'Documentar el resumen del discovery',
+    ],
+  },
+  {
+    title: 'Requirements & scope',
+    notes: 'Convertir el discovery en un alcance cerrado y estimable.',
+    steps: [
+      'Listar historias de usuario y criterios de aceptación',
+      'Priorizar MVP vs. fases posteriores',
+      'Definir integraciones y servicios de terceros',
+      'Estimar esfuerzo y armar el cronograma',
+      'Validar el alcance por escrito con el cliente',
+    ],
+  },
+  {
+    title: 'UX/UI design',
+    notes: 'Diseño navegable aprobado por el cliente antes de desarrollar.',
+    steps: [
+      'Mapa del sitio y flujos de usuario',
+      'Wireframes de las pantallas clave',
+      'Diseño visual (sistema de componentes, tipografía, colores)',
+      'Versión mobile / responsive',
+      'Aprobación del diseño por el cliente',
+    ],
+  },
+  {
+    title: 'Architecture & setup (repo, CI, environments)',
+    notes: 'Base técnica lista para que el equipo desarrolle sin fricción.',
+    steps: [
+      'Crear el repositorio y definir la estrategia de ramas',
+      'Elegir stack y documentar decisiones de arquitectura',
+      'Configurar CI (lint, typecheck, tests, build)',
+      'Crear entornos de desarrollo, staging y producción',
+      'Gestionar variables de entorno y secretos',
+      'Modelar la base de datos y configurar migraciones',
+    ],
+  },
+  {
+    title: 'Development',
+    notes: 'Implementación iterativa del alcance acordado.',
+    steps: [
+      'Implementar autenticación y autorización',
+      'Construir las funcionalidades del MVP por módulo',
+      'Integrar servicios de terceros',
+      'Escribir tests de las reglas de negocio críticas',
+      'Code review de cada pull request',
+      'Demo intermedia al cliente',
+    ],
+  },
+  {
+    title: 'QA & testing',
+    notes: 'Verificar que todo funciona antes de mostrarlo al cliente.',
+    steps: [
+      'Probar los flujos críticos de punta a punta',
+      'Revisar en los navegadores y dispositivos objetivo',
+      'Revisar performance y accesibilidad',
+      'Revisión de seguridad básica (permisos, validación de inputs)',
+      'Corregir los bugs encontrados',
+    ],
+  },
+  {
+    title: 'Client review',
+    notes: 'El cliente prueba el staging y da feedback consolidado.',
+    steps: [
+      'Desplegar a staging y compartir el acceso',
+      'Enviar guía de revisión con lo que hay que probar',
+      'Recolectar feedback consolidado en un solo lugar',
+      'Clasificar el feedback: bug, cambio dentro de alcance o change request',
+    ],
+  },
+  {
+    title: 'Changes',
+    notes: 'Aplicar el feedback aprobado. Lo que excede el alcance va como change request.',
+    steps: [
+      'Implementar los cambios dentro del alcance',
+      'Cotizar y aprobar los change requests fuera de alcance',
+      'Re-testear lo modificado',
+      'Obtener la aprobación final del cliente',
+    ],
+  },
+  {
+    title: 'Deploy to production',
+    notes: 'Salida a producción con plan de vuelta atrás.',
+    steps: [
+      'Backup de datos y plan de rollback',
+      'Configurar dominio, DNS y certificado SSL',
+      'Cargar variables de entorno de producción',
+      'Correr migraciones y desplegar',
+      'Smoke test en producción',
+      'Configurar monitoreo y alertas de errores',
+    ],
+  },
+  {
+    title: 'Handoff & documentation',
+    notes: 'Cierre del proyecto y traspaso al cliente.',
+    steps: [
+      'Documentar arquitectura, setup y deploy en el repositorio',
+      'Entregar accesos y credenciales de forma segura',
+      'Capacitar al cliente en el uso del sistema',
+      'Acordar soporte y mantenimiento posterior',
+      'Reunión de cierre y marcar el proyecto como entregado',
+    ],
+  },
+]
+
 
 /**
  * Seed idempotente: portal + usuario owner + pipeline de Ventas con etapas +
@@ -216,6 +332,39 @@ async function seed(): Promise<void> {
     console.log('✓ cliente demo creado: cliente@demo.com (auth: Clerk) con 1 deal + 1 entregable')
   } else {
     console.log('· cliente demo ya existe')
+  }
+
+  // 5. Proceso por defecto "Web App" (plantilla de tareas de un proyecto de software).
+  // Idempotente: si el slug ya existe en el portal no se toca (el equipo puede haberlo editado).
+  const [existingProcess] = await db
+    .select({ id: processTemplate.id })
+    .from(processTemplate)
+    .where(and(eq(processTemplate.portalId, portalId), eq(processTemplate.slug, 'web-app')))
+    .limit(1)
+  if (!existingProcess) {
+    await db.transaction(async (tx) => {
+      const [proc] = await tx
+        .insert(processTemplate)
+        .values({
+          portalId,
+          slug: 'web-app',
+          name: 'Web App',
+          description: 'Proceso estándar para construir una aplicación web de punta a punta.',
+        })
+        .returning()
+      await tx.insert(processTask).values(
+        WEB_APP_PROCESS_TASKS.map((t, i) => ({
+          processId: proc!.id,
+          title: t.title,
+          notes: t.notes,
+          steps: t.steps.map((text) => ({ text, done: false })),
+          position: i,
+        })),
+      )
+    })
+    console.log(`✓ proceso "Web App" creado con ${WEB_APP_PROCESS_TASKS.length} tareas`)
+  } else {
+    console.log('· proceso "Web App" ya existe')
   }
 
   console.log('Seed completo.')
