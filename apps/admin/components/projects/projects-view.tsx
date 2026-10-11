@@ -293,7 +293,7 @@ export function ProjectsView(): React.JSX.Element {
         title="Archivar proyecto"
         description={
           archiving
-            ? `"${archiving.name}" deja de aparecer en la lista. Sus tareas se conservan.`
+            ? `"${archiving.name}" deja de aparecer en la lista. Sus tareas también se archivan.`
             : undefined
         }
         confirmLabel="Archivar"

@@ -191,7 +191,7 @@ export default function ProjectDetailPage(): React.JSX.Element {
         open={archiveOpen}
         onOpenChange={setArchiveOpen}
         title="Archivar proyecto"
-        description={`"${project.name}" deja de aparecer en la lista de proyectos. Sus tareas se conservan.`}
+        description={`"${project.name}" deja de aparecer en la lista de proyectos. Sus tareas también se archivan.`}
         confirmLabel="Archivar"
         destructive
         pending={archive.isPending}
