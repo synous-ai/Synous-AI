@@ -3,8 +3,9 @@
 /**
  * Modal de creación de tarea.
  * Expone todos los campos relevantes: título, detalle, prioridad, vencimiento,
- * estado inicial, responsable (assignee) y proyecto (deal).
- * Los campos assignedTo y dealId son opcionales — "Sin asignar" / "Sin proyecto".
+ * estado inicial, responsables (multi) y proyecto.
+ * Responsables y proyecto son opcionales — "Sin asignar" / "Sin proyecto".
+ * `fixedDealId` / `fixedProjectId` fijan el vínculo cuando se abre desde un deal o un proyecto.
  */
 
 import { useEffect, useState } from 'react'
@@ -12,7 +13,9 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { ApiError } from '@/lib/api'
-import { useCreateTask, useUsers, useDeals } from '@/lib/hooks'
+import { useCreateTask, useUsers, useProjects, useDeals } from '@/lib/hooks'
+import { PRIORITY_OPTIONS, TASK_STATUS_OPTIONS, dateOnlyToTaskIso } from '@/lib/projects'
+import { UserMultiSelect } from '@/components/projects/user-multi-select'
 import {
   Dialog,
   DialogContent,
@@ -43,9 +46,10 @@ const Schema = z.object({
   title: z.string().min(1, 'Requerido'),
   body: z.string().optional(),
   priority: z.enum(['low', 'medium', 'high']),
-  status: z.enum(['pending', 'in_progress', 'blocked', 'completed', 'cancelled']),
+  status: z.enum(['pending', 'in_progress', 'in_review', 'blocked', 'completed', 'cancelled']),
   dueDate: z.string().optional(),
-  assignedTo: z.string().optional(),
+  assigneeIds: z.array(z.string()),
+  projectId: z.string().optional(),
   dealId: z.string().optional(),
 })
 type FormValues = z.infer<typeof Schema>
@@ -53,26 +57,30 @@ type FormValues = z.infer<typeof Schema>
 export function TaskDialog({
   open,
   onClose,
-  /** dealId fijo cuando se abre desde dentro de un proyecto (deal). Oculta el selector. */
+  /** dealId fijo cuando se abre desde el detalle de un deal. */
   fixedDealId,
+  /** projectId fijo cuando se abre desde el detalle de un proyecto. Oculta el selector. */
+  fixedProjectId,
 }: {
   open: boolean
   onClose: () => void
   fixedDealId?: string
+  fixedProjectId?: string
 }) {
   const create = useCreateTask()
   const { data: users } = useUsers()
+  const { data: projects } = useProjects()
   const { data: deals } = useDeals()
   const [error, setError] = useState<string | null>(null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(Schema),
-    defaultValues: { priority: 'medium', status: 'pending' },
+    defaultValues: { priority: 'medium', status: 'pending', assigneeIds: [] },
   })
 
   useEffect(() => {
     if (open) {
-      form.reset({ title: '', body: '', priority: 'medium', status: 'pending', dueDate: '' })
+      form.reset({ title: '', body: '', priority: 'medium', status: 'pending', dueDate: '', assigneeIds: [], projectId: '', dealId: '' })
       setError(null)
     }
   }, [open, form])
@@ -85,9 +93,10 @@ export function TaskDialog({
         body: values.body || undefined,
         priority: values.priority,
         status: values.status,
-        dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
-        assignedTo: values.assignedTo || undefined,
+        dueDate: values.dueDate ? dateOnlyToTaskIso(values.dueDate) : undefined,
+        assigneeIds: values.assigneeIds.length > 0 ? values.assigneeIds : undefined,
         dealId: fixedDealId ?? (values.dealId || undefined),
+        projectId: fixedProjectId ?? (values.projectId || undefined),
       })
       onClose()
     } catch (err) {
@@ -136,28 +145,14 @@ export function TaskDialog({
               )}
             />
 
-            {/* Responsable */}
+            {/* Responsables */}
             <FormField
               control={form.control}
-              name="assignedTo"
+              name="assigneeIds"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Responsable</FormLabel>
-                  <Select value={field.value ?? 'none'} onValueChange={(v) => field.onChange(v === 'none' ? '' : v)}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sin asignar" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="none">Sin asignar</SelectItem>
-                      {(users ?? []).map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {[u.firstName, u.lastName].filter(Boolean).join(' ') || u.email}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel>Responsables</FormLabel>
+                  <UserMultiSelect users={users ?? []} value={field.value} onChange={field.onChange} />
                   <FormMessage />
                 </FormItem>
               )}
@@ -178,10 +173,9 @@ export function TaskDialog({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="pending">Por hacer</SelectItem>
-                        <SelectItem value="in_progress">En curso</SelectItem>
-                        <SelectItem value="blocked">Bloqueada</SelectItem>
-                        <SelectItem value="completed">Hecho</SelectItem>
+                        {TASK_STATUS_OPTIONS.filter((o) => o.value !== 'cancelled').map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -202,9 +196,9 @@ export function TaskDialog({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="low">Baja</SelectItem>
-                        <SelectItem value="medium">Media</SelectItem>
-                        <SelectItem value="high">Alta</SelectItem>
+                        {[...PRIORITY_OPTIONS].reverse().map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -213,15 +207,15 @@ export function TaskDialog({
               />
             </div>
 
-            {/* Proyecto (deal) — se oculta cuando hay un dealId fijo */}
-            {!fixedDealId && (
+            {/* Proyecto — se oculta cuando hay un proyecto fijo */}
+            {!fixedProjectId && (
               <FormField
                 control={form.control}
-                name="dealId"
+                name="projectId"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Proyecto</FormLabel>
-                    <Select value={field.value ?? 'none'} onValueChange={(v) => field.onChange(v === 'none' ? '' : v)}>
+                    <Select value={field.value || 'none'} onValueChange={(v) => field.onChange(v === 'none' ? '' : v)}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Sin proyecto" />
@@ -229,6 +223,35 @@ export function TaskDialog({
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="none">Sin proyecto</SelectItem>
+                        {(projects ?? []).map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {/* Deal — se oculta cuando hay un deal fijo */}
+            {!fixedDealId && (
+              <FormField
+                control={form.control}
+                name="dealId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Deal</FormLabel>
+                    <Select value={field.value || 'none'} onValueChange={(v) => field.onChange(v === 'none' ? '' : v)}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sin deal" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="none">Sin deal</SelectItem>
                         {(deals ?? []).map((d) => (
                           <SelectItem key={d.id} value={d.id}>
                             {d.name}

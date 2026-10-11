@@ -11,30 +11,33 @@ import {
 } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Flag, CalendarClock } from 'lucide-react'
+import { Flag, ListChecks } from 'lucide-react'
 import { useUpdateTask } from '@/lib/hooks'
 import type { Task, TeamUser } from '@/lib/types'
-import { cn, initials } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { priority as priorityStatus } from '@/lib/status'
+import { checklistProgress } from '@/lib/projects'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { DueBadge } from '@/components/projects/due-badge'
+import { MemberAvatars, type PersonLike } from '@/components/projects/member-avatars'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { ListTodo } from 'lucide-react'
 
 export const TASK_COLUMNS = [
   { status: 'pending', label: 'Por Hacer', dot: 'bg-muted-foreground' },
   { status: 'in_progress', label: 'En Progreso', dot: 'bg-amber-400' },
+  { status: 'in_review', label: 'En Revisión', dot: 'bg-sky-400' },
   { status: 'blocked', label: 'Bloqueada', dot: 'bg-destructive' },
   { status: 'completed', label: 'Hecho', dot: 'bg-emerald-500' },
 ] as const
 
 type TaskStatus = (typeof TASK_COLUMNS)[number]['status']
 
-function fmtDue(dueDate: string): string {
-  return new Date(dueDate).toLocaleDateString('es', { day: 'numeric', month: 'short' })
-}
-
-function isOverdue(task: Task): boolean {
-  return !!task.dueDate && task.status !== 'completed' && new Date(task.dueDate).getTime() < Date.now()
+/** Responsables de la tarea: `assignees` (N:M) o, como respaldo, el primario de `userMap`. */
+function assigneesOf(task: Task, userMap: Map<string, TeamUser>): PersonLike[] {
+  if (task.assignees && task.assignees.length > 0) return task.assignees
+  const primary = task.assignedTo ? userMap.get(task.assignedTo) : undefined
+  return primary ? [primary] : []
 }
 
 function TaskCard({
@@ -49,7 +52,8 @@ function TaskCard({
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id })
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined
   const pr = priorityStatus(task.priority)
-  const assignee = task.assignedTo ? userMap.get(task.assignedTo) ?? null : null
+  const assignees = assigneesOf(task, userMap)
+  const progress = checklistProgress(task.steps)
 
   return (
     <div
@@ -68,35 +72,20 @@ function TaskCard({
       {task.body && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.body}</p>}
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusBadge kind={pr.kind}>
             <Flag className="h-3 w-3" />
             {pr.label}
           </StatusBadge>
-          {task.dueDate && (
-            <span
-              className={cn(
-                'inline-flex items-center gap-1 text-xs',
-                isOverdue(task) ? 'font-medium text-destructive' : 'text-muted-foreground',
-              )}
-            >
-              <CalendarClock className="h-3 w-3" />
-              {fmtDue(task.dueDate)}
+          <DueBadge date={task.dueDate} done={task.status === 'completed' || task.status === 'cancelled'} />
+          {progress.total > 0 && (
+            <span className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground">
+              <ListChecks className="h-3 w-3" aria-hidden="true" />
+              {progress.done}/{progress.total}
             </span>
           )}
         </div>
-        {assignee ? (
-          <div
-            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-foreground"
-            title={[assignee.firstName, assignee.lastName].filter(Boolean).join(' ') || assignee.email}
-          >
-            {initials(assignee.firstName, assignee.lastName)}
-          </div>
-        ) : (
-          <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
-            ?
-          </div>
-        )}
+        <MemberAvatars members={assignees} max={3} />
       </div>
     </div>
   )
@@ -159,10 +148,13 @@ export function TaskBoard({
   userMap,
   onTaskClick,
   queryKey,
+  hideCompleted = false,
 }: {
   tasks: Task[]
   userMap: Map<string, TeamUser>
   onTaskClick: (t: Task) => void
+  /** Oculta la columna "Hecho" (vista "Abiertas"). */
+  hideCompleted?: boolean
   /** queryKey activa del hook useTasks() en el padre — necesaria para el optimistic update del drag. */
   queryKey: unknown[]
 }) {
@@ -197,7 +189,7 @@ export function TaskBoard({
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
       <div className="flex gap-4 overflow-x-auto pb-4">
-        {TASK_COLUMNS.map((col) => (
+        {TASK_COLUMNS.filter((c) => !(hideCompleted && c.status === 'completed')).map((col) => (
           <Column
             key={col.status}
             status={col.status}
