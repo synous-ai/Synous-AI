@@ -29,6 +29,11 @@ interface TemplateEntry {
   envelope: ProposalEnvelope
   /** Lo que falta confirmar antes de aprobar y enviar el link. */
   pending: readonly string[]
+  /**
+   * Documento de alcance descargable, si la plantilla tiene uno. `file` vive en
+   * `apps/admin/assets/proposals/` (ver `lib/proposal-scope-pdf.ts`).
+   */
+  scopePdf?: { file: string; downloadName: string }
 }
 
 export const PROPOSAL_TEMPLATES: Record<ProposalTemplate, TemplateEntry> = {
@@ -43,6 +48,10 @@ export const PROPOSAL_TEMPLATES: Record<ProposalTemplate, TemplateEntry> = {
     layout: 'product-vision',
     envelope: katherineLindoProposal.envelope,
     pending: katherineLindoProposal.pendingChecklist,
+    scopePdf: {
+      file: 'katherine-lindo-alcance-v1.pdf',
+      downloadName: 'Synous AI — Alcance V1 — Guía IA para Kathe Lindo.pdf',
+    },
   },
 }
 

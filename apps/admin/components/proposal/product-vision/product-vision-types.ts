@@ -195,6 +195,8 @@ export interface ProductVisionContent {
     includesLabel: string
     includes: string[]
     next: string
+    /** Botón secundario que baja el documento de alcance (PDF). */
+    scopeDownload: { label: string; note: string }
   }
 
   after: {

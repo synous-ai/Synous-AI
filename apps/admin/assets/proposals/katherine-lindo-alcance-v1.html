@@ -1,0 +1,1567 @@
+<!doctype html>
+<!--
+  Documento de alcance de la V1 para Katherine Lindo. Se descarga desde la
+  propuesta (`/p/<token>/alcance`) como PDF.
+
+  Es la fuente del PDF: si se edita, hay que regenerarlo con Chrome headless
+  desde esta carpeta (apps/admin/assets/proposals):
+
+    chrome --headless=new --no-pdf-header-footer --virtual-time-budget=8000 \
+      --print-to-pdf=katherine-lindo-alcance-v1.pdf katherine-lindo-alcance-v1.html
+
+  Reglas del copy: lo que se lista es exactamente lo que entra en la V1 (el
+  mismo alcance que la landing); nada de V2 a V5 se presenta como incluido.
+  Español neutro, tratándola de "tú".
+-->
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synous AI — Alcance V1 — Guía IA para Kathe Lindo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=block"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --void: #010511;
+        --navy: #030520;
+        --ink: #0b1230;
+        --body: #33415c;
+        --muted: #5a6883;
+        --accent: #1a6bbd;
+        --accent-soft: #96c0ff;
+        --violet: #383cff;
+        --edge: #dae4f4;
+        --edge-strong: #c9d8ef;
+        --paper: #ffffff;
+        --shade: #f3f7fd;
+        --shade-2: #eef3fb;
+        --mono: 'JetBrains Mono', ui-monospace, monospace;
+      }
+
+      @page {
+        size: A4;
+        margin: 16mm 16mm 18mm;
+
+        @bottom-left {
+          content: 'Synous AI · Propuesta privada';
+          font: 500 8pt 'JetBrains Mono', monospace;
+          letter-spacing: 0.08em;
+          color: #5a6883;
+        }
+
+        @bottom-right {
+          content: counter(page) ' / ' counter(pages);
+          font: 500 8pt 'JetBrains Mono', monospace;
+          color: #5a6883;
+        }
+      }
+
+      @page :first {
+        margin: 0;
+
+        @bottom-left {
+          content: none;
+        }
+
+        @bottom-right {
+          content: none;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        font-size: 9.6pt;
+        line-height: 1.45;
+        color: var(--body);
+        background: var(--paper);
+      }
+
+      h1,
+      h2,
+      h3,
+      h4,
+      p,
+      ul,
+      ol {
+        margin: 0;
+      }
+
+      .page {
+        break-after: page;
+      }
+
+      .page:last-child {
+        break-after: auto;
+      }
+
+      /* ── Portada ─────────────────────────────────────────────────────── */
+
+      .cover {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: 210mm;
+        height: 297mm;
+        overflow: hidden;
+        padding: 22mm 20mm 20mm;
+        background:
+          radial-gradient(80% 55% at 85% 8%, #383cff66, transparent 60%),
+          radial-gradient(70% 50% at 10% 100%, #1c73ca55, transparent 65%),
+          linear-gradient(170deg, #070b2a, var(--void) 60%);
+        color: #d5e5f9;
+      }
+
+      .cover::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(#96c0ff1f 1px, transparent 1px);
+        background-size: 6mm 6mm;
+        mask-image: linear-gradient(180deg, #000, transparent 70%);
+        pointer-events: none;
+      }
+
+      .cover > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .cover-logo {
+        width: 52mm;
+      }
+
+      .cover-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3mm;
+        align-self: flex-start;
+        margin-top: 46mm;
+        padding: 2.2mm 4mm 2.2mm 2.4mm;
+        border: 1px solid #1c2542;
+        border-radius: 999px;
+        background: #01051199;
+        font: 600 8pt var(--mono);
+        letter-spacing: 0.14em;
+        color: #c3cede;
+      }
+
+      .cover-badge i {
+        width: 4.2mm;
+        height: 4.2mm;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #ffffff, #96c0ff 45%, #383cff);
+      }
+
+      .cover h1 {
+        margin-top: 9mm;
+        font-size: 50pt;
+        font-weight: 500;
+        line-height: 1;
+        letter-spacing: -0.045em;
+        color: #ffffff;
+      }
+
+      /* Color sólido: el texto con degradé (background-clip) se imprime mal en PDF. */
+      .cover h1 span {
+        color: #96c0ff;
+      }
+
+      .cover-sub {
+        margin-top: 4mm;
+        font-size: 20pt;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        color: #c3cede;
+      }
+
+      .cover-quote {
+        max-width: 120mm;
+        margin-top: 12mm;
+        padding-left: 4mm;
+        border-left: 2px solid #96c0ff;
+        font-size: 11pt;
+        line-height: 1.6;
+        color: #93a1b4;
+      }
+
+      .cover-track {
+        display: flex;
+        width: 120mm;
+        margin-top: auto;
+        margin-bottom: 14mm;
+        padding: 0;
+        list-style: none;
+      }
+
+      .cover-track li {
+        position: relative;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        gap: 2.6mm;
+        font: 600 8pt var(--mono);
+        letter-spacing: 0.1em;
+        color: #5a6883;
+      }
+
+      .cover-track li + li::before {
+        content: '';
+        position: absolute;
+        top: 1.6mm;
+        right: 50%;
+        width: 100%;
+        height: 1px;
+        background: #1c2542;
+      }
+
+      .cover-track li:nth-child(2)::before {
+        background: linear-gradient(90deg, #96c0ff, #1c2542);
+      }
+
+      .cover-track b {
+        position: relative;
+        z-index: 1;
+        width: 3.4mm;
+        height: 3.4mm;
+        border: 1.5px solid #1c2542;
+        border-radius: 50%;
+        background: var(--void);
+      }
+
+      .cover-track li.on {
+        color: #ffffff;
+      }
+
+      .cover-track li.on b {
+        border-color: #ffffff;
+        background: #96c0ff;
+        box-shadow:
+          0 0 0 1.6mm #96c0ff2e,
+          0 0 5mm #669cff;
+      }
+
+      .cover-meta {
+        display: grid;
+        grid-template-columns: repeat(3, auto);
+        justify-content: start;
+        gap: 12mm;
+        padding-top: 6mm;
+        border-top: 1px solid #1c2542;
+      }
+
+      .cover-meta dt {
+        font: 600 7pt var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #5a6883;
+      }
+
+      .cover-meta dd {
+        margin: 1.4mm 0 0;
+        font-size: 10.5pt;
+        font-weight: 600;
+        color: #ffffff;
+      }
+
+      /* ── Interior ────────────────────────────────────────────────────── */
+
+      .running {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6mm;
+        padding-bottom: 2.6mm;
+        border-bottom: 1px solid var(--edge);
+      }
+
+      .running img {
+        height: 5mm;
+      }
+
+      .running span {
+        font: 600 7pt var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .section + .section {
+        margin-top: 7mm;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 4mm;
+        align-items: baseline;
+        margin-bottom: 4.6mm;
+      }
+
+      .section-num {
+        display: inline-grid;
+        place-items: center;
+        min-width: 11mm;
+        height: 7mm;
+        padding: 0 2.4mm;
+        border: 1px solid var(--edge-strong);
+        border-radius: 999px;
+        background: var(--shade-2);
+        font: 600 8.5pt var(--mono);
+        color: var(--accent);
+      }
+
+      .section-head h2 {
+        font-size: 18pt;
+        font-weight: 600;
+        line-height: 1.15;
+        letter-spacing: -0.03em;
+        color: var(--navy);
+      }
+
+      .section-head p {
+        grid-column: 2;
+        margin-top: 2mm;
+        font-size: 10.5pt;
+        color: var(--muted);
+      }
+
+      .label {
+        font: 600 7.5pt var(--mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      /* Índice */
+      .toc {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 8mm;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .toc li {
+        display: grid;
+        grid-template-columns: 9mm 1fr auto;
+        align-items: baseline;
+        padding: 2.4mm 0;
+        border-bottom: 1px dashed var(--edge-strong);
+        font-size: 10pt;
+        font-weight: 500;
+        color: var(--ink);
+      }
+
+      .toc li span:first-child,
+      .toc li span:last-child {
+        font: 600 8pt var(--mono);
+        color: var(--accent);
+      }
+
+      .toc li span:last-child {
+        color: var(--muted);
+      }
+
+      /* Bloques del resumen */
+      .summary {
+        display: grid;
+        gap: 4mm;
+      }
+
+      .summary-card {
+        display: grid;
+        grid-template-columns: 34mm 1fr;
+        gap: 5mm;
+        padding: 5mm 6mm;
+        border: 1px solid var(--edge);
+        border-radius: 4mm;
+        background: var(--shade);
+      }
+
+      .summary-card h3 {
+        font-size: 11pt;
+        font-weight: 600;
+        line-height: 1.3;
+        color: var(--navy);
+      }
+
+      .summary-card p {
+        font-size: 10.5pt;
+        line-height: 1.55;
+      }
+
+      .facts {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        margin-top: 5mm;
+        overflow: hidden;
+        border-radius: 4mm;
+        background: linear-gradient(120deg, var(--navy), #0b1446);
+        color: #d5e5f9;
+      }
+
+      .facts div {
+        padding: 5mm;
+      }
+
+      .facts div + div {
+        border-left: 1px solid #1c2542;
+      }
+
+      .facts dt {
+        font: 600 7pt var(--mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #93a1b4;
+      }
+
+      .facts dd {
+        margin: 1.6mm 0 0;
+        font-size: 12pt;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: #ffffff;
+      }
+
+      .facts dd small {
+        display: block;
+        margin-top: 0.6mm;
+        font-size: 8pt;
+        font-weight: 500;
+        color: #93a1b4;
+      }
+
+      /* Tarjetas de funcionalidades */
+      .feature-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2.8mm;
+      }
+
+      .feature {
+        display: grid;
+        grid-template-columns: 8mm 1fr;
+        gap: 3mm;
+        padding: 3.2mm 3.8mm;
+        border: 1px solid var(--edge);
+        border-radius: 3.4mm;
+        break-inside: avoid;
+      }
+
+      .feature.wide {
+        grid-column: span 2;
+      }
+
+      .icon {
+        display: grid;
+        place-items: center;
+        width: 8mm;
+        height: 8mm;
+        border-radius: 2.4mm;
+        background: var(--shade-2);
+        color: var(--accent);
+      }
+
+      .icon svg {
+        width: 4.6mm;
+        height: 4.6mm;
+      }
+
+      .feature h3 {
+        font-size: 10.5pt;
+        font-weight: 600;
+        line-height: 1.3;
+        color: var(--navy);
+      }
+
+      .feature p {
+        margin-top: 1mm;
+        font-size: 8.8pt;
+        line-height: 1.45;
+      }
+
+      .feature p.solves {
+        margin-top: 1.2mm;
+        font-size: 8.4pt;
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      .feature p.solves::before {
+        content: '→ ';
+      }
+
+      /* Tablas */
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        overflow: hidden;
+        border: 1px solid var(--edge);
+        border-radius: 3.4mm;
+        font-size: 9pt;
+      }
+
+      th {
+        padding: 2.4mm 3.6mm;
+        background: var(--shade-2);
+        font: 600 7.5pt var(--mono);
+        letter-spacing: 0.1em;
+        text-align: left;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      td {
+        padding: 2.4mm 3.6mm;
+        border-top: 1px solid var(--edge);
+        vertical-align: top;
+        line-height: 1.42;
+      }
+
+      td strong {
+        color: var(--navy);
+        font-weight: 600;
+      }
+
+      td .tech {
+        display: inline-block;
+        margin-top: 1mm;
+        padding: 0.6mm 2mm;
+        border-radius: 999px;
+        background: var(--shade-2);
+        font: 600 7.5pt var(--mono);
+        color: var(--muted);
+      }
+
+      tr {
+        break-inside: avoid;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0.8mm 2.6mm;
+        border: 1px solid #1a6bbd55;
+        border-radius: 999px;
+        background: #1a6bbd0d;
+        font: 600 7.5pt var(--mono);
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        color: var(--accent);
+      }
+
+      .tag.neutral {
+        border-color: var(--edge-strong);
+        background: var(--shade);
+        color: var(--muted);
+      }
+
+      /* Pasos numerados (guía y proceso) */
+      .steps {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .step {
+        position: relative;
+        display: grid;
+        grid-template-columns: 10mm 1fr;
+        gap: 4mm;
+        padding-bottom: 4.6mm;
+        break-inside: avoid;
+      }
+
+      .step:last-child {
+        padding-bottom: 0;
+      }
+
+      .step::before {
+        content: '';
+        position: absolute;
+        top: 10mm;
+        bottom: 0.6mm;
+        left: 5mm;
+        width: 1px;
+        background: linear-gradient(var(--accent), var(--edge-strong));
+      }
+
+      .step:last-child::before {
+        display: none;
+      }
+
+      .step-num {
+        display: grid;
+        place-items: center;
+        width: 10mm;
+        height: 10mm;
+        border-radius: 50%;
+        background: linear-gradient(140deg, var(--accent), var(--violet));
+        font: 600 9pt var(--mono);
+        color: #ffffff;
+      }
+
+      .step-body {
+        padding: 0.4mm 0 0;
+      }
+
+      .step-top {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 1.4mm 3mm;
+      }
+
+      .step h3 {
+        font-size: 11pt;
+        font-weight: 600;
+        color: var(--navy);
+      }
+
+      .step p {
+        margin-top: 1mm;
+        font-size: 9.4pt;
+      }
+
+      .step p.gets {
+        margin-top: 1.2mm;
+        padding: 1.8mm 3mm;
+        border-radius: 2mm;
+        background: var(--shade);
+        font-size: 9pt;
+        color: var(--ink);
+      }
+
+      .step p.gets b {
+        font: 600 7.5pt var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      /* Bloques destacados */
+      .callout {
+        margin-top: 6mm;
+        padding: 5mm 6mm;
+        border-radius: 4mm;
+        background: linear-gradient(120deg, var(--navy), #0b1446);
+        color: #d5e5f9;
+        break-inside: avoid;
+      }
+
+      .callout .label {
+        color: #96c0ff;
+      }
+
+      .callout h3 {
+        margin-top: 1.6mm;
+        font-size: 12pt;
+        font-weight: 600;
+        color: #ffffff;
+      }
+
+      .callout ul {
+        display: grid;
+        gap: 1.6mm;
+        margin-top: 3mm;
+        padding: 0;
+        list-style: none;
+      }
+
+      .callout li {
+        position: relative;
+        padding-left: 5mm;
+        font-size: 9.6pt;
+        line-height: 1.5;
+      }
+
+      .callout li::before {
+        content: '';
+        position: absolute;
+        top: 0.55em;
+        left: 0;
+        width: 2mm;
+        height: 2mm;
+        border-radius: 50%;
+        background: #96c0ff;
+      }
+
+      .callout p {
+        margin-top: 2mm;
+        font-size: 9.6pt;
+      }
+
+      .note {
+        margin-top: 3mm;
+        padding: 2.6mm 4mm;
+        border-left: 2px solid var(--accent);
+        border-radius: 0 2.4mm 2.4mm 0;
+        background: var(--shade);
+        font-size: 9.2pt;
+        color: var(--ink);
+        break-inside: avoid;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5mm;
+      }
+
+      .box {
+        padding: 4mm 5mm;
+        border: 1px solid var(--edge);
+        border-radius: 3.4mm;
+        break-inside: avoid;
+      }
+
+      .box h3 {
+        margin-bottom: 2.6mm;
+        font-size: 10.5pt;
+        font-weight: 600;
+        color: var(--navy);
+      }
+
+      .checks {
+        display: grid;
+        gap: 1.6mm;
+        padding: 0;
+        list-style: none;
+      }
+
+      .checks li {
+        position: relative;
+        padding-left: 6mm;
+        font-size: 9.4pt;
+        line-height: 1.45;
+      }
+
+      .checks li::before {
+        content: '';
+        position: absolute;
+        top: 0.2em;
+        left: 0;
+        width: 3.4mm;
+        height: 3.4mm;
+        border: 1.4px solid var(--accent);
+        border-radius: 1mm;
+      }
+
+      .checks.done li::before {
+        border: 0;
+        border-radius: 50%;
+        background: var(--accent)
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.4'%3E%3Cpath d='m5 12 5 5L19 7'/%3E%3C/svg%3E")
+          center / 2.4mm no-repeat;
+      }
+
+      .price-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 3.4mm;
+      }
+
+      .price {
+        padding: 3.6mm;
+        border: 1px solid var(--edge);
+        border-radius: 3.4mm;
+        text-align: center;
+      }
+
+      .price.featured {
+        border-color: transparent;
+        background: linear-gradient(140deg, var(--navy), #0b1446);
+        color: #d5e5f9;
+      }
+
+      .price .label {
+        display: block;
+      }
+
+      .price.featured .label {
+        color: #96c0ff;
+      }
+
+      .price strong {
+        display: block;
+        margin-top: 2mm;
+        font-size: 17pt;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+        color: var(--navy);
+      }
+
+      .price.featured strong {
+        color: #ffffff;
+      }
+
+      .price small {
+        display: block;
+        margin-top: 1mm;
+        font-size: 8.4pt;
+        color: var(--muted);
+      }
+
+      .price.featured small {
+        color: #93a1b4;
+      }
+
+      .closing {
+        margin-top: 0;
+        padding: 6mm;
+        border-radius: 4mm;
+        background:
+          radial-gradient(70% 90% at 90% 0%, #383cff55, transparent 60%),
+          linear-gradient(140deg, var(--navy), var(--void));
+        color: #d5e5f9;
+        break-inside: avoid;
+      }
+
+      .closing h3 {
+        font-size: 15pt;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: #ffffff;
+      }
+
+      .closing p {
+        margin-top: 2mm;
+        font-size: 10pt;
+      }
+
+      .contact {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3mm 8mm;
+        margin-top: 5mm;
+      }
+
+      .contact span {
+        display: grid;
+        gap: 0.8mm;
+        font-size: 10pt;
+        font-weight: 600;
+        color: #ffffff;
+      }
+
+      .contact span b {
+        font: 600 7pt var(--mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #93a1b4;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ═══ 1 · Portada ═══════════════════════════════════════════════════ -->
+    <section class="page cover">
+      <img class="cover-logo" src="../../public/brand/logotipo.svg" alt="Synous AI" />
+
+      <p class="cover-badge"><i></i>PROPUESTA PRIVADA · SYNOUS AI</p>
+      <h1>Alcance <span>V1</span></h1>
+      <p class="cover-sub">Guía IA para Kathe Lindo</p>
+      <p class="cover-quote">
+        El ciclismo es el vehículo. La transformación es el propósito. Este documento detalla, punto por
+        punto, todo lo que construimos en la primera versión de tu plataforma.
+      </p>
+
+      <ol class="cover-track" aria-label="Versiones del roadmap">
+        <li class="on"><b></b>V1</li>
+        <li><b></b>V2</li>
+        <li><b></b>V3</li>
+        <li><b></b>V4</li>
+        <li><b></b>V5</li>
+      </ol>
+
+      <dl class="cover-meta">
+        <div>
+          <dt>Preparado para</dt>
+          <dd>Katherine Lindo</dd>
+        </div>
+        <div>
+          <dt>Fecha</dt>
+          <dd>Noviembre 2026</dd>
+        </div>
+        <div>
+          <dt>Preparado por</dt>
+          <dd>Synous AI</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- ═══ 2 · Índice + Resumen ══════════════════════════════════════════ -->
+    <section class="page">
+      <header class="running">
+        <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
+        <span>Alcance V1 · Kathe Lindo</span>
+      </header>
+
+      <div class="section">
+        <p class="label">Índice</p>
+        <ol class="toc" style="margin-top: 3mm">
+          <li><span>01</span>Resumen<span>2</span></li>
+          <li><span>07</span>Inversión y condiciones<span>8</span></li>
+          <li><span>02</span>Qué recibe tu alumno<span>3</span></li>
+          <li><span>08</span>Costos de proveedores<span>8</span></li>
+          <li><span>03</span>Lo que controlas tú<span>4</span></li>
+          <li><span>09</span>Qué no incluye la V1<span>9</span></li>
+          <li><span>04</span>La guía IA: cómo la construimos<span>5</span></li>
+          <li><span>10</span>Qué necesitamos de ti<span>9</span></li>
+          <li><span>05</span>Cómo trabajamos<span>6</span></li>
+          <li><span>11</span>Próximo paso<span>9</span></li>
+          <li><span>06</span>Infraestructura<span>7</span></li>
+          <li style="border-bottom-color: transparent"></li>
+        </ol>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">01</span>
+          <h2>Resumen</h2>
+          <p>La V1 en una página.</p>
+        </div>
+
+        <div class="summary">
+          <div class="summary-card">
+            <h3>Qué es la V1</h3>
+            <p>
+              Una guía de IA propia, entrenada con tu metodología, disponible 24/7 para tus alumnos desde el
+              celular. Es una app real: publicada en tu dominio, con tu identidad visual y lista para usar.
+            </p>
+          </div>
+          <div class="summary-card">
+            <h3>Qué problema resuelve</h3>
+            <p>
+              Entre una sesión y otra, tus alumnos tienen dudas de entrenamiento, alimentación o mentalidad.
+              Hoy dependen de escribirte a ti o de herramientas sueltas que no conocen tu método.
+            </p>
+          </div>
+          <div class="summary-card">
+            <h3>Resultado esperado</h3>
+            <p>
+              Acompañamiento constante, con tu criterio y tu tono, sin que tengas que estar encima de cada
+              alumno. Tú te enfocas en lo que solo tú puedes resolver.
+            </p>
+          </div>
+        </div>
+
+        <dl class="facts">
+          <div>
+            <dt>Inversión</dt>
+            <dd>USD 1.500<small>Precio cerrado de la V1</small></dd>
+          </div>
+          <div>
+            <dt>Plazo</dt>
+            <dd>2 a 4 semanas<small>Desde el material y el primer pago</small></dd>
+          </div>
+          <div>
+            <dt>Pago</dt>
+            <dd>USDT o USD<small>Único, 50/50 o 3 pagos</small></dd>
+          </div>
+          <div>
+            <dt>Soporte</dt>
+            <dd>1 mes incluido<small>Después del lanzamiento</small></dd>
+          </div>
+        </dl>
+        <p class="note">El detalle de la inversión y las formas de pago está en la sección 07.</p>
+      </div>
+    </section>
+
+    <!-- ═══ 3 · Qué recibe tu alumno ══════════════════════════════════════ -->
+    <section class="page">
+      <header class="running">
+        <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
+        <span>Alcance V1 · Kathe Lindo</span>
+      </header>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">02</span>
+          <h2>Qué recibe tu alumno</h2>
+          <p>La experiencia completa, pensada para personas ocupadas que no viven en el celular.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 8v6m-3-3 3 3 3-3"/></svg></span>
+            <div>
+              <h3>App instalable en el celular</h3>
+              <p>Funciona en iOS y Android como un ícono en la pantalla de inicio, sin pasar por las tiendas de apps. También funciona desde la computadora.</p>
+              <p class="solves">Entra en un toque, como a cualquier app.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+            <div>
+              <h3>Acceso privado</h3>
+              <p>Solo pueden entrar los alumnos que tú habilitas. Quien no está dado de alta no ve nada.</p>
+              <p class="solves">Tu contenido queda dentro de tu comunidad.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></span>
+            <div>
+              <h3>Registro e inicio de sesión simple</h3>
+              <p>Con email y contraseña o con su cuenta de Google. Si olvida la contraseña, la recupera solo, desde su correo.</p>
+              <p class="solves">Nadie se queda afuera por una clave olvidada.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></span>
+            <div>
+              <h3>Inicio minimalista</h3>
+              <p>Saludo personalizado y una sola acción principal: «Hablar con mi guía». Suma accesos rápidos a entrenamiento, nutrición y mentalidad, y un check-in rápido («¿Cómo te sientes hoy?») que abre una conversación.</p>
+              <p class="solves">Sabe qué hacer apenas entra.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg></span>
+            <div>
+              <h3>Chat con la guía IA</h3>
+              <p>Respuestas en tu tono y con los criterios de tu método, en los tres pilares: entrenamiento, nutrición y mentalidad.</p>
+              <p class="solves">Una respuesta alineada a tu método, a cualquier hora.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01"/></svg></span>
+            <div>
+              <h3>Preguntas sugeridas</h3>
+              <p>Al abrir la guía, el alumno ve preguntas listas para tocar, armadas a partir de las dudas más comunes de tus alumnos.</p>
+              <p class="solves">Empieza sin tener que pensar qué escribir.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></span>
+            <div>
+              <h3>Historial de conversaciones</h3>
+              <p>Cada conversación queda guardada en su cuenta, en el celular o en la computadora.</p>
+              <p class="solves">Retoma donde dejó, sin repetir contexto.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2"/></svg></span>
+            <div>
+              <h3>Perfil del alumno</h3>
+              <p>Sus datos básicos y su objetivo, siempre a la vista. La guía lo tiene en cuenta al responder.</p>
+              <p class="solves">El acompañamiento parte de lo que busca cada uno.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7V5h16v2M9 19h6M12 5v14"/></svg></span>
+            <div>
+              <h3>Pensada para pocos toques</h3>
+              <p>Diseño que se adapta a celular, tablet y computadora, con letra legible y botones grandes.</p>
+              <p class="solves">Se usa en un minuto entre reuniones.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9S9.5 5.5 12 3Z"/></svg></span>
+            <div>
+              <h3>Funciona sin VPN</h3>
+              <p>Desde Venezuela y otros países: la IA se consulta desde nuestro servidor y no desde el dispositivo del alumno.</p>
+              <p class="solves">Ningún alumno queda afuera por su ubicación.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 4 · Lo que controlas tú ═══════════════════════════════════════ -->
+    <section class="page">
+      <header class="running">
+        <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
+        <span>Alcance V1 · Kathe Lindo</span>
+      </header>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">03</span>
+          <h2>Lo que controlas tú</h2>
+          <p>Un panel de administración simple, solo para ti. Sin conocimientos técnicos.</p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 34%">Función</th>
+              <th>Qué puedes hacer</th>
+              <th style="width: 30%">Qué resuelve</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Alta, pausa y baja de alumnos</strong></td>
+              <td>Das de alta a un alumno nuevo, pausas su acceso (por ejemplo, si interrumpe el programa) o lo quitas.</td>
+              <td>Decides quién entra y cuándo.</td>
+            </tr>
+            <tr>
+              <td><strong>Invitaciones</strong></td>
+              <td>Invitación por email o código de invitación con fecha de vencimiento. Elegimos contigo cuál conviene en el onboarding.</td>
+              <td>Sumar alumnos sin pasos técnicos.</td>
+            </tr>
+            <tr>
+              <td><strong>Tus alumnos en un solo lugar</strong></td>
+              <td>Listado de alumnos con acceso activo, con nombre, email, objetivo y fecha de alta, como un pequeño CRM.</td>
+              <td>Sabes en todo momento quién está dentro.</td>
+            </tr>
+            <tr>
+              <td><strong>Vista general de uso</strong></td>
+              <td>Cuántos alumnos usan la guía, quién entra y qué consulta.</td>
+              <td>Ves si la herramienta se está usando de verdad.</td>
+            </tr>
+            <tr>
+              <td><strong>Control de costos</strong></td>
+              <td>Límite de uso por alumno, que ajustamos contigo según tu programa.</td>
+              <td>El consumo de IA no se dispara.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <p class="label">Cómo se ve tu semana con la V1</p>
+          <h3>Menos mensajes sueltos, más acompañamiento con tu criterio.</h3>
+          <ul>
+            <li>Das de alta a un alumno nuevo en un minuto, desde el panel.</li>
+            <li>Tus alumnos resuelven las dudas del día a día con la guía, a cualquier hora.</li>
+            <li>Lo que la guía no debe responder te llega a ti: la guía se lo indica al alumno.</li>
+            <li>Revisas el uso de tu comunidad cuando quieras, sin pedir reportes.</li>
+          </ul>
+        </div>
+
+        <p class="note">
+          Las métricas de rendimiento deportivo, los planes de entrenamiento y la gestión avanzada de programas
+          no son parte de la V1: están en el roadmap (sección 09).
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══ 5 · La guía IA ════════════════════════════════════════════════ -->
+    <section class="page">
+      <header class="running">
+        <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
+        <span>Alcance V1 · Kathe Lindo</span>
+      </header>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">04</span>
+          <h2>La guía IA: cómo la construimos</h2>
+          <p>El corazón de la V1. Así logramos que responda como tú, y no como un chat genérico.</p>
+        </div>
+
+        <ol class="steps">
+          <li class="step">
+            <span class="step-num">1</span>
+            <div class="step-body">
+              <h3>Relevamiento de tu método</h3>
+              <p>Una sesión de onboarding y un formulario para capturar cómo piensas, qué recomiendas y, sobre todo, qué NO recomiendas.</p>
+              <p class="gets"><b>Obtienes</b> · una guía que parte de tu criterio, no de respuestas genéricas.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">2</span>
+            <div class="step-body">
+              <h3>Base de conocimiento</h3>
+              <p>Organizamos tu material (clases, documentos, guías y preguntas frecuentes de tus alumnos) para que la guía responda a partir de él.</p>
+              <p class="gets"><b>Obtienes</b> · respuestas basadas en lo que tú enseñas.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">3</span>
+            <div class="step-body">
+              <h3>Personalidad e instrucciones</h3>
+              <p>Definimos el tono, el lenguaje, los valores y la forma de acompañar: cercana, directa y orientada a la constancia.</p>
+              <p class="gets"><b>Obtienes</b> · una guía que «suena a Kathe».</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">4</span>
+            <div class="step-body">
+              <h3>Límites y seguridad</h3>
+              <p>Definimos qué temas no responde (diagnósticos médicos, lesiones, medicación o dietas clínicas) y cuándo le indica al alumno que hable contigo o con un profesional.</p>
+              <p class="gets"><b>Obtienes</b> · alumnos cuidados y una guía que sabe hasta dónde llegar.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">5</span>
+            <div class="step-body">
+              <h3>Pruebas con casos reales</h3>
+              <p>Armamos un set de al menos 40 preguntas típicas de tus alumnos, con casos difíciles incluidos, y ajustamos las respuestas antes de lanzar.</p>
+              <p class="gets"><b>Obtienes</b> · una guía probada antes de que la vea el primer alumno.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">6</span>
+            <div class="step-body">
+              <h3>Ronda de ajustes contigo</h3>
+              <p>Pruebas la guía tú misma y nos pides cambios en tono, contenido o límites antes de abrirla a tus alumnos.</p>
+              <p class="gets"><b>Obtienes</b> · la última palabra antes del lanzamiento.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">7</span>
+            <div class="step-body">
+              <h3>Modelo de IA: Claude, de Anthropic</h3>
+              <p>Elegido por su calidad en conversaciones largas y con contexto, y por cómo sigue instrucciones de tono y límites.</p>
+              <p class="gets"><b>Obtienes</b> · una de las IA más sólidas del mercado detrás de tu guía.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ═══ 6 · Cómo trabajamos ═══════════════════════════════════════════ -->
+    <section class="page">
+      <header class="running">
+        <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
+        <span>Alcance V1 · Kathe Lindo</span>
+      </header>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">05</span>
+          <h2>Cómo trabajamos</h2>
+          <p>Seis momentos, de tu primer formulario a tus alumnos usando la app.</p>
+        </div>
+
+        <ol class="steps">
+          <li class="step">
+            <span class="step-num">1</span>
+            <div class="step-body">
+              <div class="step-top"><h3>Kickoff y onboarding</h3><span class="tag">Semana 1</span></div>
+              <p>Completas un formulario sobre tu método y tus alumnos, y hacemos la reunión de kickoff para alinear objetivos.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">2</span>
+            <div class="step-body">
+              <div class="step-top"><h3>Panel de cliente</h3><span class="tag">Todo el proyecto</span></div>
+              <p>Tienes acceso a tu panel de cliente de Synous: ves el avance del proyecto en vivo, sin tener que preguntar en qué estamos.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">3</span>
+            <div class="step-body">
+              <div class="step-top"><h3>Diseño de la experiencia</h3><span class="tag">Semana 1</span></div>
+              <p>Diseñamos las pantallas con tu identidad visual y las apruebas antes de construirlas.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">4</span>
+            <div class="step-body">
+              <div class="step-top"><h3>Desarrollo y entrenamiento de la guía</h3><span class="tag">Semanas 2 y 3</span></div>
+              <p>Construimos la app, dejamos la infraestructura lista y configuramos la guía con tu material (sección 04).</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">5</span>
+            <div class="step-body">
+              <div class="step-top"><h3>Revisión contigo y ajustes</h3><span class="tag">Semanas 3 y 4</span></div>
+              <p>Pruebas la app y la guía, y aplicamos tus cambios dentro del alcance acordado.</p>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num">6</span>
+            <div class="step-body">
+              <div class="step-top"><h3>Lanzamiento</h3><span class="tag">Semana 4</span></div>
+              <p>Publicamos la app en tu dominio, cargamos a tus alumnos y te entregamos una guía rápida de uso para ti y otra para tus alumnos.</p>
+            </div>
+          </li>
+        </ol>
+
+        <div class="two-col" style="margin-top: 7mm">
+          <div class="box">
+            <h3>Llamadas incluidas</h3>
+            <ul class="checks done">
+              <li><b>Kickoff:</b> alineamos objetivos, método y alumnos.</li>
+              <li><b>Revisión intermedia:</b> ves la app y la guía funcionando.</li>
+              <li><b>Entrega:</b> te mostramos cómo administrar todo.</li>
+            </ul>
+          </div>
+          <div class="box" style="background: var(--shade)">
+            <h3>Plazo total</h3>
+            <p style="font-size: 16pt; font-weight: 600; letter-spacing: -0.02em; color: var(--navy)">2 a 4 semanas</p>
+            <p class="muted" style="margin-top: 1.6mm; font-size: 9.2pt">
+              Desde que recibimos tu material y el primer pago. Si el material llega por partes, el plazo corre
+              desde que está completo.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 7 · Infraestructura ═══════════════════════════════════════════ -->
+    <section class="page">
+      <header class="running">
+        <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
+        <span>Alcance V1 · Kathe Lindo</span>
+      </header>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">06</span>
+          <h2>Infraestructura y lo que dejamos configurado</h2>
+          <p>Nos encargamos de proveedores, dominio y servicios. Todo queda a tu nombre.</p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 38%">Qué dejamos listo</th>
+              <th>Para qué sirve</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Publicación de la app en tu dominio</strong><br /><span class="tech">Vercel</span></td>
+              <td>La app queda en línea en tu dominio. Si ya tienes uno, la publicamos ahí; si no, lo registramos a tu nombre (costo en la sección 08).</td>
+            </tr>
+            <tr>
+              <td><strong>Base de datos segura</strong><br /><span class="tech">Supabase</span></td>
+              <td>Guarda los usuarios y el historial de conversaciones de cada alumno.</td>
+            </tr>
+            <tr>
+              <td><strong>Inicio de sesión y gestión de usuarios</strong><br /><span class="tech">Clerk</span></td>
+              <td>Registro, inicio de sesión con email o Google, recuperación de contraseña y control de accesos.</td>
+            </tr>
+            <tr>
+              <td><strong>Conexión segura con la IA</strong><br /><span class="tech">API de Anthropic</span></td>
+              <td>La guía se consulta desde nuestro servidor: las claves nunca quedan expuestas en el celular del alumno, y por eso funciona sin VPN.</td>
+            </tr>
+            <tr>
+              <td><strong>Código fuente versionado</strong><br /><span class="tech">GitHub</span></td>
+              <td>Todo el código queda guardado y respaldado, con historial de cada cambio.</td>
+            </tr>
+            <tr>
+              <td><strong>Seguridad de los datos</strong><br /><span class="tech">HTTPS · cifrado</span></td>
+              <td>Conexión cifrada, contraseñas protegidas y los datos de cada alumno separados de los del resto.</td>
+            </tr>
+            <tr>
+              <td><strong>Preparada para crecer</strong></td>
+              <td>La infraestructura queda lista para sumar alumnos y las próximas versiones sin rehacer lo construido.</td>
+            </tr>
+            <tr>
+              <td><strong>Pruebas antes de la entrega</strong></td>
+              <td>Probamos la app en iPhone (Safari), Android (Chrome) y en computadora.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <p class="label">Tuya de verdad</p>
+          <h3>Todas las cuentas quedan a tu nombre.</h3>
+          <p>La app, el código y los datos de tus alumnos son tuyos. Nosotros los configuramos y administramos el proyecto, pero el control final es tuyo.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 8 · Inversión + Costos ════════════════════════════════════════ -->
+    <section class="page">
+      <header class="running">
+        <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
+        <span>Alcance V1 · Kathe Lindo</span>
+      </header>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">07</span>
+          <h2>Inversión y condiciones</h2>
+          <p>Un precio cerrado por la V1 · Espacio de acompañamiento.</p>
+        </div>
+
+        <div class="price-row">
+          <div class="price featured">
+            <span class="label">Pago único</span>
+            <strong>USD 1.500</strong>
+            <small>Al iniciar</small>
+          </div>
+          <div class="price">
+            <span class="label">50% y 50%</span>
+            <strong>2 × USD 750</strong>
+            <small>Al iniciar y en la entrega · total USD 1.500</small>
+          </div>
+          <div class="price">
+            <span class="label">Tres pagos</span>
+            <strong>3 × USD 533,33</strong>
+            <small>Total USD 1.600</small>
+          </div>
+        </div>
+
+        <table style="margin-top: 4mm">
+          <tbody>
+            <tr>
+              <td style="width: 32%; border-top: 0"><strong>Medios de pago</strong></td>
+              <td style="border-top: 0">USDT o USD. Los datos de la billetera o la cuenta los coordinamos contigo directamente.</td>
+            </tr>
+            <tr>
+              <td><strong>Precio congelado</strong></td>
+              <td>Las versiones siguientes se cotizan con la tarifa vigente de Synous en esta propuesta, aunque las contrates más adelante.</td>
+            </tr>
+            <tr>
+              <td><strong>Mantenimiento incluido</strong></td>
+              <td>1 mes después del lanzamiento: errores, caídas y correcciones. Las funciones nuevas se cotizan aparte.</td>
+            </tr>
+            <tr>
+              <td><strong>Mantenimiento mensual</strong></td>
+              <td>Opcional desde el segundo mes. Lo cotizamos al cerrar el primer mes, según el uso real de la app.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">08</span>
+          <h2>Costos de proveedores</h2>
+          <p>Los pagas directo a cada proveedor. No son ganancia de Synous.</p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 26%">Proveedor</th>
+              <th>Para qué sirve</th>
+              <th style="width: 30%">Costo estimado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>IA</strong><br /><span class="tech">Anthropic</span></td>
+              <td>Las respuestas de la guía. Arranca bajo y crece con el uso; el límite por alumno lo mantiene bajo control.</td>
+              <td><strong>USD 10 a 30/mes</strong><br /><span class="muted">para unos 30 alumnos activos</span></td>
+            </tr>
+            <tr>
+              <td><strong>Hosting</strong><br /><span class="tech">Vercel</span></td>
+              <td>Publicación de la app. Recomendamos el plan pago desde el inicio.</td>
+              <td><strong>USD 20/mes</strong></td>
+            </tr>
+            <tr>
+              <td><strong>Base de datos</strong><br /><span class="tech">Supabase</span></td>
+              <td>Usuarios e historial de conversaciones.</td>
+              <td><strong>USD 0</strong> al inicio<br /><span class="muted">USD 25/mes si la app crece</span></td>
+            </tr>
+            <tr>
+              <td><strong>Inicio de sesión</strong><br /><span class="tech">Clerk</span></td>
+              <td>Registro, accesos y recuperación de contraseña.</td>
+              <td><strong>USD 0</strong> al inicio<br /><span class="muted">el plan gratuito cubre el volumen inicial</span></td>
+            </tr>
+            <tr>
+              <td><strong>Dominio</strong></td>
+              <td>La dirección web de tu app, solo si todavía no tienes una.</td>
+              <td><strong>USD 12 a 20/año</strong></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="note"><b>Estimado al inicio:</b> entre USD 30 y USD 50 por mes, más el dominio si hace falta. GitHub no tiene costo.</p>
+      </div>
+    </section>
+
+    <!-- ═══ 9 · No incluye + Necesitamos + Próximo paso ═══════════════════ -->
+    <section class="page">
+      <header class="running">
+        <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
+        <span>Alcance V1 · Kathe Lindo</span>
+      </header>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">09</span>
+          <h2>Qué no incluye la V1</h2>
+          <p>Y en qué versión del roadmap está. Cada versión se define contigo y se cotiza por separado.</p>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Funcionalidad</th>
+              <th style="width: 34%">Dónde está</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Activación diaria, check-in con registro y seguimiento de hábitos</td>
+              <td><span class="tag">V2</span></td>
+            </tr>
+            <tr>
+              <td>Registro de alimentación y estimación de calorías</td>
+              <td><span class="tag">V3</span></td>
+            </tr>
+            <tr>
+              <td>Integración con relojes, TrainingPeaks y registro de actividad</td>
+              <td><span class="tag">V4</span> <span class="muted" style="font-size: 8pt">requiere investigación técnica previa</span></td>
+            </tr>
+            <tr>
+              <td>Retos, ranking y comunidad</td>
+              <td><span class="tag">V5</span></td>
+            </tr>
+            <tr>
+              <td>Publicación en App Store y Google Play</td>
+              <td><span class="tag neutral">A cotizar</span></td>
+            </tr>
+            <tr>
+              <td>Carga o redacción de contenido nuevo del programa</td>
+              <td><span class="tag neutral">Lo aportas tú</span> <span class="muted" style="font-size: 8pt">nosotros lo organizamos</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <span class="section-num">10</span>
+          <h2>Qué necesitamos de ti</h2>
+        </div>
+        <div class="box">
+          <ul class="checks">
+            <li>Material de tu método: clases, documentos, guías y preguntas frecuentes de tus alumnos.</li>
+            <li>Tu logo y tus colores.</li>
+            <li>La lista de alumnos que van a usar la app (nombre y email).</li>
+            <li>Crear las cuentas de proveedores a tu nombre (te guiamos paso a paso) o darnos acceso.</li>
+            <li>Tu dominio, si ya tienes uno.</li>
+            <li>Disponibilidad para las 3 llamadas y una ronda de prueba de la guía.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="closing">
+          <p class="label" style="color: #96c0ff">11 · Próximo paso</p>
+          <h3 style="margin-top: 2mm">Confirmamos el alcance, coordinamos el primer pago y agendamos el kickoff.</h3>
+          <p>Cualquier duda sobre este documento, la vemos juntos antes de empezar.</p>
+          <div class="contact">
+            <span><b>WhatsApp</b>+54 9 2221 429754</span>
+            <span><b>Email</b>synous.ai@gmail.com</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>

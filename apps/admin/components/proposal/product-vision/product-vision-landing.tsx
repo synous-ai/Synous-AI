@@ -76,7 +76,16 @@ const TRAIT_ICONS: ReactNode[] = [
  * `token` es el del link público; `null` en la vista previa interna, donde los
  * CTAs no envían y los borradores se marcan en ámbar.
  */
-export function ProductVisionLanding({ content, token }: { content: ProductVisionContent; token: string | null }) {
+export function ProductVisionLanding({
+  content,
+  token,
+  scopeHref,
+}: {
+  content: ProductVisionContent
+  token: string | null
+  /** Descarga del documento de alcance (PDF). Sin él, no se muestra el botón. */
+  scopeHref?: string
+}) {
   const { hero, vision, roadmap, v1, process, investment, after, faq, close } = content
   const preview = token === null
 
@@ -356,6 +365,19 @@ export function ProductVisionLanding({ content, token }: { content: ProductVisio
                 </ul>
               </article>
             </Reveal>
+
+            {scopeHref && (
+              <div className="pv-scope">
+                <a className="pv-scope-link" href={scopeHref} download>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 3v5h5M12 11v6m-3-3 3 3 3-3" />
+                  </svg>
+                  {investment.scopeDownload.label}
+                </a>
+                <p>{investment.scopeDownload.note}</p>
+              </div>
+            )}
 
             <p className="pv-next">{investment.next}</p>
           </div>

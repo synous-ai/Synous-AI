@@ -260,7 +260,7 @@ export const katherineLindoProposal: ProductVisionContent = {
         mockup: 'access',
         title: 'Acceso',
         points: [
-          'Inicio de sesión con email y contraseña',
+          'Inicio de sesión con email y contraseña, o con Google',
           'Solo entran los alumnos que habilitás',
           'Recuperación de contraseña',
         ],
@@ -371,6 +371,10 @@ export const katherineLindoProposal: ProductVisionContent = {
       'Una reunión para mostrarte cómo administrarla',
     ],
     next: 'Las siguientes versiones se cotizan por separado, cuando decidamos juntos cuál sumar.',
+    scopeDownload: {
+      label: 'Descargar el alcance completo (PDF)',
+      note: 'Todo lo que incluye tu V1, punto por punto.',
+    },
   },
 
   after: {

@@ -11,7 +11,13 @@ import type { ProposalTemplate } from './proposal-templates'
 export function RenderProposal({ template, token }: { template: ProposalTemplate; token: string | null }) {
   switch (template) {
     case 'katherine-lindo':
-      return <ProductVisionLanding content={katherineLindoProposal} token={token} />
+      return (
+        <ProductVisionLanding
+          content={katherineLindoProposal}
+          token={token}
+          scopeHref={token ? `/p/${encodeURIComponent(token)}/alcance` : `/admin/proposal-preview/${template}/alcance`}
+        />
+      )
     case 'classic':
       return <ProposalLanding proposal={resolveProposal()} />
   }
