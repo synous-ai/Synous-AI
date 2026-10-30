@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiPatch, apiList } from '../api'
 import { fetchAllPages } from '../fetch-all-pages'
-import type { Proposal, ProposalContent } from '../types'
+import type { Proposal, ProposalContent, ProposalTemplate } from '../types'
 
 /** Lista de propuestas del portal (vista admin). */
 export function useProposals() {
@@ -31,11 +31,11 @@ export function useGenerateProposal() {
   })
 }
 
-/** Edita una propuesta (título y/o contenido). */
+/** Edita una propuesta (título, contenido y/o plantilla). */
 export function useUpdateProposal(id: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { title?: string; content?: ProposalContent }) =>
+    mutationFn: (input: { title?: string; content?: ProposalContent; template?: ProposalTemplate }) =>
       apiPatch<Proposal>(`/api/proposals/${id}`, input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['proposals'] })

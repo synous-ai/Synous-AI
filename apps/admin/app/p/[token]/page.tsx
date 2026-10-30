@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import ColorBends from '@/components/proposal/color-bends/color-bends'
 import { AnnouncementBars } from '@/components/proposal/announcement-bars'
 import { LetterScene } from '@/components/proposal/letter-scene'
-import { proposal as template } from '@/app/portal/propuesta/proposal-content'
+import { PROPOSAL_TEMPLATES, templateOf } from '@/components/proposal/proposal-templates'
 import { fetchPublicProposal, proposalMetadata } from './proposal-metadata'
 
 /** Backdrop palette, drawn from the brand navy and accent blues. */
@@ -29,7 +29,7 @@ export default async function PublicProposalEnvelope({ params }: { params: { tok
   const data = await fetchPublicProposal(params.token)
   if (!data) notFound()
 
-  const { recipient, dateLabel, statement } = template.envelope
+  const { recipient, dateLabel, statement } = PROPOSAL_TEMPLATES[templateOf(data.template)].envelope
 
   return (
     <main className="brand-surface proposal-stage stage">

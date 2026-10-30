@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { ProposalLanding } from '@/components/proposal/proposal-landing'
-import { resolveProposal } from '@/app/portal/propuesta/resolve-proposal'
+import { RenderProposal } from '@/components/proposal/render-proposal'
+import { templateOf } from '@/components/proposal/proposal-templates'
 import { fetchPublicProposal, proposalMetadata } from '../proposal-metadata'
 
 export function generateMetadata({ params }: { params: { token: string } }): Promise<Metadata> {
@@ -19,10 +19,12 @@ export const dynamic = 'force-dynamic'
  * sin pantalla de carga. El backend devuelve 404 tanto si el token no existe
  * como si la propuesta sigue en borrador, así un link filtrado antes de tiempo
  * no revela que exista.
+ *
+ * La plantilla (layout + copy) la elige cada propuesta con su `template`.
  */
 export default async function PublicProposalPage({ params }: { params: { token: string } }) {
   const data = await fetchPublicProposal(params.token)
   if (!data) notFound()
 
-  return <ProposalLanding proposal={resolveProposal()} />
+  return <RenderProposal template={templateOf(data.template)} token={params.token} />
 }

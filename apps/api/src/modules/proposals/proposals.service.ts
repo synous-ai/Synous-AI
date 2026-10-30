@@ -7,7 +7,7 @@ import { Errors } from '../../lib/errors'
 import { env } from '../../config/env'
 import { publicSiteBaseUrl } from '../../lib/portal-url'
 import type { ModelProvider } from '../../lib/ai'
-import type { ProposalContent } from './proposals.types'
+import type { ProposalContent, ProposalInterestIntent, ProposalTemplate } from './proposals.types'
 import {
   generateProposalContent,
   fallbackProposalContent,
@@ -76,6 +76,7 @@ export interface ProposalDTO {
   token: string
   title: string
   status: string
+  template: ProposalTemplate
   content: ProposalContent
   model: string | null
   amount: string | null
@@ -97,6 +98,7 @@ function toDTO(row: ProposalRow): ProposalDTO {
     token: row.token,
     title: row.title,
     status: row.status,
+    template: row.template as ProposalTemplate,
     content: row.content,
     model: row.model,
     amount: row.amount,
@@ -261,11 +263,13 @@ export async function getProposal(portalId: string, id: string): Promise<Proposa
 export interface UpdateProposalInput {
   title?: string
   content?: ProposalContent
+  template?: ProposalTemplate
 }
 
 /**
- * Edita una propuesta (título y/o contenido). El admin ajusta lo que la IA
- * generó. Recalcula el monto denormalizado desde el total del contenido.
+ * Edita una propuesta (título, contenido y/o plantilla). El admin ajusta lo
+ * que la IA generó. Recalcula el monto denormalizado desde el total del
+ * contenido.
  */
 export async function updateProposal(
   portalId: string,
@@ -274,6 +278,7 @@ export async function updateProposal(
 ): Promise<ProposalDTO> {
   const patch: Partial<ProposalRow> = {}
   if (input.title !== undefined) patch.title = input.title
+  if (input.template !== undefined) patch.template = input.template
   if (input.content !== undefined) {
     patch.content = input.content
     const total = contentTotal(input.content)
@@ -360,6 +365,7 @@ export async function markProposalCompleted(token: string): Promise<void> {
 export interface PublicProposalDTO {
   title: string
   status: string
+  template: ProposalTemplate
   content: ProposalContent
   updatedAt: string
 }
@@ -394,9 +400,60 @@ export async function getPublicProposal(token: string): Promise<PublicProposalDT
   return {
     title: row.title,
     status: row.status,
+    template: row.template as ProposalTemplate,
     content: row.content,
     updatedAt: row.updatedAt.toISOString(),
   }
 }
 
 
+
+/**
+ * El prospecto tocó un CTA del cierre ("quiero avanzar" / "tengo preguntas").
+ * Público, por token. NO acepta la propuesta ni cambia su estado: avisa a los
+ * admins para que alguien le escriba. Silencioso ante un token inválido o un
+ * borrador, igual que `markProposalCompleted`, para no revelar que existe.
+ *
+ * "Avanzar" se notifica una sola vez por propuesta (dedupeKey): repetir el
+ * click no suma ruido. Las preguntas no deduplican, cada una puede traer un
+ * mensaje distinto; el rate limit de la ruta acota el abuso.
+ */
+export async function registerProposalInterest(
+  token: string,
+  intent: ProposalInterestIntent,
+  message?: string,
+): Promise<void> {
+  const [row] = await db
+    .select({ id: proposal.id, portalId: proposal.portalId, status: proposal.status, content: proposal.content })
+    .from(proposal)
+    .where(eq(proposal.token, token))
+    .limit(1)
+  if (!row || row.status === 'draft') return
+
+  const text = message?.trim() ? message.trim() : null
+  await notifyAdmins(
+    row.portalId,
+    'proposal_interest',
+    { proposalId: row.id, contactName: row.content.clientName?.trim() || 'El cliente', intent, message: text },
+    {
+      entity: { type: 'proposal', id: row.id },
+      ...(intent === 'advance' ? { dedupeKey: `proposal_interest:advance:${row.id}` } : {}),
+      metadata: { intent, message: text },
+    },
+  )
+}
+
+/**
+ * Solo la plantilla de una propuesta visible, SIN marcarla como vista. La usa
+ * la imagen de vista previa del link, que piden los bots de WhatsApp y Slack
+ * apenas se pega el link, antes de que el cliente lo abra.
+ */
+export async function getPublicProposalTemplate(token: string): Promise<{ template: ProposalTemplate }> {
+  const [row] = await db
+    .select({ status: proposal.status, template: proposal.template })
+    .from(proposal)
+    .where(eq(proposal.token, token))
+    .limit(1)
+  if (!row || row.status === 'draft') throw Errors.notFound('Propuesta no encontrada')
+  return { template: row.template as ProposalTemplate }
+}

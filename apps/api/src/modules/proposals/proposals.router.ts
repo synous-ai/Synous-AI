@@ -9,6 +9,7 @@ import {
   GenerateProposalSchema,
   UpdateProposalSchema,
   ProposalTokenParamSchema,
+  ProposalInterestSchema,
 } from './proposals.schema'
 import {
   generateProposal,
@@ -19,6 +20,8 @@ import {
   markProposalSent,
   markProposalCompleted,
   getPublicProposal,
+  registerProposalInterest,
+  getPublicProposalTemplate,
 } from './proposals.service'
 
 const TAG = 'Proposals'
@@ -46,6 +49,29 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
     async (request) => ok(await getPublicProposal(request.params.token)),
   )
 
+  // Solo la plantilla, sin marcar la propuesta como vista: para la imagen de
+  // vista previa del link, que piden los bots antes de que el cliente lo abra.
+  r.get(
+    '/:token/template',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Plantilla de una propuesta por su token, sin marcarla como vista (público)',
+        params: ProposalTokenParamSchema,
+      },
+      // Por token y no por IP: la imagen OG la pide el servidor de Next, así
+      // que todos los bots de previsualización compartirían un mismo bucket.
+      config: {
+        rateLimit: {
+          max: 60,
+          timeWindow: '1 minute',
+          keyGenerator: (request) => `proposal-template:${(request.params as { token: string }).token}`,
+        },
+      },
+    },
+    async (request) => ok(await getPublicProposalTemplate(request.params.token)),
+  )
+
   // El cliente llegó al ÚLTIMO paso de la presentación (lo dispara el deck).
   r.post(
     '/:token/completed',
@@ -61,6 +87,34 @@ export async function proposalPublicRoutes(app: FastifyInstance): Promise<void> 
     },
     async (request) => {
       await markProposalCompleted(request.params.token)
+      return ok({ ok: true })
+    },
+  )
+
+  // CTA del cierre: el cliente quiere avanzar o tiene preguntas. Solo avisa al
+  // equipo; no acepta la propuesta ni crea ningún compromiso.
+  r.post(
+    '/:token/interest',
+    {
+      schema: {
+        tags: [TAG],
+        summary: 'Registrar interés del cliente desde la propuesta (público)',
+        params: ProposalTokenParamSchema,
+        body: ProposalInterestSchema,
+      },
+      // Manda notificaciones con texto libre, así que el límite va por TOKEN y
+      // no por IP: con `trustProxy` la IP sale de X-Forwarded-For, que quien le
+      // pegue directo a la API puede rotar. Un link filtrado no inunda la campana.
+      config: {
+        rateLimit: {
+          max: 5,
+          timeWindow: '10 minutes',
+          keyGenerator: (request) => `proposal-interest:${(request.params as { token: string }).token}`,
+        },
+      },
+    },
+    async (request) => {
+      await registerProposalInterest(request.params.token, request.body.intent, request.body.message)
       return ok({ ok: true })
     },
   )

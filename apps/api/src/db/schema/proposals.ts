@@ -41,6 +41,10 @@ export const proposal = pgTable(
       .$defaultFn(() => createId()),
     title: text('title').notNull(),
     status: text('status').notNull().default('draft'),
+    // Plantilla de la landing pública. Cada una trae su copy en el código del
+    // admin (ver `components/proposal/proposal-templates.ts`): `content` no se
+    // renderiza. `classic` es la original, así las filas previas no cambian.
+    template: text('template').notNull().default('classic'),
     content: jsonb('content').$type<ProposalContent>().notNull(),
     // Provider de IA que la generó (gemini | claude | manual).
     model: text('model'),

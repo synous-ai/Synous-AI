@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og'
-import { proposal as template } from '@/app/portal/propuesta/proposal-content'
+import { API_URL } from '@/lib/config'
+import { PROPOSAL_TEMPLATES, templateOf } from '@/components/proposal/proposal-templates'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,14 +10,29 @@ export const dynamic = 'force-dynamic'
  * Todo es texto y degradé, sin archivos: así no depende de dónde quede
  * `public/` en el deploy.
  *
- * NO consulta la API: el endpoint público marca la propuesta como vista y
- * avisa a los admins la primera vez, y esta imagen la piden los bots de
- * WhatsApp, Slack y compañía apenas se pega el link, antes de que el cliente
- * lo abra. Nombre y fecha salen de la plantilla, que es pública igual.
+ * NO pide la propuesta: ese endpoint la marca como vista y avisa a los admins
+ * la primera vez, y esta imagen la piden los bots de WhatsApp, Slack y
+ * compañía apenas se pega el link, antes de que el cliente lo abra. Pide solo
+ * la plantilla (`/template`, sin efectos) para saber qué nombre y fecha poner.
+ * Si la API no responde, sale genérica.
  */
-export function GET() {
-  const client: string | undefined = template.envelope.recipient
-  const date: string | undefined = template.envelope.dateLabel
+async function fetchEnvelope(token: string): Promise<{ recipient: string; dateLabel: string } | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/public/proposals/${encodeURIComponent(token)}/template`, {
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    const json = (await res.json()) as { data?: { template?: string } }
+    return PROPOSAL_TEMPLATES[templateOf(json.data?.template)].envelope
+  } catch {
+    return null
+  }
+}
+
+export async function GET(_request: Request, { params }: { params: { token: string } }) {
+  const envelope = await fetchEnvelope(params.token)
+  const client: string | undefined = envelope?.recipient
+  const date: string | undefined = envelope?.dateLabel
 
   return new ImageResponse(
     (

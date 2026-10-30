@@ -83,5 +83,15 @@ export interface ProposalFaqEntry {
   answer: string
 }
 
+/**
+ * Plantilla de la landing pública. Agregar una = sumarla acá, en el schema Zod
+ * y en el registro del admin (`components/proposal/proposal-templates.ts`).
+ */
+export const PROPOSAL_TEMPLATES = ['classic', 'katherine-lindo'] as const
+export type ProposalTemplate = (typeof PROPOSAL_TEMPLATES)[number]
+
+/** Lo que el cliente pide desde los CTAs del cierre de la propuesta. */
+export type ProposalInterestIntent = 'advance' | 'questions'
+
 /** Estados del ciclo de vida de una propuesta. */
 export type ProposalStatus = 'draft' | 'accepted' | 'sent' | 'viewed'

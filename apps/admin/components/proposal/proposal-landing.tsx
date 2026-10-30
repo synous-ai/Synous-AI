@@ -21,7 +21,7 @@ function usd(amount: number): string {
 /** Backdrop palette: deep indigo through the brand's pale and electric blues. */
 const AURORA_STOPS: [string, string, string] = ['#181ba2', '#99c0fe', '#383cff']
 
-function Check() {
+export function Check() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
       <path d="m5 12 5 5L19 7" />
@@ -29,7 +29,7 @@ function Check() {
   )
 }
 
-function Minus() {
+export function Minus() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
       <path d="M6 12h12" />
@@ -150,7 +150,7 @@ function GuaranteeIcon({
 }
 
 /** Bracket ticks pinned to the four corners of the element they sit in. */
-function CornerTicks() {
+export function CornerTicks() {
   return (
     <>
       <span className="tick tick-1" aria-hidden="true" />
@@ -161,7 +161,7 @@ function CornerTicks() {
   )
 }
 
-function PricingCorners() {
+export function PricingCorners() {
   return (
     <>
       <span className="pricing-dot pricing-dot-tl" aria-hidden="true" />
