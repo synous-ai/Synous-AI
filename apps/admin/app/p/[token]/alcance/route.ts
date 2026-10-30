@@ -15,8 +15,10 @@ export async function GET(_request: Request, { params }: { params: { token: stri
   try {
     const res = await fetch(`${API_URL}/api/public/proposals/${encodeURIComponent(params.token)}/template`, {
       cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
     })
-    if (!res.ok) return new Response('Not found', { status: 404 })
+    if (res.status === 404) return new Response('Not found', { status: 404 })
+    if (!res.ok) return new Response('No disponible', { status: 502 })
     const json = (await res.json()) as { data?: { template?: string } }
     template = json.data?.template
   } catch {
