@@ -11,12 +11,13 @@
 
   Reglas del copy: lo que se lista es exactamente lo que entra en la V1 (el
   mismo alcance que la landing); nada de V2 a V5 se presenta como incluido.
-  Español neutro, tratándola de "tú".
+  Español neutro, tratándola de "tú". Siempre el nombre completo: Katherine
+  Lindo (nunca "Kathe").
 -->
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <title>Synous AI — Alcance V1 — Guía IA para Kathe Lindo</title>
+    <title>Synous AI — Alcance V1 — Aplicación con IA para Katherine Lindo</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -869,6 +870,50 @@
       .muted {
         color: var(--muted);
       }
+      .ai-cost {
+        margin-top: 3mm;
+        padding: 2.8mm 3.6mm;
+        border: 1px solid var(--edge);
+        border-radius: 3mm;
+        background: var(--shade);
+      }
+      .ai-cost-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2.4mm;
+        margin-top: 2.4mm;
+      }
+      .ai-cost-row > div {
+        display: grid;
+        gap: 0.6mm;
+        padding: 2.4mm 3mm;
+        border: 1px solid var(--edge);
+        border-radius: 2.4mm;
+        background: #fff;
+      }
+      .ai-cost-row > div.mid {
+        border-color: #96c0ff;
+      }
+      .ai-cost-row span {
+        font: 500 7pt 'JetBrains Mono', monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .ai-cost-row strong {
+        font-size: 11pt;
+        color: var(--navy);
+      }
+      .ai-cost-row small {
+        font-size: 8pt;
+        color: var(--muted);
+      }
+      .ai-cost > p:last-child {
+        margin-top: 2.4mm;
+        font-size: 8.4pt;
+        line-height: 1.45;
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>
@@ -878,7 +923,7 @@
 
       <p class="cover-badge"><i></i>PROPUESTA PRIVADA · SYNOUS AI</p>
       <h1>Alcance <span>V1</span></h1>
-      <p class="cover-sub">Guía IA para Kathe Lindo</p>
+      <p class="cover-sub">Aplicación con IA para Katherine Lindo</p>
       <p class="cover-quote">
         El ciclismo es el vehículo. La transformación es el propósito. Este documento detalla, punto por
         punto, todo lo que construimos en la primera versión de tu plataforma.
@@ -912,7 +957,7 @@
     <section class="page">
       <header class="running">
         <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
-        <span>Alcance V1 · Kathe Lindo</span>
+        <span>Alcance V1 · Katherine Lindo</span>
       </header>
 
       <div class="section">
@@ -944,8 +989,8 @@
           <div class="summary-card">
             <h3>Qué es la V1</h3>
             <p>
-              Una guía de IA propia, entrenada con tu metodología, disponible 24/7 para tus alumnos desde el
-              celular. Es una app real: publicada en tu dominio, con tu identidad visual y lista para usar.
+              Tu propia aplicación: tus clases ordenadas por módulos y una guía de IA entrenada con tu
+              metodología, disponible 24/7 desde el celular. Publicada en tu dominio y lista para usar.
             </p>
           </div>
           <div class="summary-card">
@@ -967,7 +1012,7 @@
         <dl class="facts">
           <div>
             <dt>Inversión</dt>
-            <dd>USD 1.500<small>Precio cerrado de la V1</small></dd>
+            <dd>USD 1.500<small>En uno o dos pagos</small></dd>
           </div>
           <div>
             <dt>Plazo</dt>
@@ -975,11 +1020,11 @@
           </div>
           <div>
             <dt>Pago</dt>
-            <dd>USDT o USD<small>Único, 50/50 o 3 pagos</small></dd>
+            <dd>USDT o USD<small>Único, 2 o 3 pagos</small></dd>
           </div>
           <div>
             <dt>Soporte</dt>
-            <dd>1 mes incluido<small>Después del lanzamiento</small></dd>
+            <dd>15 días incluidos<small>Después del lanzamiento</small></dd>
           </div>
         </dl>
         <p class="note">El detalle de la inversión y las formas de pago está en la sección 07.</p>
@@ -990,7 +1035,7 @@
     <section class="page">
       <header class="running">
         <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
-        <span>Alcance V1 · Kathe Lindo</span>
+        <span>Alcance V1 · Katherine Lindo</span>
       </header>
 
       <div class="section">
@@ -1005,7 +1050,7 @@
             <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 8v6m-3-3 3 3 3-3"/></svg></span>
             <div>
               <h3>App instalable en el celular</h3>
-              <p>Funciona en iOS y Android como un ícono en la pantalla de inicio, sin pasar por las tiendas de apps. También funciona desde la computadora.</p>
+              <p>Funciona en iOS y Android como un ícono en la pantalla de inicio, sin pasar por las tiendas de apps. Se adapta a celular, tablet y computadora.</p>
               <p class="solves">Entra en un toque, como a cualquier app.</p>
             </div>
           </article>
@@ -1032,8 +1077,17 @@
             <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></span>
             <div>
               <h3>Inicio minimalista</h3>
-              <p>Saludo personalizado y una sola acción principal: «Hablar con mi guía». Suma accesos rápidos a entrenamiento, nutrición y mentalidad, y un check-in rápido («¿Cómo te sientes hoy?») que abre una conversación.</p>
+              <p>Saludo personalizado y una acción principal: «Hablar con mi guía». Suma «Sigue donde quedaste» para volver a su clase, accesos rápidos a entrenamiento, nutrición y mentalidad, y un check-in («¿Cómo te sientes hoy?») que abre una conversación.</p>
               <p class="solves">Sabe qué hacer apenas entra.</p>
+            </div>
+          </article>
+
+          <article class="feature">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="m10 8.5 4.5 2.5-4.5 2.5z"/><path d="M7 21h10"/></svg></span>
+            <div>
+              <h3>Clases y módulos</h3>
+              <p>Tus clases cargadas en la app y ordenadas por módulos: video, texto y materiales en cada una. El alumno marca lo que ya vio y sigue donde quedó.</p>
+              <p class="solves">Tu programa completo, en un solo lugar.</p>
             </div>
           </article>
 
@@ -1074,15 +1128,6 @@
           </article>
 
           <article class="feature">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7V5h16v2M9 19h6M12 5v14"/></svg></span>
-            <div>
-              <h3>Pensada para pocos toques</h3>
-              <p>Diseño que se adapta a celular, tablet y computadora, con letra legible y botones grandes.</p>
-              <p class="solves">Se usa en un minuto entre reuniones.</p>
-            </div>
-          </article>
-
-          <article class="feature">
             <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9S9.5 5.5 12 3Z"/></svg></span>
             <div>
               <h3>Funciona sin VPN</h3>
@@ -1098,7 +1143,7 @@
     <section class="page">
       <header class="running">
         <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
-        <span>Alcance V1 · Kathe Lindo</span>
+        <span>Alcance V1 · Katherine Lindo</span>
       </header>
 
       <div class="section">
@@ -1133,8 +1178,13 @@
               <td>Sabes en todo momento quién está dentro.</td>
             </tr>
             <tr>
+              <td><strong>Clases y módulos</strong></td>
+              <td>Subes tus clases (video, texto y materiales) y las ordenas por módulo. Las cargamos contigo al inicio.</td>
+              <td>Tu programa actualizado sin depender de nadie.</td>
+            </tr>
+            <tr>
               <td><strong>Vista general de uso</strong></td>
-              <td>Cuántos alumnos usan la guía, quién entra y qué consulta.</td>
+              <td>Quién entra, qué clases ve y qué le consulta a la guía.</td>
               <td>Ves si la herramienta se está usando de verdad.</td>
             </tr>
             <tr>
@@ -1167,7 +1217,7 @@
     <section class="page">
       <header class="running">
         <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
-        <span>Alcance V1 · Kathe Lindo</span>
+        <span>Alcance V1 · Katherine Lindo</span>
       </header>
 
       <div class="section">
@@ -1199,7 +1249,7 @@
             <div class="step-body">
               <h3>Personalidad e instrucciones</h3>
               <p>Definimos el tono, el lenguaje, los valores y la forma de acompañar: cercana, directa y orientada a la constancia.</p>
-              <p class="gets"><b>Obtienes</b> · una guía que «suena a Kathe».</p>
+              <p class="gets"><b>Obtienes</b> · una guía que «suena a Katherine».</p>
             </div>
           </li>
           <li class="step">
@@ -1229,9 +1279,9 @@
           <li class="step">
             <span class="step-num">7</span>
             <div class="step-body">
-              <h3>Modelo de IA: Claude, de Anthropic</h3>
-              <p>Elegido por su calidad en conversaciones largas y con contexto, y por cómo sigue instrucciones de tono y límites.</p>
-              <p class="gets"><b>Obtienes</b> · una de las IA más sólidas del mercado detrás de tu guía.</p>
+              <h3>Modelo de IA: lo elegimos contigo</h3>
+              <p>Trabajamos con distintos modelos (por ejemplo, la familia Claude de Anthropic) y elegimos contigo el que mejor equilibra calidad y costo. Con el modelo elegido te mostramos el consumo real cada mes; si conviene, se puede cambiar.</p>
+              <p class="gets"><b>Obtienes</b> · la IA que mejor se ajusta a tu forma de acompañar y a tu presupuesto.</p>
             </div>
           </li>
         </ol>
@@ -1242,7 +1292,7 @@
     <section class="page">
       <header class="running">
         <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
-        <span>Alcance V1 · Kathe Lindo</span>
+        <span>Alcance V1 · Katherine Lindo</span>
       </header>
 
       <div class="section">
@@ -1278,7 +1328,7 @@
             <span class="step-num">4</span>
             <div class="step-body">
               <div class="step-top"><h3>Desarrollo y entrenamiento de la guía</h3><span class="tag">Semanas 2 y 3</span></div>
-              <p>Construimos la app, dejamos la infraestructura lista y configuramos la guía con tu material (sección 04).</p>
+              <p>Construimos la app, cargamos tus clases por módulo, dejamos la infraestructura lista y configuramos la guía con tu material (sección 04).</p>
             </div>
           </li>
           <li class="step">
@@ -1322,7 +1372,7 @@
     <section class="page">
       <header class="running">
         <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
-        <span>Alcance V1 · Kathe Lindo</span>
+        <span>Alcance V1 · Katherine Lindo</span>
       </header>
 
       <div class="section">
@@ -1346,15 +1396,19 @@
             </tr>
             <tr>
               <td><strong>Base de datos segura</strong><br /><span class="tech">Supabase</span></td>
-              <td>Guarda los usuarios y el historial de conversaciones de cada alumno.</td>
+              <td>Guarda los usuarios, tus clases, el avance de cada alumno y su historial de conversaciones.</td>
             </tr>
             <tr>
               <td><strong>Inicio de sesión y gestión de usuarios</strong><br /><span class="tech">Clerk</span></td>
               <td>Registro, inicio de sesión con email o Google, recuperación de contraseña y control de accesos.</td>
             </tr>
             <tr>
-              <td><strong>Conexión segura con la IA</strong><br /><span class="tech">API de Anthropic</span></td>
+              <td><strong>Conexión segura con la IA</strong><br /><span class="tech">API del modelo elegido</span></td>
               <td>La guía se consulta desde nuestro servidor: las claves nunca quedan expuestas en el celular del alumno, y por eso funciona sin VPN.</td>
+            </tr>
+            <tr>
+              <td><strong>Clases en video</strong></td>
+              <td>Se ven dentro de la app. El video se aloja en una plataforma de video (por ejemplo, YouTube en modo oculto, sin costo) que definimos contigo.</td>
             </tr>
             <tr>
               <td><strong>Código fuente versionado</strong><br /><span class="tech">GitHub</span></td>
@@ -1365,8 +1419,8 @@
               <td>Conexión cifrada, contraseñas protegidas y los datos de cada alumno separados de los del resto.</td>
             </tr>
             <tr>
-              <td><strong>Preparada para crecer</strong></td>
-              <td>La infraestructura queda lista para sumar alumnos y las próximas versiones sin rehacer lo construido.</td>
+              <td><strong>Preparada para evolucionar</strong></td>
+              <td>La infraestructura queda lista para la evolución de la app: sumar alumnos, clases y las próximas versiones (V2 a V5) sobre lo que ya está, sin rehacer lo construido.</td>
             </tr>
             <tr>
               <td><strong>Pruebas antes de la entrega</strong></td>
@@ -1387,7 +1441,7 @@
     <section class="page">
       <header class="running">
         <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
-        <span>Alcance V1 · Kathe Lindo</span>
+        <span>Alcance V1 · Katherine Lindo</span>
       </header>
 
       <div class="section">
@@ -1404,14 +1458,14 @@
             <small>Al iniciar</small>
           </div>
           <div class="price">
-            <span class="label">50% y 50%</span>
+            <span class="label">Dos pagos</span>
             <strong>2 × USD 750</strong>
             <small>Al iniciar y en la entrega · total USD 1.500</small>
           </div>
           <div class="price">
             <span class="label">Tres pagos</span>
-            <strong>3 × USD 533,33</strong>
-            <small>Total USD 1.600</small>
+            <strong>3 × USD 550</strong>
+            <small>Total USD 1.650</small>
           </div>
         </div>
 
@@ -1423,15 +1477,11 @@
             </tr>
             <tr>
               <td><strong>Precio congelado</strong></td>
-              <td>Las versiones siguientes se cotizan con la tarifa vigente de Synous en esta propuesta, aunque las contrates más adelante.</td>
+              <td>Las versiones siguientes se cotizan con la tarifa de esta propuesta, aunque las contrates más adelante.</td>
             </tr>
             <tr>
-              <td><strong>Mantenimiento incluido</strong></td>
-              <td>1 mes después del lanzamiento: errores, caídas y correcciones. Las funciones nuevas se cotizan aparte.</td>
-            </tr>
-            <tr>
-              <td><strong>Mantenimiento mensual</strong></td>
-              <td>Opcional desde el segundo mes. Lo cotizamos al cerrar el primer mes, según el uso real de la app.</td>
+              <td><strong>Mantenimiento</strong></td>
+              <td>15 días incluidos después del lanzamiento (errores, caídas y correcciones). Después, mantenimiento mensual opcional, cotizado según el uso real.</td>
             </tr>
           </tbody>
         </table>
@@ -1454,24 +1504,19 @@
           </thead>
           <tbody>
             <tr>
-              <td><strong>IA</strong><br /><span class="tech">Anthropic</span></td>
-              <td>Las respuestas de la guía. Arranca bajo y crece con el uso; el límite por alumno lo mantiene bajo control.</td>
-              <td><strong>USD 10 a 30/mes</strong><br /><span class="muted">para unos 30 alumnos activos</span></td>
-            </tr>
-            <tr>
               <td><strong>Hosting</strong><br /><span class="tech">Vercel</span></td>
               <td>Publicación de la app. Recomendamos el plan pago desde el inicio.</td>
               <td><strong>USD 20/mes</strong></td>
             </tr>
             <tr>
               <td><strong>Base de datos</strong><br /><span class="tech">Supabase</span></td>
-              <td>Usuarios e historial de conversaciones.</td>
+              <td>Usuarios, clases, avance e historial de conversaciones.</td>
               <td><strong>USD 0</strong> al inicio<br /><span class="muted">USD 25/mes si la app crece</span></td>
             </tr>
             <tr>
               <td><strong>Inicio de sesión</strong><br /><span class="tech">Clerk</span></td>
               <td>Registro, accesos y recuperación de contraseña.</td>
-              <td><strong>USD 0</strong> al inicio<br /><span class="muted">el plan gratuito cubre el volumen inicial</span></td>
+              <td><strong>USD 0</strong> al inicio</td>
             </tr>
             <tr>
               <td><strong>Dominio</strong></td>
@@ -1480,7 +1525,16 @@
             </tr>
           </tbody>
         </table>
-        <p class="note"><b>Estimado al inicio:</b> entre USD 30 y USD 50 por mes, más el dominio si hace falta. GitHub no tiene costo.</p>
+        <div class="ai-cost">
+          <p class="label">IA de la guía · referencia para 30 alumnos activos</p>
+          <div class="ai-cost-row">
+            <div><span>Económico · Haiku</span><strong>USD 6 a 15/mes</strong></div>
+            <div class="mid"><span>Equilibrado · Sonnet</span><strong>USD 120 a 300/mes</strong></div>
+            <div><span>Máxima calidad · Opus</span><strong>USD 240 a 600/mes</strong></div>
+          </div>
+          <p>Depende del modelo y del uso. Calculado con los precios públicos de Claude y 150 a 300 mensajes por alumno al mes. Te mostramos el consumo real cada mes.</p>
+        </div>
+        <p class="note"><b>Fijo al inicio, sin la IA:</b> USD 20 por mes (Vercel), más el dominio si hace falta.</p>
       </div>
     </section>
 
@@ -1488,7 +1542,7 @@
     <section class="page">
       <header class="running">
         <img src="../../public/brand/logotipo-ink.svg" alt="Synous AI" />
-        <span>Alcance V1 · Kathe Lindo</span>
+        <span>Alcance V1 · Katherine Lindo</span>
       </header>
 
       <div class="section">
@@ -1527,8 +1581,8 @@
               <td><span class="tag neutral">A cotizar</span></td>
             </tr>
             <tr>
-              <td>Carga o redacción de contenido nuevo del programa</td>
-              <td><span class="tag neutral">Lo aportas tú</span> <span class="muted" style="font-size: 8pt">nosotros lo organizamos</span></td>
+              <td>Grabación o redacción de clases y contenido nuevo</td>
+              <td><span class="tag neutral">Lo aportas tú</span> <span class="muted" style="font-size: 8pt">nosotros lo cargamos</span></td>
             </tr>
           </tbody>
         </table>
@@ -1541,7 +1595,8 @@
         </div>
         <div class="box">
           <ul class="checks">
-            <li>Material de tu método: clases, documentos, guías y preguntas frecuentes de tus alumnos.</li>
+            <li>Tus clases (videos, textos y materiales) ordenadas por módulo.</li>
+            <li>Material de tu método para la guía: documentos, guías y preguntas frecuentes de tus alumnos.</li>
             <li>Tu logo y tus colores.</li>
             <li>La lista de alumnos que van a usar la app (nombre y email).</li>
             <li>Crear las cuentas de proveedores a tu nombre (te guiamos paso a paso) o darnos acceso.</li>

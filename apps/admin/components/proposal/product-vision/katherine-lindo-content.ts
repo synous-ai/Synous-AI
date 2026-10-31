@@ -57,7 +57,7 @@ export const katherineLindoProposal: ProductVisionContent = {
     pillars: [
       {
         title: 'Tu método, en un solo lugar',
-        body: 'Entrenamiento, nutrición y mentalidad en la misma app, ordenados como vos trabajás.',
+        body: 'Tus clases de entrenamiento, nutrición y mentalidad en la misma app, ordenadas como vos trabajás.',
       },
       {
         title: 'Acompañamiento entre sesiones',
@@ -79,7 +79,7 @@ export const katherineLindoProposal: ProductVisionContent = {
         code: 'V1',
         name: 'Espacio de acompañamiento',
         summary:
-          'Tu app publicada: acceso privado para tus alumnos, un inicio claro y una guía de IA configurada con tu metodología.',
+          'Tu app publicada: acceso privado para tus alumnos, tus clases ordenadas por módulos y una guía de IA configurada con tu metodología.',
         open: 'Es la base de lo que conversamos. Antes de arrancar podemos ajustarla y sumarle lo que veas necesario.',
         tag: 'Primera entrega',
         current: true,
@@ -127,6 +127,7 @@ export const katherineLindoProposal: ProductVisionContent = {
       title: 'Qué es',
       body: 'Una aplicación web propia, con tu identidad visual, publicada en tu dominio y lista para que la usen tus alumnos.',
       traits: [
+        'Tus clases, ordenadas por módulos',
         'Con tu identidad visual',
         'Celular, tablet y computadora',
         'Se instala en la pantalla de inicio del celular',
@@ -146,6 +147,11 @@ export const katherineLindoProposal: ProductVisionContent = {
           title: 'Tu transformación empieza con lo que hacés hoy.',
           body: 'Tu espacio para el entrenamiento, la alimentación y la mentalidad.',
           primaryAction: 'Hablar con mi guía',
+          continueClass: {
+            kicker: 'Seguí donde quedaste',
+            title: 'Clase 3 · Tu ritmo en la subida',
+            meta: 'Módulo 1 · 12 min',
+          },
           shortcuts: [
             { topic: 'training', label: 'Entrenamiento', conversationId: 'training' },
             { topic: 'nutrition', label: 'Nutrición', conversationId: 'nutrition' },
@@ -159,6 +165,36 @@ export const katherineLindoProposal: ProductVisionContent = {
               { label: 'Me está costando', conversationId: 'checkin-hard' },
             ],
           },
+        },
+        classes: {
+          title: 'Mis clases',
+          programLabel: 'Transformación 12 semanas',
+          modules: [
+            {
+              title: 'Módulo 1 · Entrenamiento',
+              lessons: [
+                { title: 'Cómo se arma tu semana de entrenamiento', duration: '9 min', done: true },
+                { title: 'Zonas de esfuerzo, sin complicarte', duration: '14 min', done: true },
+                { title: 'Tu ritmo en la subida', duration: '12 min', done: false },
+                { title: 'Recuperar también es entrenar', duration: '8 min', done: false },
+              ],
+            },
+            {
+              title: 'Módulo 2 · Nutrición',
+              lessons: [
+                { title: 'Qué comer antes de una salida larga', duration: '11 min', done: false },
+                { title: 'Organizar las comidas de la semana', duration: '10 min', done: false },
+                { title: 'Hidratación en ruta', duration: '7 min', done: false },
+              ],
+            },
+            {
+              title: 'Módulo 3 · Mentalidad',
+              lessons: [
+                { title: 'Constancia en semanas difíciles', duration: '13 min', done: false },
+                { title: 'Tu mínimo para los días con mucho trabajo', duration: '9 min', done: false },
+              ],
+            },
+          ],
         },
         guide: {
           title: 'Tu guía',
@@ -245,7 +281,7 @@ export const katherineLindoProposal: ProductVisionContent = {
       },
     },
     screensTitle: 'Las pantallas de tu V1',
-    screensLede: 'Cinco pantallas, cada una con una función clara.',
+    screensLede: 'Seis pantallas, cada una con una función clara.',
     screens: [
       {
         mockup: 'guide',
@@ -271,6 +307,15 @@ export const katherineLindoProposal: ProductVisionContent = {
         points: ['Datos básicos', 'Su objetivo, a la vista'],
       },
       {
+        mockup: 'classes',
+        title: 'Clases y módulos',
+        points: [
+          'Tus clases cargadas en la app, ordenadas por módulos',
+          'Video, texto y materiales en cada clase',
+          'Cada alumno ve su avance y sigue donde quedó',
+        ],
+      },
+      {
         mockup: 'home',
         title: 'Inicio',
         points: [
@@ -284,7 +329,8 @@ export const katherineLindoProposal: ProductVisionContent = {
         title: 'Tu panel',
         points: [
           'Todos tus alumnos en un solo lugar, como un CRM',
-          'Métricas de uso: quién entra y qué consulta',
+          'Métricas de uso: quién entra, qué clases ve y qué consulta',
+          'Carga y orden de tus clases y módulos',
           'Alta y baja de alumnos y gestión de accesos',
         ],
       },
@@ -294,8 +340,9 @@ export const katherineLindoProposal: ProductVisionContent = {
       items: [
         'Diseño con tu identidad',
         'Desarrollo de la app',
+        'Carga de tus clases, ordenadas por módulos',
         'Configuración de la guía con tus materiales',
-        'Infraestructura preparada para que la app pueda escalar',
+        'Infraestructura preparada para la evolución de la app: cada versión nueva se suma sobre lo que ya está',
         'Adaptación a celular, tablet y computadora',
         'Publicación en tu dominio, instalable como una app',
         'Nos encargamos de proveedores, dominio y servicios',
@@ -333,7 +380,7 @@ export const katherineLindoProposal: ProductVisionContent = {
       },
       {
         title: 'Construimos la app',
-        body: 'Desarrollamos las pantallas y configuramos la guía con tus materiales.',
+        body: 'Desarrollamos las pantallas, cargamos tus clases y configuramos la guía con tus materiales.',
         time: 'Semanas 2 y 3',
       },
       {
@@ -356,17 +403,15 @@ export const katherineLindoProposal: ProductVisionContent = {
     cardTitle: 'V1 · Espacio de acompañamiento',
     options: [
       { label: 'En un pago', amount: 'USD 1.500', detail: 'Pago único' },
-      {
-        label: 'En tres pagos',
-        amount: 'USD 1.600',
-        detail: { pending: 'Montos de las tres cuotas', draft: '3 × USD 533,33' },
-      },
+      { label: 'En dos pagos', amount: 'USD 1.500', detail: '2 × USD 750' },
+      { label: 'En tres pagos', amount: 'USD 1.650', detail: '3 × USD 550' },
     ],
     includesLabel: 'Incluye',
     includes: [
       'App web propia, publicada en tu dominio',
-      'Acceso, inicio, guía de IA, perfil y tu panel',
-      'Guía configurada con tus materiales',
+      'Acceso, inicio, clases y módulos, guía de IA, perfil y tu panel',
+      'Tus clases cargadas y la guía configurada con tus materiales',
+      'Infraestructura preparada para sumar las próximas versiones',
       'Proveedores, cuentas y dominio: nos encargamos nosotros',
       'Una reunión para mostrarte cómo administrarla',
     ],
@@ -405,12 +450,12 @@ export const katherineLindoProposal: ProductVisionContent = {
       {
         question: '¿Qué necesitás de mí para empezar?',
         answer:
-          'Tus materiales (los contenidos con los que trabajás entrenamiento, nutrición y mentalidad), tu identidad visual y un rato para contarnos cómo acompañás a tus alumnos. El tiempo de construcción corre desde que tenemos todo ese material.',
+          'Tus clases y materiales (los videos y contenidos con los que trabajás entrenamiento, nutrición y mentalidad), tu identidad visual y un rato para contarnos cómo acompañás a tus alumnos. El tiempo de construcción corre desde que tenemos todo ese material.',
       },
       {
         question: '¿Hay costos mensuales aparte de la inversión?',
         answer:
-          'Sí, pero al principio son bajos. Recomendamos pagar Vercel, el proveedor donde se aloja la app: USD 20 por mes. Los demás servicios que usa la app, como la base de datos y el inicio de sesión, arrancan en planes gratuitos y recién podrían pasar a ser pagos si la app crece. Lo que sí tiene un costo propio desde el inicio es el proveedor de IA de la guía, que depende de cuánto la usen tus alumnos.',
+          'Sí, pero al principio son bajos. Recomendamos pagar Vercel, el proveedor donde se aloja la app: USD 20 por mes. Los demás servicios que usa la app, como la base de datos y el inicio de sesión, arrancan en planes gratuitos y recién podrían pasar a ser pagos si la app crece. Lo que sí tiene un costo propio desde el inicio es el proveedor de IA de la guía: depende del modelo que elijamos juntos y de cuánto la usen tus alumnos. Te mostramos el consumo real desde el primer mes.',
       },
       {
         question: '¿Puedo sumar funciones a la V1 sobre la marcha?',
@@ -435,10 +480,5 @@ export const katherineLindoProposal: ProductVisionContent = {
 
   footer: 'Synous · Software, sistemas e inteligencia artificial para negocios digitales.',
 
-  pendingChecklist: [
-    'Montos de las tres cuotas (borrador: 3 × USD 533,33 = USD 1.600)',
-    'Costo estimado del proveedor de IA de la guía (el FAQ dice que depende del uso)',
-    'Estado real del asistente de IA de Katherine (dijo que ya la estaban ayudando con el bot)',
-    'Identidad visual y materiales del programa (la de la demo es provisional)',
-  ],
+  pendingChecklist: [],
 }

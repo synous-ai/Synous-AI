@@ -1,23 +1,25 @@
 'use client'
 
 import { useState } from 'react'
-import { GuideScreen, HomeScreen, PhoneFrame, ProfileScreen } from './phone-screens'
+import { ClassesScreen, GuideScreen, HomeScreen, PhoneFrame, ProfileScreen } from './phone-screens'
 import type { AppDemo } from './product-vision-types'
 
-type Tab = 'home' | 'guide' | 'profile'
+type Tab = 'home' | 'classes' | 'guide' | 'profile'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'home', label: 'Inicio' },
+  { id: 'classes', label: 'Clases' },
   { id: 'guide', label: 'Guía de IA' },
   { id: 'profile', label: 'Perfil' },
 ]
 
 /**
- * La demo navegable de la V1 en un celular: inicio, guía y perfil.
+ * La demo navegable de la V1 en un celular: inicio, clases, guía y perfil.
  *
- * Las tres pantallas quedan montadas y se alternan con `hidden`, así la
- * conversación de la guía no se pierde al ir y volver de otra pestaña. Los
- * controles de afuera del celular y la barra de abajo manejan el mismo estado.
+ * Las pantallas quedan montadas y se alternan con `hidden`, así la
+ * conversación de la guía y el avance de las clases no se pierden al ir y
+ * volver de otra pestaña. Los controles de afuera del celular y la barra de
+ * abajo manejan el mismo estado.
  */
 export function PhoneDemo({ app }: { app: AppDemo }) {
   const [tab, setTab] = useState<Tab>('home')
@@ -47,7 +49,15 @@ export function PhoneDemo({ app }: { app: AppDemo }) {
       <PhoneFrame label="Demo conceptual de tu V1" className="pv-demo-phone">
         <div className="pv-app-viewport">
           <div hidden={tab !== 'home'} className="pv-app-pane">
-            <HomeScreen app={app} onTalk={() => setTab('guide')} onConversation={openConversation} />
+            <HomeScreen
+              app={app}
+              onTalk={() => setTab('guide')}
+              onConversation={openConversation}
+              onClasses={() => setTab('classes')}
+            />
+          </div>
+          <div hidden={tab !== 'classes'} className="pv-app-pane">
+            <ClassesScreen app={app} />
           </div>
           <div hidden={tab !== 'guide'} className="pv-app-pane">
             <GuideScreen app={app} seed={seed} />

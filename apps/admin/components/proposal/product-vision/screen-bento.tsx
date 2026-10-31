@@ -64,6 +64,25 @@ function Mockup({ kind }: { kind: ScreenMockup }) {
     )
   }
 
+  if (kind === 'classes') {
+    return (
+      <div className="pv-mock pv-mock-classes" aria-hidden="true">
+        {[
+          ['Módulo 1 · Entrenamiento', 50],
+          ['Módulo 2 · Nutrición', 0],
+          ['Módulo 3 · Mentalidad', 0],
+        ].map(([title, progress]) => (
+          <span key={String(title)} className="pv-mock-module">
+            <b>{title}</b>
+            <span className="pv-mock-module-bar">
+              <i style={{ width: `${progress}%` }} />
+            </span>
+          </span>
+        ))}
+      </div>
+    )
+  }
+
   if (kind === 'profile') {
     return (
       <div className="pv-mock pv-mock-profile" aria-hidden="true">

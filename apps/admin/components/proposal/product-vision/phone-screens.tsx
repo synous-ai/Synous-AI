@@ -98,10 +98,12 @@ export function HomeScreen({
   app,
   onTalk,
   onConversation,
+  onClasses,
 }: {
   app: AppDemo
   onTalk?: () => void
   onConversation?: (conversationId: string) => void
+  onClasses?: () => void
 }) {
   const interactive = Boolean(onTalk)
   const { home } = app
@@ -124,6 +126,19 @@ export function HomeScreen({
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
             <path d="M5 12h14M13 6l6 6-6 6" />
           </svg>
+        </button>
+
+        <button type="button" className="pv-home-continue" onClick={onClasses} tabIndex={interactive ? 0 : -1}>
+          <span className="pv-home-continue-play" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5.5v13l10.5-6.5z" />
+            </svg>
+          </span>
+          <span className="pv-home-continue-copy">
+            <span className="pv-mod-kicker">{home.continueClass.kicker}</span>
+            <span className="pv-home-continue-title">{home.continueClass.title}</span>
+            <span className="pv-home-continue-meta">{home.continueClass.meta}</span>
+          </span>
         </button>
 
         <div className="pv-home-shortcuts">
@@ -161,6 +176,95 @@ export function HomeScreen({
             ))}
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Clases ───────────────────────────────────────────────────────────────────
+
+/**
+ * Las clases del programa por módulo. Tocar una clase la marca como vista (o
+ * la desmarca) y el avance del módulo se actualiza: muestra que cada alumno
+ * lleva su propio progreso. Un módulo abierto a la vez.
+ */
+export function ClassesScreen({ app }: { app: AppDemo }) {
+  const { classes } = app
+  const [open, setOpen] = useState(0)
+  const [done, setDone] = useState<Set<string>>(
+    () =>
+      new Set(
+        classes.modules.flatMap((module, m) =>
+          module.lessons.flatMap((lesson, l) => (lesson.done ? [`${m}-${l}`] : [])),
+        ),
+      ),
+  )
+
+  function toggle(key: string) {
+    setDone((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  return (
+    <div className="pv-app pv-app-classes">
+      <AppHeader app={app} title={classes.title} />
+      <div className="pv-app-scroll" data-lenis-prevent>
+        <p className="pv-mod-kicker">{classes.programLabel}</p>
+        <ul className="pv-modules">
+          {classes.modules.map((module, m) => {
+            const total = module.lessons.length
+            const completed = module.lessons.filter((_, l) => done.has(`${m}-${l}`)).length
+            const isOpen = open === m
+            return (
+              <li key={module.title} className={`pv-module${isOpen ? ' is-open' : ''}`}>
+                <button
+                  type="button"
+                  className="pv-module-head"
+                  aria-expanded={isOpen}
+                  onClick={() => setOpen(isOpen ? -1 : m)}
+                >
+                  <span className="pv-module-title">{module.title}</span>
+                  <span className="pv-module-count">
+                    {completed}/{total}
+                  </span>
+                  <span className="pv-module-bar" aria-hidden="true">
+                    <i style={{ width: `${(completed / total) * 100}%` }} />
+                  </span>
+                </button>
+                {isOpen && (
+                  <ol className="pv-lessons">
+                    {module.lessons.map((lesson, l) => {
+                      const key = `${m}-${l}`
+                      const seen = done.has(key)
+                      return (
+                        <li key={lesson.title}>
+                          <button
+                            type="button"
+                            className={seen ? 'is-done' : ''}
+                            aria-pressed={seen}
+                            onClick={() => toggle(key)}
+                          >
+                            <span className="pv-lesson-check" aria-hidden="true">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                                <path d="m6 12.5 4 4 8-9" />
+                              </svg>
+                            </span>
+                            <span className="pv-lesson-title">{lesson.title}</span>
+                            <em>{lesson.duration}</em>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                )}
+              </li>
+            )
+          })}
+        </ul>
       </div>
     </div>
   )

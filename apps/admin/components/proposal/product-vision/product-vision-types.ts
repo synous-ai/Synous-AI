@@ -47,6 +47,12 @@ export interface GuideConversation {
   answer: string[]
 }
 
+/** Un módulo del programa con sus clases. `done` es el avance de ejemplo. */
+export interface ClassModule {
+  title: string
+  lessons: { title: string; duration: string; done: boolean }[]
+}
+
 export interface AppDemo {
   /** Nombre de la app tal como aparece en el celular. Identidad provisional. */
   appName: string
@@ -57,11 +63,19 @@ export interface AppDemo {
     title: string
     body: string
     primaryAction: string
+    /** Tarjeta "seguí donde quedaste": lleva a la pestaña de clases. */
+    continueClass: { kicker: string; title: string; meta: string }
     shortcuts: { topic: GuideTopic; label: string; conversationId: string }[]
     checkin: {
       question: string
       options: { label: string; conversationId: string }[]
     }
+  }
+  /** Las clases del programa, ordenadas por módulos. */
+  classes: {
+    title: string
+    programLabel: string
+    modules: ClassModule[]
   }
   guide: {
     title: string
@@ -104,7 +118,7 @@ export interface ProductVersion {
 // ── Tu V1 ────────────────────────────────────────────────────────────────────
 
 /** Qué mockup se dibuja en cada tarjeta del bento de pantallas. */
-export type ScreenMockup = 'access' | 'home' | 'guide' | 'profile' | 'admin'
+export type ScreenMockup = 'access' | 'home' | 'classes' | 'guide' | 'profile' | 'admin'
 
 export interface V1Screen {
   mockup: ScreenMockup
@@ -116,7 +130,7 @@ export interface PaymentOption {
   label: string
   /** El monto grande de la opción. */
   amount: string
-  /** El detalle bajo el monto: "3 × USD 533,33". */
+  /** El detalle bajo el monto: "3 × USD 550". */
   detail: MaybePending
 }
 

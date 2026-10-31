@@ -874,7 +874,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .pv .pv-bento-card.is-guide {
+  /* Seis tarjetas en dos columnas: la guía y el panel ocupan la fila entera
+     para que no quede ninguna suelta. */
+  .pv .pv-bento-card.is-guide,
+  .pv .pv-bento-card.is-admin {
     grid-column: span 2;
   }
 }
@@ -890,13 +893,11 @@
   }
 
   .pv .pv-bento-card.is-access,
-  .pv .pv-bento-card.is-profile {
-    grid-column: span 2;
-  }
-
+  .pv .pv-bento-card.is-profile,
+  .pv .pv-bento-card.is-classes,
   .pv .pv-bento-card.is-home,
   .pv .pv-bento-card.is-admin {
-    grid-column: span 3;
+    grid-column: span 2;
   }
 }
 
@@ -1559,7 +1560,7 @@
   isolation: isolate;
   display: flex;
   flex-direction: column;
-  max-width: 720px;
+  max-width: 920px;
   margin: 56px auto 0;
   padding: clamp(24px, 4vw, 52px);
   overflow: hidden;
@@ -1582,9 +1583,10 @@
   margin-top: 28px;
 }
 
-@media (min-width: 560px) {
+/* Tres formas de pago: apiladas en celular, en fila desde tablet ancha. */
+@media (min-width: 820px) {
   .pv .pv-price-options {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -1614,7 +1616,7 @@
 
 .pv .pv-price-amount {
   margin-top: 14px;
-  font-size: clamp(34px, 4vw, 48px);
+  font-size: clamp(32px, 3.4vw, 42px);
   font-weight: 500;
   line-height: 1.05;
   letter-spacing: -0.035em;
@@ -1661,47 +1663,19 @@
   color: var(--muted);
 }
 
-/* Botón secundario: el documento de alcance (PDF). El CTA principal sigue
-   siendo WhatsApp, en el cierre. */
+/* Descarga del documento de alcance (PDF): usa el mismo botón blanco que el
+   CTA principal (`.pv-button.is-primary`) para que se vea bajo el precio. */
 .pv .pv-scope {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  margin-top: 28px;
+  gap: 12px;
+  margin-top: 32px;
   text-align: center;
-}
-
-.pv .pv-scope-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 52px;
-  padding: 12px 24px;
-  border: 1px solid var(--edge-lit);
-  border-radius: 12px;
-  background: #030520aa;
-  color: var(--title);
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.3;
-  text-decoration: none;
-  transition:
-    border-color 0.3s,
-    transform 0.4s var(--pv-ease);
 }
 
 .pv .pv-scope-link:hover {
   transform: translateY(-2px);
-  border-color: var(--accent);
-}
-
-.pv .pv-scope-link svg {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  color: var(--accent);
 }
 
 .pv .pv-scope p {
@@ -2668,6 +2642,241 @@
 
 
 
+
+/* ── Clases y módulos (demo y bento) ───────────────────────────────────── */
+
+/* Cuatro pestañas en la demo: en celulares angostos se achican para entrar. */
+@media (max-width: 420px) {
+  .pv .pv-demo-switch button {
+    padding: 8px 10px;
+    font-size: 12.5px;
+  }
+}
+
+.pv .pv-app-tabs {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.pv .pv-tab-glyph.is-classes {
+  border-radius: 4px;
+  box-shadow: inset 0 -5px 0 -3.4px currentColor;
+}
+
+.pv .pv-app-tabs button.is-active .pv-tab-glyph.is-classes {
+  box-shadow: 0 0 14px #669cff;
+}
+
+/* Inicio: "seguí donde quedaste". */
+.pv .pv-home-continue {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #96c0ff44;
+  border-radius: 14px;
+  background: linear-gradient(150deg, #1c73ca40, var(--app-card));
+  color: var(--app-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pv .pv-home-continue-play {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--app-accent);
+  color: #030520;
+}
+
+.pv .pv-home-continue-play svg {
+  width: 14px;
+  height: 14px;
+  margin-left: 2px;
+}
+
+.pv .pv-home-continue-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pv .pv-home-continue-copy .pv-mod-kicker {
+  margin: 0;
+}
+
+.pv .pv-home-continue-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.pv .pv-home-continue-meta {
+  font-size: 10.5px;
+  color: var(--app-muted);
+}
+
+/* Pantalla de clases. */
+.pv .pv-modules,
+.pv .pv-lessons {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv .pv-modules {
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pv .pv-module {
+  overflow: hidden;
+  border: 1px solid var(--app-edge);
+  border-radius: 14px;
+  background: var(--app-card);
+  transition: border-color 0.3s;
+}
+
+.pv .pv-module.is-open {
+  border-color: #96c0ff55;
+}
+
+.pv .pv-module-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--app-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pv .pv-module-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.pv .pv-module-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--app-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv .pv-module-bar,
+.pv .pv-mock-module-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--app-edge);
+}
+
+.pv .pv-module-bar i,
+.pv .pv-mock-module-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--app-accent-deep), var(--app-accent));
+  transition: width 0.5s var(--pv-ease);
+}
+
+.pv .pv-lessons {
+  gap: 2px;
+  padding: 0 6px 8px;
+}
+
+.pv .pv-lessons button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--app-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pv .pv-lessons button:hover {
+  background: #ffffff08;
+}
+
+.pv .pv-lesson-check {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--app-edge);
+  border-radius: 50%;
+  color: transparent;
+  transition:
+    background 0.25s,
+    border-color 0.25s,
+    color 0.25s;
+}
+
+.pv .pv-lesson-check svg {
+  width: 11px;
+  height: 11px;
+}
+
+.pv .pv-lessons button.is-done .pv-lesson-check {
+  border-color: var(--app-accent);
+  background: var(--app-accent);
+  color: #030520;
+}
+
+.pv .pv-lesson-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.pv .pv-lessons button.is-done .pv-lesson-title {
+  color: var(--app-muted);
+}
+
+.pv .pv-lessons em {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-style: normal;
+  color: var(--app-muted);
+}
+
+/* Bento: mini pantalla de módulos. */
+.pv .pv-mock-classes {
+  justify-content: center;
+  gap: 8px;
+}
+
+.pv .pv-mock-module {
+  display: grid;
+  gap: 6px;
+  padding: 9px 11px;
+  border: 1px solid var(--app-edge);
+  border-radius: 10px;
+  background: var(--app-card);
+}
+
+.pv .pv-mock-module b {
+  font-size: 11px;
+  font-weight: 600;
+}
 
 /* ── Movimiento reducido ────────────────────────────────────────────────── */
 
