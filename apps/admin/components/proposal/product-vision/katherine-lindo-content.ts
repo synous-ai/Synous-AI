@@ -128,6 +128,7 @@ export const katherineLindoProposal: ProductVisionContent = {
       body: 'Una aplicación web propia, con tu identidad visual, publicada en tu dominio y lista para que la usen tus alumnos.',
       traits: [
         'Tus clases, ordenadas por módulos',
+        'Un chat con IA entrenado con tu metodología',
         'Con tu identidad visual',
         'Celular, tablet y computadora',
         'Se instala en la pantalla de inicio del celular',

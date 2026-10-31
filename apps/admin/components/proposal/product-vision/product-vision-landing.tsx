@@ -51,7 +51,12 @@ function SectionLabel({ index, children }: { index: string; children: string }) 
   )
 }
 
+/** Un ícono por rasgo, en el mismo orden que `v1.what.traits`. */
 const TRAIT_ICONS: ReactNode[] = [
+  // Clases por módulos
+  <path key="classes" d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm6 3.5v5l4.5-2.5L10 8.5ZM8 21h8" />,
+  // Chat con IA
+  <path key="chat" d="M4 5h16v11H9l-5 4V5Zm4 4h8m-8 3h5" />,
   // Identidad visual
   <path key="a" d="M12 3a9 9 0 1 0 0 18c1.1 0 1.5-.8 1.5-1.5 0-1.2-1-1.5-1-2.5S13.3 15 14.5 15H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8ZM7.5 12a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm3-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm5 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />,
   // Dispositivos
