@@ -1,0 +1,173 @@
+Impromptu Google Meet Meeting - September 01
+VIEW RECORDING - 25 mins (No highlights): https://fathom.video/share/qMhWRwxEAdBCpbRErsFq72sozh9EqYcH
+
+---
+
+0:06 - Katherine Lindo
+  Ahora sí. Ahora sí, pero aquí, aquí, a ver si yo puedo abrir. ¿Tú tienes tu Fathom aquí? Sí.
+
+0:14 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Sí, no sé qué pasó. Yo también.
+
+0:16 - Katherine Lindo
+  Debería de tener, ahí, lancé mi sacó y me tiras el cartel. Ahí yo le di cómo grabar con Fathom, no te llega.
+
+0:26 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Recuerden yo el click to stop. Igual ya te cojo. Bueno, en fin, entonces. Todo bien.
+
+0:33 - Katherine Lindo
+  Pero, ¿tu internet está o es el mío? Yo creo que es el mío.
+
+0:39 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  No, no, estoy teniendo un programa de conexión, sí. Sí. Bueno, porque yo, yo tengo internet. Bueno, no sé si somos los dos.  No, yo no.
+
+0:49 - Katherine Lindo
+  Eres tú. Sí, sí. Bueno, contíname. Entonces, eso, pues, prácticamente hacer algo. O lo que más me llama la atención es el tema de la activación y satisfacción y la parte de hablar con una guía, y lo del ranking, pues, ¿sabes?  Ahora, se le puede colocar también lo de salud, comida y demás, como para que ellos tengan la capacidad, que eso es salud, yo te iba a hacer muchas sugerencias.  Porque, ¿qué me ha pasado? Por darte un ejemplo, ves ahí, te quedaste paralizado, yo creo que es tu internet.  No, no, pero te estoy escuchando, sí. Ok, ya te escuché ahí como con delay, pero bueno, cuando te dejes de escuchar, cuando me dejes de escuchar, me avisas.  Entonces, ahí me escuchas, ¿no?
+
+1:38 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Sí, sí.
+
+1:39 - Katherine Lindo
+  Bueno, me pasa que, por ejemplo, me ha pasado a mí que yo no podía sumar como que los pasos que me grababa el reloj, con los pasos que, porque yo al final lo que hacía es que el entrenamiento de bici lo pasaba con más pasos, hice como una equivalencia ahí con Chatepeteda, en el que lo pasaba a pasos.  Entonces me faltaba sumar los del reloj, los pasos reales, ¿no? Entonces, no podía poner como de dos dispositivos. Por darles un ejemplo, o había muchas cosas.  En nutrición, me pasaba mucho que, claro, no me tomaba en cuenta las calorías que yo he quemado en el entrenamiento.  Entonces, claro, es importante porque si tú dices, bueno, yo quiero tener de déficit calórico todos los días, no sé, 500 calorías, entonces tú tienes que sumarme las calorías que yo quemé entrenando con las calorías que comí durante el día.  Entonces, y bueno, el cálculo de calorías, yo lo hacía, yo llevo igual el registro, pero con Cloud, y Cloud me lo sacaba muy distinto a cómo lo saca aquí la aplicación.  No sé qué utilizas tú, pero aquí lo sacaba muy, no era muy certero las calorías que sacaba. Entonces, pero bueno, eso también me gustaría, me parece súper chévere.
+
+2:52 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Perdón, ando con delay.
+
+2:57 - Katherine Lindo
+  Te escucho, háblame.
+
+3:01 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Ok, no, lo que yo te decía es que, claro, porque nosotros utilizamos una IA y va a depender del modelo de la IA, también del proveedor, porque no todas te van a tirar lo mismo, porque lo analiza la IA, ahora, se puede hacer una lógica por detrás, igualmente que no sea con IA, donde se pueda tratar de implementar lo más preciso posible a la hora de definir cuánto es una caloría de tal comida.  O se puede hacer con información que, digamos, que hay dentro de cada alimento, pero como nosotros usamos IA en la aplicación de Santi, claro, dependiendo del modelo, va a tener su forma lógica de interpretar lo que se suba.  Después lo que vos me comentabas y son por ahí funcionalidades que a nivel de experiencia de usuario son detalles que por ahí se pasan dentro de tanto desarrollo, pero claro, que sí, importantes, son cosas importantes.  Entonces, ok Entiendo ahí el objetivo De hecho, es también como Lo importante de esto es poder sostener Yo creo que en el programa de ustedes Más que nada que son Programas que ayudan a otras personas a cumplir O en tu caso Trascender una identidad Que se apalanque el entrenamiento Porque puede ser que, bueno La mayoría de tu público Viene de este tipo de nicho Es eso Es sostener, es lo más complicado Porque uno arranca motivado Pero después, durante el tiempo Ya sabemos cómo es el proceso humano Arrancás motivado Con muchas ganas de evolucionar Pero después en el transcurso Cuesta sostener eso Por muchos parámetros O puede ser contexto y demás cosas Entonces, es como decir vos O armar también una O sea, una comunidad Dentro, o sea, lo que es tu programa Armar una familia Ese es el objetivo Y dentro de eso es, bueno, vos poder orientar  darle herramientas que a ellos verdaderamente les sirva y que verdaderamente impacten en su vida. Yo creo que ahí hay mucho en el sentido de cómo se puede elevar un producto.  Un producto puede pasar de ser una consultoría o hoy en día estar ayudando a más personas a literalmente empaquetizar todo eso y armarlo como un producto digital, que el día de mañana se te abre en muchas áreas, no solamente dentro de tu programa.  Entonces, nada, o sea, claramente yo creo que va muy alineado con lo que está buscando. De hecho me gusta el proyecto y me gustaría ahí poder alinearme con vos porque sí, le veo mucho potencial, sinceramente.  Sí.
+
+5:41 - Katherine Lindo
+  Bueno, y no he visto que nadie lo tenga en mi área. Tampoco. Claro, claro. Eso es fundamental.
+
+5:48 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Y está todo integrado, que ese es el otro punto.
+
+5:51 - Katherine Lindo
+  Porque bueno, por lo menos mi entrenador sí tiene algo que te analiza el entrenamiento a profundidad y demás, que te saco unas gráficas, pero no como que tiene todo integrado.  es lo que yo trabajo exactamente y que soy la única que lo trabaja, que es la parte de entrenamiento con nutrición y mentalidad todo integrado, o sea, mentalidad de desarrollo personal o sea, como que todo, no tienes escape, no es que, a ver, gimnasio, haz lo que sea no, no, no, no, es que yo te digo que tienes que hacer en realidad lo mío lo que pasa es que, claro, lo de Santi está enfocado en espiritualidad pero lo mío está, es el ciclismo es el vehículo para transformar tu vida pero si te das cuenta todos mis testimonios, es que transformaron su vida obviamente mejoraron muchísimo su rendimiento completaron 200 kilómetros, está en un momento mejor forma física, pero transformaron su vida entonces por eso te decía que es similar solo que, bueno, no, no está tan enfocado en cosas así espirituales de, ¿sabes?  diseño humano y todo esto, porque bueno, eso ya es profundizar en la espiritualidad, que no es el objetivo pero sí está súper enfocado en el día a día, ¿sabes?  porque es la clave de hecho, en base a todo esto también considerado, yo casi no vendo el servicio de tres meses, pero le estoy dando la vuelta a ver así comenzó a vender más ese tercer servicio de tres meses comenzó servicio tres meses comenzó a vender más  Lo que pasa es que para mí, para tú consolidar una forma física, no son tres meses. O en tres meses puedes lograr mucho, pero como que necesitas más tiempo.  Tres meses todavía no es que necesites más tiempo, sino que, bueno, no es suficiente. sea, tres meses siento que yo, que cualquier persona se puede proponer algo.  Tres meses lo hace y después lo deja de hacer. Y no es lo que yo promuevo, yo promuevo es un estilo de vida, ¿sabes?  Es como que ya lo que logres sea sostenible en el tiempo.
+
+7:27 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Bien, y ponerle niveles a los programas, como comenzar con una primera camada que lo vas sosteniendo por programas.
+
+7:41 - Katherine Lindo
+  Lo que pasa es que yo no lo estoy haciendo así como lo hace Santi, que hace lanzamientos, ahí tienes delay.  Hace lanzamientos cada un mes, dos meses, tres meses.
+
+7:50 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Yo lo estaba haciendo en Evergreen, total.
+
+7:52 - Katherine Lindo
+  Entonces no he tenido como que, ah, bueno, primero esta camada, después esta camada, no. Sino que la gente va entrando, se le va acabando el periodo, saliendo.  no se da en Evergreen, pues total no descarto de esta opción de las camadas, por decirlo en un modo lo que pasa es que bueno, yo no estaba como acostumbrada a hacerlas, hace poco hice un lanzamiento como intensivo, y en verdad como que bueno, ahora pronto porque he hecho pocos los lanzamientos me parecen un poquito como bueno, todo muy rápido pero no lo descarto a lo mejor de que a futuro pues lo haga lo que pasa es que yo sí estoy como más enfocada, ahorita por ejemplo lo que pensé lo que voy a hacer es el load ticket que no sé si escuchaste en alguna clase que lo dije que es una comunidad en school y demás y la idea es yo no sé si tú sabes quién es Sebas, es Piso ¿sí?  ¿no? Sí, lo conozco ¿90 de sus mentorías? Estuve en algunas gratuitas Ok, eso, bueno él tiene ahorita las 5 y bueno, las 5 de acá que es la 6 de allá y bueno, yo quiero hacer algo así porque bueno, en verdad mi finalidad siempre ha sido ayudar, ¿sabes?  y yo estoy 100% segura que cualquier persona que pueda estar, ¿sabes? escuchándome una hora, puede transformar su vida. Y bueno, también como que a nivel deportivo, ¿sabes?  Es como que no está separado. Entonces, yo no descarto el no ticket porque, bueno, he visto que es un modelo de negocio que funciona, además te permite llegar a muchísima más gente y utilizarlo con más calón para el high ticket, ¿sabes?  Entonces, ese es como mi foco ahorita, es lanzar ese no ticket a corto plazo, pero claro, estos no tickets, obviamente no tendrían acceso a la aplicación ni nada, entonces ya sería para el high ticket.  Y el high ticket, bueno, que sea, yo ahorita tengo el pasel de seis meses a 2.500 y 4.000, depende de las opciones, pues, el acercamiento, las llamadas, etc.  Entonces, pero bueno, eso es como que es lo que tengo ahorita en mente. Obviamente va constantemente, antes tenía el año en 4.000, ahorita pasé los seis meses a 4.000 y dejé de vender el año.  Pero bueno, estoy en constante, ¿sabes? Dándole la vuelta a la cosa. Pero bueno, bien, bien, el punto es que esto sí me parece que es algo muy innovador y que además más nadie lo está...  Yo lo que estoy haciendo todo... es innovador en verdad, más nadie lo está haciendo literal pero meterlo en la aplicación, claro, sería como sobre todo porque generaría más compromiso en las personas o sea, siento que incluso lograrían resultados muchísimo más rápido.  Sí, además la gente le encanta probar cosas nuevas o sea, son como unos nenes, ¿no?
+
+10:21 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Tipo, además es que están entrando a una mentoría y más allá de que quieren explotar su potencial en cualquiera de sus áreas en este caso, en ciclismo y demás estar comprometido con la acción del día a día que es lo que vos me comentabas y lo que también, después encima a vos te da a ver, ese anclaje de decir, bueno, además de que vos podés ver qué alumnos están siendo comprometidos y podés traer información de ellos también tipo, es como esto de lo que hablábamos, tipo poder ayudarnos en el proceso en el acompañamiento, que a veces uno no tiene el tiempo para estar ahí encima pero le está dando una aplicación, una herramienta que literalmente está solucionando el problema del día a  Sí. O lo único es descalable también. Sí, lo único que sí vi es que tiene que ser más sencilla.
+
+11:07 - Katherine Lindo
+  Por lo menos esta tiene muchas opciones y mi nicho, fíjate que mi, ciertamente tengo, pero no son las personas que eso es algo que yo he tenido que entender mucho, porque al principio yo, por ejemplo, ponía muchas historias con texto pequeño y demás, mi nicho no es el nicho que pasa todo el día en la computadora, ni todo el día en el celular.  Mis nichos son dueños de negocios, son personas que están todo el día operativos, no están sentados en la computadora, son personas que son ciclistas, o les gusta estar al aire libre, les gusta estar montando en bicicleta.  Entonces, es importante como que para mí también tomar en cuenta, y lo otro es que la mayoría ya no conoce la aplicación TrainingPix, que es la que yo utilizo para los entrenamientos.  Entonces, esa es la primera fricción que tienen, ¿no? Para comenzar a entender que si son a uno, son a dos, son a tres, pulsaciones, potencia, RPM, cadencia, ¿sabes?  Entonces, tampoco ponerles tanta fricción al inicio porque se embolatan, ¿sabes? Van a decir, ¿qué es esto? O sea, de más información, entonces eso sí.  que vi aquí es que tiene que ser muy sencillo, o muy intuitivo, por lo menos ahorita metí en la compu, que yo casi no me meto, meto desde el celular y dije, el inicio tiene demasiadas opciones, ¿sabes?  Está genial, pero tiene muchísimas opciones que tú no sabes así como que paso uno, paso dos, paso tres, o no sabes qué carajo hacer.  Entonces ahí dije, bueno, activación, yo pondría de hecho arriba activación de primer, bueno, no sé, en fin. El punto es que yo dije, no, bueno, yo tendría que hacer esto bastante más sencillo para que la gente se ubique mejor.  Eso sí fue lo que vi, pues, pero bueno, esa es más o menos mi perspectiva al lado. Tú me habías dado anteriormente una especie de presupuesto y demás, pero bueno, yo en ese momento todavía, e incluso ahorita te voy a decir que le estoy dando prioridad a lanzar el low ticket y con el low ticket poder apalancarme en todas las demás cosas que quiero hacer, pues, mientras sigo, obviamente, con el high ticket.
+
+12:47 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Bien, bueno, en principio, con lo que me comentabas, es fundamental, nosotros, o sea, yo cuando empecé a trabajar con Sandy, estaba armando mi servicio, ahora ya lo tengo más, se puede decir, más estructurado.  bueno, bueno, Gracias. Entonces, nosotros, si avanzamos, por ejemplo, yo doy un onboarding, ¿sí? Donde vos vas a completar toda la información del negocio y todo lo que vos querés lograr con la aplicación.  Y en base a eso, nosotros vamos a tener toda tu información y vas a tener tu propio panel, ¿sí?  Que te vamos a brindar, donde vos vas a ver toda la evolución de la aplicación. Por etapas y demás, que se des como se desglosa.  Dentro de cada etapa, hay una etapa donde nosotros hacemos una investigación. Te escucho, ahí me he recortado.
+
+13:36 - Katherine Lindo
+  Bueno, no sé en parte que es.
+
+13:39 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  No sé si me sigo escuchando. No, te escucho, te escucho, pero se está entrecortando. Pero sí te estoy escuchando.  Bueno, exacto. Ajá, ahí. Bien. Bueno, nada, lo que te contaba. Y una de esas etapas, sí que es la principal.  Nosotros trabajamos en lo que es la investigación del mercado, ¿sí? Y, o sea, trabajamos más que nada en saber quién es tu usuario realmente.  comentabas vos. Entonces, en base a esas características que después nosotros también desarrollamos, el MVP y demás de la aplicación, o a nivel de experiencia de usuario y demás.  Así que es fundamental esto, tener toda esta data porque posta que, o podemos lograr un gran producto muy alineado ya con lo que vos conoces de tu avatar, más lo que es tu metodología, o claramente puede ser un gran potencial.  Bueno, y más allá de eso, luego a nivel precios habíamos hablado, yo te había comentado, creo que no sé si era algo de 1.000 y 1.400, dependía de una u otra funcionalidad.  Bueno, una aplicación MVP como la que hoy tiene Santi, está cotizando un precio aún mayor a lo que es el MVP principal, ¿sí?  A lo que es el primer producto que podemos generar. Porque ya el de Santi viene trabajado, ya es el 2.0, si bien, como te decía, faltan a seguir haciéndole cosas, el producto, la ideal es que vos puedas salir con algo.  ¡Gracias! ¡Gracias! ¡Gracias! ¡Gracias! que cumpla lo necesario, cumpla con las características, para que vos puedas validar ese producto, y no tengas que seguir invirtiendo en algo que no sabés si te va a funcionar o no, entonces que vos lo puedas validar y en base a eso luego sí podemos seguir actualizándolo, a nivel precio yo no, ahora en este momento no te puedo decir un precio exacto, pero sí que ronda entre los 4.000 y 6.000 dólares.
+
+15:24 - Katherine Lindo
+  Ok ah bueno, eso cambió bastante el presupuesto lo que me habías dado antes, ¿no? Claro, exactamente, porque yo antes lo que habíamos hablado era solamente un agente de IA, que vos era un chat, un chatbot, no sé si recordás.  No, sí bueno, yo quería, era como similar a lo que tenía a lo que tenía Santi o sea, la aplicación anterior que tenía Santi.
+
+15:47 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Ah, ok, claro yo te he entendido como solamente un chat de IA genérico, claro, no una aplicación así como la de Santi, por ejemplo la B1, la primera versión sí, o cuesta eso cuesta entre 4.000 y 6.000 dólares  va a depender siempre de cuánta más o menos saber bien la complejidad del producto qué tantas funcionalidades vas a agregarle vos, entonces en base a todas esas cosas nosotros podemos armar un precio claramente y tratar de amoldarnos a lo que, o porque la idea es que podamos trabajar, la idea es que vos puedas tener tu producto, que yo pueda tener, o que yo te pueda poder ofrecer mi servicio con mis habilidades y que podamos concretar un proyecto.
+
+16:24 - Katherine Lindo
+  Si no, sería como que irlo haciendo por parte, de pronto primero el chatbot, sabes, como para que para mí también sea poder irlo como pagando porque ya es para que se hace, el chatbot bueno, se integra la aplicación y demás pero bueno, como para irlo desarrollando por parte, pues me dices 4 mil ahorita y te digo, no mira ya o sea, yo tenía en mi cabeza los 1.600 y pagarlo por parte y además me dices 4 mil y no no tengo ahorita nada, ni los 1.600 me da como te diría, no tenía pensado como que sacarlo después del low ticket pero bueno, eso se puede ir haciendo también por partes Sí, de hecho, o sea, podemos empezar con algo básico, sea, definir ¡Gracias!
+
+16:59 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Gracias. Mirá, este ticket de 1.500 dólares te va a cumplir ciertas cosas, cierta característica, y en base a eso comenzamos.
+
+17:07 - Katherine Lindo
+  Después, a medida que va creciendo el producto y vos vas por ahí teniendo otros ingresos, me vas diciendo, Lau, vayamos por los próximos 15 días a desarrollar esto.
+
+17:16 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Y, bueno, ahí obviamente se va presupuestando. Obviamente, yo no te voy a, en el momento que vos quieras ir actualizándolo y demás, no te voy a cobrar más caro, sino que vamos a mantener los precios que venimos manejando.  Porque ahí es que vos puedas concretar el producto final. Y después, de hecho, también lo que podemos hacer es, bueno, nada, yo manejo igual los pagos.  No suelo cobrarte todo de una, sino que es 50 o 50, o podemos hacer un arreglo de 3, también de 3 pagos, o sea, en 3 pagos.  Pero nada, obviamente entiendo ahí la situación, tipo, lo que podemos hacer como para anclarlo, porque por ahí, si no, es como que se sigue, se sigue, o sea, seguimos, quizás uno espera tener todo el dinero para pagar y es como que nunca llega.  Entonces, nada, por ahí anclarlo con lo básico, con algo que venga y cumpla lo necesario, resuelva un problema en lo lógico, y bueno, y ahí empezar a estar el producto más a profundidad.  Sí, sí, sí.
+
+18:17 - Katherine Lindo
+  Bueno, como te dije, yo ahorita sería esos, es lo que te dije, yo en mi cabeza tenía como los 1.600 y como pagarlos por partes.  Igual, como te digo, tendría que esperar por lo menos un mes, o sea, tendría que ver cómo va este mes para, ¿sabes?  Como que comenzara a, pero sí es algo que quiero hacer. O sea, lo cierto es que sí es algo que quiero hacer, o sea, dije, no, mira, ya, esto hay que hacerlo.  Entonces, es tener la disponibilidad también para poder hacerlo, ¿no? Entonces, y yo no tengo pegada de, ¿sabes? A mí es que el negocio de producción de ir invirtiendo, cero rollo, ¿sabes?  Más bien encontrar en todo lo que sume, cero rollo. Pero bueno, es eso, es lo que te digo.
+
+18:50 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Tampoco lo que tú dices, bueno, tener todo, no, pudiese convencer, como te dije, con el bot nada más, ¿sabes?
+
+18:55 - Katherine Lindo
+  Que las personas vayan viendo, pueden tener un sitio donde consulten, ¿sabes? Que sería el plan. uno, yo creo que el MVP uno sería eso, tener un bot.
+  ACTION ITEM: Email Katherine modular MVP plan: chatbot-first, phased scope/pricing, payment options + visual mockups; request audio if needed - WATCH: https://fathom.video/share/qMhWRwxEAdBCpbRErsFq72sozh9EqYcH?timestamp=1145.9999
+
+19:04 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Sabes que las personas puedan hablar con no Atlas, sino con un acompañamiento. Eso.
+
+19:09 - Katherine Lindo
+  Entonces después ya bueno, se le mete activación, desactivación, comida, esto, aquello, lo otro, todo lo demás. Es como lo veo igual a mí me gustaría la O, tipo si tú puedes hacer como un esquema, eso nosotros lo llamamos eso, como un esquema, por ejemplo, yo me imagino que ya lo debes de tener de la aplicación de Santi, ¿no?  Entonces en base a lo que hablamos, aplicar ese esquema a todo lo que yo te estoy diciendo, o como que mira, esto sería la aplicación completa.  O y decirme tú mismo, mira, lo podemos desarrollar en estas partes, de acuerdo a lo que estamos conversando. Y esto sería más o menos esto, o como una próxima a otra, entonces yo también me ubico.  Entonces digo, bueno, vamos a hacer esto, ¿sabes?
+
+19:49 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Si me puedes hacer eso, sería genial, porque eso me genera mi visión, y digo, ah, bueno, vamos primero con esto, después con esto, tal.
+
+19:55 - Katherine Lindo
+  Yo sé que uno siempre quiere como que la vaina sea ya, pero es como que... Ya cuando no toma la decisión, como que todo va en base a eso.  Exactamente. Yo por eso igual te vine para reunirnos, aunque no quería hacerlo ya, dije, no, pero es que hay que tomar acción para que el cerebro comience a crear las ideas necesarias para que eso pueda darse.
+
+20:13 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Sí, tal cual. Y cuanto más tiempo le das, a veces también, viste que, o sea, es ser consciente de los pensamientos que tenemos, ¿no?
+
+20:20 - Katherine Lindo
+  Pero muchas veces postergamos y después terminamos dejando esa idea que capaz te pudiera haber hecho, no sé, millonaria, y por el simple hecho de dejarte llevar por pensamientos.
+
+20:30 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Pero más allá de eso, me encanta, me encanta la idea. De hecho, estaba justo, ahora que como te comenté, estaba armando mi servicio, una de las ideas era poder hacer como un MVP de la interfaz.  Claro. tú se ve una aplicación antes de concretar el proyecto con el cliente, porque sirve mucho verlo tangible, y eso es verdad.  Total, lo que te acabo de decir es clave. Y no es complicado hacerlo tampoco, ¿sabes?
+
+20:54 - Katherine Lindo
+  O sea, yo me imagino que la aplicación lo están haciendo con cloud, ¿no? Sí, con cloud y, bueno, conocimiento.  técnico no, yo he intentado no me he puesto en la informática también, pero es porque yo sé la cantidad, yo sé que una tontería o sea, una tontería lo que te estoy diciendo yo, no, mira que me sumen los pasos del reloj con los pasos de la foto, que yo lo pongo te puede llevar cuatro horas, un cangrejo hay unas tontas, te puede llevar mucho tiempo porque yo, no, yo desarrollé muchísimos años muchísimos o sea, tienes experiencia entonces claro, por eso sé lo que me estás hablando no sé lo que hay detrás, pero bueno, obviamente sentarme yo a hacerlo, obviamente no es mi especialidad, ¿no?  Sí, y hoy toca delegar también, esa es la realidad Sí, sí, sí, sí, entonces alguien que tú, que estás metido en el mundo, que ya lo estás desarrollando y demás ya he hecho unas cosas, no te creas pero es lo que te digo, ponerme ya en profundidad como que no, no es lo que quiero hacer ahorita, entonces eso sí sería, es clave que puedas hacer esto que sea visual, que las personas puedan verá, mira, este módulo creo que...  en este modo, te sale en esto todo completo, pero entonces lo podemos dividir por partes y que tú tengas esa, y que la persona elija, pues.
+
+22:07 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Bien, bien, bien, bien, sí, sí, me encanta.
+
+22:09 - Katherine Lindo
+  Porque al final igual, bueno, de pronto sí, o sea, ¿qué es lo que yo veo? Obviamente ya tú hiciste esto, esto que le hiciste a Santi, y eso es reutilizable, porque el software es reutilizable, una buena cuando lo haces de cero y otra cosa es cuando ya tienes todo el código.  Entonces, claro, este código es modificarle, ah, bueno, mira, Cate, lo quiero hacer de esta forma, de esta forma, de esta forma, pero por eso yo también decía, coño, sería de pinga, que más bien tú lo tengas como es algo que puedes vender así como sin tantas modificaciones a mi parecer, que tú más bien lo tengas como una licencia o una vaina así, ¿sabes?
+
+22:40 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Claro, como se le llama marca blanca, si no me equivoco, que es como tener un software plantilla y después vas a eso.  Exacto, le haces modificaciones.
+
+22:51 - Katherine Lindo
+  Claro, una cosa es cuando lo haces de cero y otra cosa es cuando lo haces, pero bueno, ya eso es tu parte.
+
+22:58 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Es parte de cómo yo
+
+23:00 - Katherine Lindo
+  lo puedo optimizar para mi proceso después. Claro, no, y para que lo puedas vender mucho, ¿sabes?
+
+23:07 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Claro, sí, de verdad, sí, sí, sí, porque yo ahora las aplicaciones que he construido todas las de cero, porque no es que hice solo la de Santi, sino que ya hice más aplicaciones y todas de cero.
+
+23:20 - Katherine Lindo
+  Por lo menos esta de Santi la pudieses vender mucho para personas de infoproductos, ¿sabes? Sí, y bueno, de hecho...
+
+23:28 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Sí, de hecho quiero eso, o sea, estoy acá armando todo el contenido para ya empezar a salir ahí, porque la verdad que yo no estaba, o sea, no hago contenido, entonces la idea es esa, y bueno, y ahí apunto al avatar de infoproductores, ¿sí?  Porque este es el nicho, consultoría, infoproductores...
+
+23:48 - Katherine Lindo
+  porque hay un nicho que tiene dinero, sí, sí, sí. Sí, además puede pagar.
+
+23:52 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Es una gran herramienta, realmente, centralizar a tu salón, hacer un seguimiento de cómo vienen, o sea, son...
+
+24:00 - Katherine Lindo
+  muchas las oportunidades que hay, así que, sí, pero bueno, genial, gracias ahí por la idea, igual.
+
+24:06 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  No, no, no, tranquilo.
+
+24:07 - Katherine Lindo
+  Nada, Lau, pásame ese esquema que te dije, no hay apuro, en el momento que puedas, me lo pasas y ahí lo vamos, pero lo cierto es que lo quiero hacer, pues.
+
+24:15 - Laureano Sierra (laureanosierra.dev@gmail.com)
+  Dale, me encanta. Dale, vamos a hacer eso, en base a lo que tengo acá, Fatom, si veo que necesito información un poco más, te aviso, sí, lo damos, le mandas un audio y lo vamos viendo en el momento, ¿sí?  Dale, perfecto. Así que, gracias por tu tiempo, Cate. No, gracias a ti, Lau. Un besito. Que tengas ahí un gran día.  Saludos.
