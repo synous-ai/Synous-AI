@@ -65,12 +65,20 @@ export interface ProposalContent {
 
 export type ProposalStatus = 'draft' | 'accepted' | 'sent' | 'viewed'
 
+/**
+ * Plantilla de la landing pública: espejo de `PROPOSAL_TEMPLATES` del backend.
+ * Qué layout y qué copy usa cada una: `components/proposal/proposal-templates.ts`.
+ */
+export const PROPOSAL_TEMPLATE_KEYS = ['classic', 'katherine-lindo'] as const
+export type ProposalTemplate = (typeof PROPOSAL_TEMPLATE_KEYS)[number]
+
 /** Propuesta completa (vista admin). */
 export interface Proposal {
   id: string
   token: string
   title: string
   status: ProposalStatus
+  template: ProposalTemplate
   content: ProposalContent
   model: string | null
   amount: string | null
@@ -90,6 +98,7 @@ export interface Proposal {
 export interface PublicProposal {
   title: string
   status: ProposalStatus
+  template: ProposalTemplate
   content: ProposalContent
   updatedAt: string
 }

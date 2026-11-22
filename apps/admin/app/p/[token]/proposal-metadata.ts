@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import { cache } from 'react'
 import { API_URL } from '@/lib/config'
-import { proposal as template } from '@/app/portal/propuesta/proposal-content'
+import { PROPOSAL_TEMPLATES, templateOf } from '@/components/proposal/proposal-templates'
 import type { PublicProposal } from '@/lib/types/proposals'
 
 /**
@@ -45,13 +45,14 @@ function requestOrigin(): URL | undefined {
 }
 
 /**
- * Nombre y fecha que muestra el link: salen de la plantilla, igual que el resto
- * de los textos. Sin propuesta visible (token inválido o borrador) no hay nada.
+ * Nombre y fecha que muestra el link: salen de la plantilla de la propuesta,
+ * igual que el resto de los textos. Sin propuesta visible (token inválido o borrador) no hay nada.
  */
 export async function proposalIdentity(token: string): Promise<{ client: string; date: string } | null> {
   const data = await fetchPublicProposal(token)
   if (!data) return null
-  return { client: template.envelope.recipient, date: template.envelope.dateLabel }
+  const { envelope } = PROPOSAL_TEMPLATES[templateOf(data.template)]
+  return { client: envelope.recipient, date: envelope.dateLabel }
 }
 
 /**

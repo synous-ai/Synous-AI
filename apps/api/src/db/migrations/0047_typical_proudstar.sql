@@ -1,0 +1,1 @@
+ALTER TABLE "proposal" ADD COLUMN "template" text DEFAULT 'classic' NOT NULL;

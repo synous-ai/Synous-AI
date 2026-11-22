@@ -232,6 +232,27 @@ export const NOTIFICATION_EVENTS = {
   }),
 
   /**
+   * El prospecto tocó un CTA del cierre de la propuesta. No acepta nada:
+   * avisa que quiere avanzar o que tiene preguntas, para que alguien le
+   * escriba. El mensaje opcional viaja en el cuerpo.
+   */
+  proposal_interest: def<{
+    proposalId: string
+    contactName: string
+    intent: 'advance' | 'questions'
+    message: string | null
+  }>({
+    audience: 'admin',
+    priority: 'high',
+    title: (p) =>
+      p.intent === 'advance'
+        ? `${p.contactName} quiere avanzar con la propuesta`
+        : `${p.contactName} tiene preguntas sobre la propuesta`,
+    body: (p) => (p.message ? p.message.slice(0, 200) : 'Sin mensaje'),
+    actionUrl: (p) => `/proposals/${p.proposalId}`,
+  }),
+
+  /**
    * El cliente editó algo de "Onboarding → Marca" desde el portal (identidad
    * visual, archivos de marca o la respuesta de identidad del brief). Sin
    * `dedupeKey` a propósito: cada cambio es una notificación nueva, no un

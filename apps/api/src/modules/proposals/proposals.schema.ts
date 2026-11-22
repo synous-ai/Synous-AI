@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PROPOSAL_TEMPLATES } from './proposals.types'
 
 /**
  * Schemas Zod del módulo de propuestas. `ProposalContentSchema` valida el
@@ -72,12 +73,25 @@ export const GenerateProposalSchema = z.object({
 })
 export type GenerateProposalDTO = z.infer<typeof GenerateProposalSchema>
 
-/** Body para editar una propuesta (título y/o contenido). */
+export const ProposalTemplateSchema = z.enum(PROPOSAL_TEMPLATES)
+
+/** Body para editar una propuesta (título, contenido y/o plantilla). */
 export const UpdateProposalSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   content: ProposalContentSchema.optional(),
+  template: ProposalTemplateSchema.optional(),
 })
 export type UpdateProposalDTO = z.infer<typeof UpdateProposalSchema>
+
+/**
+ * Body de los CTAs del cierre: avanzar con la primera etapa o hacer preguntas.
+ * No es una aceptación contractual, solo avisa al equipo.
+ */
+export const ProposalInterestSchema = z.object({
+  intent: z.enum(['advance', 'questions']),
+  message: z.string().trim().max(1000).optional(),
+})
+export type ProposalInterestDTO = z.infer<typeof ProposalInterestSchema>
 
 /** Param del token público del link `/p/<token>`. */
 export const ProposalTokenParamSchema = z.object({

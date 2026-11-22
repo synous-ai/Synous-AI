@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, follow">
+<title>Page Not Found</title>
+<link rel="icon" type="image/x-icon" href="/Media/FAV.png">
+</head>
+<body>
+<div class="errorpage">
+<img alt="" class="imgerror" src="/Media/MASKLOGO.webp">    
+<h1 class="errorhead">404</h1>
+<h2 class="errorhead2">Página não encontrada.</h2>
+<span aria-hidden="true" class="dotbt dot1bt"></span><span aria-hidden="true" class="dotbt dot2bt"></span><span aria-hidden="true" class="dotbt dot3bt"></span><span aria-hidden="true" class="dotbt dot4bt"></span>
+</div>
+
+<style>
+.imgerror{
+    position: absolute;
+    width: 600px;
+    opacity: 0.2;
+    filter:blur(4px);
+}    
+.errorpage{
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    box-sizing: border-box;
+}  
+.errorpage:before{
+    content: "";
+    background: linear-gradient(to top,#010511 22%, transparent 70%);
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+.errorhead{
+    font-family: "ClashDisplay", sans-serif;
+    color: #d4e6ff;
+    font-size: 124px;
+    margin: 0;
+    z-index: 5;
+    background: #11152080;
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    width: 100%;
+    text-align: center;
+} 
+@media(max-width: 1024px){
+  .imgerror{
+    width: 400px;
+} 
+.errorhead{
+    font-size: 84px;
+} 
+}
+.errorhead2{
+    font-family: "Inter Tight", sans-serif;
+    color: #57606d;
+    font-size: 21px;
+    margin: 0;
+    z-index: 5;
+} 
+body{margin: 0; background: radial-gradient(#191d2b, #010511)}
+  html{
+cursor:url('/Media/Cursorfp.svg'), auto;
+}
+.dotbt{
+  position: absolute;
+  border: 3px solid #a1aab6;
+  width: 12px;
+  height: 12px;
+  z-index: 9;
+}
+.dot1bt{
+  border-right: none;
+  border-bottom: none;
+  top: 60px;
+  left: 60px;
+}
+.dot2bt{
+  border-right: none;
+  border-top: none;
+  bottom: 60px;
+  left: 60px;
+}
+.dot3bt{
+  border-left: none;
+  border-bottom: none;
+  top: 60px;
+  right: 60px;
+}
+.dot4bt{
+  border-left: none;
+  border-top: none;
+  bottom: 60px;
+  right: 60px;
+}
+@font-face {
+    font-family: 'ClashDisplay';
+    src: url('/FontesOficial/Clash/ClashDisplay-Regular.woff2') format('woff2'),
+         url('/FontesOficial/Clash/ClashDisplay-Regular.woff') format('woff');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Inter Tight';
+    src: url('/FontesOficial/Inter/InterTight-SemiBold.woff2') format('woff2'),
+         url('/FontesOficial/Inter/InterTight-SemiBold.woff') format('woff');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+</style>
+</body></html>
